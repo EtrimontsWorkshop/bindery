@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [0.1.0] — First public release: PDF images into Foundry VTT
 
-Bindery imports maps, handouts, and portrait images from user-owned PDFs into Foundry VTT — analyzed, previewed in a review screen, and created only after explicit approval. Everything in this release is scoped to images. Actor (stat block) import exists in the codebase and works end-to-end for Call of Cthulhu 7th Edition, but its interface is hidden in this release (see [What's not in this release](README.md#whats-not-in-this-release) in the README) rather than shipped half-usable without a legally distributable profile.
+Bindery imports maps, handouts, and portrait images from user-owned PDFs into Foundry VTT — analyzed, previewed in a review screen, and created only after explicit approval. Everything in this release is scoped to images. Actor (stat block) import exists in the codebase and is built and tested, but its interface is hidden in this release (see [What's not in this release](README.md#whats-not-in-this-release) in the README) rather than shipped without a supported way to describe a book's stat block layout.
 
 ### Added
 
@@ -33,10 +33,9 @@ Bindery imports maps, handouts, and portrait images from user-owned PDFs into Fo
 
 Stated plainly, so you know what to expect before importing a real book:
 
-- **Image recall is not perfect, and the number below is a ceiling, not a guarantee.** On the reference set used to calibrate the classifier (556 hand-labeled images across 3 real sourcebooks), **~85% (95% confidence interval: 79–91%, n=134 useful images)** of genuinely useful images end up either auto-selected or in the "undecided" review list — the rest can still be missed entirely. Precision (how much of what's auto-selected is actually useful) is around 95%. **Both numbers were measured on the same 3-book set used to tune the classifier's thresholds** — that's the standard overfitting caveat.
+- **Image recall is not perfect, and the number below is a ceiling, not a guarantee.** Measured against a hand-labeled reference set of several hundred images, roughly **85% of genuinely useful images** end up either auto-selected or in the "undecided" review list — the rest can still be missed entirely. Precision (how much of what's auto-selected is actually useful) is around 95%. **Both numbers come from the same material used to tune the classifier's thresholds**, which is the standard overfitting caveat: on a book the classifier was never calibrated against, real-world performance could be meaningfully lower.
 - **Automatic scene/journal detection review is currently folded into the unified Images tab, not a separate review step.** The underlying pipeline still detects full-page maps and can extract the whole book's text into a chaptered journal from the PDF's own outline — but the dedicated review tabs for those are disabled in favor of one unified per-image flow. Full-book text-as-journal has no UI entry point in this release.
-- **"Select & cut" (manual region crop)** has been verified against a handful of real sourcebooks across several geometry edge cases — not yet battle-tested across many books.
-- **Background removal is a manual-touch-up tool, not full auto-cutout.** A background pocket fully enclosed by the subject needs one manual click to include — a known, permanent limitation of the technique, not a bug to be fixed later.
-- **Imported ranged weapons (CoC7, when actor import is enabled) start with no magazine capacity set** — source books generally don't print this next to the attack line, so there's nothing to parse it from. Bindery flags each affected weapon with an import note rather than guessing a number.
+- **"Select & cut" (manual region crop)** has been verified across several geometry edge cases, but on a limited set of books — not yet battle-tested widely.
+- **Background removal is a manual touch-up tool, not full auto-cutout.** A background pocket fully enclosed by the subject needs one manual click to include — a known, permanent limitation of the technique, not a bug to be fixed later.
 - Stat block extraction, random tables, items, and spells are **not implemented** in this release.
-- Remote hosting (Forge, Molten, and similar proxied setups) is **untested** — only verified against a local, self-hosted Foundry instance.
+- Hosting providers other than self-hosted Foundry and The Forge are **untested**.

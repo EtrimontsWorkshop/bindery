@@ -1,4 +1,4 @@
-# Bindery — PDF Asset Importer for Foundry VTT
+# Bindery — Universal Asset Importer for Foundry VTT
 
 Bindery pulls the maps, handouts, and images that take the longest to prepare from PDFs you own into Foundry Virtual Tabletop, independent of game system or language. It analyzes the layout of the PDF, shows you what it found in a review screen, and creates nothing until you approve it.
 
@@ -20,11 +20,11 @@ Works on self-hosted Foundry and on The Forge (verified end to end: asset loadin
 
 Stated plainly, so you know what to expect before importing a real book:
 
-- **Image recall is not perfect, and the number below is a ceiling, not a guarantee.** On the reference set used to calibrate the classifier (556 hand-labeled images across 3 real sourcebooks), **~85% (95% confidence interval: 79–91%, n=134 useful images)** of genuinely useful images end up either auto-selected or in the "undecided" review list — the rest can still be missed entirely. Precision (how much of what's auto-selected is actually useful) is around 95%. **Both numbers were measured on the same 3-book set used to tune the classifier's thresholds** — that's the standard overfitting caveat, and it means real-world performance on a book you didn't calibrate against could land anywhere in that interval, or below it. If a map or handout you expect is missing, check the PDF directly; the review screen doesn't yet catch everything.
+- **Image recall is not perfect, and the number below is a ceiling, not a guarantee.** Measured against a hand-labeled reference set of several hundred images, roughly **85% of genuinely useful images** end up either auto-selected or in the "undecided" review list — the rest can still be missed entirely. Precision (how much of what's auto-selected is actually useful) is around 95%. **Both numbers come from the same material used to tune the classifier's thresholds**, which is the standard overfitting caveat: on a book the classifier was never calibrated against, real-world performance could be meaningfully lower. If a map or handout you expect is missing, check the PDF directly; the review screen doesn't yet catch everything.
 
 - **Full-book text-to-journal has no UI entry point in this release.** The underlying extraction (semantic blocks → HTML, chaptered by the PDF's own outline) still runs for every document, and so does full-page map detection — but the review screen's separate tabs for reviewing and selecting them as a batch are disabled in favor of one unified per-image flow. Set an image's destination to "Scene" for a full-page map; there's currently no way to import book text as a journal.
 
-- **"Select & cut" (manual region crop)** — drag a rectangle over any page in the review screen to cut it out as a custom image — has been verified against a handful of real sourcebooks across several geometry edge cases (scrolled page, page corner, a differently-proportioned page, a resized window). Not yet exercised across many books; report anything that looks off.
+- **"Select & cut" (manual region crop)** — drag a rectangle over any page in the review screen to cut it out as a custom image — has been verified across several geometry edge cases (scrolled page, page corner, a differently-proportioned page, a resized window), but on a limited set of books. Report anything that looks off.
 
 - **Background removal is a manual touch-up tool, not full auto-cutout.** Corner-based flood fill handles most flat backgrounds well, but a background pocket fully enclosed by the subject (for example under a hat brim touching a shoulder) needs one manual click to include — this is a known, permanent limitation of the technique, not a bug to be fixed later.
 
