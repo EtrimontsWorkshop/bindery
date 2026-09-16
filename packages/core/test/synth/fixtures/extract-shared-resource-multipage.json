@@ -1,0 +1,12 @@
+{
+  "id": "extract-shared-resource-multipage",
+  "description": "Jeden wspoldzielony obiekt PDF narysowany na 2 stronach w calkiem roznych miejscach i proporcjach (waski/wysoki vs szeroki/niski) — kazde wystapienie ~40% powierzchni strony.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 2,
+    "imageCount": 3
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: jeden zasob PDF (ten sam objId 'Shared') narysowany na stronie 1 jako waski/wysoki prostokat x[20,270]/y[8,784] (aspekt ~0.32, plus maly pomocnik nakladajacy sie rogiem -> wymusza clusterMemberCount>1 -> region-render) i na stronie 2 jako szeroki/niski x[6,606]/y[6,330] (aspekt ~1.85, solo -> ekstrakcja bezposrednia, nieistotne dla testu) — CALKOWICIE inne wspolrzedne i proporcje. KROK-16 Z2 (czwarta iteracja): bbox jednostki ekstrakcji renderowanej na stronie 1 MUSI pochodzic WYLACZNIE z wystapien na stronie 1 (aspekt ~0.32), nie unia z wystapieniem na stronie 2 (unia dalaby aspekt ~0.77). Przed ta naprawa `groupIntoUnits` unowal bboksy WSZYSTKICH wystapien encji niezaleznie od strony (zaobserwowane na Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf, g_d0_img_p7_8 — cala strona statbloku wyekstrahowana jako 'obraz')."
+  }
+}

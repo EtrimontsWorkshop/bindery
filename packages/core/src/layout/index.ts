@@ -1,0 +1,18 @@
+export { computeStreamAngle, axisPositions, baselineTolerance, fontSizeFromTransform } from './textGeometry.js';
+export type { AxisPositions } from './textGeometry.js';
+export { groupByAngle } from './angleStreams.js';
+export type { AngleStream, AngleGroupingResult } from './angleStreams.js';
+export { classifyMergeDecision, mergeWords } from './wordMerge.js';
+export type { MergeBlockReason, MergeCandidateItem, MergedToken } from './wordMerge.js';
+export { clusterIntoLines } from './lineCluster.js';
+export type { TextLine } from './lineCluster.js';
+export { splitSpanningLines } from './spanning.js';
+export type { SpanningSplit } from './spanning.js';
+export { detectColumns, validateColumnStabilityAcrossPages } from './columns.js';
+export type { ColumnDetectionResult, ColumnRegion } from './columns.js';
+export { buildReadingOrder } from './readingOrder.js';
+export type { OrderedLine } from './readingOrder.js';
+export { detectRunningElements } from './runningElements.js';
+export type { PageForRunningElements, RunningElementMatch, RunningElementOptions } from './runningElements.js';
+export { buildPageLayouts } from './buildPageLayout.js';
+export type { BuildPageLayoutResult, InventoryForLayout, PageLayout } from './buildPageLayout.js';

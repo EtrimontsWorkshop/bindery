@@ -1,0 +1,14 @@
+{
+  "id": "text-positional-duplicates",
+  "description": "Dokladny duplikat pozycyjny (Goblin x2, identyczna macierz) i duplikat przesuniety o 0.3pt (Orc x2, syntetyczne pogrubienie).",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 5,
+    "exactPositionalDuplicateCount": 1,
+    "nearPositionalDuplicateCount": 1
+  },
+  "expected": {
+    "note": "Faza 2 musi usunac dokladny duplikat (Goblin) do jednego wystapienia, a duplikat przesuniety (Orc) rozpoznac jako syntheticBold=true, tez scalajac do jednego itemu z ta flaga."
+  }
+}

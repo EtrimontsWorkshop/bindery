@@ -1,0 +1,12 @@
+{
+  "id": "extract-vector-only",
+  "description": "Duzy prostokat wypelniony (~62% strony) rysowany wektorowo, zero obrazow na stronie.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 0
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny (poza istniejacym typem roszczenia w verifyClaims.ts, wiec proza zamiast pola): jeden prostokat wypelniony 'f' o bboksie x=56-556,y=96-696 (500x600pt, ~0.62 powierzchni strony 612x792), ZERO operacji obrazowych na calej stronie. buildVectorRegions() (krok 4) powinien wykryc ten prostokat jako VectorRegion kind='fill' z relativeArea~0.62. Orkiestrator (buildImageExtraction) powinien rozpoznac strone bez zadnego obrazu ale z duzym regionem wektorowym jako kandydata 'vector-only' i wyekstrahowac go przez render regionu (Z2/Z3 fallback) — jedyny sposob na cokolwiek, gdy nie ma obrazu."
+  }
+}

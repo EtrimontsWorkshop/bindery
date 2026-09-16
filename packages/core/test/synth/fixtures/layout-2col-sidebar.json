@@ -1,0 +1,13 @@
+{
+  "id": "layout-2col-sidebar",
+  "description": "Dwie kolumny + ramka z tlem (vector fill) po prawej z krotkim sidebarem — testuje BlockKind:'sidebar' i kolejnosc czytania bez wplatania sidebara w tok glowny.",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 19,
+    "totalItemCount": 20
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: 8 linii lewej kolumny (x=72), 8 prawej (x=300), 3 linie sidebara (x=490, wewnatrz prostokata wypelnionego x=480-600,y=590-690). Region wektorowy 'fill' o tym bboxie musi znalezc sie w InventoryResult.vectors. buildSemanticBlocks() powinien sklasyfikowac blok sidebara jako 'sidebar' (nakladanie z regionem fill + uklad wielokolumnowy), NIE jako trzecia kolumne w kolejnosci czytania glownego tekstu. totalItemCount=20 (nie 19): pdf.js wstawia pusty synteryczny TextItem przy mid-stream zmianie rozmiaru fontu (Tf miedzy Tj) — tu 1 tranzycja (10->9 przed sidebarem), stad 19 linii + 1 pusty = 20."
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "id": "hello-world",
+  "description": "Jedna linia tekstu na jednej stronie. Dowod, ze lancuch emiter -> pdf.js dziala.",
+  "targetPhase": 1,
+  "claims": {
+    "pageCount": 1,
+    "emptyItemCount": 0,
+    "imageCount": 0
+  },
+  "expected": {
+    "pages": [
+      {
+        "streams": [{ "angle": 0, "isPrimary": true }],
+        "lines": [{ "text": "Hello World", "angle": 0 }]
+      }
+    ]
+  }
+}

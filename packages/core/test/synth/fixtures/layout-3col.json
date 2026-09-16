@@ -1,0 +1,13 @@
+{
+  "id": "layout-3col",
+  "description": "Uklad trzykolumnowy z dwiema pustymi rynnami — testuje detekcje wiecej niz dwoch kolumn (KROK-6 Z3).",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 18,
+    "totalItemCount": 18
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: itemy istnieja w trzech pasmach x∈[72,~125], x∈[230,~285], x∈[390,~445], zero itemow miedzy nimi, na wszystkich 6 wierszach. detectColumns() powinien zwrocic 3 ColumnRegion posortowane lewo->prawo."
+  }
+}

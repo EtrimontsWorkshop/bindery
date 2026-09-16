@@ -1,0 +1,13 @@
+{
+  "id": "extract-masked",
+  "description": "Obraz duzy (~62% strony) pod maska luminancyjna niejednolita (lewa polowa biala/widoczna, prawa czarna/ukryta).",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 2,
+    "hasLuminosityGroup": true
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: DWA obrazy XObject — forma maski (2x1px, lewy piksel bialy, prawy czarny) wewnatrz beginGroup/Luminosity, i tresc (4x4px czerwony) narysowana POZA grupa z /ExtGState /SMask wskazujacym na te forme. classifyImages() powinien dac 'mask' dla formy maski (maskEvidence='group', dowod twardy) i 'content' dla tresci (duza powierzchnia). decideExtractionStrategy() dla tresci powinien dac 'region-render' (isMasked=true — bezposrednia ekstrakcja dalaby wersje BEZ maski). Po renderze: lewa i prawa POLOWA wyniku musza byc WYRAZNIE rozne (maska faktycznie zastosowana w kompozycji), nie tylko wybor strategii."
+  }
+}

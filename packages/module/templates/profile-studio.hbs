@@ -1,0 +1,125 @@
+<div class="bindery-profile-studio">
+  {{#if isScreenEntry}}
+    <div class="bindery-studio-entry">
+      <p class="hint">{{localize "BINDERY.studio.hint"}}</p>
+
+      {{#if isEntryChoose}}
+        <div class="bindery-studio-entry-choices">
+          <button type="button" class="bindery-btn bindery-btn--primary bindery-studio-entry-choice" data-action="chooseNewProfile">{{localize "BINDERY.studio.newProfileButton"}}</button>
+          <button type="button" class="bindery-btn bindery-btn--secondary bindery-studio-entry-choice" data-action="chooseEditProfile">{{localize "BINDERY.studio.editLoadedProfileButton"}}</button>
+        </div>
+      {{else}}
+        <button type="button" class="bindery-btn bindery-btn--secondary bindery-studio-back-link" data-action="backToEntry">← {{localize "BINDERY.studio.backToEntryButton"}}</button>
+        <div class="bindery-studio-loaders">
+          <div class="form-group">
+            <label class="bindery-wizard-dropzone {{#if pdfFileName}}bindery-has-file{{/if}}">
+              <span class="bindery-btn bindery-btn--primary">{{localize "BINDERY.studio.pickPdfLabel"}}</span>
+              {{#if pdfFileName}}<span class="bindery-wizard-dropzone-filename">{{pdfFileName}}{{#if pageCount}} ({{pageCount}} {{localize "BINDERY.studio.pages"}}){{/if}}</span>{{/if}}
+              <input type="file" data-role="pdf" accept="application/pdf" />
+            </label>
+          </div>
+          {{#if isEntryEdit}}
+            <div class="form-group">
+              <label class="bindery-btn bindery-btn--secondary">
+                {{localize "BINDERY.studio.pickProfileLabel"}}
+                <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
+              </label>
+              {{#if hasProfileError}}
+                <ul class="bindery-actor-profile-issues">
+                  {{#each profileIssues}}<li>{{this}}</li>{{/each}}
+                </ul>
+              {{else if hasProfile}}
+                <span class="bindery-studio-loaded-name">{{profileSummary.title}} ({{profileSummary.gameLine}}/{{profileSummary.language}}, {{profileSummary.patternCount}} {{localize "BINDERY.studio.patterns"}})</span>
+              {{/if}}
+            </div>
+          {{/if}}
+          {{#if analyzeError}}<p class="notification error">{{analyzeError}}</p>{{/if}}
+        </div>
+      {{/if}}
+    </div>
+  {{/if}}
+
+  {{#if isScreenMetadata}}
+    <div class="bindery-studio-metadata-step">
+      <button type="button" class="bindery-btn bindery-btn--secondary bindery-studio-back-link" data-action="backToEntry">← {{localize "BINDERY.studio.backToEntryButton"}}</button>
+      <h2>{{localize "BINDERY.studio.metadataStepTitle"}}</h2>
+      <p class="hint">{{localize "BINDERY.studio.metadataStepHint"}}</p>
+      <div data-metadata-screen></div>
+      <button type="button" class="bindery-btn bindery-btn--primary bindery-studio-metadata-continue" data-action="continueFromMetadataStep">{{localize "BINDERY.studio.metadataStepContinueButton"}}</button>
+    </div>
+  {{/if}}
+
+  {{#if isScreenBuild}}
+    <div class="bindery-studio-build">
+      <header class="bindery-studio-build-header">
+        <button type="button" class="bindery-btn bindery-btn--secondary bindery-studio-back-link" data-action="backToEntry">← {{localize "BINDERY.studio.backToEntryButton"}}</button>
+        <span class="bindery-studio-build-filenames">{{pdfFileName}}{{#if profileFileName}} · {{profileFileName}}{{/if}}</span>
+        <button type="button" class="bindery-btn bindery-btn--primary" data-action="saveProfileJson">{{localize "BINDERY.studio.saveProfileButton"}}</button>
+        <button type="button" class="bindery-btn bindery-btn--secondary" data-action="toggleRawJsonMode">{{#if rawJsonMode}}{{localize "BINDERY.studio.backToFormButton"}}{{else}}{{localize "BINDERY.studio.rawJsonButton"}}{{/if}}</button>
+      </header>
+
+      <details class="bindery-studio-metadata-header">
+        <summary>{{localize "BINDERY.studio.metadataSummary"}}</summary>
+        <div data-metadata-header></div>
+      </details>
+
+      {{#if rawJsonMode}}
+        <div class="bindery-studio-raw-json">
+          <p class="hint">{{localize "BINDERY.studio.rawJsonHint"}}</p>
+          {{#if rawJsonError}}<p class="notification error">{{rawJsonError}}</p>{{/if}}
+          <textarea class="bindery-studio-raw-json-textarea" data-raw-json rows="24"></textarea>
+        </div>
+      {{else}}
+        <div class="bindery-studio-route-switch" role="group" aria-label="{{localize "BINDERY.studio.routeSwitchLabel"}}">
+          {{#each routeOptions}}
+            <button type="button" data-action="switchRoute" data-route="{{id}}" class="bindery-btn bindery-btn--secondary bindery-studio-route-btn {{#if active}}active{{/if}}">{{label}}</button>
+          {{/each}}
+        </div>
+        <nav class="bindery-studio-build-tabs">
+          {{#each buildTabs}}
+            <button type="button" data-action="switchBuildTab" data-tab="{{id}}" class="bindery-tab {{#if active}}active{{/if}}">
+              <span>{{label}}</span>
+              {{#if badge}}<span class="bindery-studio-tab-badge bindery-studio-tab-badge-{{badge.kind}}">{{#if badge.n}}{{badge.n}}{{/if}}</span>{{/if}}
+            </button>
+          {{/each}}
+        </nav>
+
+        {{#if isBuildTabCheck}}
+          <div class="bindery-review-list bindery-review-list-full" data-list="studio-document"></div>
+        {{else}}
+          {{#if pickHint}}<p class="notification bindery-studio-pick-hint">{{localize "BINDERY.studio.pickHintPrefix"}} {{pickHint}}</p>{{/if}}
+          <div class="bindery-review-split">
+            <div class="bindery-review-preview">
+              <div class="bindery-page-nav">
+                <button type="button" class="bindery-btn bindery-btn--icon" data-action="prevPage" {{#unless canGoPrevPage}}disabled{{/unless}}>◄</button>
+                <input type="number" class="bindery-page-nav-input" data-input="pageNumber" min="1" max="{{pageCount}}" value="{{currentPageNumber}}" {{#unless pageCount}}disabled{{/unless}} />
+                <span class="bindery-page-nav-count">/ {{pageCount}}</span>
+                <button type="button" class="bindery-btn bindery-btn--icon" data-action="nextPage" {{#unless canGoNextPage}}disabled{{/unless}}>►</button>
+                <span class="bindery-page-nav-spacer"></span>
+                <button type="button" data-action="toggleSelectArea" class="bindery-btn bindery-btn--sage bindery-select-mode-toggle {{#if isSelectAreaMode}}active{{/if}}" {{#unless canSelectArea}}disabled{{/unless}}>{{localize "BINDERY.studio.selectAreaButton"}}</button>
+              </div>
+              {{#if isSelectAreaMode}}
+                <p class="hint bindery-select-mode-hint">{{localize "BINDERY.studio.selectAreaHint"}}</p>
+              {{/if}}
+              <div class="bindery-page-canvas-wrap {{#if isSelectAreaMode}}bindery-select-mode{{/if}}">
+                {{#if currentPageImageUrl}}
+                  <img class="bindery-page-image" src="{{currentPageImageUrl}}" alt="" />
+                  <svg class="bindery-page-overlay" data-overlay></svg>
+                {{else if hasPdf}}
+                  <p class="hint">{{localize "BINDERY.review.pageLoading"}}</p>
+                {{else}}
+                  <p class="hint">{{localize "BINDERY.studio.noPdfYet"}}</p>
+                {{/if}}
+              </div>
+              <div data-selection-proposal></div>
+            </div>
+            <div class="bindery-review-list">
+              <div data-build-panel></div>
+              <div data-list="studio-page"></div>
+            </div>
+          </div>
+        {{/if}}
+      {{/if}}
+    </div>
+  {{/if}}
+</div>

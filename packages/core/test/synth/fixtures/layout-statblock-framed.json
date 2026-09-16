@@ -1,0 +1,13 @@
+{
+  "id": "layout-statblock-framed",
+  "description": "Blok krotkich linii mniejszym fontem otoczony ramka wektorowa (fill) — testuje U3: krawedz regionu wektorowego jako granica bloku.",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 12,
+    "totalItemCount": 14
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: 4 linie 'przed' (size 10, y=700..640), 4 linie bloku (size 8, y=600..555) WEWNATRZ prostokata wypelnionego (x=65-315,y=548-610), 4 linie 'po' (size 10, y=500..440) POZA prostokatem. Region wektorowy 'fill' o tym bboxie musi znalezc sie w InventoryResult.vectors. buildSemanticBlocks() musi wydzielic blok wewnatrz ramki jako OSOBNY blok (granica na krawedzi regionu wektorowego), niezaleznie od tego czy zmiana fontu/interlinii sama w sobie by to zrobila. totalItemCount=14 (nie 12): pdf.js wstawia pusty synteryczny TextItem przy kazdej mid-stream zmianie rozmiaru fontu (Tf miedzy Tj) — tu 2 tranzycje (10->8 przed blokiem, 8->10 po), stad 12 linii + 2 puste = 14."
+  }
+}

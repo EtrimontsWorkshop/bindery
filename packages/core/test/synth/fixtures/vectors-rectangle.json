@@ -1,0 +1,13 @@
+{
+  "id": "vectors-rectangle",
+  "description": "Dwa prostokaty (fill, fillStroke) narysowane operatorem 're' wprost, bez tekstu ani obrazow — jedyny fixture przechodzacy constructPath przez PRAWDZIWY pdf.js (KROK-5 Z7).",
+  "targetPhase": 4,
+  "claims": {
+    "pageCount": 1,
+    "totalItemCount": 0,
+    "imageCount": 0
+  },
+  "expected": {
+    "note": "vectorRegistry (KROK-4) musi zwrocic 2 VectorRegion: {kind:'fill', bbox:{minX:100,minY:100,maxX:300,maxY:150}} i {kind:'fill'}+{kind:'stroke'} oba dla bbox {minX:350,minY:400,maxX:430,maxY:480} (operator B = fillStroke -> dwa eventy dla tego samego prostokata)."
+  }
+}

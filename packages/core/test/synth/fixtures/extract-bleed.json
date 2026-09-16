@@ -1,0 +1,13 @@
+{
+  "id": "extract-bleed",
+  "description": "Tlo pelnospadowe: obraz wiekszy niz MediaBox, przesuniety na ujemne wspolrzedne, wychodzi poza kazda krawedz strony.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 1,
+    "hasBleedingImage": true
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: jeden obraz 692x892pt (wiekszy niz MediaBox 612x792) przesuniety o (-40,-50) — bbox wychodzi poza WSZYSTKIE cztery krawedzie strony, powierzchnia wzgledna >1.0 (100%+ strony). classifyImages() (Z1) MUSI sprawdzic pozycje pelnospadowa PRZED regula 'duza powierzchnia = tresc' — inaczej ten obraz (najwiekszy mozliwy sygnal 'duzej powierzchni') zostalby blednie zlapany jako 'content'/'scene', podczas gdy w rzeczywistosci to dekoracyjne tlo rozkladowkowe (MDD F0). Oczekiwana klasyfikacja: 'decoration', reason='Z1-full-bleed-background'."
+  }
+}

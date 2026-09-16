@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build (core + module)
+        run: npm run build
+
+      - name: Test
+        run: npm run test
+
+      - name: Boundary gate
+        run: npm run check:boundary
+
+      - name: Bare module specifier gate
+        run: npm run check:imports
+
+      - name: Startup bundle size gate
+        run: npm run check:size
+
+      - name: Package module.zip
+        run: npm run package
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            packages/module/dist/module.json \
+            module.zip \
+            --title "${{ github.ref_name }}" \
+            --generate-notes

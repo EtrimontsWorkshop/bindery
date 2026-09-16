@@ -1,0 +1,13 @@
+{
+  "id": "extract-anchor-loose-fragment",
+  "description": "Jedna kotwica (25.9% strony) + jeden maly fragment (0.19% strony) stykajacy sie WYLACZNIE waskim naroznikiem (overlapRatio wzgledem wlasnej powierzchni fragmentu ~10%, ponizej progu 20%).",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 2,
+    "hasOverlappingImages": true
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: kotwica 320x392pt (25.9% strony) + maly fragment 30x30pt (0.19% strony) stykajace sie na pasku 3x30pt (overlapRatio ~10% wzgledem fragmentu). KROK-16 Z2 (trzecia iteracja): partitionCandidatesIntoGroups (buildImageExtraction.ts) NIE powinien dolaczac fragmentu do kotwicy, bo overlapRatio < EDGE_TOUCH_MAX_OVERLAP_RATIO (20%) — powinny wyjsc DWIE osobne jednostki, nie jedna z rozciagnietym union bboksem. Przed ta iteracja (tylko partycjonowanie kotwic, bez minimalnego progu dolaczania fragmentow) fragment byl dolaczany do JEDYNEJ kotwicy na stronie bez wzgledu na sile nakladania, odtwarzajac zbyt szeroki wynik (zaobserwowane na Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf str. 14, img_p13_1+img_p13_4)."
+  }
+}

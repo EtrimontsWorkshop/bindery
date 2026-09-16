@@ -1,0 +1,13 @@
+{
+  "id": "images-overlapping",
+  "description": "6 obrazow o czesciowo pokrywajacych sie bboxach (baza + ikony na niej + jeden calkowicie osobny).",
+  "targetPhase": 3,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 6,
+    "hasOverlappingImages": true
+  },
+  "expected": {
+    "note": "4 z 6 obrazow naklada sie na obraz bazowy (klaster), 1 jest calkowicie odosobniony — powinien pozostac osobnym klastrem."
+  }
+}

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build (core + module)
+        run: npm run build
+
+      - name: Test (packages/core)
+        run: npm run test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Boundary gate (A1 / ryzyko I2)
+        run: npm run check:boundary
+
+      - name: Bare module specifier gate (dlug z fazy 1)
+        run: npm run check:imports
+
+      - name: Startup bundle size gate (ryzyko I3, < 40 KB)
+        run: npm run check:size

@@ -1,0 +1,43 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Z1c — snapshot ksztaltow argsArray wyczerpujacy z konstrukcji (KROK-6) > arnosc/typy argsArray dla KAZDEGO opcode z HANDLED_OPCODES (nie z recznej listy), zebrane ze WSZYSTKICH fixturow 1`] = `
+{
+  "beginGroup": [
+    "arity=1 [{bbox:{0:number,1:number,2:number,3:number},hasSoftMask:boolean,isGray:boolean,isolated:boolean,knockout:boolean,matrix:null,needsIsolation:boolean,smask:{backdrop:string,subtype:string}}]",
+  ],
+  "constructPath": [
+    "arity=3 [number, array(len=1)<{0:number,1:number,10:number,11:number,12:number,2:number,3:number,4:number,5:number,6:number,7:number,8:number,9:number}>, {0:number,1:number,2:number,3:number}]",
+  ],
+  "endGroup": [
+    "arity=1 [{bbox:{0:number,1:number,2:number,3:number},hasSoftMask:boolean,isGray:boolean,isolated:boolean,knockout:boolean,matrix:null,needsIsolation:boolean,smask:{backdrop:string,subtype:string}}]",
+  ],
+  "paintFormXObjectBegin": [
+    "arity=2 [null, null]",
+  ],
+  "paintFormXObjectEnd": [
+    "arity=0 []",
+  ],
+  "paintImageMaskXObject": [
+    "arity=1 [{count:number,data:string,height:number,interpolate:undefined,width:number}]",
+  ],
+  "paintImageXObject": [
+    "arity=3 [string, number, number]",
+  ],
+  "paintImageXObjectRepeat": [],
+  "paintInlineImageXObject": [
+    "arity=1 [{data:Uint8ClampedArray(len=16),height:number,interpolate:undefined,kind:number,width:number}]",
+  ],
+  "restore": [
+    "arity=0 []",
+  ],
+  "save": [
+    "arity=0 []",
+  ],
+  "setFont": [
+    "arity=2 [string, number]",
+  ],
+  "transform": [
+    "arity=6 [number, number, number, number, number, number]",
+  ],
+}
+`;

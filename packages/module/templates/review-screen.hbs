@@ -1,0 +1,291 @@
+<div class="bindery-review">
+  <aside class="bindery-rail">
+    <ol class="bindery-steps">
+      <li class="bindery-step bindery-step-done">
+        <span class="bindery-step-marker">✓</span>
+        <span class="bindery-step-body">
+          <span class="bindery-step-name">{{localize "BINDERY.review.stepFile"}}</span>
+          <span class="bindery-step-hint">{{localize "BINDERY.review.stepFileHint" n=pageCount}}</span>
+        </span>
+      </li>
+      <li class="bindery-step {{#if step2Done}}bindery-step-done{{else if step2Active}}bindery-step-active{{else}}bindery-step-future{{/if}}">
+        <span class="bindery-step-marker">{{#if step2Done}}✓{{else}}2{{/if}}</span>
+        <span class="bindery-step-body">
+          <span class="bindery-step-name">{{localize "BINDERY.review.stepReview"}}</span>
+          <span class="bindery-step-hint" data-count="images">{{selectedImageCount}} / {{imageCount}} {{localize "BINDERY.review.images"}}</span>
+        </span>
+      </li>
+      <li class="bindery-step {{#if step3Done}}bindery-step-done{{else if step3Active}}bindery-step-active{{else}}bindery-step-future{{/if}}">
+        <span class="bindery-step-marker">{{#if step3Done}}✓{{else}}3{{/if}}</span>
+        <span class="bindery-step-body">
+          <span class="bindery-step-name">{{localize "BINDERY.review.stepImport"}}</span>
+          <span class="bindery-step-hint">{{localize "BINDERY.review.stepImportHint"}}</span>
+        </span>
+      </li>
+    </ol>
+
+    {{#if isStepReview}}
+      <div class="bindery-rail-line"></div>
+      {{! [KROK-20, na zyczenie uzytkownika] Zakladki "Sceny" i "Journale" (auto-detekcja
+          core'a) wylaczone "na razie" — patrz komentarz w #runImport, ktory tez pomija
+          tworzenie z doc.scenes/doc.journals gdy wylaczone. }}
+      <nav class="bindery-tabs-rail" role="tablist">
+        <button type="button" role="tab" aria-selected="{{isTabImages}}" data-action="switchTab" data-tab="images" class="bindery-tab {{#if isTabImages}}active{{/if}}">
+          <span>{{localize "BINDERY.review.tabImages"}}</span>
+          <span class="bindery-tab-spacer"></span>
+          <span class="bindery-tab-count">{{imageCount}}</span>
+        </button>
+        {{! [KROK-44 Z1] Ukryte za `statblocksEnabled` — patrz `features.ts`. }}
+        {{#if statblocksEnabled}}
+        <button type="button" role="tab" aria-selected="{{isTabActors}}" data-action="switchTab" data-tab="actors" class="bindery-tab {{#if isTabActors}}active{{/if}}{{#unless hasActorProfile}} bindery-tab-muted{{/unless}}">
+          <span>{{localize "BINDERY.review.tabActors"}}</span>
+          <span class="bindery-tab-spacer"></span>
+          {{#if hasActorProfile}}<span class="bindery-tab-count">{{actorCount}}</span>{{/if}}
+        </button>
+        {{/if}}
+        <button type="button" role="tab" aria-selected="{{isTabDiagnostics}}" data-action="switchTab" data-tab="diagnostics" class="bindery-tab {{#if isTabDiagnostics}}active{{/if}}">
+          <span>{{localize "BINDERY.review.tabDiagnostics"}}</span>
+          <span class="bindery-tab-spacer"></span>
+          <span class="bindery-tab-count bindery-tab-count-diag">{{diagnosticGroupCount}}</span>
+        </button>
+      </nav>
+      <p class="bindery-rail-footer-hint hint">{{localize "BINDERY.review.journalGroupHintShort"}}</p>
+    {{/if}}
+  </aside>
+
+  <div class="bindery-review-body">
+    <div class="bindery-review-scroll">
+      {{#if isStepReview}}
+        {{#if isTabImages}}
+          <div class="bindery-review-bulkops">
+            <button type="button" class="bindery-btn bindery-btn--ghost" data-action="selectAllImages">{{localize "BINDERY.review.selectAll"}}</button>
+            <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectNoImages">{{localize "BINDERY.review.selectNone"}}</button>
+            <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectOnlyContent">{{localize "BINDERY.review.selectOnlyContent"}}</button>
+          </div>
+
+          <div class="bindery-selected-panel">
+            <span class="bindery-selected-panel-label">{{localize "BINDERY.review.selectedPanelLabel"}}</span>
+            <select class="bindery-select" data-select="bulkDestination">
+              <option value="scene">{{localize "BINDERY.review.destinationScene"}}</option>
+              <option value="journal">{{localize "BINDERY.review.destinationJournal"}}</option>
+              <option value="token">{{localize "BINDERY.review.destinationToken"}}</option>
+              <option value="unassigned">{{localize "BINDERY.review.destinationUnassigned"}}</option>
+            </select>
+            <input type="text" class="bindery-input" data-input="bulkJournalGroup" placeholder="{{localize 'BINDERY.review.journalGroupLabel'}}: {{localize 'BINDERY.review.journalGroupPlaceholder'}}" />
+            <button type="button" class="bindery-btn bindery-btn--primary" data-action="applyBulkSettings">{{localize "BINDERY.review.destinationApply"}}</button>
+          </div>
+
+          <div class="bindery-review-split">
+            <div class="bindery-review-preview">
+              <div class="bindery-page-canvas-wrap {{#if isSelectMode}}bindery-select-mode{{/if}}">
+                {{#if currentPageImageUrl}}
+                  <img class="bindery-page-image" src="{{currentPageImageUrl}}" alt="" />
+                  <svg class="bindery-page-overlay" data-overlay></svg>
+                {{else}}
+                  <p class="hint">{{localize "BINDERY.review.pageLoading"}}</p>
+                {{/if}}
+              </div>
+              <div class="bindery-page-nav">
+                <button type="button" class="bindery-btn bindery-btn--icon" data-action="prevPage" {{#unless canGoPrevPage}}disabled{{/unless}}>◄</button>
+                <input type="number" class="bindery-page-nav-input" data-input="pageNumber" min="1" max="{{pageCount}}" value="{{currentPageNumber}}" {{#unless pageCount}}disabled{{/unless}} />
+                <span class="bindery-page-nav-count">/ {{pageCount}}</span>
+                <button type="button" class="bindery-btn bindery-btn--icon" data-action="nextPage" {{#unless canGoNextPage}}disabled{{/unless}}>►</button>
+                <span class="bindery-page-zoom">
+                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomOut" {{#unless canZoomOut}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomOut'}}">−</button>
+                  <span class="bindery-page-nav-count" data-zoom-readout>{{zoomPercent}}%</span>
+                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomIn" {{#unless canZoomIn}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomIn'}}">+</button>
+                </span>
+                <span class="bindery-page-nav-spacer"></span>
+                <button type="button" data-action="toggleSelectMode" class="bindery-btn bindery-btn--sage bindery-select-mode-toggle {{#if isSelectMode}}active{{/if}}">{{localize "BINDERY.review.selectModeToggle"}}</button>
+              </div>
+              {{#if isSelectMode}}
+                <p class="hint bindery-select-mode-hint">{{localize "BINDERY.review.selectModeHint"}}</p>
+              {{/if}}
+            </div>
+            <div class="bindery-image-table">
+              <nav class="bindery-subtabs" role="tablist">
+                <button type="button" role="tab" aria-selected="{{isImageSourceAuto}}" data-action="switchImageSourceTab" data-source="auto" class="bindery-subtab {{#if isImageSourceAuto}}active{{/if}}">
+                  {{localize "BINDERY.review.imageSourceAuto"}} <span class="bindery-tab-count">{{autoImageCount}}</span>
+                </button>
+                <button type="button" role="tab" aria-selected="{{isImageSourceManual}}" data-action="switchImageSourceTab" data-source="manual" class="bindery-subtab {{#if isImageSourceManual}}active{{/if}}">
+                  {{localize "BINDERY.review.imageSourceManual"}} <span class="bindery-tab-count">{{manualImageCount}}</span>
+                </button>
+              </nav>
+              <nav class="bindery-subtabs bindery-subtabs-secondary" role="tablist">
+                <button type="button" role="tab" aria-selected="{{isImageDestScene}}" data-action="switchImageDestTab" data-dest="scene" class="bindery-subtab {{#if isImageDestScene}}active{{/if}}">
+                  {{localize "BINDERY.review.destinationScene"}} <span class="bindery-tab-count">{{imageDestSceneCount}}</span>
+                </button>
+                <button type="button" role="tab" aria-selected="{{isImageDestJournal}}" data-action="switchImageDestTab" data-dest="journal" class="bindery-subtab {{#if isImageDestJournal}}active{{/if}}">
+                  {{localize "BINDERY.review.destinationJournal"}} <span class="bindery-tab-count">{{imageDestJournalCount}}</span>
+                </button>
+                <button type="button" role="tab" aria-selected="{{isImageDestToken}}" data-action="switchImageDestTab" data-dest="token" class="bindery-subtab {{#if isImageDestToken}}active{{/if}}">
+                  {{localize "BINDERY.review.destinationToken"}} <span class="bindery-tab-count">{{imageDestTokenCount}}</span>
+                </button>
+                <button type="button" role="tab" aria-selected="{{isImageDestUnassigned}}" data-action="switchImageDestTab" data-dest="unassigned" class="bindery-subtab {{#if isImageDestUnassigned}}active{{/if}}">
+                  {{localize "BINDERY.review.destinationUnassigned"}} <span class="bindery-tab-count">{{imageDestUnassignedCount}}</span>
+                </button>
+              </nav>
+              <div class="bindery-image-table-header">
+                <span></span>
+                <span></span>
+                <span>{{localize "BINDERY.review.colPage"}}</span>
+                <span>{{localize "BINDERY.review.colName"}}</span>
+                <span>{{localize "BINDERY.review.colDestination"}}</span>
+                <span></span>
+              </div>
+              <div class="bindery-image-table-body" data-list="images"></div>
+            </div>
+          </div>
+        {{/if}}
+
+        {{#if statblocksEnabled}}
+        {{#if isTabActors}}
+          {{#if hasActorProfile}}
+            <div class="bindery-review-bulkops">
+              <button type="button" class="bindery-btn bindery-btn--ghost" data-action="selectAllActors">{{localize "BINDERY.review.selectAll"}}</button>
+              <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectNoActors">{{localize "BINDERY.review.selectNone"}}</button>
+              <span class="bindery-review-bulkops-spacer"></span>
+              <span class="bindery-footer-hint" data-count="actors">{{localize "BINDERY.review.selectedCount"}}: {{selectedActorCount}}/{{actorCount}}</span>
+            </div>
+            <div class="bindery-review-split">
+              <div class="bindery-review-preview">
+                <div class="bindery-page-canvas-wrap">
+                  {{#if currentPageImageUrl}}
+                    <img class="bindery-page-image" src="{{currentPageImageUrl}}" alt="" />
+                    <svg class="bindery-page-overlay" data-overlay></svg>
+                  {{else}}
+                    <p class="hint">{{localize "BINDERY.review.pageLoading"}}</p>
+                  {{/if}}
+                </div>
+                <div class="bindery-page-nav">
+                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="prevPage" {{#unless canGoPrevPage}}disabled{{/unless}}>◄</button>
+                  <input type="number" class="bindery-page-nav-input" data-input="pageNumber" min="1" max="{{pageCount}}" value="{{currentPageNumber}}" {{#unless pageCount}}disabled{{/unless}} />
+                  <span class="bindery-page-nav-count">/ {{pageCount}}</span>
+                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="nextPage" {{#unless canGoNextPage}}disabled{{/unless}}>►</button>
+                  <span class="bindery-page-zoom">
+                    <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomOut" {{#unless canZoomOut}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomOut'}}">−</button>
+                    <span class="bindery-page-nav-count" data-zoom-readout>{{zoomPercent}}%</span>
+                    <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomIn" {{#unless canZoomIn}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomIn'}}">+</button>
+                  </span>
+                </div>
+              </div>
+              <div class="bindery-review-list" data-list="actors"></div>
+            </div>
+          {{else}}
+            <div class="bindery-review-empty-state">
+              <h3>{{localize "BINDERY.review.actorsNoProfileTitle"}}</h3>
+              <p>{{localize "BINDERY.review.actorsNoProfile"}}</p>
+            </div>
+          {{/if}}
+        {{/if}}
+        {{/if}}
+
+        {{#if isTabScenes}}
+          <div class="bindery-review-list bindery-review-list-full" data-list="scenes"></div>
+        {{/if}}
+
+        {{#if isTabJournals}}
+          <div class="bindery-review-bulkops">
+            <button type="button" class="bindery-btn bindery-btn--ghost" data-action="selectAllJournals">{{localize "BINDERY.review.selectAll"}}</button>
+            <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectNoJournals">{{localize "BINDERY.review.selectNone"}}</button>
+          </div>
+          <div class="bindery-review-list bindery-review-list-full" data-list="journals"></div>
+        {{/if}}
+
+        {{#if isTabDiagnostics}}
+          {{#if diagnosticGroupCount}}
+            <div class="bindery-review-list bindery-review-list-full" data-list="diagnostics"></div>
+          {{else}}
+            <div class="bindery-review-empty-state">
+              <p>{{localize "BINDERY.review.diagnosticsEmpty"}}</p>
+            </div>
+          {{/if}}
+        {{/if}}
+      {{/if}}
+
+      {{#if isStepTarget}}
+        <div class="bindery-target-screen">
+          <p class="hint">{{localize "BINDERY.review.targetHint"}}</p>
+          <div class="form-group">
+            <label>{{localize "BINDERY.review.sceneFolderLabel"}}</label>
+            <input type="text" name="sceneFolder" value="{{targets.sceneFolder}}" placeholder="{{localize "BINDERY.review.folderRootPlaceholder"}}" />
+          </div>
+          <div class="form-group">
+            <label>{{localize "BINDERY.review.journalFolderLabel"}}</label>
+            <input type="text" name="journalFolder" value="{{targets.journalFolder}}" placeholder="{{localize "BINDERY.review.folderRootPlaceholder"}}" />
+          </div>
+          {{#if actorCount}}
+            <div class="form-group">
+              <label>{{localize "BINDERY.review.actorFolderLabel"}}</label>
+              <input type="text" name="actorFolder" value="{{targets.actorFolder}}" placeholder="{{localize "BINDERY.review.folderRootPlaceholder"}}" />
+            </div>
+          {{/if}}
+          <div class="form-group">
+            <label>{{localize "BINDERY.review.imagePathLabel"}}</label>
+            <input type="text" name="imagePath" value="{{targets.imagePath}}" />
+          </div>
+          <div class="form-group">
+            <label>{{localize "BINDERY.review.namePrefixLabel"}}</label>
+            <input type="text" name="namePrefix" value="{{targets.namePrefix}}" placeholder="{{localize "BINDERY.review.namePrefixPlaceholder"}}" />
+          </div>
+          {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy obrazy i (jesli sa) aktorow, jedyne aktywne sciezki. }}
+          <p class="hint">
+            {{localize "BINDERY.review.targetSummary"}}: {{selectedImageCount}} {{localize "BINDERY.review.images"}}
+            {{#if actorCount}} · {{selectedActorCount}} {{localize "BINDERY.review.actors"}}{{/if}}
+          </p>
+          {{#if isImporting}}
+            <p class="hint">{{localize "BINDERY.review.importing"}}</p>
+          {{/if}}
+          {{#if importError}}
+            <p class="notification error">{{importError}}</p>
+          {{/if}}
+          <div class="bindery-target-actions">
+            <button type="button" class="bindery-btn bindery-btn--secondary" data-action="backToReview" {{#if isImporting}}disabled{{/if}}>{{localize "BINDERY.review.back"}}</button>
+            <button type="button" class="bindery-btn bindery-btn--primary" data-action="confirmImport" {{#if isImporting}}disabled{{/if}}>{{localize "BINDERY.review.importButton"}}</button>
+          </div>
+        </div>
+      {{/if}}
+
+      {{#if isStepSummary}}
+        <div class="bindery-summary">
+          <h2>{{localize "BINDERY.review.summaryTitle"}}</h2>
+          <ul class="bindery-summary-list">
+            {{#each summaryEntries}}
+              <li>
+                {{#if this.uuid}}
+                  <a data-action="openDocument" data-uuid="{{this.uuid}}">{{this.label}}</a>
+                {{else}}
+                  {{this.label}}
+                {{/if}}
+              </li>
+            {{/each}}
+          </ul>
+          {{#if summaryHasIssues}}
+            <details class="bindery-summary-diagnostics">
+              <summary>{{localize "BINDERY.review.summaryDiagnosticsToggle"}}</summary>
+              <div data-list="summaryDiagnostics"></div>
+            </details>
+          {{/if}}
+          <div>
+            <button type="button" class="bindery-btn bindery-btn--primary" data-action="closeReview">{{localize "BINDERY.review.done"}}</button>
+          </div>
+        </div>
+      {{/if}}
+    </div>
+
+    {{#if isStepReview}}
+      <footer class="bindery-footer">
+        <span class="bindery-footer-hint">
+          {{#if totalSelectedCount}}
+            {{localize "BINDERY.review.footerHintReady" n=totalSelectedCount}}
+          {{else}}
+            {{localize "BINDERY.review.footerHintEmpty"}}
+          {{/if}}
+        </span>
+        <span class="bindery-footer-spacer"></span>
+        <button type="button" class="bindery-btn" data-action="cancelReview">{{localize "BINDERY.review.cancel"}}</button>
+        <button type="button" class="bindery-btn bindery-btn--primary" data-action="proceedToTarget" {{#unless totalSelectedCount}}disabled{{/unless}}>{{localize "BINDERY.review.next"}}</button>
+      </footer>
+    {{/if}}
+  </div>
+</div>

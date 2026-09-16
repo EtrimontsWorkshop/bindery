@@ -1,0 +1,2840 @@
+/* ============================================================================
+   BINDERY — redesign 2a ("Kolumna kroków — ciemny motyw")
+   Zrodlo: design_handoff_bindery_redesign/README.md. Pierwotnie dotyczylo
+   WYLACZNIE ReviewScreen (.bindery-review-app) i ImportWizard (.bindery-wizard)
+   — ProfileStudio miala WLASNA sekcje nizej (od .bindery-studio-loaders),
+   celowo NIETKNIETA w TEJ turze.
+   [zgloszenie uzytkownika, "Profil Studio... wyglada bardzo nieczytelnie"]
+   Naprawione: ProfileStudio przeszla TEN SAM zestaw tokenow/komponentow co
+   ponizej. Kilka klas strukturalnych (.bindery-review-list, .bindery-page-nav,
+   .bindery-page-canvas-wrap, .bindery-page-overlay, .bindery-select-mode*,
+   .bindery-review-row) jest DZIELONYCH z ProfileStudio (profile-studio.hbs
+   uzywa tych samych nazw dla wlasnego podgladu strony) — ich reguly
+   KOLORU/TYPOGRAFII sa zakresowane PODWOJNIE, `.bindery-review-app .xxx,
+   .bindery-profile-studio .xxx`, zeby dzialaly identycznie w obu oknach bez
+   kopiowania regul. Wlasna sekcja ProfileStudio (`.bindery-studio-*`, ponizej)
+   dostala wlasny przebieg retintingu na te same `--bindery-*` tokeny.
+   ============================================================================ */
+
+/* ---------- GridPicker — osobna aplikacja, POZA zakresem tego redesignu;
+   arkusz nietkniety, przeniesiony tu bez zmian. ---------- */
+.bindery-grid-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  max-height: 80vh;
+}
+
+.bindery-grid-picker-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.bindery-grid-canvas {
+  border: 1px solid var(--color-border-light-tertiary, #999);
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
+.bindery-grid-picker .form-group,
+.bindery-grid-picker-buttons,
+.bindery-grid-picker-suggested-hint,
+.bindery-grid-picker-offset-hint {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.bindery-grid-picker-suggested-hint,
+.bindery-grid-picker-offset-hint {
+  margin: 0;
+  font-size: var(--font-size-11, 11px);
+  opacity: 0.8;
+}
+
+/* ---------- TokenPrepApp (KROK-42) — osobna aplikacja, ten sam minimalny
+   poziom stylizacji co GridPicker powyzej (poza zakresem redesignu 2a). ---------- */
+.bindery-token-prep {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.bindery-token-prep-canvas-wrap {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+.bindery-token-prep-canvas {
+  border: 1px solid var(--color-border-light-tertiary, #999);
+  max-width: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.bindery-token-prep-canvas:active {
+  cursor: grabbing;
+}
+.bindery-token-prep-canvas-click-mode,
+.bindery-token-prep-canvas-click-mode:active {
+  cursor: crosshair;
+}
+.bindery-token-prep-drag-hint {
+  margin: 0;
+  font-size: var(--font-size-11, 11px);
+  opacity: 0.8;
+  width: 100%;
+}
+.bindery-token-prep .form-group,
+.bindery-token-prep-buttons {
+  width: 100%;
+  flex-shrink: 0;
+}
+.bindery-token-prep-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.bindery-token-prep-radio-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: normal;
+}
+.bindery-token-prep-bg-aborted-hint {
+  margin: 0;
+  font-size: var(--font-size-11, 11px);
+  color: var(--color-level-warning, #b8860b);
+}
+.bindery-token-prep-click-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.bindery-token-prep-click-add-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: normal;
+}
+.bindery-token-prep-click-count-wrap {
+  font-size: var(--font-size-11, 11px);
+  opacity: 0.8;
+}
+
+/* ---------- Design tokens (zakresowane do .bindery, NIE :root) ---------- */
+.bindery {
+  --bindery-bg:        #17140f;
+  --bindery-window:    #1b1815;
+  --bindery-rail:      #201c18;
+  --bindery-panel:     #241f1b;
+  --bindery-raised:    #2b2521;
+
+  --bindery-line:      rgba(246, 239, 227, 0.10);
+  --bindery-line-soft: rgba(246, 239, 227, 0.07);
+  --bindery-line-ctrl: rgba(246, 239, 227, 0.16);
+
+  --bindery-text:      #f6efe3;
+  --bindery-text-2:    #cfc4b4;
+  --bindery-text-3:    #a99f90;
+  --bindery-text-4:    #8d8477;
+  --bindery-text-5:    #7f7669;
+
+  --bindery-accent:         #d67f48;
+  --bindery-accent-hi:      #f6a06b;
+  --bindery-accent-ink:     #201a14;
+  --bindery-accent-soft:    rgba(214, 127, 72, 0.14);
+  --bindery-accent-soft-hi: rgba(214, 127, 72, 0.26);
+  --bindery-accent-edge:    rgba(214, 127, 72, 0.50);
+
+  --bindery-sage:      #aebf92;
+  --bindery-sage-text: #c6d6a8;
+  --bindery-sage-deep: #56633f;
+  --bindery-sage-soft: rgba(174, 191, 146, 0.14);
+  --bindery-sage-edge: rgba(174, 191, 146, 0.45);
+
+  --bindery-danger:      #d99a8a;
+  --bindery-danger-edge: rgba(217, 154, 138, 0.40);
+
+  --bindery-font-display: "Caprasimo", serif;
+  --bindery-font-body:    "Figtree", system-ui, sans-serif;
+  --bindery-font-mono:    "JetBrains Mono", ui-monospace, monospace;
+
+  --bindery-r-window: 16px;
+  --bindery-r-card:   14px;
+  --bindery-r-chip:   10px;
+  --bindery-r-pill:   999px;
+  --bindery-r-check:  6px;
+
+  --bindery-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- Fonty zwendorowane lokalnie (packages/module/fonts/) ----------
+   Okno musi dzialac offline — zero twardej zaleznosci od zapytania do Google
+   Fonts w runtime. Kazda rodzina/waga ma dwa pliki (latin-ext, potem latin
+   jako uzupelnienie) — ten sam podzial subsetow co oryginalne pliki Google,
+   zeby polskie znaki diakrytyczne (w latin-ext) dzialaly poprawnie. */
+@font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Figtree-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Figtree-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/Figtree-SemiBold-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/Figtree-SemiBold-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 700; font-display: swap; src: url("../fonts/Figtree-Bold-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 700; font-display: swap; src: url("../fonts/Figtree-Bold-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/JetBrainsMono-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/JetBrainsMono-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/JetBrainsMono-Medium-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/JetBrainsMono-Medium-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
+
+/* ---------- Ramka okna, pasek tytulu, tresc — wspolne dla obu okien ---------- */
+.bindery.application {
+  background: var(--bindery-window);
+  border: 1px solid rgba(246, 239, 227, 0.13);
+  border-radius: var(--bindery-r-window);
+  box-shadow: var(--bindery-shadow);
+  overflow: hidden;
+  font-family: var(--bindery-font-body);
+  color: var(--bindery-text);
+}
+
+.bindery .window-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: var(--bindery-panel);
+  border-bottom: 1px solid var(--bindery-line);
+}
+
+/* Kropka statusu zastepuje ikone czcionkowa z window.icon. */
+.bindery .window-header::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--bindery-r-pill);
+  background: var(--bindery-accent);
+  flex: 0 0 auto;
+}
+
+.bindery-wizard .window-header::before {
+  background: var(--bindery-sage);
+}
+
+.bindery .window-header i.fa-solid,
+.bindery .window-header .window-icon {
+  display: none;
+}
+
+.bindery .window-header .window-title {
+  font-family: var(--bindery-font-display);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--bindery-text);
+}
+
+.bindery .window-header .header-control {
+  color: var(--bindery-text-4);
+}
+
+.bindery .window-header .header-control:hover {
+  color: var(--bindery-text);
+}
+
+.bindery .window-content {
+  background: var(--bindery-window);
+  color: var(--bindery-text);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bindery .hint {
+  color: var(--bindery-text-3);
+  font-size: 13px;
+  line-height: 1.5;
+  text-wrap: pretty;
+  opacity: 1;
+}
+
+/* [redesign 2a, naprawa zgloszona na zywo] Foundry v13+ owija CSS modulow
+   (`module.json` -> "styles") automatycznie w `@layer modules.bindery` —
+   ale `:focus-visible` w core'owym `foundry2.css` jest NIEWARSTWOWY
+   (bez `@layer`), a niewarstwowa regula ZAWSZE wygrywa z warstwowa (CSS
+   Cascade Layers), niezaleznie od specyficznosci selektora czy kolejnosci w
+   pliku — std. specyficznosc/kolejnosc tu nie dzialaja. `!important` to
+   jedyny niezawodny sposob, zeby wlasny fokus (wymagany explicite w
+   design-handoff: "nigdy domyslny fokus przegladarki") faktycznie wygral. */
+.bindery :focus-visible {
+  outline: 2px solid var(--bindery-accent) !important;
+  outline-offset: 2px !important;
+}
+
+.bindery-footer {
+  padding: 12px 18px;
+  background: var(--bindery-panel);
+  border-top: 1px solid var(--bindery-line);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.bindery-footer-hint {
+  font-size: 13px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-footer-spacer {
+  flex: 1;
+}
+
+.bindery-progress {
+  width: 110px;
+  height: 4px;
+  border-radius: var(--bindery-r-pill);
+  background: rgba(246, 239, 227, 0.14);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.bindery-progress-fill {
+  height: 100%;
+  background: var(--bindery-accent);
+  border-radius: var(--bindery-r-pill);
+}
+
+.bindery-progress-text {
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text-4);
+}
+
+/* ---------- Kontrolki wspolne (przyciski/select/input/checkbox/range) ---------- */
+.bindery-btn {
+  position: relative; /* zakotwicza .bindery-visually-hidden-file, gdy .bindery-btn to <label> opakowujacy <input type=file> */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--bindery-r-pill);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: var(--bindery-font-body);
+  white-space: nowrap;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(246, 239, 227, 0.07);
+  border-color: rgba(246, 239, 227, 0.20);
+  color: var(--bindery-text-2);
+}
+.bindery-btn:hover:not(:disabled) {
+  background: rgba(246, 239, 227, 0.13);
+  color: var(--bindery-text);
+}
+.bindery-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.bindery-btn--primary {
+  background: var(--bindery-accent);
+  border-color: transparent;
+  color: var(--bindery-accent-ink);
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(214, 127, 72, 0.35);
+}
+.bindery-btn--primary:hover:not(:disabled) {
+  background: var(--bindery-accent-hi);
+  color: var(--bindery-accent-ink);
+}
+
+.bindery-btn--ghost {
+  background: var(--bindery-accent-soft);
+  border-color: var(--bindery-accent-edge);
+  color: var(--bindery-accent-hi);
+  font-weight: 700;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.bindery-btn--ghost:hover:not(:disabled) {
+  background: var(--bindery-accent-soft-hi);
+}
+
+.bindery-btn--secondary {
+  background: rgba(246, 239, 227, 0.07);
+  border-color: var(--bindery-line-ctrl);
+  color: var(--bindery-text);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+}
+.bindery-btn--secondary:hover:not(:disabled) {
+  background: rgba(246, 239, 227, 0.13);
+}
+
+.bindery-btn--sage {
+  background: var(--bindery-sage-soft);
+  border-color: var(--bindery-sage-edge);
+  color: var(--bindery-sage-text);
+  font-weight: 700;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+.bindery-btn--sage:hover:not(:disabled) {
+  background: rgba(174, 191, 146, 0.24);
+}
+
+.bindery-btn--danger {
+  background: transparent;
+  border-color: var(--bindery-danger-edge);
+  color: var(--bindery-danger);
+  font-weight: 600;
+}
+.bindery-btn--danger:hover:not(:disabled) {
+  background: rgba(217, 154, 138, 0.14);
+}
+
+.bindery-btn--icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: var(--bindery-r-pill);
+  background: rgba(246, 239, 227, 0.07);
+  border-color: var(--bindery-line-ctrl);
+  color: var(--bindery-text-2);
+}
+.bindery-btn--icon:hover:not(:disabled) {
+  background: rgba(214, 127, 72, 0.20);
+  color: var(--bindery-text);
+}
+
+.bindery-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bindery-raised);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d67f48' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  border: 1px solid rgba(246, 239, 227, 0.18);
+  border-radius: var(--bindery-r-pill);
+  padding: 7px 30px 7px 14px;
+  min-width: 140px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bindery-text);
+  font-family: var(--bindery-font-body);
+  /* [ZGŁOSZENIE na zywo, "TO SELECTED... ucięty, nie widać co jest wybrane"]
+     Bez jawnego `line-height` przegladarka liczy je jako `normal` — wartosc
+     zalezna od WEWNETRZNYCH metryk konkretnego fontu (`--bindery-font-body`,
+     lokalny .woff2), nie od `font-size`. Dla niektorych fontow `normal` bywa
+     znaczaco wieksze niz oczekiwane ~1.2-1.4x, co rozdmuchuje wysokosc
+     natywnego <select> (linia tekstu > padding), a tekst opcji zostaje
+     wyrenderowany przez silnik natywny bliżej gornej krawedzi zamiast na
+     srodku — sprawia wrazenie "uciecia", mimo ze caly napis TECHNICZNIE
+     istnieje. Jawna, liczbowa wartosc usuwa te zaleznosc od metryk fontu.
+     `box-sizing: border-box`, zeby padding nie powiekszal calkowitej
+     wysokosci ponad to, co jawnie tu ustawione. */
+  line-height: 1.3;
+  box-sizing: border-box;
+}
+.bindery-select:hover {
+  border-color: var(--bindery-line-ctrl);
+}
+
+/* [ZGŁOSZENIE na żywo, Forge, "od/do zakresu stron renderują się jako kółka"
+   — POPRAWKA po zbadaniu w devtoolsach, poprzednia teoria (zwykla
+   specyficznosc) byla BLEDNA] `.bindery .bindery-input` (ponizej) NIE
+   wystarczylo — devtools (Firefox, zaznaczony element) pokazaly regule
+   wygrywajaca jako `@layer variables.base { input, select, textarea... }`
+   i `@layer reset { input, button... }` z rdzennego `foundry2.css`, NIE z
+   systemu CoC7. To DOKLADNIE ten sam mechanizm, ktory juz raz zlapal
+   `:focus-visible` nizej w tym pliku (patrz ten komentarz): Foundry v13+
+   owija CSS MODULOW automatycznie w `@layer modules.bindery`, ale
+   `foundry2.css`'s WLASNE warstwy (`reset`, `variables.base`) sa
+   zadeklarowane W INNEJ KOLEJNOSCI wzgledem `modules` — a w CSS Cascade
+   Layers KOLEJNOSC WARSTW rozstrzyga PRZED specyficznoscia selektora,
+   niezaleznie od tego, ile klas dopiszemy. Podniesienie specyficznosci
+   (`.bindery .bindery-input` zamiast `.bindery-input`) nie mogло wiec nigdy
+   zadzialac — to byl zly model mentalny problemu. Jedyny niezawodny sposob
+   (zweryfikowany juz raz dla `:focus-visible`) to `!important` na
+   WLASCIWOSCIACH KSZTALTUJACYCH (`width`/`min-width`/`border-radius`) —
+   dlaczego to dziala mimo warstw: `!important` w warstwie NIEWARSTWOWANEJ
+   (albo najpozniej zadeklarowanej) i tak przebija zwykle deklaracje w
+   warstwach wczesniejszych, per specyfikacja CSS Cascade Layers. */
+.bindery .bindery-input {
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill) !important;
+  padding: 7px 14px;
+  min-width: 150px !important;
+  color: var(--bindery-text);
+  font-family: var(--bindery-font-body);
+  font-size: 13px;
+  box-sizing: border-box;
+}
+/* [KROK-35+ redesign, ProfileStudio] Pola liczbowe/waskie (np. zakres stron,
+   promien wyszukiwania) nie potrzebuja 150px minimum jak pole tekstowe —
+   bez tego nadpisania `min-width` wygrywalby nad wezszymi regulami
+   kontekstowymi (np. `.bindery-studio-page-range-row input { width: 5rem }`),
+   wymuszajac szerokosc mimo jawnie mniejszej wartosci `width`. */
+.bindery .bindery-input--narrow {
+  min-width: 4.5rem !important;
+  width: 4.5rem !important;
+}
+/* Wieloliniowe pole (np. `<textarea>` regexu) nie powinno miec ksztaltu
+   pigulki — promien karty pasuje lepiej do prostokatnego bloku tekstu. */
+.bindery textarea.bindery-input {
+  border-radius: var(--bindery-r-card) !important;
+}
+.bindery .bindery-input::placeholder {
+  color: var(--bindery-text-5);
+}
+
+.bindery-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--bindery-r-check);
+  border: 1.5px solid rgba(246, 239, 227, 0.30);
+  background: var(--bindery-bg);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 auto;
+  margin: 0;
+}
+.bindery-check:checked {
+  background: var(--bindery-accent);
+  border-color: var(--bindery-accent);
+}
+.bindery-check:checked::after {
+  content: "✓";
+  font-size: 12px;
+  line-height: 1;
+  color: var(--bindery-accent-ink);
+}
+
+/* ============================================================================
+   ImportWizard — "Bindery — import PDF"
+   ============================================================================ */
+/* [redesign 2a] ApplicationV2 wymaga, zeby szablon czesci "main" renderowal
+   DOKLADNIE JEDEN element korzenny — `.bindery-wizard-body` (przewijana tresc,
+   flex:1) i `.bindery-footer` (przypiety dol, flex:0 0 auto) sa rodzenstwem,
+   wiec potrzebuja wspolnego, jednego opakowania. */
+.bindery-wizard-root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.bindery-wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.bindery-wizard-privacy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--bindery-r-card);
+  background: rgba(174, 191, 146, 0.10);
+  border: 1px solid rgba(174, 191, 146, 0.28);
+  color: #cbd8b4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.bindery-wizard-privacy::before {
+  content: "●";
+  color: var(--bindery-sage-text);
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+
+.bindery-wizard-step-label {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+  margin: 0 0 8px;
+  padding: 0;
+  border: none;
+  display: block;
+}
+.bindery-wizard-step-optional {
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--bindery-text-5);
+  font-family: var(--bindery-font-body);
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+.bindery-wizard-dropzone {
+  border: 1.5px dashed var(--bindery-accent-edge);
+  background: rgba(214, 127, 72, 0.07);
+  border-radius: var(--bindery-r-card);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  cursor: pointer;
+}
+.bindery-wizard-dropzone.bindery-has-file {
+  border-style: solid;
+  border-color: var(--bindery-sage-edge);
+  background: rgba(174, 191, 146, 0.06);
+}
+.bindery-wizard-dropzone.bindery-dragover {
+  background: rgba(214, 127, 72, 0.16);
+}
+/* Input pozostaje w DOM-ie i skupialny Tabem (label-owe przekazanie klikniecia
+   dziala niezaleznie od widocznosci) — WYLACZNIE wizualnie ukryty, zeby caly
+   obszar etykiety byl klikalny przez natywna semantyke <label>, bez
+   dekoracyjnego <button> bez wlasnego dzialania w kolejnosci Tab. */
+.bindery-wizard-dropzone input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  margin: 0;
+}
+.bindery-wizard-dropzone-text {
+  font-size: 13px;
+  color: var(--bindery-text-3);
+}
+.bindery-wizard-dropzone-filename {
+  font-family: var(--bindery-font-mono);
+  font-size: 13px;
+  color: var(--bindery-text);
+}
+
+.bindery-actor-profile {
+  background: rgba(246, 239, 227, 0.03);
+  border: 1px solid rgba(246, 239, 227, 0.09);
+  border-radius: var(--bindery-r-card);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bindery-actor-profile .bindery-r3-notice {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--bindery-text-5);
+  margin: -6px 0 0;
+}
+.bindery-actor-profile-issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--bindery-danger);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bindery-actor-profile-issues li::before {
+  content: "• ";
+}
+/* Ten sam wzorzec co .bindery-wizard-dropzone input[type=file] — wizualnie
+   ukryty, ale NADAL skupialny Tabem (w odroznieniu od `display:none`, ktore
+   usuwaloby cala etykiete-przycisk z kolejnosci klawiatury calkowicie). */
+.bindery-visually-hidden-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  margin: 0;
+}
+.bindery-actor-profile-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bindery-result {
+  width: 100%;
+  border-collapse: collapse;
+}
+.bindery-result tr:nth-child(even) {
+  background: rgba(246, 239, 227, 0.04);
+}
+.bindery-result th,
+.bindery-result td {
+  padding: 7px 12px;
+  text-align: left;
+  font-weight: 400;
+  border-radius: 10px;
+}
+.bindery-result th {
+  width: 130px;
+  color: var(--bindery-text-4);
+  white-space: nowrap;
+}
+.bindery-result td {
+  color: var(--bindery-text);
+  font-weight: 600;
+}
+.bindery-result tr:first-child td {
+  font-family: var(--bindery-font-mono);
+  font-weight: 400;
+}
+.bindery-result-mono td {
+  font-family: var(--bindery-font-mono);
+  font-weight: 400;
+}
+.bindery-result-sage td {
+  font-family: var(--bindery-font-mono);
+  font-weight: 400;
+  color: var(--bindery-sage-text);
+}
+
+.bindery-wizard-body .notification.error {
+  background: rgba(217, 154, 138, 0.10);
+  border: 1px solid var(--bindery-danger-edge);
+  color: var(--bindery-danger);
+  border-radius: var(--bindery-r-card);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.bindery-wizard-footer-filename {
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ============================================================================
+   ReviewScreen — "Bindery — przegląd"
+   ============================================================================ */
+.bindery-review {
+  display: grid;
+  grid-template-columns: 196px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.bindery-rail {
+  background: var(--bindery-rail);
+  border-right: 1px solid var(--bindery-line);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.bindery-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bindery-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.bindery-step-future {
+  opacity: 0.45;
+}
+.bindery-step-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--bindery-r-pill);
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+.bindery-step-done .bindery-step-marker {
+  background: var(--bindery-sage-deep);
+  color: #e1eecc;
+}
+.bindery-step-active .bindery-step-marker {
+  background: var(--bindery-accent);
+  color: var(--bindery-accent-ink);
+}
+.bindery-step-future .bindery-step-marker {
+  border: 1.5px solid var(--bindery-text-4);
+  color: var(--bindery-text-2);
+}
+.bindery-step-body {
+  display: flex;
+  flex-direction: column;
+}
+.bindery-step-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bindery-text-2);
+}
+.bindery-step-active .bindery-step-name {
+  color: var(--bindery-text);
+}
+.bindery-step-hint {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  color: var(--bindery-text-4);
+  white-space: nowrap;
+}
+.bindery-step-active .bindery-step-hint {
+  color: var(--bindery-accent-hi);
+}
+
+.bindery-rail-line {
+  height: 1px;
+  background: var(--bindery-line);
+  flex: 0 0 auto;
+}
+
+.bindery-tabs-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bindery-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--bindery-r-chip);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bindery-text-2);
+  text-align: left;
+  font-family: var(--bindery-font-body);
+}
+.bindery-tab:hover {
+  background: rgba(246, 239, 227, 0.07);
+  color: var(--bindery-text);
+}
+.bindery-tab.active {
+  background: var(--bindery-accent-soft);
+  color: var(--bindery-accent-hi);
+  font-weight: 700;
+}
+.bindery-tab-spacer {
+  flex: 1;
+}
+.bindery-tab-count {
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text-4);
+}
+.bindery-tab.active .bindery-tab-count {
+  color: var(--bindery-accent-hi);
+}
+.bindery-tab-count-diag {
+  border-radius: var(--bindery-r-pill);
+  background: rgba(174, 191, 146, 0.20);
+  color: var(--bindery-sage-text);
+  padding: 1px 6px;
+  font-family: var(--bindery-font-mono);
+}
+.bindery-tab.bindery-tab-muted {
+  opacity: 0.55;
+}
+
+/* [zgloszenie uzytkownika, "dwie zakladki: automatycznie i recznie" +
+   podzakladki Scena/Journal/Token, potem "też powinny być z prawej strony
+   bezpośrednio pod Automatycznie wykryto i Zaznaczono ręcznie"] Wariant
+   POZIOMY `.bindery-tab` — dwa poziomy podzakladek zakladki Obrazy, OBA
+   WEWNATRZ `.bindery-image-table` (prawa kolumna, na wysokosci podgladu
+   strony), jedne pod drugimi: zrodlo obrazu (Automatycznie wykryte/
+   Zaznaczone recznie) NAD przeznaczeniem (Scena/Journal/Token/Pomin,
+   `-secondary`, nieco cichszy wyglad — mniejszy font/padding, zeby
+   czytelnie wyrozniac POZIOM zagniezdzenia), bezposrednio nad naglowkiem
+   listy, ktora oba poziomy razem filtruja. */
+.bindery-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.bindery-image-table .bindery-subtabs {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+  padding: 8px 8px 0;
+  background: var(--bindery-panel);
+}
+/* Drugi (i kolejny) rzad podzakladek w tym samym panelu — bez powtorzonego
+   gornego paddingu, zeby dwa rzedy czytaly sie jako jedna, zwarta grupa. */
+.bindery-image-table .bindery-subtabs + .bindery-subtabs {
+  padding-top: 4px;
+}
+.bindery-subtab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--bindery-r-chip);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--bindery-line-ctrl);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bindery-text-2);
+  font-family: var(--bindery-font-body);
+}
+.bindery-subtab:hover {
+  background: rgba(246, 239, 227, 0.07);
+  color: var(--bindery-text);
+}
+.bindery-subtab.active {
+  background: var(--bindery-accent-soft);
+  border-color: var(--bindery-accent-hi);
+  color: var(--bindery-accent-hi);
+}
+.bindery-subtab .bindery-tab-count {
+  color: inherit;
+  opacity: 0.7;
+}
+.bindery-subtabs-secondary .bindery-subtab {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.bindery-rail-footer-hint {
+  margin-top: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--bindery-text-3);
+}
+
+.bindery-review-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.bindery-review-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.bindery-review-empty-state {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--bindery-text-4);
+  font-size: 13px;
+}
+.bindery-review-empty-state h3 {
+  margin: 0 0 0.5rem;
+  color: var(--bindery-text-2);
+  font-family: var(--bindery-font-display);
+  font-weight: 400;
+}
+
+.bindery-review-bulkops {
+  padding: 16px 18px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bindery-review-bulkops-spacer {
+  flex: 1;
+}
+
+.bindery-selected-panel {
+  margin: 12px 18px 0;
+  background: var(--bindery-panel);
+  border: 1px solid rgba(246, 239, 227, 0.08);
+  border-radius: var(--bindery-r-card);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bindery-selected-panel-label {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--bindery-text-2);
+}
+
+.bindery-review-split {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 16px;
+  padding: 14px 18px 16px;
+  flex: 1;
+  min-height: 0;
+  align-items: start;
+}
+/* [zgloszenie uzytkownika, "podglad pdf powinien zajmowac okolo polowy okna,
+   ciezko tam poprawnie zaznaczac rzeczy"] WYLACZNIE Profile Studio — tutaj
+   podglad strony to NARZEDZIE DO PRECYZYJNEGO KLIKANIA (wskazywanie tokenow,
+   zaznaczanie obszaru), nie tylko odniesienie wizualne jak w ReviewScreen
+   (gdzie 340px z design-handoffu zostaje NIETKNIETE — literalny wymiar
+   zatwierdzonego prototypu). `1fr 1fr` zamiast stalych 340px rosnie/maleje
+   razem z oknem (ktore jest `resizable: true`), zawsze ~polowa szerokosci.
+   `align-items: stretch` (nadpisuje `start` z bazowej reguly) jest CZESCIA
+   TEJ SAMEJ naprawy co ponizej (`.bindery-page-canvas-wrap`) — bez tego
+   `.bindery-review-preview` nie dostaje zadnej wysokosci do wypelnienia,
+   patrz komentarz tam. */
+.bindery-profile-studio .bindery-review-split {
+  grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr);
+  align-items: stretch;
+}
+
+.bindery-review-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bindery-page-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bindery-page-nav-spacer {
+  flex: 1;
+}
+.bindery-review-app .bindery-page-nav-input,
+.bindery-profile-studio .bindery-page-nav-input {
+  font-family: var(--bindery-font-mono);
+  font-size: 13px;
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  padding: 6px 10px;
+  width: 3.2rem;
+  text-align: center;
+  color: var(--bindery-text);
+}
+.bindery-page-nav-count {
+  font-family: var(--bindery-font-mono);
+  font-size: 13px;
+  color: var(--bindery-text-4);
+}
+/* [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"] Grupa
+   −/procent/+ wewnatrz `.bindery-page-nav` — wlasny, ciasny `gap`, zeby trzy
+   elementy czytaly sie jako JEDEN klaster kontrolny, nie trzy osobne przyciski
+   rozrzucone w szerszym `gap:8px` rodzica. */
+.bindery-page-zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bindery-page-zoom .bindery-page-nav-count {
+  min-width: 3.2em;
+  text-align: center;
+}
+
+.bindery-review-app .bindery-page-canvas-wrap,
+.bindery-profile-studio .bindery-page-canvas-wrap {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--bindery-r-window);
+  border: 1px solid rgba(246, 239, 227, 0.12);
+  background: var(--bindery-bg);
+  overflow: hidden;
+  flex: none;
+}
+.bindery-review-app .bindery-page-image,
+.bindery-profile-studio .bindery-page-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+/* [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"] Powyzej
+   100% zoomu przelacza ramke ReviewScreen z domyslnego, letterboxowanego
+   `object-fit:contain` (regula bazowa powyzej) w tryb przewijany — mirror
+   JUZ istniejacego, sprawdzonego ukladu `.bindery-profile-studio` nizej w
+   pliku (`overflow:auto`, obraz skalowany WYLACZNIE szerokoscia, `<img>`
+   jako wlasny scrollport). Klasa i szerokosc obrazu naklada JS
+   (`ReviewScreen.ts`'s `#applyZoomToDom`), nie Handlebars — dziala wiec
+   identycznie po pelnym renderze (nawigacja stron) i po samym kliknieciu
+   +/− (surgical, bez `render()`, patrz `#setZoom`).
+   [zgloszenie uzytkownika, "rośnie też okno w którym jest pdf" — DRUGA,
+   poprawna naprawa] `aspect-ratio: 3/4` (regula bazowa) CELOWO NIE jest tu
+   usuwane — to WLASNIE ono trzyma ramke w STALYM rozmiarze (wysokosc =
+   szerokosc * 4/3, szerokosc niezalezna od zoomu, bo naklada ja `flex`
+   rodzica, nie tresc). Pierwsza proba tej naprawy (`aspect-ratio: unset` +
+   reczny pomiar/blokada wysokosci w JS, `getBoundingClientRect()` przed
+   kazdym przejsciem w zoom) faktycznie zatrzymywala WZROST ramki, ale
+   zepsula SAM ZOOM: kolejne kliknieta "+" przestawaly cokolwiek zmieniac
+   (zmierzona-i-zablokowana wysokosc JS przy DRUGIM kliknieciu, gdy `<img>`
+   juz mial `object-fit:none`, znowu mierzyla WLASNIE-PRZYCIETY, nie
+   prawdziwy "100%" rozmiar). `aspect-ratio` daje TEN SAM efekt (stala,
+   przewijalna ramka) w 100% CSS, bez zadnego pomiaru w JS do zepsucia. */
+.bindery-review-app .bindery-page-canvas-wrap.bindery-zoomed {
+  overflow: auto;
+}
+.bindery-review-app .bindery-page-canvas-wrap.bindery-zoomed .bindery-page-image {
+  height: auto;
+  /* [zgloszenie uzytkownika, "przybliżenie zatrzymuje się na 125%, dalej nic
+     się nie dzieje"] Foundry'owy reset (`reset.less`: goly selektor `img {
+     max-width: 100%; }`, laduje sie globalnie dla calej aplikacji) przycina
+     KAZDY `<img>` do 100% jego kontenera, NIEZALEZNIE od jawnie ustawionej
+     `width` (inline czy nie — `max-width` zawsze wygrywa z `width` w
+     algorytmie CSS, to nie jest kwestia specyficznosci selektora). Pierwsze
+     klikniecie "+" (100% -> 125%) i tak WYGLADALO na dzialajace, bo
+     jednoczesnie znika letterboxing bazowej reguly (`object-fit:contain`) —
+     ale faktyczna szerokosc zostawala przycieta do 100%, wiec KAZDE kolejne
+     klikniecie bylo bez wizualnego efektu (wszystkie wartosci >100% dawaly
+     dokladnie ten sam, przycięty wynik).
+     [zgloszenie uzytkownika, DRUGI blad, zmierzony na zywo przez DevTools
+     uzytkownika] Powyzsza naprawa (`max-width:none!important` nizej)
+     faktycznie zdjela limit — `<img style="width:150%">` mierzone w DevTools
+     PRAWIDLOWO rosnie (423x597px -> 507x717px, dokladnie +20%, zgodnie ze
+     zmiana 125%->150%) — ale WIZUALNIE "tylko przesuwa obraz", bez
+     powiekszenia. Przyczyna: `object-fit: none` (poprzednia wersja tej
+     reguly) oznacza "NIE skaluj tresci obrazu do pudelka wcale" — obraz
+     renderuje sie w SWOIM NATURALNYM rozmiarze (tu: 990x1400px, niezaleznie
+     od `width`/`height` pudelka), wysrodkowany (`object-position: 50% 50%`
+     domyslnie) i PRZYCIETY do pudelka. Rosnace pudelko (125%->150%) nie
+     POWIEKSZA wiec obrazu — odkrywa jedynie NIECO WIECEJ wysrodkowanego
+     kadru, WCIAZ w tej samej, naturalnej rozdzielczosci — stad wrazenie
+     "przesuniecia" zamiast przyblizenia. `object-fit: fill` (ta wersja)
+     ROZCIAGA tresc obrazu, zeby DOKLADNIE wypelnila pudelko — a poniewaz
+     proporcje pudelka (`height:auto` z NATURALNEGO stosunku obrazu) i tak
+     zawsze odpowiadaja proporcjom samego obrazu, rozciagniecie jest
+     RONOMIERNE (zero znieksztalcenia), po prostu skaluje CALA tresc razem z
+     rosnacym pudelkiem — dokladnie prawdziwe przyblizenie. */
+  object-fit: fill;
+  /* `!important`: Foundry'owy `img{}` reset zyje we WLASNEJ warstwie
+     (`@layer reset` w `foundry2.css`) — przy rownej/nizszej pewnosci
+     warstwy sama wyzsza specyficznosc selektora moze NIE WYSTARCZYC (patrz
+     analogiczny, juz istniejacy przypadek `:focus-visible` w tym pliku).
+     `!important` wygrywa z nie-`!important` regulą Foundry niezaleznie od
+     warstwy/specyficznosci — najbezpieczniejszy wybor bez mozliwosci
+     przetestowania kolejnosci warstw na zywo. */
+  max-width: none !important;
+}
+
+/* [zgloszenie uzytkownika, "w nowej szacie graficznej nie da sie zaznaczac
+   obszaru"] Naprawa REGRESJI wprowadzonej redesignem 2a. MUSI byc zadeklarowana
+   PO dwoch regulach powyzej (`.bindery-page-canvas-wrap`/`.bindery-page-image`)
+   — ten sam selektor `.bindery-profile-studio .xxx` wystepuje w obu, wiec przy
+   rownej specyficznosci wygrywa kolejnosc w PLIKU, nie "waznosc" komentarza
+   (pierwsza wersja tej naprawy byla zadeklarowana WCZESNIEJ w pliku i przez to
+   byla calkowicie bez efektu — zmierzone wprost przez porownanie wynikowej
+   geometrii w przegladarce, nie zalozone). Bazowa regula wymusza STALY ksztalt
+   `aspect-ratio: 3/4` + `overflow: hidden`, a `.bindery-page-image` dostaje
+   `object-fit: contain` — dla ReviewScreen to celowa rama wizualna (literalny
+   wymiar z design-handoffu), ale strona PDF rzadko ma DOKLADNIE proporcje 3:4
+   (typowy list/A4 to ok. 0.77, blisko, ale nie identycznie) — `object-fit:
+   contain` wtedy DOKLADA puste marginesy (letterboxing) wewnatrz ramki, tak by
+   obraz zmiescil sie caly bez przyciecia.
+   Profile Studio NIE MOZE tego tolerowac: `#svgToOverlayPoint` (patrz komentarz
+   tam, "zaznaczam obszar, ale trafiam dużo niżej niz statblock" — dokladnie
+   TEN SAM ksztalt bledu, JUZ RAZ naprawiony przed tym redesignem) liczy skale
+   klik->piksel-PDF z `img.clientWidth/clientHeight` — ktore, przy wymuszonym
+   `width:100%;height:100%`, ZAWSZE rownaja sie rozmiarowi RAMKI (3:4), NIE
+   rozmiarowi faktycznie widocznego (letterboxowanego) obrazu. Skala liczona
+   z niewlasciwego rozmiaru = kazde przeciagniecie ladowalo w zly punkt/zly
+   rozmiar obszaru — potwierdzone bezposrednio na syntetycznej stronie 612x792
+   (proporcja 0.773, blisko 3:4=0.75, ale wystarczajaco inna, zeby klikniecie
+   20% w glab strony mapowalo sie z bledem rzedu kilku-kilkunastu jednostek
+   PDF na tej geometrii — i rosnacym dla stron mocniej odbiegajacych od 3:4).
+   Naprawa: dla Profile Studio wracamy do ksztaltu SPRZED redesignu — brak
+   wymuszonych proporcji, `<img>` skaluje sie WYLACZNIE szerokoscia (`height:
+   auto`), wiec jego wlasny box ZAWSZE dokladnie odpowiada widocznej tresci
+   (zero letterboxingu, zero przyciecia). Strona wyzsza niz dostepna wysokosc
+   przewija sie (`overflow: auto`), tak jak przed redesignem — `align-items:
+   stretch` na `.bindery-review-split` (powyzej w pliku) daje kontenerowi
+   realna wysokosc, w ktora `flex: 1` moze wejsc. */
+.bindery-profile-studio .bindery-page-canvas-wrap {
+  aspect-ratio: unset;
+  flex: 1;
+  overflow: auto;
+  /* [zmierzony bezposrednio przy weryfikacji poprzedniej naprawy] `overflow:
+     auto` + szerokosc obrazu zalezna od DOSTEPNEJ szerokosci (`width:100%`,
+     `height:auto`) na elemencie obserwowanym przez `ResizeObserver`
+     (`#wireOverlayResize`) to znana petla sprzezenia zwrotnego: pasek
+     przewijania pojawia sie -> zabiera ~15-17px szerokosci -> obraz wezszy ->
+     (przez `height:auto`) obraz NIZSZY -> moze juz nie potrzebowac paska ->
+     pasek znika -> obraz znowu szerszy/wyzszy -> pasek wraca... W trakcie tego
+     drgania `ResizeObserver` odpala `#mountPickableTokens`/`#mountSectionBoundaryOverlay`
+     wielokrotnie, kasujac i odtwarzajac klikalne prostokąty - klikniecie
+     wycelowane w POPRZEDNIA pozycje/instancje moze trafic w PUSTE miejsce
+     albo w element juz usuniety. `scrollbar-gutter: stable` rezerwuje miejsce
+     na pasek NA STALE (niezaleznie od tego, czy akurat jest potrzebny),
+     wiec szerokosc dostepna dla obrazu NIGDY sie nie zmienia w zaleznosci od
+     tego, czy pasek jest aktualnie widoczny — zrywa petle u zrodla. */
+  scrollbar-gutter: stable;
+}
+.bindery-profile-studio .bindery-page-image {
+  height: auto;
+}
+
+.bindery-review-app .bindery-page-overlay,
+.bindery-profile-studio .bindery-page-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bindery-review-app .bindery-page-overlay rect,
+.bindery-profile-studio .bindery-page-overlay rect {
+  fill: transparent;
+  stroke-width: 2;
+  cursor: pointer;
+  pointer-events: all;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-page-overlay rect.bindery-overlay-selected {
+  stroke: var(--bindery-sage);
+}
+.bindery-review-app .bindery-page-overlay rect.bindery-overlay-unselected {
+  stroke: var(--bindery-accent);
+  stroke-dasharray: 4 3;
+}
+.bindery-review-app .bindery-page-overlay rect.bindery-overlay-highlighted {
+  stroke: var(--bindery-accent-hi);
+  stroke-width: 3;
+  fill: rgba(214, 127, 72, 0.15);
+}
+/* [zgloszenie uzytkownika, "mozliwosc zmiany rozmiaru automatycznie znalezionego
+   obrazu"] Uchwyty na rogach/srodkach krawedzi prostokata PODSWIETLONEGO obrazu. */
+.bindery-review-app .bindery-resize-handle {
+  fill: var(--bindery-accent-hi);
+  stroke: var(--bindery-window);
+  stroke-width: 1.5;
+  pointer-events: all;
+  vector-effect: non-scaling-stroke;
+  touch-action: none;
+}
+/* [zgloszenie uzytkownika, "zaznacza, ale nie widac obszaru jaki zaznaczam"]
+   Ten sam wzorzec braku co poprzednia naprawa (`#svgToOverlayPoint`) — regula
+   byla zakresowana WYLACZNIE do `.bindery-review-app`, wiec prostokat
+   przeciagania w Profile Studio istnial i mial poprawna geometrie (naprawiona
+   poprzednio), ale bez fill/stroke — calkowicie przezroczysty, niewidoczny. */
+.bindery-review-app .bindery-select-drag-rect,
+.bindery-profile-studio .bindery-select-drag-rect {
+  fill: rgba(214, 127, 72, 0.2);
+  stroke: var(--bindery-accent-hi);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay,
+.bindery-review-app .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay rect:not(.bindery-select-drag-rect),
+.bindery-profile-studio .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay,
+.bindery-profile-studio .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay rect:not(.bindery-select-drag-rect) {
+  cursor: crosshair;
+}
+
+.bindery-select-mode-toggle.active {
+  font-weight: 700;
+  color: var(--bindery-accent-hi);
+}
+.bindery-select-mode-hint {
+  margin: 0;
+}
+
+/* [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem"] Prostokat
+   w trakcie dostrajania obrotu — rysowany WEWNATRZ `<g transform="rotate(...)">`
+   (patrz `#renderPendingCropOverlay`), wiec sam nie potrzebuje wlasnego transformu. */
+.bindery-review-app .bindery-pending-crop-rect {
+  fill: rgba(74, 138, 122, 0.18);
+  stroke: var(--bindery-sage);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-pending-crop-handle-line {
+  stroke: var(--bindery-sage);
+  stroke-width: 1.5;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-pending-crop-handle {
+  fill: var(--bindery-sage);
+  stroke: var(--bindery-window);
+  stroke-width: 2;
+  cursor: grab;
+  pointer-events: all;
+  vector-effect: non-scaling-stroke;
+  touch-action: none;
+}
+.bindery-review-app .bindery-pending-crop-handle:active {
+  cursor: grabbing;
+}
+.bindery-review-app .bindery-pending-crop-toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bindery-window);
+  border: 1px solid var(--bindery-line);
+  border-radius: var(--bindery-r-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+}
+
+.bindery-review-app .bindery-review-list,
+.bindery-profile-studio .bindery-review-list {
+  border: 1px solid var(--bindery-line);
+  border-radius: var(--bindery-r-card);
+  background: var(--bindery-window);
+  overflow-y: auto;
+  min-height: 0;
+  position: relative;
+}
+.bindery-review-app .bindery-review-list-full,
+.bindery-profile-studio .bindery-review-list-full {
+  min-height: 0;
+}
+
+.bindery-review-app .bindery-review-row,
+.bindery-profile-studio .bindery-review-row {
+  border-top: 1px solid var(--bindery-line-soft);
+  border-bottom: none;
+  color: var(--bindery-text);
+}
+.bindery-review-app .bindery-review-row:first-child,
+.bindery-profile-studio .bindery-review-row:first-child {
+  border-top: none;
+}
+.bindery-review-app .bindery-review-row:hover,
+.bindery-profile-studio .bindery-review-row:hover {
+  background: var(--bindery-panel);
+}
+.bindery-review-app .bindery-row-highlighted {
+  background: rgba(214, 127, 72, 0.14) !important;
+}
+
+/* ---- Tabela obrazow: tory kolumn IDENTYCZNE w naglowku i kazdym wierszu ---- */
+.bindery-image-table {
+  border: 1px solid var(--bindery-line);
+  border-radius: var(--bindery-r-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  max-height: 470px;
+}
+.bindery-image-table-header {
+  display: grid;
+  grid-template-columns: 22px 36px 74px minmax(0, 1fr) 148px 64px;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bindery-panel);
+  font-family: var(--bindery-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+  flex: 0 0 auto;
+}
+.bindery-image-table-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bindery-window);
+}
+
+.bindery-review-app .bindery-review-row.bindery-image-row {
+  display: grid;
+  grid-template-columns: 22px 36px 74px minmax(0, 1fr) 148px 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+/* [zgloszenie uzytkownika, "obrocenie juz wycietego obrazu — mapa zajmuje
+   cala strone, zaznaczenie by ja zle wycielo"] Obrot TRESCI juz wycietego
+   obrazu (piksele, bez ponownego renderu z PDF-a) — niezalezne od uchwytow
+   obrotu/zmiany rozmiaru na podgladzie strony (te dotycza WYBORU obszaru
+   PRZED wycieciem). Dwa male przyciski w ostatniej kolumnie wiersza. */
+.bindery-row-rotate {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+.bindery-row-rotate-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--bindery-r-pill);
+  background: rgba(246, 239, 227, 0.07);
+  border: 1px solid var(--bindery-line-ctrl);
+  color: var(--bindery-text-2);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.bindery-row-rotate-btn:hover:not(:disabled) {
+  background: rgba(214, 127, 72, 0.2);
+  color: var(--bindery-text);
+}
+.bindery-row-rotate-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.bindery-row-thumb-slot {
+  width: 36px;
+  height: 48px;
+}
+.bindery-row-thumb {
+  width: 36px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(246, 239, 227, 0.12);
+  display: block;
+}
+.bindery-row-page {
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text-3);
+}
+.bindery-row-name-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+.bindery-row-name-input {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bindery-text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--bindery-r-pill);
+  padding: 6px 12px;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--bindery-font-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bindery-row-name-input:hover,
+.bindery-row-name-input:focus {
+  background: var(--bindery-bg);
+  border-color: rgba(246, 239, 227, 0.12);
+}
+.bindery-row-meta {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  color: var(--bindery-text-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 12px;
+}
+.bindery-row-journal-group {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--bindery-text-4);
+  border-radius: var(--bindery-r-pill);
+  padding: 2px 11px;
+  width: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.bindery-row-journal-group:hover,
+.bindery-row-journal-group:focus {
+  background: var(--bindery-bg);
+  border-color: rgba(246, 239, 227, 0.12);
+  color: var(--bindery-text-2);
+}
+/* [KROK-42, "token jako produkt"] Ten sam wzorzec co `.bindery-row-journal-group` — trzecia linia w `nameWrap`, widoczna wylacznie dla przeznaczenia `token`. */
+.bindery-row-prepare-token-btn {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--bindery-line-ctrl);
+  color: var(--bindery-text-3);
+  border-radius: var(--bindery-r-pill);
+  padding: 2px 11px;
+  width: fit-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  margin-top: 1px;
+}
+.bindery-row-prepare-token-btn:hover {
+  background: rgba(214, 127, 72, 0.2);
+  color: var(--bindery-text);
+}
+.bindery-row-destination {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 28px 5px 12px;
+  min-width: 0;
+  width: 100%;
+  background-position: right 10px center;
+}
+
+/* ---- Zakladka Aktorow (paleta ogolna, struktura wiersza bez zmian) ----
+   [zgloszenie uzytkownika, "przy wyborze tokena wyglada to... troche malo
+   czytelne", zrzut ekranu zakladki Aktorow] Caly ten klaster zostal PRZED
+   redesignem "krok 35" na jednolitych 10px — ponizej najmniejszego progu
+   uzywanego gdzie indziej w przebudowanej palecie (11px, patrz np. etykiety
+   pol formularza w Profile Studio). Na gestych wierszach aktorow (cechy,
+   ataki-etykietki, diagnostyka adaptera — czesto wielozdaniowe ostrzezenia
+   typu "Attack ... no hit chance ... Check whether this link is correct.")
+   ta jednolita malutka czcionka byla dokladnie zrodlem zgloszenia. Podniesione
+   do 11px (parytet z reszta drobnego tekstu w redesignie), notatki dodatkowo
+   dostaly wiekszy odstep miedzy liniami i miedzy wpisami, zeby wielozdaniowe
+   ostrzezenia dalo sie skanowac wzrokiem. */
+.bindery-actor-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  padding: 0.5rem 0.6rem;
+}
+.bindery-actor-row-line1 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.bindery-actor-name-input {
+  flex: 1 1 auto;
+  min-width: 6rem;
+}
+.bindery-actor-name-unresolved {
+  border-color: var(--bindery-accent-edge);
+  background: var(--bindery-accent-soft);
+}
+.bindery-actor-completeness {
+  font-size: 11px;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--bindery-r-pill);
+  background: var(--bindery-accent-soft);
+  color: var(--bindery-accent-hi);
+  white-space: nowrap;
+  font-family: var(--bindery-font-mono);
+}
+.bindery-actor-completeness[data-complete="1"] {
+  background: var(--bindery-sage-soft);
+  color: var(--bindery-sage-text);
+}
+.bindery-actor-page-link {
+  font-size: 11px;
+  color: var(--bindery-text-3);
+  white-space: nowrap;
+  font-family: var(--bindery-font-mono);
+}
+.bindery-actor-candidates {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 11px;
+  color: var(--bindery-text-2);
+}
+.bindery-actor-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.bindery-actor-stat-field {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 11px;
+  color: var(--bindery-text-2);
+}
+.bindery-actor-stat-field input {
+  width: 3rem;
+  font-size: 11px;
+  padding: 3px 7px;
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  color: var(--bindery-text);
+}
+.bindery-actor-attacks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.bindery-actor-attack-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  color: var(--bindery-text-2);
+}
+.bindery-actor-attack-removed {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.bindery-actor-attack-remove {
+  padding: 0 0.25rem;
+  line-height: 1;
+  color: var(--bindery-text-4);
+}
+.bindery-actor-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.bindery-actor-note {
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  color: var(--bindery-text-2);
+}
+.bindery-actor-note-warning,
+.bindery-actor-note-error {
+  color: var(--bindery-accent-hi);
+}
+
+/* Token/portret aktora — miniatura wyboru wyraznie wieksza (zgloszenie uzytkownika). */
+.bindery-actor-image-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.bindery-actor-image-empty-hint {
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+.bindery-actor-image-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.bindery-actor-image-field-label {
+  font-size: 11px;
+  color: var(--bindery-text-2);
+  min-width: 3.5rem;
+}
+.bindery-actor-portrait-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 11px;
+  color: var(--bindery-text-2);
+  cursor: pointer;
+}
+.bindery-actor-image-picker {
+  position: relative;
+  display: inline-block;
+}
+.bindery-actor-image-picker-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 10px;
+  background: rgba(246, 239, 227, 0.07);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  color: var(--bindery-text-2);
+}
+.bindery-actor-image-picker-thumb {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#8884 0% 25%, transparent 0% 50%) 50% / 8px 8px;
+  flex-shrink: 0;
+}
+.bindery-actor-image-picker-toggle .bindery-actor-image-picker-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--bindery-line-ctrl);
+}
+.bindery-actor-image-picker-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bindery-raised);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-chip);
+  box-shadow: var(--bindery-shadow);
+}
+.bindery-actor-image-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--bindery-r-chip);
+  color: var(--bindery-text-2);
+}
+.bindery-actor-image-picker-option:hover {
+  background: rgba(246, 239, 227, 0.10);
+  color: var(--bindery-text);
+}
+
+/* ---- Zakladka Diagnostyka ---- */
+.bindery-diagnostic-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  color: var(--bindery-text-2);
+}
+.bindery-diagnostic-error {
+  color: var(--bindery-danger);
+}
+.bindery-diagnostic-warning {
+  color: var(--bindery-accent-hi);
+}
+
+/* ---- Krok "Import" (docelowe foldery) i podsumowanie ---- */
+.bindery-target-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+.bindery-target-screen .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bindery-target-screen label {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+}
+.bindery-target-screen input[type="text"] {
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  padding: 7px 14px;
+  color: var(--bindery-text);
+  font-size: 13px;
+}
+.bindery-target-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.bindery-summary {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bindery-summary-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--bindery-text-2);
+}
+.bindery-summary-list a {
+  color: var(--bindery-accent-hi);
+}
+
+/* ---- Journale (grupowanie stron) ---- */
+.bindery-journal-preview {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+  font-size: 13px;
+  color: var(--bindery-text-3);
+}
+.bindery-journal-header-row {
+  font-weight: 700;
+  color: var(--bindery-text);
+}
+.bindery-journal-page-row {
+  padding-left: 1.5rem;
+}
+.bindery-journal-group-hint {
+  font-size: 12px;
+  color: var(--bindery-text-3);
+  margin: 0 0 4px;
+  padding: 0 18px;
+}
+.bindery-bulk-journal-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============================================================================
+   ProfileStudio — WYLACZNIE stary, NIETKNIETY arkusz (poza tym zlecen niem).
+   ============================================================================ */
+.bindery-studio-loaders {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.bindery-studio-loaders .form-group {
+  flex: 1 1 260px;
+}
+
+.bindery-studio-loaders .form-group > label {
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+}
+
+.bindery-studio-loaded-name {
+  display: block;
+  font-size: 12px;
+  color: var(--bindery-sage-text);
+  margin-top: 0.3rem;
+}
+
+.bindery-studio-summary-bar {
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bindery-text-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Nie wirtualizowane (odkrycie #5 kroku 21) — `.bindery-review-row` zaklada
+   sztywna `height:100%` przydatna WYLACZNIE dla wierszy pozycjonowanych
+   bezwzglednie przez `VirtualList`; wiersze encji Studio sa zwyklymi
+   dziecmi w normalnym przeplywie, wiec potrzebuja wlasnej, naturalnej wysokosci. */
+.bindery-studio-entity-row {
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  gap: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  color: var(--bindery-text);
+}
+
+.bindery-studio-entity-line1 {
+  font-weight: 700;
+}
+
+.bindery-studio-name-placeholder {
+  color: var(--bindery-accent-hi);
+  font-style: italic;
+}
+
+.bindery-studio-candidates {
+  margin: 0;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-attach-status {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-attach-label {
+  color: var(--bindery-text-4);
+}
+
+.bindery-studio-attach-ok {
+  color: var(--bindery-sage-text);
+}
+
+.bindery-studio-attach-missing {
+  color: var(--bindery-text-4);
+}
+
+.bindery-studio-attach-outofrange {
+  color: var(--bindery-accent-hi);
+  font-weight: 700;
+}
+
+.bindery-studio-overlap-row {
+  cursor: pointer;
+}
+
+.bindery-studio-pattern-table {
+  margin-bottom: 0.5rem;
+}
+
+.bindery-studio-zero-count {
+  color: var(--bindery-danger);
+  font-weight: 700;
+}
+
+/* [KROK-29 Z4, O3] Wzorzec trafiajacy podejrzanie czesto wzgledem liczby encji — bursztynowe, nie czerwone (nie jest to blokujacy blad jak `zero-count`, tylko sygnal "sprawdz ten regex"). */
+.bindery-studio-suspicious-count {
+  color: var(--bindery-accent-hi);
+  font-weight: 700;
+}
+
+/* [KROK-29 Z4] Lista znalezionych encji zakladki "Sprawdz" — kazdy wiersz to JEDNA encja (nazwa/placeholder, strona, kategoria, ewentualnie czego brakuje), nie zagregowana liczba per strone. */
+.bindery-studio-entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bindery-studio-entity-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.15rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--bindery-r-chip);
+  color: var(--bindery-text);
+}
+
+.bindery-studio-entity-row:hover {
+  background: rgba(246, 239, 227, 0.07);
+}
+
+.bindery-studio-entity-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bindery-studio-entity-category {
+  font-family: var(--bindery-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--bindery-r-pill);
+  white-space: nowrap;
+}
+
+.bindery-studio-entity-category-complete {
+  background: var(--bindery-sage-soft);
+  color: var(--bindery-sage-text);
+}
+
+.bindery-studio-entity-category-partial {
+  background: var(--bindery-accent-soft);
+  color: var(--bindery-accent-hi);
+}
+
+.bindery-studio-entity-category-unnamed {
+  background: rgba(217, 154, 138, 0.20);
+  color: var(--bindery-danger);
+}
+
+/* Nakladki dopasowan (Z2) — kolor per rodzaj obszaru, TA SAMA nakladka SVG co
+   ImportWizard/ReviewScreen (`pdfRectToScreen`), tylko wlasna paleta klas.
+   [zmierzony na zywo problem] `viewBox` nakladki jest ZAWSZE wieksza niz
+   wyswietlany rozmiar (np. 990x1400 -> 528x746px, ok. 2x pomniejszenie) —
+   bez `vector-effect: non-scaling-stroke` grubosc obwodki (i wzor kreski u
+   `.bindery-studio-overlap`) skaluje sie RAZEM z tym pomniejszeniem, wiec
+   male regiony (pojedyncze slowo) staja sie niemal niewidoczne, nawet gdy
+   dane/rysunek sa poprawne (zweryfikowane wprost przez zrzut SVG z konsoli
+   uzytkownika — element byl obecny, po prostu ~1px grubosci na ekranie). */
+.bindery-studio-region {
+  fill: transparent;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.bindery-studio-region-grid {
+  stroke: #3498db;
+}
+
+.bindery-studio-region-derived {
+  stroke: #9b59b6;
+}
+
+.bindery-studio-region-attacks {
+  stroke: #e67e22;
+}
+
+.bindery-studio-region-skills {
+  stroke: #16a085;
+}
+
+.bindery-studio-region-name {
+  stroke: #2ecc71;
+}
+
+/* [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Wlasny kolor,
+   zeby na PDF-ie dalo sie odroznic obszar nazwy od obszaru zawodu/typu —
+   sasiaduja ze soba geometrycznie (ta sama linia), wiec identyczny kolor
+   uniemozliwilby rozroznienie ktory jest ktorym na pierwszy rzut oka. */
+.bindery-studio-region-typeLabel {
+  stroke: #d35400;
+}
+
+/* [zmierzony na zywo problem] Samo pogrubienie obwodki (2px->4px) na
+   WSZYSTKICH regionach danej encji na raz bylo zbyt subtelne, zeby
+   uzytkownik zauwazyl EFEKT klikniecia w ostrzezenie — dodany kontrastowy
+   zloty kolor, nie tylko grubosc, zeby podswietlenie bylo jednoznacznym
+   sygnalem "to tutaj", nie tylko nieco grubsza linia w tym samym kolorze. */
+.bindery-studio-region-highlighted {
+  stroke: #f1c40f;
+  stroke-width: 4;
+}
+
+/* [Sedno etapu 1] Zachodzenie — czerwone wyroznienie WPROST na obszarze
+   przeciecia dwoch roznych encji, patrz brief kroku 22 Z2 ("ostatni wiersz
+   jest najwazniejszy"). */
+.bindery-studio-overlap {
+  fill: rgba(192, 57, 43, 0.45);
+  stroke: #c0392b;
+  stroke-width: 3;
+  stroke-dasharray: 6 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* [KROK-23] Edytor profilu. */
+.bindery-profile-studio .notification.error {
+  background: rgba(217, 154, 138, 0.10);
+  border: 1px solid var(--bindery-danger-edge);
+  color: var(--bindery-danger);
+  border-radius: var(--bindery-r-card);
+  padding: 10px 14px;
+}
+
+.bindery-studio-pick-hint {
+  background: var(--bindery-accent-soft);
+  border-color: var(--bindery-accent-edge);
+  color: var(--bindery-text);
+  border-radius: var(--bindery-r-card);
+}
+
+/* [zgloszenie uzytkownika, "nie da sie kliknac w zaden atak/walke na
+   obszarze zaznaczonym"] `.bindery-profile-studio .bindery-page-overlay rect`
+   (redesign "krok 35", wyzej w pliku) ma WYZSZA specyficznosc (2 klasy + typ)
+   niz bylo tu (1 klasa) — nadpisywalo `fill`/`cursor` tych prostokatow bez
+   wzgledu na kolejnosc w pliku. Prefiks `.bindery-profile-studio
+   .bindery-page-overlay rect.xxx` (3 klasy + typ) przywraca dominacje w
+   sposob NIEZALEZNY od kolejnosci deklaracji. */
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-pickable-token {
+  fill: var(--bindery-accent-soft);
+  stroke: var(--bindery-accent-edge);
+  stroke-width: 1;
+  cursor: crosshair;
+  pointer-events: all;
+}
+
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-pickable-token:hover {
+  fill: var(--bindery-accent-soft-hi);
+  stroke-width: 2;
+}
+
+.bindery-studio-form-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.bindery-studio-form-row > span {
+  flex: 0 0 180px;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-form-row > input,
+.bindery-studio-form-row > select,
+.bindery-studio-form-row > textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* [KROK-29 Z2] `#regexInput`/`#regexTextarea` zwracaja teraz OPAKOWANIE (pole
+   + komunikat bledu + podpowiedz JSON), nie sam input/textarea -- wiec TO
+   OPAKOWANIE, nie samo pole, jest bezposrednim dzieckiem `.bindery-studio-form-row`
+   i musi przejac `flex: 1 1 auto` po dawnym selektorze `> input/select/textarea`. */
+.bindery-studio-regex-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bindery-studio-regex-field input,
+.bindery-studio-regex-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bindery-studio-regex-input {
+  font-family: var(--bindery-font-mono);
+  border-radius: var(--bindery-r-chip) !important;
+}
+
+.bindery-studio-regex-invalid {
+  border-color: var(--bindery-danger) !important;
+  background: rgba(217, 154, 138, 0.08) !important;
+}
+
+.bindery-studio-regex-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--bindery-danger);
+}
+
+.bindery-studio-regex-json-hint {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-itempattern-count {
+  margin: 0.15rem 0 0;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12px;
+  color: var(--bindery-text-2);
+  margin-bottom: 0.25rem;
+}
+
+.bindery-studio-provides-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.bindery-studio-page-ranges,
+.bindery-studio-labels-list,
+.bindery-studio-attach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.35rem;
+}
+
+.bindery-studio-page-range-row,
+.bindery-studio-label-row,
+.bindery-studio-attach-rule-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #2, poprzednia teoria (warstwy CSS)
+   byla bledna] Wyliczony styl w devtoolsach pokazal `width: 30px` mimo
+   `width: 5rem !important` powyzej — winowajca to NIE kaskada/warstwy, tylko
+   flexbox: `.bindery-studio-form-row input { flex: 1 1 auto; min-width: 0; }`
+   (regula dzielona przez WSZYSTKIE pola w wierszach formularza) zdejmuje
+   "podloge" (`min-width:0`), wiec gdy kontener ma za malo miejsca (np. wezsze
+   okno Profile Studio niz lokalnie), przegladarka kurczy pole PONIZEJ
+   zadeklarowanej `width` — `!important` na `width` nie pomaga, bo we flexboksie
+   `width`/`flex-basis` to tylko PUNKT STARTOWY, kurczenie (`flex-shrink`)
+   dziala PO nim. Naprawa: zablokowac kurczenie tego konkretnego pola
+   (`flex-shrink: 0`), zamiast dalej „przebijac” szerokosc. */
+.bindery .bindery-studio-page-range-row input {
+  /* [POPRAWKA #4] `.bindery-studio-form-row input { flex: 1 1 auto; }`
+     (wspoldzielona regula) niesie `flex-grow: 1` — pole rozciagalo sie na
+     cala dostepna szerokosc SWOJEJ etykiety (cyfra wyrownana do lewej,
+     reszta niewidoczna jednolitym tlem), wiec wizualnie "konczylo sie"
+     dopiero przy przycisku usuwania, mimo poprawnej `width`. `flex: 0 0 5rem`
+     blokuje ZAROWNO rozciaganie, jak i kurczenie (POPRAWKA #2) w jednym
+     skrocie — pole trzyma dokladnie 5rem, nigdy wiecej, nigdy mniej. */
+  flex: 0 0 5rem !important;
+  width: 5rem !important;
+  min-width: 0 !important;
+}
+/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #3] Rozmiar pól "od"/"do" jest juz
+   poprawny (zweryfikowane w devtoolsach: 80px calosci, bez kurczenia) —
+   ALE 0.3rem odstepu (dziedziczone z `.bindery-studio-page-range-row`
+   wyzej, wspoldzielone z innymi listami wierszy) miedzy szerokim polem
+   "do" a okraglym przyciskiem usuwania sprawialo wrazenie, ze zlewaja sie
+   w jeden ksztalt (cyfra wyrownana do lewej zostawia "puste" tlo pigulki
+   tuz przy przycisku) — autor klikajacy w to miejsce trafial w przycisk
+   zamiast w pole. Wiekszy odstep TYLKO dla tego wiersza (nie zmieniamy
+   wspoldzielonej reguly bazowej, zeby nie ruszac innych list — etykiety
+   cech, reguly dolaczania). */
+.bindery .bindery-studio-page-range-row {
+  gap: 0.6rem;
+}
+/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #5, PRAWDZIWA przyczyna calego
+   "nachodzenia"] `.bindery-studio-form-row > span { flex: 0 0 180px; }`
+   (wspoldzielona regula, zaprojektowana dla DLUGICH etykiet gdzie indziej w
+   Studiu, np. "itemPattern") rezerwuje 180px na sam podpis "od"/"do" —
+   dwa krotkie znaki w bardzo szerokim, w wiekszosci PUSTYM pudelku. To ta
+   pusta przestrzen (nie kurczenie ani rozciaganie pola, POPRAWKI #2/#4)
+   tworzyla wrazenie, ze etykieta i jej wartosc naleza do roznych miejsc —
+   podpis "od" renderowal sie daleko od WLASNEGO pola, ktore z kolei
+   wizualnie ladowalo blisko przycisku usuwania NASTEPNEGO elementu.
+   Podpisy "od"/"do" nie potrzebuja rezerwacji szerokosci — dopasuj do
+   wlasnej tresci, TYLKO w tym wierszu (nie zmieniamy wspoldzielonej reguly
+   uzywanej przez dluzsze etykiety w innych zakladkach). */
+.bindery .bindery-studio-page-range-row .bindery-studio-form-row > span {
+  flex: 0 0 auto;
+}
+
+.bindery-studio-pick-btn {
+  flex: 0 0 auto;
+}
+
+.bindery-studio-pattern-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bindery-studio-raw-json {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-height: 0;
+  padding: 0 14px 14px;
+}
+
+.bindery-studio-raw-json-textarea {
+  width: 100%;
+  min-height: 20rem;
+  box-sizing: border-box;
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text);
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-card);
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+/* [KROK-34 Z2] Zakladka "Notatki" — lista blokow prozy dolaczanych geometrycznie. */
+.bindery-studio-notes-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.bindery-studio-note-block-row {
+  border-bottom: 1px dashed var(--bindery-line);
+  padding-bottom: 0.4rem;
+}
+
+.bindery-studio-note-block-header {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bindery-studio-note-block-header input[type="text"] {
+  flex: 1;
+}
+
+.bindery-studio-note-pick-button.active {
+  background: var(--bindery-accent-soft-hi);
+  color: var(--bindery-accent-hi);
+  font-weight: 700;
+}
+
+.bindery-studio-note-preview {
+  margin-top: 0.2rem;
+  padding-left: 0.5rem;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bindery-studio-note-preview-hit {
+  font-style: italic;
+}
+
+.bindery-studio-notes-add-button {
+  align-self: flex-start;
+}
+
+/* [KROK-24 Z2] Pomiar geometrii per regula dolaczenia. */
+.bindery-studio-attach-rule-wrap {
+  border-bottom: 1px dashed var(--bindery-line);
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+
+.bindery-studio-measure-section {
+  margin-top: 0.2rem;
+  padding-left: 0.5rem;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+.bindery-studio-measure-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-top: 0.2rem;
+}
+
+.bindery-studio-measure-summary {
+  font-weight: 700;
+  color: var(--bindery-text);
+}
+
+/* [KROK-24 Z3] Weryfikacja mapowan mechanika. */
+.bindery-studio-relation-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.35rem;
+}
+
+.bindery-studio-relation-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.bindery-studio-relation-row input {
+  flex: 1 1 auto;
+  font-family: var(--bindery-font-mono);
+}
+
+.bindery-studio-relation-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+}
+
+.bindery-studio-relation-mismatches {
+  margin: 0 0 0.3rem;
+  padding-left: 1.5rem;
+  font-size: 11px;
+  color: var(--bindery-text-3);
+}
+
+/* [KROK-24 Z1] Propozycja wzorca z zaznaczenia obszaru. */
+.bindery-studio-selection-proposal {
+  position: relative;
+  border: 1px solid var(--bindery-accent-edge);
+  background: var(--bindery-panel);
+  border-radius: var(--bindery-r-card);
+  padding: 0.5rem 0.75rem;
+  margin-top: 0.35rem;
+  max-height: 30vh;
+  overflow-y: auto;
+  color: var(--bindery-text);
+}
+
+.bindery-studio-selection-proposal h4 {
+  margin: 0 0 0.35rem;
+  font-size: 12px;
+  color: var(--bindery-text-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--bindery-font-mono);
+}
+
+.bindery-studio-proposal-close {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+}
+
+.bindery-studio-proposal-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.bindery-studio-proposal-label {
+  flex: 1 1 auto;
+  font-family: var(--bindery-font-mono);
+}
+
+.bindery-studio-proposal-preview {
+  font-style: italic;
+  word-break: break-word;
+  color: var(--bindery-text-3);
+}
+
+/* [KROK-25 Z1] Para nizszej pewnosci (wartosc nie wygladajaca na liczbe) -- widoczna, nie odrzucona milczaco (brief: "falszywy pozytyw kosztuje jedno klikniecie, falszywy negatyw kosztuje blad w profilu"). */
+.bindery-studio-proposal-low-confidence .bindery-studio-proposal-label {
+  color: var(--bindery-accent-hi);
+}
+
+.bindery-studio-proposal-confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 1px solid var(--bindery-accent-edge);
+  color: var(--bindery-accent-hi);
+  font-size: 10px;
+  font-weight: 700;
+  flex: 0 0 auto;
+  cursor: help;
+}
+
+/* [KROK-28] Panel budowania profilu wskazywaniem — zakladka Strona. */
+.bindery-studio-build-guidance {
+  margin: 0 0 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bindery-accent-soft);
+  border-left: 3px solid var(--bindery-accent);
+  border-radius: 0 var(--bindery-r-chip) var(--bindery-r-chip) 0;
+  font-size: 12px;
+  color: var(--bindery-text);
+}
+
+.bindery-studio-build-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.5rem;
+}
+
+.bindery-studio-build-section {
+  border: 1px solid var(--bindery-line);
+  border-radius: var(--bindery-r-chip);
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.5rem;
+  background: var(--bindery-panel);
+}
+
+.bindery-studio-build-section h4 {
+  margin: 0 0 0.3rem;
+  font-size: 13px;
+  color: var(--bindery-text);
+}
+
+.bindery-studio-build-section-active {
+  border-color: var(--bindery-accent-edge);
+  box-shadow: 0 0 0 1px var(--bindery-accent-edge) inset;
+}
+
+.bindery-studio-build-pair-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+}
+
+.bindery-studio-build-pair-row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bindery-studio-build-pair-row input {
+  width: 9rem;
+  min-width: 0;
+}
+
+.bindery-studio-build-itempattern-hint {
+  color: var(--bindery-accent-hi);
+}
+
+.bindery-studio-build-ambiguous-hint {
+  margin: 0.3rem 0;
+}
+
+/* Kandydat na wartosc podswietlony po niejednoznacznym kliknieciu etykiety (Z2) — wyrazniej niz zwykly klikalny token. */
+.bindery-page-overlay rect.bindery-studio-pickable-candidate {
+  fill: rgba(230, 126, 34, 0.35);
+  stroke: #e67e22;
+  stroke-width: 2;
+}
+
+/* Zasieg aktywnej sekcji (Z3) — obszar + przeciagalna dolna krawedz.
+   [zgloszenie uzytkownika, "nie da sie kliknac w zaden atak/walke na
+   obszarze zaznaczonym"] Ten prostokat rysuje sie NAD tokenami do klikania
+   (`#mountSectionBoundaryOverlay` woluje sie PO `#mountPickableTokens`), wiec
+   `pointer-events: none` tutaj jest KONIECZNY zeby klikniecia "przechodzily"
+   do atakow/pozycji pod spodem. Redesign "krok 35" dodal wyzej w pliku
+   `.bindery-profile-studio .bindery-page-overlay rect` z WYZSZA
+   specyficznoscia (2 klasy+typ vs 1 klasa tutaj), co nadpisywalo to
+   `pointer-events: none` z powrotem na `all` — dokladnie ten zgloszony objaw.
+   Prefiks `.bindery-profile-studio .bindery-page-overlay rect.xxx` (3
+   klasy+typ) przywraca dominacje niezaleznie od kolejnosci w pliku. */
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-section-extent {
+  fill: rgba(46, 204, 113, 0.12);
+  stroke: #2ecc71;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-section-extent-overlap {
+  fill: rgba(231, 76, 60, 0.18);
+  stroke: #e74c3c;
+}
+
+/* [zgloszenie uzytkownika, "nie mozna zmienic rozmiaru obszaru"] Element
+   uchwytu to `<line>` (patrz `#mountSectionBoundaryOverlay`), NIE `<rect>` —
+   selektor z typem `rect.xxx` (wzorzec uzyty wyzej dla `bindery-studio-*`
+   prostokatow) nigdy tu nie pasowal, wiec uchwyt tracil CALY swoj styl
+   (w tym `pointer-events: all` potrzebne do zlapania przeciagniecia).
+   Generyczna regula `.bindery-profile-studio .bindery-page-overlay rect`
+   (typ `rect`) i tak nigdy nie dotyczyla `<line>`, wiec typ tutaj to
+   `line`, nie `rect`. */
+.bindery-profile-studio .bindery-page-overlay line.bindery-studio-section-handle {
+  stroke: #2ecc71;
+  stroke-width: 4;
+  cursor: ns-resize;
+  pointer-events: all;
+  vector-effect: non-scaling-stroke;
+}
+
+.bindery-profile-studio .bindery-page-overlay line.bindery-studio-section-handle-overlap {
+  stroke: #e74c3c;
+}
+
+/* [KROK-29 Z1] "Natychmiastowy podglad na PDF-ie" -- ktore pozycje itemPattern
+   zlapal (zielone) a ktore nie (bursztynowe), wewnatrz zasiegu sekcji.
+   `pointer-events: none` z tego samego powodu co `bindery-studio-section-extent`
+   powyzej — patrz komentarz tam. */
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-item-matched {
+  fill: rgba(46, 204, 113, 0.3);
+  stroke: #27ae60;
+  stroke-width: 1.5;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.bindery-profile-studio .bindery-page-overlay rect.bindery-studio-item-unmatched {
+  fill: rgba(230, 126, 34, 0.25);
+  stroke: #e67e22;
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
+.bindery-studio-advanced-details {
+  margin-top: 0.5rem;
+  border-top: 1px solid var(--bindery-line);
+  padding-top: 0.35rem;
+}
+
+.bindery-studio-advanced-details summary {
+  cursor: pointer;
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+}
+
+/* [KROK-22, scalone w KROK-28] Profile Studio — kontener calego okna.
+   `overflow-y: auto` to siatka bezpieczenstwa zmierzona na zywo: gdy
+   rozwiniete Metadane (patrz .bindery-studio-metadata-header) dodaja
+   wysokosc do tej kolumny, a wewnetrzne panele (.bindery-review-list)
+   nie zdolaja sie skurczyc na tyle, calosc ma wciaz dokad sie przewinac
+   zamiast po prostu obcinac tresc bez dostepu. */
+.bindery-profile-studio {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.bindery-studio-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 1rem;
+  text-align: center;
+  padding: 1rem;
+}
+
+.bindery-studio-entry-choices {
+  display: flex;
+  gap: 1rem;
+}
+
+.bindery-studio-entry-choice {
+  padding: 12px 26px;
+  font-size: 14px;
+}
+
+.bindery-studio-back-link {
+  align-self: flex-start;
+  width: auto;
+  flex: 0 0 auto;
+}
+
+/* [zgloszenie uzytkownika, "najpierw okno uzupelnienia metadanych"] Krok
+   miedzy ekranem wejsciowym a budowaniem — ten sam formularz co zwijany
+   naglowek "Metadane i zakres stron" na ekranie budowania (`#buildMetadataSection`,
+   jedno zrodlo prawdy), ale TU zawsze rozwiniety i blokujacy dalsze przejscie. */
+.bindery-studio-metadata-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bindery-studio-metadata-step h2 {
+  margin: 0;
+  color: var(--bindery-text);
+}
+
+.bindery-studio-metadata-continue {
+  align-self: flex-end;
+  padding: 10px 24px;
+}
+
+/* Ekran budowania: pasek trwaly (nazwy plikow, zapis) + naglowek metadanych
+   zwiniety domyslnie + zakladki-wzorce + tresc aktywnej zakladki. */
+.bindery-studio-build {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0.35rem;
+}
+
+.bindery-studio-build-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  background: var(--bindery-panel);
+  border-bottom: 1px solid var(--bindery-line);
+}
+
+.bindery-studio-build-filenames {
+  flex: 1;
+  font-family: var(--bindery-font-mono);
+  font-size: 12px;
+  color: var(--bindery-text-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bindery-studio-metadata-header {
+  padding: 0 14px;
+}
+
+.bindery-studio-metadata-header summary {
+  cursor: pointer;
+  font-family: var(--bindery-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bindery-text-4);
+}
+
+.bindery-studio-metadata-header[open] summary {
+  margin-bottom: 0.35rem;
+}
+
+/* [KROK-39 Z2] Przelacznik trasy NAD zakladkami-wzorcami — te same zakladki
+   (Cechy/Pochodne/Ataki/...) sluza obu trasom, budowane z innego zestawu
+   danych zaleznie od tego, ktory przycisk tutaj jest aktywny. Ten sam
+   segmentowany wyglad co `.bindery-studio-name-submode-toggle` (dwa tryby w
+   jednej zakladce "Nazwa"), zeby ekran nie mnozyl nowych konwencji wizualnych. */
+.bindery-studio-route-switch {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0;
+  background: var(--bindery-panel);
+}
+.bindery-studio-route-btn {
+  flex: 1;
+}
+.bindery-studio-route-btn.active {
+  color: var(--bindery-accent-hi);
+  border-color: var(--bindery-accent);
+  background: var(--bindery-accent-soft);
+}
+
+/* [KROK-39 Z2] Znacznik trasy per wiersz encji na zakladce "Sprawdz" — lista
+   miesza encje OBU tras (auto-routowane per strona), znacznik nazywa WPROST,
+   ktorej dotyczy dany wiersz (brief: "Sprawdź musi pokazywać, której trasy
+   dotyczy"). Ten sam ksztalt pigulki co `.bindery-studio-entity-category`. */
+.bindery-studio-route-tag {
+  font-family: var(--bindery-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--bindery-r-pill);
+  white-space: nowrap;
+  background: var(--bindery-text-4);
+  opacity: 0.7;
+}
+.bindery-studio-route-tag-playerCharacter {
+  background: var(--bindery-sage-soft);
+  color: var(--bindery-sage-text);
+  opacity: 1;
+}
+
+/* [KROK-28 korekta, sedno] Zakladki to WZORCE profilu, nie widoki — kazda
+   niesie znacznik stanu (pusta/liczba/ostrzezenie), zeby autor widzial na
+   pierwszy rzut oka co zostalo do zrobienia. Pasek POZIOMY (nie pionowy rail
+   jak w ReviewScreen) — Profile Studio ma jedna, plaska liste wzorcow, nie
+   tor krokow + zakladki. Pojedyncze przyciski reuzywaja `.bindery-tab`. */
+.bindery-studio-build-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  background: var(--bindery-panel);
+  border-bottom: 1px solid var(--bindery-line);
+}
+.bindery-studio-build-tabs .bindery-tab {
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+}
+.bindery-studio-build-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+/* [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Dwa tryby
+   wskazywania w JEDNEJ zakladce "Nazwa" — podkreslenie aktywnego trybu. */
+.bindery-studio-name-submode-row {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--bindery-line);
+}
+
+.bindery-studio-name-submode-toggle {
+  flex: 1;
+  border-radius: 0;
+}
+
+.bindery-studio-name-submode-toggle.active {
+  color: var(--bindery-accent-hi);
+  border-bottom: 2px solid var(--bindery-accent);
+}
+
+.bindery-studio-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.25rem;
+  border-radius: var(--bindery-r-pill);
+  font-family: var(--bindery-font-mono);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.bindery-studio-tab-badge-empty {
+  background: var(--bindery-text-4);
+  opacity: 0.4;
+  min-width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
+}
+
+.bindery-studio-tab-badge-count {
+  background: rgba(246, 239, 227, 0.16);
+  color: var(--bindery-text);
+}
+
+.bindery-tab.active .bindery-studio-tab-badge-count {
+  background: var(--bindery-accent-soft-hi);
+  color: var(--bindery-accent-hi);
+}
+
+.bindery-studio-tab-badge-warning {
+  background: var(--bindery-danger-edge);
+  color: #2a1310;
+}
+
+.bindery-studio-build-guidance {
+  font-weight: 600;
+  color: var(--bindery-text-2);
+  margin: 0 0 0.35rem;
+}

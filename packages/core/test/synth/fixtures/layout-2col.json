@@ -1,0 +1,13 @@
+{
+  "id": "layout-2col",
+  "description": "Uklad dwukolumnowy: lewa x=72..~260, prawa x=310..~500, rynna x=260..310 pusta na calej wysokosci (KROK-6 Z3).",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 16,
+    "totalItemCount": 16
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny (nie wynik detekcji): itemy istnieja WYLACZNIE w pasmach x∈[72,~260] i x∈[310,~500], zero itemow w x∈[260,310], na WSZYSTKICH 8 wierszach (y=700..560). detectColumns() powinien zwrocic 2 ColumnRegion posortowane lewo->prawo, confidence wysoki (rynna pusta na 100% wysokosci)."
+  }
+}

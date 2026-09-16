@@ -1,0 +1,37 @@
+{
+  "name": "bindery-monorepo",
+  "private": true,
+  "license": "MIT",
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/module && npm run check:lang && npm run sync:local",
+    "test": "npm run test --workspace=packages/core",
+    "lint": "eslint . --max-warnings=0",
+    "check:boundary": "npm run check:boundary --workspace=packages/core",
+    "check:imports": "node tools/check-imports.mjs",
+    "check:size": "node tools/check-size.mjs",
+    "check:lang": "node tools/check-lang.mjs",
+    "sync:local": "node tools/sync-local-module.mjs",
+    "package": "node tools/package-module.mjs",
+    "recount:fragmentation": "node tools/recount-fragmentation.mjs",
+    "perf:inventory": "node tools/perf-inventory.mjs",
+    "experiment:double-pass": "node tools/experiment-double-pass.mjs",
+    "calibrate:merge": "tsx tools/calibrate-merge.ts",
+    "calibrate:layout": "tsx tools/calibrate-layout.ts",
+    "calibrate:images": "tsx tools/calibrate-images.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.5",
+    "archiver": "^8.0.0",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.23.1",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.19.1"
+  }
+}

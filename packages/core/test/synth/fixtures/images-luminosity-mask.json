@@ -1,0 +1,14 @@
+{
+  "id": "images-luminosity-mask",
+  "description": "Obraz namalowany pod ExtGState /SMask /Luminosity — maska nie powinna wpasc do wynikow fazy 3 jako osobny obraz.",
+  "targetPhase": 3,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 2,
+    "hasLuminosityGroup": true
+  },
+  "expected": {
+    "note": "2 obrazy: Im1 (tresc, poza grupa, niezamaskowany sam w sobie) + MaskImg (grayscale image wewnatrz beginGroup/Luminosity, ktora KROK-4 imageRegistry oznacza jako maskEvidence='group'/isMaskLayer=true). Zweryfikowane empirycznie: wersja formy maski oparta na samym wypelnieniu wektorowym (bez obrazu) daje ZERO eventow 'image' wewnatrz grupy, wiec sciezka dowodowa 'group' nigdy by nie zadzialala.",
+    "images": [{ "isMaskLayer": false, "note": "obraz tresci (Im1) jest niezamaskowany sam w sobie; maska to osobna grupa Luminosity, ktora faza 3 musi rozpoznac i pominac" }]
+  }
+}

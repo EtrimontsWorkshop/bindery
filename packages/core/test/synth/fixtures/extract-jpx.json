@@ -1,0 +1,12 @@
+{
+  "id": "extract-jpx",
+  "description": "Obraz zadeklarowany jako JPEG2000 (/Filter /JPXDecode) z nieprawidlowymi danymi strumienia.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 1
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: jeden obraz XObject z /Filter /JPXDecode i danymi, ktore NIE SA poprawnym kodstrumieniem JP2 (256 zerowych bajtow). Nie testuje poprawnego dekodowania JPEG2000 (do tego potrzebny prawdziwy plik, patrz tools/calibrate-images.ts na samples/) — testuje wylacznie, ze extractDirect() nigdy nie pomija cicho nieudanego dekodowania: albo page.objs.get()/commonObjs.get() rzuci/zwroci null-podobna wartosc i zostanie zgloszony Diagnostic (IMAGE_DECODE_FAILED/IMAGE_DECODE_EMPTY), albo (jesli pdf.js z jakiegos powodu zwroci cokolwiek) obraz zostanie znormalizowany bez bledu — oba wyniki sa akceptowalne (brief), cichy brak sladu nie."
+  }
+}

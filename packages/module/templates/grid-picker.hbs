@@ -1,0 +1,25 @@
+<div class="bindery-grid-picker">
+  {{#if isSuggested}}
+    <p class="hint bindery-grid-picker-suggested-hint">{{localize "BINDERY.gridPicker.suggestedHint"}}</p>
+  {{/if}}
+  <div class="bindery-grid-picker-canvas-wrap">
+    <canvas class="bindery-grid-canvas" width="{{previewWidth}}" height="{{previewHeight}}"></canvas>
+  </div>
+  <div class="form-group">
+    <label>{{localize "BINDERY.gridPicker.size"}} <span data-value="size">{{grid.size}}</span>px</label>
+    <input type="range" name="size" min="{{minSize}}" max="{{maxSize}}" step="1" value="{{grid.size}}" />
+  </div>
+  <p class="hint bindery-grid-picker-offset-hint">{{localize "BINDERY.gridPicker.offsetHint"}}</p>
+  <div class="form-group">
+    <label>{{localize "BINDERY.gridPicker.offsetX"}} <span data-value="offsetX">{{grid.offsetX}}</span>px</label>
+    <input type="range" name="offsetX" min="0" max="{{maxSize}}" step="1" value="{{grid.offsetX}}" />
+  </div>
+  <div class="form-group">
+    <label>{{localize "BINDERY.gridPicker.offsetY"}} <span data-value="offsetY">{{grid.offsetY}}</span>px</label>
+    <input type="range" name="offsetY" min="0" max="{{maxSize}}" step="1" value="{{grid.offsetY}}" />
+  </div>
+  <div class="bindery-grid-picker-buttons">
+    <button type="button" data-action="confirm">{{localize "BINDERY.gridPicker.confirm"}}</button>
+    <button type="button" data-action="cancel">{{localize "BINDERY.gridPicker.cancel"}}</button>
+  </div>
+</div>

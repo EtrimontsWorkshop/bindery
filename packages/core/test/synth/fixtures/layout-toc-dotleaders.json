@@ -1,0 +1,13 @@
+{
+  "id": "layout-toc-dotleaders",
+  "description": "Gesty spis tresci z wypunktowaniem kropkowym (20 kropek pod rzad per wpis) — testuje Z1a (brak sklejen) i wskazowke kropkowa (BlockKind:'table').",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 12,
+    "totalItemCount": 12
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: 12 linii, kazda 'Tytul ....(20 kropek).... N', na wlasnym Y (700..480). Kazda linia zawiera ciag 20 kropek (>= 5 wymagane przez wskazowke). buildSemanticBlocks() powinien sklasyfikowac kazdy blok (linia) jako 'table' przez regule dot-leader, niezaleznie od roli fontu."
+  }
+}

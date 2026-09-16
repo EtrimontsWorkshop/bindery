@@ -1,0 +1,19 @@
+{
+  "id": "text-rotated-marginalia",
+  "description": "5 linii tekstu poziomego (strumien podstawowy) + pasek pionowy na marginesie (90°) = ~58% itemow obroconych (pdf.js scalil/wstawil spacje w pionowym strumieniu, patrz uwaga).",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 12,
+    "rotatedItemRatio": { "min": 0.5, "max": 0.65 }
+  },
+  "expected": {
+    "note": "pdf.js scalil dwie ostatnie linie paska bocznego w jeden item i wstawil 3 wlasne syntetyczne itemy spacji w strumieniu pionowym — geometria scalania dziala tez dla tekstu obroconego, nie tylko poziomego (zweryfikowane empirycznie).",
+    "pages": [{
+      "streams": [
+        { "angle": 0, "isPrimary": true },
+        { "angle": 90, "isPrimary": false }
+      ]
+    }]
+  }
+}

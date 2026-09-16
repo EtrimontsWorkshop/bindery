@@ -1,0 +1,79 @@
+<div class="bindery-token-prep">
+  <div class="bindery-token-prep-canvas-wrap">
+    <canvas class="bindery-token-prep-canvas" width="{{previewPx}}" height="{{previewPx}}"></canvas>
+  </div>
+  <p class="hint bindery-token-prep-drag-hint">{{localize "BINDERY.tokenPrep.dragHint"}}</p>
+
+  <div class="form-group">
+    <label>{{localize "BINDERY.tokenPrep.zoom"}}</label>
+    <input type="range" name="zoom" min="{{minZoom}}" max="{{maxZoom}}" step="0.05" value="{{zoom}}" />
+  </div>
+
+  <div class="form-group bindery-token-prep-shape-group">
+    <label>{{localize "BINDERY.tokenPrep.shape"}}</label>
+    <div class="bindery-token-prep-radio-row">
+      <label><input type="radio" name="shape" value="circle" {{#if shapeIsCircle}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.shapeCircle"}}</label>
+      <label><input type="radio" name="shape" value="square" {{#if shapeIsSquare}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.shapeSquare"}}</label>
+      <label><input type="radio" name="shape" value="roundedSquare" {{#if shapeIsRoundedSquare}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.shapeRoundedSquare"}}</label>
+      <label><input type="radio" name="shape" value="hex" {{#if shapeIsHex}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.shapeHex"}}</label>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "BINDERY.tokenPrep.removeBackground"}}</label>
+    <input type="checkbox" name="removeBg" {{#if removeBg}}checked{{/if}} />
+  </div>
+  <div class="form-group bindery-token-prep-tolerance-row">
+    <label>{{localize "BINDERY.tokenPrep.removeBackgroundTolerance"}}</label>
+    <input type="range" name="tolerance" min="1" max="60" step="1" value="{{tolerance}}" />
+  </div>
+  <p class="hint bindery-token-prep-bg-aborted-hint" hidden>{{localize "BINDERY.tokenPrep.removeBackgroundAborted"}}</p>
+
+  <div class="form-group bindery-token-prep-click-add-row">
+    <label><input type="checkbox" name="clickToAdd" {{#if clickToAddMode}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.clickToAdd"}}</label>
+    <button type="button" data-action="undoClickSeed" {{#unless canUndoClick}}disabled{{/unless}}>{{localize "BINDERY.tokenPrep.undoClickSeed"}}</button>
+    <span class="bindery-token-prep-click-count-wrap">(<span class="bindery-token-prep-click-count">0</span>)</span>
+  </div>
+  <p class="hint bindery-token-prep-click-add-hint">{{localize "BINDERY.tokenPrep.clickToAddHint"}}</p>
+
+  <div class="form-group">
+    <label>{{localize "BINDERY.tokenPrep.frame"}}</label>
+    <div class="bindery-token-prep-radio-row">
+      <label><input type="radio" name="frame" value="none" {{#if frameIsNone}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.frameNone"}}</label>
+      <label><input type="radio" name="frame" value="thin" {{#if frameIsThin}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.frameThin"}}</label>
+      <label><input type="radio" name="frame" value="thick" {{#if frameIsThick}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.frameThick"}}</label>
+      <label><input type="radio" name="frame" value="custom" {{#if frameIsCustom}}checked{{/if}} /> {{localize "BINDERY.tokenPrep.frameCustom"}}</label>
+    </div>
+  </div>
+  <div class="form-group bindery-token-prep-frame-color-row">
+    <label>{{localize "BINDERY.tokenPrep.frameColor"}}</label>
+    <input type="color" name="frameColor" value="{{frameColor}}" />
+  </div>
+  <div class="form-group bindery-token-prep-frame-custom-row">
+    <label>{{localize "BINDERY.tokenPrep.frameCustomUpload"}}</label>
+    <input type="file" name="frameFile" accept="image/png,image/webp" />
+    <p class="hint">{{localize "BINDERY.tokenPrep.frameCustomHint"}}</p>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "BINDERY.tokenPrep.outputSize"}}</label>
+    <select name="outputSize">
+      {{#each outputSizeOptions}}
+        <option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>
+      {{/each}}
+    </select>
+  </div>
+
+  <div class="form-group">
+    <label>{{localize "BINDERY.tokenPrep.format"}}</label>
+    <select name="format">
+      <option value="webp" {{#if formatIsWebp}}selected{{/if}}>{{localize "BINDERY.tokenPrep.formatWebp"}}</option>
+      <option value="png" {{#if formatIsPng}}selected{{/if}}>{{localize "BINDERY.tokenPrep.formatPng"}}</option>
+    </select>
+  </div>
+
+  <div class="bindery-token-prep-buttons">
+    <button type="button" data-action="confirm">{{localize "BINDERY.tokenPrep.confirm"}}</button>
+    <button type="button" data-action="cancel">{{localize "BINDERY.tokenPrep.cancel"}}</button>
+  </div>
+</div>

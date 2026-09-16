@@ -1,0 +1,13 @@
+{
+  "id": "extract-independent-touching",
+  "description": "Dwa niezalezne, duze (>10% strony kazdy) obrazy stykajace sie waskim paskiem krawedzi (overlapRatio ~3.6%) — w odroznieniu od extract-cluster (mala ikona wewnatrz duzej bazy).",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 2,
+    "hasOverlappingImages": true
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: 2 obrazy XObject, kazdy >10% powierzchni strony, ktorych bboksy nakladaja sie na waskim pasku (overlapRatio ~3.6% powierzchni mniejszego). KROK-16 Z2: groupIntoUnits (buildImageExtraction.ts) NIE powinien laczyc tej pary w jedna jednostke ekstrakcji, mimo nakladania sie bboksow — powinien dac DWIE osobne jednostki. Przed KROK-16 Z2 (clusterByOverlap bez extraMergeGate) dawalo to JEDNA jednostke, ktorej unia bboksow obejmowala tez przestrzen miedzy obrazami (zaobserwowane na Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf str. 16 jako 'obraz zawiera obrazek i tekst')."
+  }
+}

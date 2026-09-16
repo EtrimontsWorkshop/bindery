@@ -1,0 +1,12 @@
+{
+  "id": "fonts-subset-prefix",
+  "description": "3 fonty z prefiksem subsetu (6 liter + '+') w /BaseFont, jak w realnych PDF-ach z fazy 0.",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "distinctFontKeys": ["AAAAAH+Bookmania-Bold", "BKQRXG+MinionPro-It", "ZZZZZZ+QuadratSerial-PL"]
+  },
+  "expected": {
+    "note": "Klucz fontu w CIF musi byc 'Bookmania-Bold', 'MinionPro-It', 'QuadratSerial-PL' po zdjeciu prefiksu — nie surowa wartosc /BaseFont."
+  }
+}

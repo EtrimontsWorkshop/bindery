@@ -1,0 +1,13 @@
+{
+  "id": "layout-statblock-plain",
+  "description": "Ten sam blok co layout-statblock-framed, BEZ ramki wektorowej — testuje granice bloku z sygnalow innych niz wizualnych (zmiana fontu/interlinii).",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 1,
+    "nonEmptyItemCount": 12,
+    "totalItemCount": 14
+  },
+  "expected": {
+    "note": "Identyczna geometria tekstu jak layout-statblock-framed, ale InventoryResult.vectors powinno byc PUSTE dla tej strony. buildSemanticBlocks() musi nadal wydzielic srodkowy blok (size 8) jako OSOBNY od otaczajacego tekstu (size 10) przez zmiane dominujacego rozmiaru/klucza fontu, nie przez region wektorowy. totalItemCount=14 (nie 12): ta sama synteryczna pusta pozycja pdf.js przy zmianie fontu jak w layout-statblock-framed (2 tranzycje 10->8->10)."
+  }
+}

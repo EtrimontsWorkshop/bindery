@@ -1,0 +1,30 @@
+{
+  "name": "@bindery/core",
+  "version": "0.1.0",
+  "description": "Bindery core — PDF layout/quality analysis, zero Foundry dependency (A1)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:boundary": "npm run build && node scripts/check-boundary.mjs",
+    "fixtures:verify": "tsx test/synth/verify-cli.ts"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.1.200",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.2"
+  }
+}

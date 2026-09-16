@@ -1,0 +1,13 @@
+{
+  "id": "text-fragmented-20",
+  "description": "40 slow scalonych + 10 pojedynczych znakow, kazdy token na wlasnym wierszu = dokladnie 20% fragmentacji (dolny kraniec zakresu ze spike'u).",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "fragmentationRatio": { "min": 0.17, "max": 0.23 },
+    "nonEmptyItemCount": 50
+  },
+  "expected": {
+    "note": "Ten sam mechanizm scalania co text-fragmented-75, ale przy niskim udziale fragmentow — nie powinien nadmiernie sklejac krotkich, ale poprawnych osobnych tokenow."
+  }
+}

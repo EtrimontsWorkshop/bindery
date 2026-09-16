@@ -1,0 +1,13 @@
+{
+  "id": "extract-cluster",
+  "description": "Baza duza (~62% strony) + 3 mniejsze obrazy czesciowo na niej lezace — wszystkie wzajemnie nakladajace sie.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 4,
+    "hasOverlappingImages": true
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: 4 obrazy XObject o bboksach WZAJEMNIE nakladajacych sie (3 male 'ikony' czesciowo lezace na duzej 'bazie'). imageRegistry.ts (krok 4) powinien przypisac WSZYSTKIM czterem TEN SAM clusterId (klastrowanie transytywne po nakladajacych sie bboksach). Orkiestrator (buildImageExtraction) powinien zgrupowac je w JEDNA jednostke ekstrakcji (bbox = unia wszystkich czterech), dajac JEDEN wpis wyniku ze strategia 'region-render' (Z2: klaster = jedna kompozycja), NIE cztery osobne pliki."
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "fonts-no-suffix",
+  "description": "3 fonty osadzone o nazwach bez sufiksow wag: Autobahn, DwarvenAxeBB, Bookmania.",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "distinctFontKeys": ["Autobahn", "Bookmania", "DwarvenAxeBB"]
+  },
+  "expected": {
+    "note": "Ranking rol fontow musi rozpoznac naglowek/tresc na podstawie czestosci i rozmiaru, nie sufiksu nazwy — zaden z tych fontow go nie ma."
+  }
+}

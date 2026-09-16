@@ -1,0 +1,12 @@
+{
+  "id": "extract-single-clean",
+  "description": "Jeden obraz (200x150px wewnetrznie, narysowany na 500x600pt = ~62% strony), bez maski, bez sasiadow.",
+  "targetPhase": 7,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 1
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: jeden obraz XObject, rozmiar wewnetrzny 200x150px (rozny od skali rysowania 500x600pt), powierzchnia wzgledna strony ~0.62 (500*600)/(612*792). classifyImages() powinien dac 'content' (duza powierzchnia), decideExtractionStrategy() powinien dac 'direct' (brak maski, brak klastra — ten wpis jest jedynym obrazem na stronie). Bezposrednia ekstrakcja (extractDirect przez page.objs) powinna zwrocic DecodedImage o wymiarach DOKLADNIE 200x150 — pelna rozdzielczosc zrodlowa, niezalezna od targetLongEdgePx (ten dotyczy tylko renderu regionu)."
+  }
+}

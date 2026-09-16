@@ -1,0 +1,13 @@
+{
+  "id": "images-bleed-background",
+  "description": "Tlo z ujemnymi wspolrzednymi, wychodzace poza MediaBox ze wszystkich stron (spad drukarski).",
+  "targetPhase": 3,
+  "claims": {
+    "pageCount": 1,
+    "imageCount": 1,
+    "hasBleedingImage": true
+  },
+  "expected": {
+    "note": "Ujemne wspolrzedne bbox nie sa bledem — to sygnal, ze obraz jest tlem rozkladowkowym (MDD F0)."
+  }
+}

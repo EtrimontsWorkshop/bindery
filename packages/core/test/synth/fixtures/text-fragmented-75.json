@@ -1,0 +1,17 @@
+{
+  "id": "text-fragmented-75",
+  "description": "10 slow scalonych + 30 pojedynczych znakow, kazdy token na wlasnym wierszu = dokladnie 75% fragmentacji.",
+  "targetPhase": 2,
+  "claims": {
+    "pageCount": 1,
+    "fragmentationRatio": { "min": 0.72, "max": 0.78 },
+    "nonEmptyItemCount": 40
+  },
+  "expected": {
+    "note": "Kazdy token na osobnym wierszu (Y) unika syntetycznych itemow spacji, ktore pdf.js wstawia miedzy tokenami na TEJ SAMEJ linii (patrz RAPORT-KROK-3.md) — daje w pelni przewidywalna liczbe itemow.",
+    "pages": [{ "lines": [
+      { "text": "the" }, { "text": "and" }, { "text": "run" }, { "text": "big" }, { "text": "red" },
+      { "text": "sky" }, { "text": "day" }, { "text": "old" }, { "text": "new" }, { "text": "sun" }
+    ] }]
+  }
+}

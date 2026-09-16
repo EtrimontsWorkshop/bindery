@@ -1,0 +1,12 @@
+{
+  "id": "layout-running-heads",
+  "description": "6 stron z naglowkiem stalym (pozycja/font/szerokosc) ale zmiennym numerem strony w tekscie, plus stopka z samym numerem strony — testuje Z5 dopasowanie po koniunkcji, nie po dokladnym tekscie.",
+  "targetPhase": 6,
+  "claims": {
+    "pageCount": 6,
+    "nonEmptyItemCount": 36
+  },
+  "expected": {
+    "note": "Fakt konstrukcyjny: kazda z 6 stron ma 1 linie naglowka (x=72,y=760, w pasmie >93% wysokosci), 4 linie ciala (y=650..590), 1 linie stopki (x=300,y=30, w pasmie <7% wysokosci, tekst = sam numer strony). Tekst naglowka/stopki ROZNI sie na kazdej stronie (numer strony). detectRunningElements() powinien wykryc naglowek NA WSZYSTKICH 6 stronach mimo roznego tekstu (dopasowanie po pozycji+foncie+szerokosci, nie po tekscie) oraz stopke analogicznie."
+  }
+}

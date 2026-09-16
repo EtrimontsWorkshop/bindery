@@ -1,0 +1,155 @@
+<div class="bindery-wizard-root">
+<div class="bindery-wizard-body">
+  <p class="bindery-wizard-privacy">{{localize "BINDERY.wizard.pickFileHint"}}</p>
+
+  <div>
+    <p class="bindery-wizard-step-label">{{localize "BINDERY.wizard.step1"}}</p>
+    <label class="bindery-wizard-dropzone {{#if fileName}}bindery-has-file{{/if}}" data-role="dropzone">
+      <span class="bindery-btn bindery-btn--primary">{{localize "BINDERY.wizard.pickFileLabel"}}</span>
+      {{#if fileName}}
+        <span class="bindery-wizard-dropzone-filename">{{fileName}}</span>
+      {{else}}
+        <span class="bindery-wizard-dropzone-text">{{localize "BINDERY.wizard.dropHint"}}</span>
+      {{/if}}
+      <input type="file" data-role="pdf" accept="application/pdf" />
+    </label>
+  </div>
+
+  {{! [KROK-44 Z1] Wczytywanie profilu aktorow ukryte za `statblocksEnabled`
+      (patrz `features.ts`) — pierwsze wydanie publiczne obejmuje wylacznie
+      obrazy/sceny/journale. Kod/schemat/adapter nietkniete, ukryta wylacznie
+      ta sekcja interfejsu. }}
+  {{#if statblocksEnabled}}
+  <fieldset class="bindery-actor-profile">
+    <legend class="bindery-wizard-step-label">
+      {{localize "BINDERY.wizard.step2"}}<span class="bindery-wizard-step-optional">{{localize "BINDERY.wizard.actorProfileOptionalBadge"}}</span>
+    </legend>
+
+    <p class="hint">{{{localize "BINDERY.wizard.actorProfileHintShort"}}}</p>
+    <p class="hint bindery-r3-notice">{{localize "BINDERY.wizard.actorProfileR3Notice"}}</p>
+
+    {{#if hasActorProfileError}}
+      <p class="notification error">{{localize "BINDERY.wizard.actorProfileErrorTitle"}}</p>
+      <ul class="bindery-actor-profile-issues">
+        {{#each actorProfileIssues}}
+          <li>{{this}}</li>
+        {{/each}}
+      </ul>
+      <div class="bindery-actor-profile-actions">
+        <label class="bindery-btn bindery-btn--secondary">
+          {{localize "BINDERY.wizard.actorProfilePickLabel"}}
+          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
+        </label>
+      </div>
+    {{else if hasActorProfile}}
+      <table class="bindery-result">
+        <tbody>
+          <tr class="bindery-result-mono">
+            <th>{{localize "BINDERY.wizard.actorProfileFieldFile"}}</th>
+            <td>{{actorProfileFileName}}</td>
+          </tr>
+          <tr>
+            <th>{{localize "BINDERY.wizard.actorProfileFieldTitle"}}</th>
+            <td>{{actorProfileSummary.title}}</td>
+          </tr>
+          <tr>
+            <th>{{localize "BINDERY.wizard.actorProfileFieldGameLine"}}</th>
+            <td>{{actorProfileSummary.gameLine}} ({{actorProfileSummary.language}})</td>
+          </tr>
+          <tr class="bindery-result-sage">
+            <th>{{localize "BINDERY.wizard.actorProfileFieldPatternCount"}}</th>
+            <td>{{actorProfileSummary.patternCount}}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="hint">{{localize "BINDERY.wizard.actorProfileStaleHint"}}</p>
+      <div class="bindery-actor-profile-actions">
+        <label class="bindery-btn bindery-btn--secondary">
+          {{localize "BINDERY.wizard.actorProfileChangeButton"}}
+          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
+        </label>
+        <button type="button" class="bindery-btn bindery-btn--danger" data-action="clearActorProfile">{{localize "BINDERY.wizard.actorProfileClearButton"}}</button>
+      </div>
+    {{else}}
+      <div class="bindery-actor-profile-actions">
+        <label class="bindery-btn bindery-btn--secondary">
+          {{localize "BINDERY.wizard.actorProfilePickLabel"}}
+          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
+        </label>
+      </div>
+    {{/if}}
+  </fieldset>
+  {{/if}}
+
+  {{#if hasError}}
+    <p class="notification error">{{errorMessage}}</p>
+  {{/if}}
+
+  {{#if hasResult}}
+    <table class="bindery-result">
+      <tbody>
+        <tr class="bindery-result-mono">
+          <th>{{localize "BINDERY.wizard.fieldPageCount"}}</th>
+          <td>{{summary.pageCount}}</td>
+        </tr>
+        <tr>
+          <th>{{localize "BINDERY.wizard.fieldDocTitle"}}</th>
+          <td>{{#if summary.title}}{{summary.title}}{{else}}—{{/if}}</td>
+        </tr>
+        <tr>
+          <th>{{localize "BINDERY.wizard.fieldProducer"}}</th>
+          <td>{{#if summary.producer}}{{summary.producer}}{{else}}—{{/if}}</td>
+        </tr>
+        <tr>
+          <th>{{localize "BINDERY.wizard.fieldOutline"}}</th>
+          <td>{{#if summary.hasOutline}}{{localize "BINDERY.wizard.yes"}}{{else}}{{localize "BINDERY.wizard.no"}}{{/if}}</td>
+        </tr>
+        <tr>
+          <th>{{localize "BINDERY.wizard.fieldQuality"}}</th>
+          <td>
+            {{#if summary.quality.suspectedScan}}
+              {{localize "BINDERY.wizard.qualityNoText"}}
+            {{else if summary.quality.hasTextLayer}}
+              {{localize "BINDERY.wizard.qualityGood"}} ({{summary.quality.unicodeConfidence}})
+            {{else}}
+              {{localize "BINDERY.wizard.qualityBroken"}}
+            {{/if}}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="hint">{{localize "BINDERY.wizard.reviewHint"}}</p>
+
+    <div>
+      <button type="button" class="bindery-btn bindery-btn--primary" data-action="openReview" {{#if isBuildingReview}}disabled{{/if}}>
+        {{#if isBuildingReview}}{{localize "BINDERY.wizard.buildingReview"}}{{else}}{{localize "BINDERY.wizard.openReviewButton"}}{{/if}}
+      </button>
+      {{#if isBuildingReview}}
+        {{#if reviewProgress}}
+          <span class="bindery-progress-text">{{reviewProgress.done}} / {{reviewProgress.total}}</span>
+        {{/if}}
+      {{/if}}
+    </div>
+
+    {{#if reviewBuildError}}
+      <p class="notification error">{{reviewBuildError}}</p>
+    {{/if}}
+
+    {{#if lastImportSummary}}
+      <p class="bindery-wizard-privacy">{{lastImportSummary}}</p>
+    {{/if}}
+  {{/if}}
+</div>
+
+<footer class="bindery-footer">
+  <span class="bindery-wizard-footer-filename">{{#if fileName}}{{fileName}}{{else}}{{localize "BINDERY.wizard.noFileSelected"}}{{/if}}</span>
+  <span class="bindery-footer-spacer"></span>
+  {{#if isAnalyzing}}
+    <div class="bindery-progress"><div class="bindery-progress-fill" style="width:60%"></div></div>
+  {{/if}}
+  <button type="button" class="bindery-btn bindery-btn--primary" data-action="analyze" {{#unless fileName}}disabled{{/unless}} {{#if isAnalyzing}}disabled{{/if}}>
+    {{#if isAnalyzing}}{{localize "BINDERY.wizard.analyzing"}}{{else}}{{localize "BINDERY.wizard.analyzeButton"}}{{/if}}
+  </button>
+</footer>
+</div>
