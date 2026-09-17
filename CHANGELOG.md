@@ -8,7 +8,7 @@
 
 - **Saved file names:** previously, a user-defined image name appeared only in Foundry VTT, while the locally saved file retained its automatically generated name. The file name now also includes the name chosen by the user.
 
-- **Fixed language inconsistencies in code comments
+- **Fixed language inconsistencies** — all source comments are now in English.
 
 ## [0.1.0]
 
