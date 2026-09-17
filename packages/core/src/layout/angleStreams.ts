@@ -2,15 +2,15 @@ import type { Diagnostic, StreamAngle } from '../text/types.js';
 import { computeStreamAngle } from './textGeometry.js';
 
 /**
- * Kubelkowanie itemow tekstowych po kacie kierunku (KROK-5 Z3, MDD §5.1).
- * MUSI poprzedzac klastrowanie w linie i scalanie wyrazow — tekst obrocony
- * (do 94% itemow na stronie, faza 0 Q6) rozwala histogram/geometrie liczona
- * bez wczesniejszego rozdzielenia kierunkow.
+ * Bucketing of text items by direction angle (Step 5 Z3, MDD §5.1).
+ * MUST precede line clustering and word merging — rotated text
+ * (up to 94% of items on a page, phase 0 Q6) breaks any histogram/geometry
+ * computed without first separating out directions.
  */
 
 export interface AngleStream<T> {
   angle: StreamAngle;
-  /** Kubelek 0° to strumien podstawowy; pozostale sa kandydatami na marginalia (MDD BlockKind). */
+  /** The 0° bucket is the primary stream; the others are candidates for marginalia (MDD BlockKind). */
   isPrimary: boolean;
   items: T[];
 }
@@ -20,7 +20,7 @@ export interface AngleGroupingResult<T> {
   diagnostics: Diagnostic[];
 }
 
-/** Odchylenie od najblizszego kubelka 90° powyzej tego progu jest "nietypowe" (np. 45° — dokladnie posrodku dwoch kubelkow). */
+/** A deviation from the nearest 90° bucket above this threshold is "unusual" (e.g. 45° — exactly between two buckets). */
 const UNUSUAL_ANGLE_TOLERANCE_DEGREES = 15;
 
 function rawAngleDegrees(transform: readonly number[]): number {
@@ -36,10 +36,10 @@ function angularDistance(a: number, b: number): number {
 }
 
 /**
- * Grupuje itemy po kacie. Kat nietypowy (np. 45°) NIE jest odrzucany — jest
- * przypisany do najblizszego kubelka 90° i zglaszany jako `Diagnostic` (raz
- * per zaokraglona wartosc surowego kata, zeby nie zalewac diagnostyki
- * duplikatami z tej samej rotacji).
+ * Groups items by angle. An unusual angle (e.g. 45°) is NOT discarded — it is
+ * assigned to the nearest 90° bucket and reported as a `Diagnostic` (once
+ * per rounded raw angle value, so diagnostics aren't flooded with
+ * duplicates from the same rotation).
  */
 export function groupByAngle<T extends { transform: readonly number[] }>(
   items: readonly T[],

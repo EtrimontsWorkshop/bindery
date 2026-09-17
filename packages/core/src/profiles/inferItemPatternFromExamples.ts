@@ -2,109 +2,110 @@ import type { Rect } from '../geometry.js';
 import { findColumnBand, isWithinColumnBand } from './columnBand.js';
 
 /**
- * [KROK-29 Z1] `itemPattern` (`sectionList`) jest jedynym polem w Profile
- * Studio wymagajacym recznego napisania wyrazenia regularnego (O1, RAPORT
- * testu akceptacyjnego kroku 28: wystapilo trzy razy w jednym przebiegu).
- * Zamiast generowac DOWOLNY regex z przykladow (nieprzewidywalne, nieczytelne
- * dla czlowieka), rozpoznajemy OGRANICZONA RODZINE ksztaltow spotykanych w
- * statblockach CoC7 (brief kroku 29, tabela): nazwa+procent[+reszta po
- * przecinku] (ataki, jedna pozycja na "linie" bufora sekcji) i
- * nazwa+procent (umiejetnosci, ciag oddzielony przecinkami na jednej "linii").
- * Autor klika przyklady, wzorzec dobiera i dostraja KSZTALT — nie buduje
- * wyrazenia od podstaw.
+ * [Step 29 Z1] `itemPattern` (`sectionList`) is the only field in Profile
+ * Studio that requires manually writing a regular expression (O1, the step-28
+ * acceptance-test report: it came up three times in one session).
+ * Instead of generating an ARBITRARY regex from examples (unpredictable, unreadable
+ * for a human), we recognize a LIMITED FAMILY of shapes seen in
+ * CoC7 statblocks (step-29 brief, table): name+percent[+rest after
+ * the comma] (attacks, one entry per "line" of the section buffer) and
+ * name+percent (skills, a comma-separated sequence on one "line").
+ * The author clicks examples, and the pattern selects and fine-tunes the SHAPE — it doesn't build
+ * the expression from scratch.
  *
- * Dwie rodziny maja INNY ksztalt matchowania, bo `matchSectionList` (patterns.ts)
- * laczy CALA sekcje w jeden plaski bufor tekstowy (spacje zamiast prawdziwych
- * podzialow linii) i dopasowuje `itemPattern` globalnie do calego bufora:
- * - Umiejetnosci: kazda pozycja SAMA SIE konczy wlasnym "NN%" (nastepna zaczyna
- *   sie od razu po przecinku) — `matchAll` bez lookaheadu wystarcza.
- * - Ataki: PO procencie (i opcjonalnym stosunku w nawiasie) bywa dowolnie dlugi
- *   opis obrazen ("obrażenia 1K3+1K4") — bez granicy regex polknalby TEZ
- *   nastepna pozycje. Wymaga lookaheadu "tu zaczyna sie kolejna pozycja albo
- *   koniec bufora", DOKLADNIE ten sam mechanizm co juz istniejacy, RECZNIE
- *   napisany `itemPattern` w `spike/statblocks2/coc7-niczas-pl.json` (attacki).
+ * The two families have a DIFFERENT matching shape, because `matchSectionList` (patterns.ts)
+ * joins the WHOLE section into one flat text buffer (spaces instead of genuine
+ * line breaks) and matches `itemPattern` globally against the whole buffer:
+ * - Skills: each entry SELF-terminates with its own "NN%" (the next one starts
+ *   right after the comma) — `matchAll` without a lookahead is enough.
+ * - Attacks: AFTER the percent (and an optional ratio in parentheses) there can be an arbitrarily
+ *   long damage description (a dice-notation value) — without a boundary the regex would also swallow
+ *   the next entry. It requires a lookahead of "the next entry starts here, or the
+ *   end of the buffer" — EXACTLY the same mechanism as the existing, MANUALLY
+ *   written `itemPattern` in `spike/statblocks2/coc7-niczas-pl.json` (attacks).
  *
- * [zmierzone wprost na str. 23 "Zew Cthulhu 7ed. Wrak.pdf", Calhoun] Jedna
- * pozycja ataku bywa opisana BEZ procentu wcale — "pałka 1K4+1K4" (ta sama
- * umiejetnosc walki co "Walka wręcz", inna tylko bron/obrazenia). Stad druga,
- * "bezprocentowa" gal'z rodziny ATAKOW, dolaczana do pierwszej PRZEZ
- * alternatywe (`(?:...|...)`), TAK SAMO jak juz robi to recznie napisany
- * `itemPattern` w `profiles/coc7-quickstart-en.json` (dwie alternatywy jednej
- * grupy nazwanej `name`/`damage` w wzajemnie wykluczajacych sie galeziach —
- * potwierdzone, ze silnik regex (Node/V8, ta sama rodzina co przegladarka)
- * to obsluguje).
+ * [measured directly on p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] One
+ * attack entry is sometimes described WITHOUT a percentage at all — a weapon name
+ * followed directly by a dice value, with no percentage
+ * (the same combat skill as a percentage-based melee entry, only the weapon/damage differs). Hence a second,
+ * "percentless" branch of the ATTACK family, appended to the first VIA
+ * an alternation (`(?:...|...)`), THE SAME WAY the manually written
+ * `itemPattern` in `profiles/coc7-quickstart-en.json` already does (two alternatives of one
+ * named group `name`/`damage` in mutually exclusive branches —
+ * confirmed that the regex engine (Node/V8, the same family as the browser)
+ * handles this).
  *
- * Nazwa NIE wymaga wielkiej litery na poczatku — zmierzone wprost: "pałka"
- * (bron, nie pelna nazwa wlasna) zaczyna sie mala litera. `\p{L}` (dowolna
- * litera dowolnego jezyka), NIGDY `[A-Za-z]` (brief kroku 29: profil PL
- * potknal sie dokladnie o to przy "Nasłuchiwanie"/"Spostrzegawczość").
+ * The name does NOT require an uppercase first letter — measured directly: a weapon
+ * name (not a proper name) can start with a lowercase letter. `\p{L}` (any
+ * letter of any language), NEVER `[A-Za-z]` (step-29 brief: the PL profile
+ * stumbled exactly on this with certain skill names that only exist in non-Latin-only form).
  */
 
 export type ItemShapeCode = 'shapePercentRest' | 'shapeValueOnly' | 'shapeMixed' | 'shapePercentList';
 
 export interface ItemPatternInference {
   itemPattern: string;
-  /** Kod ksztaltu do wyswietlenia w UI (lokalizacja WYLACZNIE w `packages/module`, jak kazdy inny komunikat w tym projekcie). */
+  /** Shape code to display in the UI (localization happens ONLY in `packages/module`, like every other message in this project). */
   shape: ItemShapeCode;
 }
 
 /**
- * [Zmierzony na zywo blad, kolejny eksport Actora "Sciapod" z Foundry, str. 24
- * "Wrak.pdf"] Kropka byla dotad dopuszczona w klasie znakow nazwy — bez
- * uzasadnienia w danych (zaden prawdziwy przyklad w tym projekcie nie ma
- * kropki WEWNATRZ nazwy pozycji), za to z POWAZNYM kosztem: sekcja "Ataki" ma
- * DLUGI akapit fabularny miedzy naglowkiem a pierwsza prawdziwa pozycja
- * ("może użyć swojej stopy... łuku. Walka wręcz (Bijatyka) 60%...") —
- * dopasowanie global/leftmost-first probuje NAJPIERW pozycje startowa na
- * poczatku tego akapitu, a skoro kropka byla dozwolona, `(?<name>...)` mogl
- * pochlonac CALY akapit AZ do prawdziwej nazwy, dajac nazwe pozycji rowna
- * calemu zdaniu fabularnemu + prawdziwa nazwe sklejone razem. Usuniecie kropki
- * z klasy oznacza, ze taka proba w ogole nie moze dopasowac calosci (po drodze
- * jest kropka, ktorej klasa juz nie zawiera) — silnik regex sam przesuwa
- * pozycje startowa dalej, az trafi na prawdziwy poczatek nazwy ("Walka..."),
- * bez potrzeby `skipAfterHeader` w profilu (mechanizm nadal dostepny jako
- * dodatkowe zabezpieczenie, ale przestaje byc JEDYNA obrona przed tym
- * ksztaltem bledu).
+ * [Bug measured live, another Actor export from Foundry, p. 24
+ * "Wrak.pdf"] A period had until now been allowed in the name's character class — with
+ * no justification in the data (no real example in this project has a
+ * period INSIDE an entry name), yet with a SERIOUS cost: the Attacks section has a
+ * LONG narrative paragraph between the header and the first genuine entry
+ * (a sentence describing a special attack option, ending in a period, right
+ * before the first genuine percentage-based entry) —
+ * a global/leftmost-first match tries the starting position at
+ * the beginning of that paragraph FIRST, and since a period was allowed, `(?<name>...)` could
+ * absorb the ENTIRE paragraph up to the real name, producing an entry name equal to
+ * the whole narrative sentence plus the real name glued together. Removing the period
+ * from the class means such an attempt can no longer match the whole thing at all (there's
+ * a period along the way that the class no longer includes) — the regex engine itself shifts
+ * the starting position further, until it hits the genuine start of the name,
+ * without needing `skipAfterHeader` in the profile (the mechanism is still
+ * available as an extra safeguard, but stops being the ONLY defense against this
+ * class of bug).
  */
 /**
- * [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze, "Broń Palna (pistolet .22)"]
- * Cyfry/kropka byly CALKOWICIE wykluczone (patrz komentarz powyzej) — poprawne
- * dla gołej prozy (Sciapod), ale bledne dla broni z kalibrem w NAWIASIE
- * ("(pistolet .22)"): lookahead szukajacy KOLEJNEJ pozycji nie rozpoznawal
- * takiej nazwy jako poprawnego startu, wiec `.*?` PRZED nim polykal cala
- * pozycje pistoletu razem z Walka Wręcz jako jedna, zamiast zatrzymac sie na
- * jego granicy — zmierzone wprost, prawdziwy eksport Actora "Siren"/"Ellen
- * Gray" z Foundry ("Wrak.pdf" str. 27/30): pistolet znikal calkowicie z listy
- * broni.
+ * [reported live, "Wrak.pdf" Investigators]
+ * Digits/period were COMPLETELY excluded (see the comment above) — correct
+ * for bare prose, but wrong for a weapon with a caliber given in PARENTHESES
+ * (e.g. a firearm's caliber): the lookahead searching for the NEXT entry didn't recognize
+ * such a name as a valid start, so the `.*?` BEFORE it swallowed the whole
+ * firearm entry together with the previous one as one, instead of stopping at
+ * its boundary — measured directly, a real Actor export from Foundry
+ * ("Wrak.pdf" p. 27/30): the firearm disappeared entirely from the
+ * weapon list.
  *
- * Naprawa NIE poszerza klasy globalnie (to properz odtworzyloby blad
- * Sciapoda) — cyfry/kropka dozwolone WYLACZNIE wewnatrz WLASNEGO, w pelni
- * domknietego nawiasu `(...)` (`\([^()]*\)`), ktory moze wystapic dowolna
- * ilosc razy w nazwie. Zdanie fabularne Sciapoda ("...luku.") nie ma ZADNYCH
- * nawiasow wokol swojej koncowej kropki, wiec nadal nie pasuje do tej klasy —
- * zweryfikowane wprost, test "dlugi akapit fabularny... NIE zanieczyszcza
- * jej nazwy" nadal przechodzi z tym wzorcem.
+ * The fix does NOT widen the class globally (that would just recreate the earlier
+ * bug) — digits/period are allowed ONLY inside their OWN, fully
+ * closed parentheses `(...)` (`\([^()]*\)`), which can occur any
+ * number of times in the name. The earlier narrative sentence has NO
+ * parentheses around its final period, so it still doesn't match this class —
+ * verified directly, the test "a long narrative paragraph... does NOT contaminate
+ * its name" still passes with this pattern.
  */
 const NAME_CLASS = '\\p{L}[\\p{L} /-]*?(?:\\([^()]*\\)[\\p{L} /-]*?)*';
 const PERCENT_ITEM_RE = /\d{1,3}%/g;
 
 /**
- * [Zmierzony na zywo blad, prawdziwy eksport Actora "Sciapod" z Foundry]
- * Ksztalt "wartosc" (`valueItem`, i lookahead wykrywajacy jego poczatek) byl
- * `\d[\p{L}\d+]*` -- CYFRA, potem DOWOLNA mieszanka liter/cyfr/plusa, W TYM
- * ZERO znakow. To dopuszczalo SAM GOLY numer ("6", "180", "40") jako
- * "wartosc obrazen", mimo ze notacja kostek CoC7 (i kazdego innego zmierzonego
- * w tym projekcie systemu) ZAWSZE ma literowy wskaznik typu kosci (K/D:
- * "1K3", "5K6", "1d8"). Sciapod (str. 24 "Wrak.pdf") ma po czystych
- * pozycjach atakow DLUGI opis zdolnosci specjalnych pelen zwyklych liczb w
- * prozie ("o dlugosci 6 stop (ok. 180 cm)... zasieg... ok. 40 m") -- kazda z
- * nich, poprzedzona jakimkolwiek slowem, wygladala jak poprawna "pozycja
- * bez procentu" (`shapeMixed`, galaz `valueItem`), dajac w prawdziwym
- * eksporcie fantomowe bronie ("stóp (ok.", "cm). Podstawowy zasięg tej broni
- * to ok.") z bezsensownymi wartosciami obrazen (180, 40). Naprawa: wymagaj
- * PRZYNAJMNIEJ JEDNEJ litery w wartosci -- prawdziwa notacja kostek zawsze ja
- * ma, goly opisowy numer w prozie nigdy. `pałka 1K4+1K4` (str. 23, przypadek,
- * dla ktorego ten ksztalt w ogole powstal) nadal pasuje (litera "K" jest).
+ * [Bug measured live, a real Actor export from Foundry]
+ * The "value" shape (`valueItem`, and the lookahead detecting its start) was
+ * `\d[\p{L}\d+]*` -- A DIGIT, then ANY mix of letters/digits/plus, INCLUDING
+ * ZERO characters. This allowed a BARE NUMBER ALONE as
+ * a "damage value", even though CoC7's dice notation (and every other
+ * system measured in this project) ALWAYS has a letter indicating the die type (e.g.
+ * "1D3", "5D6", "1d8"). One monster's page (p. 24 "Wrak.pdf"), after the genuine
+ * attack entries, has a LONG special-ability description full of ordinary numbers in
+ * prose (measurements of length and range given in plain sentences) -- each
+ * of these, preceded by any word, looked like a valid "percentless
+ * entry" (`shapeMixed`, the `valueItem` branch), producing phantom
+ * weapons in the real export with nonsensical damage values. Fix: require
+ * AT LEAST ONE letter in the value -- genuine dice notation always has
+ * one, a bare descriptive number in prose never does. A genuine weapon-plus-dice entry
+ * (p. 23, the case this shape was originally created for) still matches (a die-type letter is present).
  */
 const DICE_VALUE = '\\d[\\d]*\\p{L}[\\p{L}\\d+]*';
 
@@ -113,78 +114,79 @@ function countPercentOccurrences(text: string): number {
 }
 
 /**
- * Umiejetnosci: kazda pozycja samowystarczalna ("Nazwa NN%"), bez lookaheadu
- * -- kolejna pozycja zaczyna sie natychmiast po przecinku, wiec `matchAll`
- * globalnie po calym buforze wystarcza (zmierzone: 17/17 pozycji str. 23).
+ * Skills: each entry is self-sufficient ("Name NN%"), no lookahead
+ * needed -- the next entry starts immediately after the comma, so `matchAll`
+ * globally over the whole buffer suffices (measured: 17/17 entries on p. 23).
  */
 function buildSkillsPattern(): ItemPatternInference {
   return { itemPattern: `(?<name>${NAME_CLASS}) (?<value>\\d{1,3})%`, shape: 'shapePercentList' };
 }
 
 /**
- * [KROK-19 dziedzictwo, poszerzone w KROK-30 Z3] Dodatkowa siatka
- * bezpieczenstwa -- podnaglowek stylu "Wielka Litera:" tez konczy pozycje,
- * niezaleznie od `terminateSectionBefore`/hardStop (ktore i tak juz to zwykle
- * wylapuja WCZESNIEJ, na poziomie calej sekcji).
+ * [Step 19 legacy, extended in Step 30 Z3] An extra safety
+ * net -- a subheading in the style "Capitalized Word:" also ends an entry,
+ * regardless of `terminateSectionBefore`/hardStop (which usually already
+ * catch this EARLIER, at the whole-section level anyway).
  *
- * [zmierzony na zywo blad, str. 24 "Zew Cthulhu 7ed. Wrak.pdf", Sciapod]
- * Pierwotna klasa znakow `[\p{L} ]*` (WYLACZNIE litery i spacje) nie
- * rozpoznawala realnych podnaglowkow zdolnosci specjalnych typu "Chwyt i
- * miażdżenie (manewr):" ani "Kryształowy łuk (atak dystansowy):" -- nawiasy w
- * dopisku nie mieszcza sie w tej klasie, wiec caly ten branch lookaheadu
- * nigdy sie nie uaktywnial dla takich naglowkow. Klasa poszerzona wtedy do
- * `()./-` (nawiasy, kropka, ukosnik, lacznik) -- w tamtym momencie identyczna
- * jak `NAME_CLASS`. [Od naprawy kropki w `NAME_CLASS`, patrz jej komentarz,
- * juz NIE identyczna -- to jest naglowek/GRANICA pozycji, nie SAMA nazwa
- * pozycji, wiec ryzyko "przeciagniecia przez zdanie" jej nie dotyczy w ten
- * sam sposob; kropka zostaje tutaj celowo.]
+ * [bug measured live, p. 24 "Zew Cthulhu 7ed. Wrak.pdf"]
+ * The original character class `[\p{L} ]*` (ONLY letters and spaces) did not
+ * recognize genuine special-ability subheadings that end with a parenthetical
+ * qualifier before the colon (e.g. "Special attack (maneuver):") -- the parentheses in
+ * the suffix don't fit this class, so this whole lookahead branch
+ * never activated for such headers. The class was then widened to
+ * `()./-` (parentheses, period, slash, hyphen) -- at that point identical
+ * to `NAME_CLASS`. [Since the period fix in `NAME_CLASS`, see its comment,
+ * NO LONGER identical -- this is an entry HEADER/BOUNDARY, not the entry name
+ * itself, so the risk of "being dragged through a sentence" doesn't apply to it in the
+ * same way; the period stays here deliberately.]
  */
 const NEXT_HEADER_LIKE = `\\s*\\p{Lu}[\\p{L} ()./-]*:`;
 
 /**
- * [KROK-29 Z1, wersja pierwotna] "Walka wręcz (Bijatyka) 30% (15/6),
- * obrażenia 1K3+1K4" -- procent + opcjonalny stosunek w nawiasie + opcjonalna
- * reszta do konca pozycji.
+ * [Step 29 Z1, original version] A "name + percent + optional ratio in
+ * parentheses + optional damage clause" entry -- percent + an optional ratio in parentheses + an optional
+ * rest to the end of the entry.
  *
- * [KROK-30 Z2, zmierzony na zywo blad] `damage` byl pierwotnie `(?<damage>.*?)`
- * -- SUROWY, dowolny fragment tekstu do granicy pozycji (lookahead), wiec
- * niosl ze soba przecinek, sam SLOWNY OPIS ("obrażenia" -- to ETYKIETA, nie
- * WARTOSC) i dyndajacy lacznik ("lub", bez alternatywy po nim, bo ta jest juz
- * WLASNA, OSOBNA pozycja "pałka 1K4+1K4"). Wynik: `CIFAttack.damage` =
- * ", obrażenia 1K3+1K4 lub" zamiast czystego "1K3+1K4". Naprawa: opcjonalnie
- * pomin JEDNO slowo etykiety (dowolny jezyk -- nie slownik "obrażenia"/
- * "damage" zaszyty na sztywno), potem przechwyc WYLACZNIE sama wartosc
- * kostkowa (`\d[\p{L}\d+]*` -- ten sam ksztalt co `valueItem`).
+ * [Step 30 Z2, bug measured live] `damage` was originally `(?<damage>.*?)`
+ * -- a RAW, arbitrary text fragment up to the entry boundary (the lookahead), so it
+ * carried along the comma, the WORD LABEL ITSELF (e.g. "damage" -- that's a LABEL, not a
+ * VALUE) and a dangling conjunction (e.g. "or", with no alternative after it, since that's already
+ * its OWN, SEPARATE percentless entry). Result: `CIFAttack.damage` ended up with the
+ * label and conjunction still attached instead of the clean dice value. Fix: optionally
+ * skip ONE label word (any language -- not a hardcoded "damage"
+ * dictionary), then capture ONLY the actual dice
+ * value (`\d[\p{L}\d+]*` -- the same shape as `valueItem`).
  *
- * [zmierzony na zywo problem PRZY TEJ naprawie] Sama czysta wartosc jako
- * KONIEC dopasowania psuje lookahead: gdy po wartosci zostaje jeszcze
- * dyndajacy tekst ("lub", ewentualnie "lub pałka 1K4+1K4" gdy autor NIE dal
- * jeszcze przykladu bezprocentowego), ZADNA pozycja w tym tekscie nie
- * wyglada jak "NAME+procent" (ani, w ksztalcie mieszanym, jak wykluczone
- * "NAME+wartosc") -- dopasowanie CALEJ pozycji zawodzi, zamiast po prostu
- * konczyc sie wczesniej. Dopisany NIENAZWANY, leniwy `.*?` PO czystej
- * wartosci nadal chlonie taki dyndajacy tekst (tak jak stara wersja), ale
- * TERAZ poza grupa `damage` -- czysta wartosc zostaje czysta, a dopasowanie
- * calej pozycji nadal potrafi dosiegnac kolejnej prawdziwej pozycji.
+ * [problem measured live WITH THIS fix] A bare value ALONE as the
+ * END of the match breaks the lookahead: when there is still dangling text
+ * after the value (e.g. a trailing conjunction, or a conjunction followed by
+ * another percentless entry when the author hasn't
+ * yet given a percentless example), NO position in this text
+ * looks like "NAME+percent" (nor, in the mixed shape, like the excluded
+ * "NAME+value") -- matching the WHOLE entry fails, instead of simply
+ * ending earlier. Appending an UNNAMED, lazy `.*?` AFTER the bare
+ * value still absorbs that dangling text (as the old version did), but
+ * NOW outside the `damage` group -- the bare value stays clean, while matching
+ * the whole entry can still reach the next genuine entry.
  *
- * [KROK-33 Z3, zmierzony na zywo blad, Sciapod str. 24 "Wrak.pdf"] Pierwsza
- * wersja szukala slowa wprowadzajacego TUZ PO procencie/stosunku, oddzielone
- * WYLACZNIE przecinkiem — "Chwyt i miażdżenie (manewr) 60% (30/12):
- * pochwycenie, miażdżenie odbywa się w następnej rundzie, obrażenia 5K6"
- * zgubil `damage` calkowicie, bo separator to DWUKROPEK, a samo slowo
- * wprowadzajace stoi na KONCU dlugiego opisu, nie zaraz po nim. Naprawa:
- * gdy znane sa juz slowa wprowadzajace (`introWords`, wyodrebnione z
- * WLASNYCH przykladow procentowych autora — patrz `extractDamageIntroWords`,
- * NIGDY slownik jezykowy), szukaj ich GDZIEKOLWIEK w reszcie pozycji
- * (leniwe `.*?` PRZED, nie ograniczone do zaraz-po-separatorze), niezaleznie
- * od tego, czy separator to przecinek czy dwukropek — oba po prostu wchodza
- * w ten sam dowolny `.*?`. `WORD_START_GUARD` (nie `\b`) z tych samych
- * powodow co w `valueItem`: `\b` w JS nie liczy liter spoza ASCII jako
- * "znak slowa", wiec zawodzilby na slowach zaczynajacych sie od polskiej
- * litery. Brak `introWords` (autor jeszcze nie kliknal zadnego przykladu
- * procentowego z opisem obrazen) -> zachowanie sprzed tej naprawy (jedno
- * opcjonalne slowo TUZ po separatorze), zeby nie regresowac prostszych
- * ksztaltow, ktore juz dzialaly.
+ * [Step 33 Z3, bug measured live, p. 24 "Wrak.pdf"] The first
+ * version looked for an intro word RIGHT AFTER the percent/ratio, separated
+ * ONLY by a comma — a special-attack entry whose damage clause came after a
+ * colon-separated multi-sentence description
+ * lost `damage` entirely, because the separator was a COLON, and the intro word
+ * itself stands at the END of a long description, not right after it. Fix:
+ * when intro words are already known (`introWords`, extracted from
+ * the author's OWN percent examples — see `extractDamageIntroWords`,
+ * NEVER a language dictionary), search for them ANYWHERE in the rest of the entry
+ * (a lazy `.*?` BEFORE, not limited to right-after-the-separator), regardless
+ * of whether the separator is a comma or a colon — both simply fall
+ * within the same arbitrary `.*?`. `WORD_START_GUARD` (not `\b`) for the same
+ * reasons as in `valueItem`: JS's `\b` doesn't count non-ASCII letters as a
+ * "word character", so it would fail on words starting with a Polish
+ * letter. No `introWords` (the author hasn't yet clicked any percent
+ * example with a damage description) -> behavior from before this fix (one
+ * optional word right after the separator), to avoid regressing simpler
+ * shapes that already worked.
  */
 function percentItem(introWords: readonly string[]): string {
   const restClause =
@@ -195,28 +197,28 @@ function percentItem(introWords: readonly string[]): string {
 }
 
 /**
- * [zmierzone str. 23, "pałka 1K4+1K4"] Pozycja BEZ procentu -- nazwa + wartosc
- * (dowolna mieszanka cyfr/liter, np. zapis kostek). `nameExclusion` (patrz
- * `extractDamageIntroWords`) uniemozliwia temu ksztaltowi mylenie WLASNEGO
- * opisu obrazen POPRZEDNIEJ pozycji procentowej ("obrażenia 1K3+1K4" -- to
- * SAMO "slowo + wartosc-kostkowa" co prawdziwa pozycja "pałka 1K4+1K4") z
- * poczatkiem NOWEJ pozycji -- ksztaltu regexowego SAMEGO W SOBIE nie da sie
- * odroznic, oba przypadki sa identyczne geometrycznie w splaszczonym buforze
- * (`matchSectionList` laczy cala sekcje jedna spacja, gubiac podzial na
- * linie). Jedyny niezawodny sygnal to slowo WPROWADZAJACE opis obrazen
- * ("obrażenia"/"damage"), wprost odczytane z WLASNEGO przykladu procentowego
- * autora -- nie slownik jezykowy zaszyty na sztywno (MDD: niezaleznosc od
- * jezyka/systemu).
+ * [measured p. 23, a percentless weapon-plus-dice entry] An entry WITHOUT a percentage -- name + value
+ * (any mix of digits/letters, e.g. dice notation). `nameExclusion` (see
+ * `extractDamageIntroWords`) prevents this shape from confusing a PREVIOUS
+ * percent entry's OWN damage description -- this is the
+ * SAME "word + dice-value" shape as a genuine percentless entry -- with
+ * the start of a NEW entry -- the regex shape ALONE cannot tell
+ * these apart, both cases are geometrically identical in the flattened buffer
+ * (`matchSectionList` joins the whole section with a single space, losing the
+ * line breaks). The only reliable signal is the word INTRODUCING the damage
+ * description (e.g. the "damage" label, in whatever language the book uses), read directly from the author's OWN
+ * percent example -- not a hardcoded language dictionary (MDD: independence
+ * from language/system).
  */
 /**
- * [zmierzony na zywo problem przy pierwszej wersji tego pliku] Samo
- * `(?!obrażenia\b)` NIE wystarcza -- odrzuca WYLACZNIE dopasowanie
- * zaczynajace sie DOKLADNIE na poczatku wykluczonego slowa, ale silnik regex
- * probuje TEZ pozycji o jeden znak dalej ("brażenia" zamiast "obrażenia"),
- * gdzie asercja juz nie widzi calego wykluczonego slowa i przepuszcza
- * dopasowanie w polowie wyrazu. Wymagaj NAJPIERW prawdziwej granicy wyrazu
- * (poprzedni znak to NIE litera) -- wtedy wykluczenie faktycznie dziala,
- * zamiast dac sie ominac przesunieciem o jeden znak.
+ * [problem measured live with the first version of this file] Plain
+ * `(?!obrażenia\b)` is NOT enough -- it rejects ONLY a match
+ * starting EXACTLY at the start of the excluded word, but the regex engine
+ * ALSO tries a position one character further along ("brażenia" instead of "obrażenia"),
+ * where the assertion no longer sees the whole excluded word and lets
+ * a match through in the middle of it. Require a genuine word boundary FIRST
+ * (the previous character is NOT a letter) -- then the exclusion actually works,
+ * instead of being bypassed by a one-character shift.
  */
 const WORD_START_GUARD = '(?<!\\p{L})';
 
@@ -232,14 +234,15 @@ function lookahead(includeValueBranch: boolean, nameExclusion: string): string {
 }
 
 /**
- * "Walka wręcz (Bijatyka) 30% (15/6), obrażenia 1K3+1K4 lub" -> ["obrażenia",
- * "lub"] -- KAZDE slowo z "reszty" przykladu procentowego (wszystko PO
- * procencie/opcjonalnym stosunku), nie tylko to bezposrednio po przecinku.
- * [zmierzony na zywo problem, druga iteracja tej funkcji] Pierwsza wersja
- * lapala WYLACZNIE slowo TUZ PO przecinku ("obrażenia") -- "lub" (dalej w tej
- * samej reszcie, po wartosci kostkowej) przechodzil bez przeszkod i "lub
- * pałka" sklejaly sie w jedna (bledna) nazwe. Opis obrazen bywa dluzszy niz
- * jedno slowo intro -- wykluczaj WSZYSTKO, co tam stoi.
+ * A "name + percent + ratio + damage clause with a trailing conjunction"
+ * entry yields EVERY word from the percent example's "rest" (everything AFTER
+ * the percent/optional ratio), not just the one right after the comma.
+ * [problem measured live, second iteration of this function] The first version
+ * caught ONLY the word RIGHT AFTER the comma (the damage-clause intro word) -- a trailing
+ * conjunction further in the
+ * same rest (after the dice value) passed through unhindered and glued the
+ * conjunction and the following percentless entry together into one (wrong) name. A damage description is sometimes longer than
+ * one intro word -- exclude EVERYTHING that stands there.
  */
 function extractDamageIntroWords(percentExamples: readonly string[]): readonly string[] {
   const words = new Set<string>();
@@ -254,10 +257,10 @@ function extractDamageIntroWords(percentExamples: readonly string[]): readonly s
 function buildAttacksPattern(percentExamples: readonly string[], valueOnlyExamples: readonly string[]): ItemPatternInference | null {
   const hasPercentExample = percentExamples.length > 0;
   const hasValueOnlyExample = valueOnlyExamples.length > 0;
-  // [KROK-33 Z3] Wyliczane ZAWSZE, gdy sa jakiekolwiek przyklady procentowe —
-  // nie tylko w ksztalcie mieszanym jak poprzednio. `percentItem` uzywa tego
-  // TERAZ TEZ do szukania obrazen (patrz jej komentarz), nie tylko `valueItem`
-  // do wykluczania nazw.
+  // [Step 33 Z3] Computed ALWAYS when there are any percent examples —
+  // not just in the mixed shape as before. `percentItem` NOW ALSO uses this
+  // to search for damage (see its comment), not just `valueItem`
+  // for excluding names.
   const introWords = hasPercentExample ? extractDamageIntroWords(percentExamples) : [];
   if (hasPercentExample && hasValueOnlyExample) {
     const exclusion = introWords.length > 0 ? `(?!(?:${introWords.join('|')})\\b)` : '';
@@ -269,16 +272,16 @@ function buildAttacksPattern(percentExamples: readonly string[], valueOnlyExampl
 }
 
 /**
- * Wnioskuje `itemPattern` z 1+ przykladowych tekstow pozycji klikniętych przez
- * autora profilu (kazdy przyklad to jedna "pozycja", np. jedna linia ataku
- * albo jedno wystapienie umiejetnosci na liscie). `kind` odpowiada zakladce,
- * na ktorej autor klika (Ataki/Umiejetnosci) -- decyduje o nazwach grup
- * dopasowania, ktorych oczekuje dalszy potok (`buildCIFActor.ts`:
- * `name`+`toHit`+`damage` dla atakow, `name`+`value` dla umiejetnosci).
+ * Infers `itemPattern` from 1+ example entry texts clicked by the
+ * profile author (each example is one "entry", e.g. one attack line
+ * or one skill occurrence in a list). `kind` corresponds to the tab
+ * the author is clicking on (Attacks/Skills) -- it determines the group names
+ * the downstream pipeline expects (`buildCIFActor.ts`:
+ * `name`+`toHit`+`damage` for attacks, `name`+`value` for skills).
  *
- * `null` = zaden przyklad nie pasuje do zadnego znanego ksztaltu (np. autor
- * kliknal pozycje bez zadnej liczby) -- UI ma wtedy poprosic o inny przyklad,
- * NIGDY nie zgadywac dowolnego wyrazenia.
+ * `null` = no example matches any known shape (e.g. the author
+ * clicked an entry with no number at all) -- the UI should then ask for another example,
+ * NEVER guess an arbitrary expression.
  */
 export function inferItemPatternFromExamples(kind: 'attacks' | 'skills', exampleTexts: readonly string[]): ItemPatternInference | null {
   const examples = exampleTexts.map((t) => t.trim()).filter(Boolean);
@@ -300,25 +303,24 @@ export interface RowTextToken {
 }
 
 /**
- * [UI, klikniecie przykladu] Zbiera tekst CALEGO wizualnego wiersza, do
- * ktorego nalezy klikniety token -- "ten sam wiersz" = zachodzace zakresy Y
- * (identyczny test co `mergeTouchingTokens`), posortowane po X, polaczone
- * pojedyncza spacja. W PRAKTYCE pdf.js czesto juz sklejyl cala linie w JEDEN
- * token (zmierzone wprost na str. 23 "Wrak.pdf" -- kazda linia ataku to JEDEN
- * `TextItem`), wiec ta funkcja zwykle zwraca po prostu tekst klikniętego
- * tokenu -- ale nie zaklada tego, zeby dzialac tez tam, gdzie pdf.js NIE
- * scalil linii.
+ * [UI, clicking an example] Collects the text of the WHOLE visual line the
+ * clicked token belongs to -- "the same line" = overlapping Y ranges
+ * (the same test as `mergeTouchingTokens`), sorted by X, joined with a
+ * single space. IN PRACTICE pdf.js has often already merged the whole line into ONE
+ * token (measured directly on p. 23 "Wrak.pdf" -- every attack line is ONE
+ * `TextItem`), so this function usually just returns the text of the clicked
+ * token -- but it doesn't assume this, so it also works where pdf.js did NOT
+ * merge the line.
  *
- * [KROK-30, zmierzony na zywo blad] "Ten sam wiersz" liczony WYLACZNIE po Y
- * (bez znajomosci kolumn) na stronie dwulamowej lapal TEZ proze z SASIEDNIEJ
- * kolumny lezacej na tej samej wysokosci co klikniety wiersz — zmierzone
- * wprost: klikniecie w "Walka wręcz..." (lewa lama, str. 23) wciagalo do tego
- * samego przykladu przypadkowe slowa opisu Sciapoda z prawej lamy ("ślimaków",
- * "robi", "szybciej"), ktore potem lądowaly w wykluczeniach `itemPattern`
- * (`extractDamageIntroWords`) jako fantomowe "slowa etykiety". Ten sam
- * mechanizm co naprawa granicy sekcji (`findColumnBand`/`isWithinColumnBand`,
- * `columnBand.ts`) — na stronie jednolamowej pasmo obejmuje cala tresc, zero
- * zmiany zachowania.
+ * [Step 30, bug measured live] "The same line" computed ONLY by Y
+ * (without knowledge of columns), on a two-column page, ALSO caught prose from the
+ * NEIGHBORING column lying at the same height as the clicked line — measured
+ * directly: clicking on a skill entry (left column, p. 23) pulled into that
+ * same example random words of a monster's description from the right column, which then landed in `itemPattern`'s exclusions
+ * (`extractDamageIntroWords`) as phantom "label words". The same
+ * mechanism as the section-boundary fix (`findColumnBand`/`isWithinColumnBand`,
+ * `columnBand.ts`) — on a single-column page the band covers the whole content, zero
+ * change in behavior.
  */
 export function collectRowText(tokens: readonly RowTextToken[], clickedIndex: number): string {
   const clicked = tokens[clickedIndex];

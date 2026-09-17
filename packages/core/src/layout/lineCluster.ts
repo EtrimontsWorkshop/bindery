@@ -6,96 +6,101 @@ import type { MergedToken } from './wordMerge.js';
 import { axisPositions, baselineTolerance, fontSizeFromTransform, type StreamAngle } from './textGeometry.js';
 
 /**
- * Klastrowanie tokenow (po Z4) w linie tekstu (KROK-5 Z5, MDD §5.1). Klucz:
- * grupowanie po `crossAxisPosition` — osi PROSTOPADLEJ do kierunku tekstu, nie
- * zawsze Y — z tolerancja pochodna od rozmiaru fontu (wspoldzielona z Z2/Z4,
- * patrz textGeometry.ts). Indeksy gorne/dolne (mniejszy font, male przesuniecie)
- * musza trafic do tej samej linii co ich otoczenie.
+ * Clusters tokens (post-Z4) into lines of text (Step 5 Z5, MDD §5.1). Key idea:
+ * grouping by `crossAxisPosition` — the axis PERPENDICULAR to the text
+ * direction, not always Y — with a tolerance derived from font size (shared
+ * with Z2/Z4, see textGeometry.ts). Superscripts/subscripts (smaller font,
+ * small offset) must end up on the same line as their surroundings.
  */
 
 export interface TextLine {
   id: string;
   text: string;
   bbox: Rect;
-  /** Zawsze -1 w kroku 5 — przypisanie do kolumny to krok 6. */
+  /** Always -1 in step 5 — column assignment happens in step 6. */
   columnIndex: number;
   crossAxisPosition: number;
   fonts: FontFingerprint[];
   dominantFont: FontFingerprint;
   syntheticBold: boolean;
   /**
-   * [KROK-9 Z1b] Przebiegi WEWNATRZ linii w kolejnosci wzdluz osi czytania —
-   * ciagle grupy tokenow tego samego `fontKey`. Puste/brak = linia jednolita
-   * (typowy przypadek). Istnieje WYLACZNIE po to, zeby `blockBuilder.ts` mogl
-   * wykryc naglowek srodakapitowy (przejscie roli fontu heading->body W JEDNEJ
-   * linii, MDD §5.2) — `fonts`/`dominantFont` powyzej spłaszczaja te informacje
-   * do jednego klucza i nie niosa pozycji. Opcjonalne (nie wymagane), zeby nie
-   * psuc istniejacych fixture'ow testowych budujacych `TextLine` recznie.
+   * [Step 9 Z1b] Runs WITHIN the line in order along the reading axis —
+   * contiguous groups of tokens sharing the same `fontKey`. Empty/absent =
+   * a uniform line (the typical case). Exists SOLELY so `blockBuilder.ts` can
+   * detect an inline heading label (a heading->body font-role transition
+   * WITHIN ONE line, MDD §5.2) — `fonts`/`dominantFont` above flatten this
+   * information down to a single key and carry no position. Optional (not
+   * required), so as not to break existing test fixtures that build
+   * `TextLine` by hand.
    */
   runs?: LineRun[];
   /**
-   * [KROK-10] Bbox+tekst KAZDEGO oryginalnego tokenu tej linii (PRZED agregacja
-   * do `text`/`bbox`), posortowane wzdluz osi czytania. Opcjonalne — istnieje
-   * WYLACZNIE do dyskryminatora `gutterRepair.ts` ("czy jakikolwiek token
-   * przecina obszar wykrytej rynny"), zero wplywu na istniejace fixture'y/testy
-   * budujace `TextLine` recznie. Nie zmienia `sameLine`/klastrowania — czysto
-   * dodatkowe dane wyjsciowe z JUZ obliczonych bboksow tokenow.
+   * [Step 10] Bbox+text of EVERY original token of this line (BEFORE
+   * aggregation into `text`/`bbox`), sorted along the reading axis. Optional —
+   * exists SOLELY for the `gutterRepair.ts` discriminator ("does any token
+   * cross the area of a detected gutter"), with zero impact on existing
+   * fixtures/tests that build `TextLine` by hand. Does not change
+   * `sameLine`/clustering — purely additional output data from token bboxes
+   * that are ALREADY computed.
    */
   tokens?: LineToken[];
 }
 
-/** Ciagly przebieg tokenow jednego fontu wewnatrz linii (KROK-9 Z1b) — patrz `TextLine.runs`. */
+/** A contiguous run of tokens of one font within a line (Step 9 Z1b) — see `TextLine.runs`. */
 export interface LineRun {
   fontKey: string;
   text: string;
   bbox: Rect;
 }
 
-/** Jeden oryginalny token linii (KROK-10) — patrz `TextLine.tokens`. */
+/** One original token of a line (Step 10) — see `TextLine.tokens`. */
 export interface LineToken {
   text: string;
   bbox: Rect;
 }
 
-/** Wspolczynnik typograficzny interlinii wzgledem rozmiaru fontu — standardowy zakres 1.2-1.5, tu srodek. */
+/** Typographic line-height ratio relative to font size — standard range is 1.2-1.5, this is the midpoint. */
 const LINE_HEIGHT_RATIO = 1.35;
-/** Ponizej tego stosunku rozmiarow token jest "mniejszy" — kandydat na indeks gorny/dolny. */
+/** Below this size ratio a token is "smaller" — a superscript/subscript candidate. */
 const SUBSCRIPT_SIZE_RATIO = 0.8;
 /**
- * [KROK-6, odkrycie] Dwa tokeny na TEJ SAMEJ linii bazowej (cross-axis) nie sa
- * automatycznie ta sama LINIA tekstu — realny uklad dwukolumnowy (a takze
- * sidebar obok kolumny) ma czesto wyrownane baseline'y obu kolumn w tym samym
- * wierszu. Bez dodatkowego warunku `sameLine` sklejalo sasiadujace kolumny w
- * jedna linie rozpinajaca cala szerokosc bloku (zero wyniku Z3: histogram nigdy
- * nie widzial doliny).
+ * [Step 6, discovery] Two tokens on the SAME baseline (cross-axis) are not
+ * automatically the same text LINE — a real two-column layout (and also a
+ * sidebar next to a column) often has both columns' baselines aligned on the
+ * same row. Without an extra condition, `sameLine` would merge adjacent
+ * columns into one line spanning the whole block width (zero Z3 result: the
+ * histogram never sees a valley).
  *
- * Pierwsza proba: STALY prog "gap > Nx rozmiaru fontu = rozne linie". Odrzucona
- * empirycznie — brak jednej wartosci N dzielacej poprawnie oba przypadki:
- * fixture text-empill-items (grupa B, KROK-3/5) ma CELOWO szeroki, ale
- * PRAWDZIWY odstep miedzywyrazowy ~2.9-3.1x rozmiaru fontu (kalibrowany tak,
- * zeby wymusic syntetyczny item spacji pdf.js), a layout-2col-sidebar ma
- * rynne ~4x rozmiaru fontu (wezsza niz miedzy glownymi kolumnami) — zakresy
- * SIE NAKLADAJA, zaden staly mnoznik nie rozroznia ich poprawnie.
+ * First attempt: a FIXED threshold "gap > Nx font size = different lines".
+ * Rejected empirically — there is no single value N that correctly separates
+ * both cases: fixture text-empill-items (group B, Step 3/5) has a
+ * DELIBERATELY wide but GENUINE inter-word gap of ~2.9-3.1x font size
+ * (calibrated to force a synthetic pdf.js space item), while
+ * layout-2col-sidebar has a gutter of ~4x font size (narrower than between
+ * the main columns) — the ranges OVERLAP, so no fixed multiplier
+ * distinguishes them correctly.
  *
- * Druga proba: `WordBoundary` pdf.js (krok 5, U2) — jesli pdf.js sam wstawil
- * jawny item bialoznakowy miedzy tokenami, to dowod na prawdziwy odstep w
- * ciaglym biegu tekstu, niezaleznie od szerokosci. TAKZE odrzucona empirycznie
- * na prawdziwym pliku (Cienie_posrod_mgie.pdf str. 46): rynna miedzy dwiema
- * kolumnami byla waska (~12.7pt, ~1.2x rozmiaru fontu) i pdf.js WSTAWIL tam
- * synteryczny bialy znak (bo jego wlasna heurystyka "to tylko odstep" patrzy
- * WYLACZNIE na odleglosc geometryczna, tak samo slepa na "to dwie kolumny" jak
- * nasza pierwsza proba) — `sameLine` nadal sklejalo kolumny w jedna linie.
+ * Second attempt: pdf.js's `WordBoundary` (step 5, U2) — if pdf.js itself
+ * inserted an explicit whitespace item between tokens, that's evidence of a
+ * genuine gap within a continuous run of text, regardless of width. ALSO
+ * rejected empirically on a real file (Cienie_posrod_mgie.pdf p. 46): the
+ * gutter between two columns was narrow (~12.7pt, ~1.2x font size) and pdf.js
+ * INSERTED a synthetic whitespace character there (because its own "this is
+ * just a gap" heuristic looks EXCLUSIVELY at geometric distance, just as
+ * blind to "this is two columns" as our first attempt) — `sameLine` still
+ * merged the columns into one line.
  *
- * Zaden LOKALNY sygnal (odleglosc, granica pdf.js) nie moze tego rozstrzygnac
- * niezawodnie: waska rynna i szeroki odstep miedzywyrazowy wygladaja identycznie
- * z perspektywy PARY tokenow. Jedyny niezawodny sygnal to KONSYSTENCJA pozycji
- * X w WIELU wierszach na raz — `findLikelyGutters` (gutterHint.ts) liczy
- * dokladnie to, tym samym histogramem co Z3 (`detectColumns`), ale PRZED
- * klastrowaniem w linie (na tokenach, nie liniach) — bo Z3 wlasciwe dziala
- * dopiero PO tym kroku, na juz (mamy nadzieje) poprawnie podzielonych liniach.
- * Gutter hint ma PIERWSZENSTWO nad obiema wczesniejszymi probami: token po
- * drugiej stronie wykrytej (choc tylko podpowiedzianej) rynny nigdy nie jest
- * ta sama linia, nawet przy malym odstepie lub obecnosci `WordBoundary`.
+ * No LOCAL signal (distance, pdf.js boundary) can resolve this reliably: a
+ * narrow gutter and a wide inter-word gap look identical from the
+ * perspective of a PAIR of tokens. The only reliable signal is the
+ * CONSISTENCY of X positions across MANY rows at once — `findLikelyGutters`
+ * (gutterHint.ts) computes exactly that, with the same histogram as Z3
+ * (`detectColumns`), but BEFORE line clustering (on tokens, not lines) —
+ * because Z3 proper only runs AFTER this step, on lines that are (hopefully)
+ * already correctly split. The gutter hint takes PRECEDENCE over both
+ * earlier attempts: a token on the other side of a detected (even if only
+ * hinted) gutter is never the same line, even with a small gap or the
+ * presence of a `WordBoundary`.
  */
 const SAME_LINE_TRACKING_GAP_RATIO = 1;
 const HYPHEN = '-';
@@ -108,7 +113,7 @@ interface ClusterToken {
   cross: number;
 }
 
-/** Union-Find prosty — liczba tokenow na stronie jest mala (dziesiatki-setki), nie tysiace. */
+/** Simple Union-Find — the number of tokens per page is small (tens to hundreds), not thousands. */
 class UnionFind {
   private parent: number[];
   constructor(n: number) {
@@ -128,13 +133,13 @@ class UnionFind {
   }
 }
 
-/** Odstep wzdluz osi czytania miedzy dwoma tokenami (od konca wczesniejszego do poczatku pozniejszego) — moze byc ujemny przy nakladaniu. */
+/** Gap along the reading axis between two tokens (from the end of the earlier one to the start of the later one) — can be negative when overlapping. */
 function alongGap(a: ClusterToken, b: ClusterToken): number {
   const [earlier, later] = a.along <= b.along ? [a, b] : [b, a];
   return later.along - (earlier.along + earlier.token.width);
 }
 
-/** Czy jakas podpowiedziana rynna lezy MIEDZY dwoma tokenami wzdluz osi czytania. */
+/** Whether some hinted gutter lies BETWEEN two tokens along the reading axis. */
 function gutterBetween(a: ClusterToken, b: ClusterToken, gutters: readonly GutterHint[]): boolean {
   if (gutters.length === 0) return false;
   const [earlier, later] = a.along <= b.along ? [a, b] : [b, a];
@@ -143,17 +148,17 @@ function gutterBetween(a: ClusterToken, b: ClusterToken, gutters: readonly Gutte
   return gutters.some((g) => g.minX < gapEnd && gapStart < g.maxX);
 }
 
-/** Czy dwa tokeny naleza do tej samej linii — normalna tolerancja LUB regula indeksu gornego/dolnego. */
+/** Whether two tokens belong to the same line — normal tolerance OR the superscript/subscript rule. */
 function sameLine(a: ClusterToken, b: ClusterToken, wordBoundaries: readonly WordBoundary[], gutters: readonly GutterHint[]): boolean {
   const crossDelta = Math.abs(a.cross - b.cross);
   const biggerSize = Math.max(a.size, b.size);
 
   if (crossDelta <= baselineTolerance(biggerSize)) {
-    // Podpowiedziana rynna ma PIERWSZENSTWO — patrz komentarz przy SAME_LINE_TRACKING_GAP_RATIO.
+    // A hinted gutter takes PRECEDENCE — see the comment on SAME_LINE_TRACKING_GAP_RATIO.
     if (gutterBetween(a, b, gutters)) return false;
-    // Ta sama linia bazowa TO ZA MALO — maly odstep zawsze OK (stykajace sie
-    // biegi), wiekszy wymaga jawnej granicy pdf.js (prawdziwy, choc szeroki,
-    // odstep miedzywyrazowy).
+    // Sharing a baseline is NOT ENOUGH on its own — a small gap is always OK
+    // (touching runs), a larger one requires an explicit pdf.js boundary (a
+    // genuine, if wide, inter-word gap).
     const gap = alongGap(a, b);
     if (gap <= biggerSize * SAME_LINE_TRACKING_GAP_RATIO) return true;
     const [earlier, later] = a.along <= b.along ? [a, b] : [b, a];
@@ -162,7 +167,7 @@ function sameLine(a: ClusterToken, b: ClusterToken, wordBoundaries: readonly Wor
     return hasBoundaryBetween(wordBoundaries, earlierLastIndex, laterFirstIndex);
   }
 
-  // Indeks gorny/dolny: jeden token WYRAZNIE mniejszy, przesuniecie mniejsze niz interlinia tego wiekszego.
+  // Superscript/subscript: one token CLEARLY smaller, offset smaller than the larger one's line height.
   const smaller = a.size <= b.size ? a : b;
   const larger = a.size <= b.size ? b : a;
   if (smaller.size / larger.size <= SUBSCRIPT_SIZE_RATIO && crossDelta < larger.size * LINE_HEIGHT_RATIO) {
@@ -187,9 +192,10 @@ function buildFontFingerprints(tokens: readonly ClusterToken[]): { fonts: FontFi
 }
 
 /**
- * [KROK-9 Z1b] Grupuje tokeny JUZ POSORTOWANE wzdluz osi czytania w ciagle
- * przebiegi tego samego `fontKey` — surowy material do wykrycia przejscia roli
- * fontu (np. heading->body) wewnatrz jednej linii w `blockBuilder.ts`.
+ * [Step 9 Z1b] Groups tokens ALREADY SORTED along the reading axis into
+ * contiguous runs of the same `fontKey` — raw material for detecting a
+ * font-role transition (e.g. heading->body) within a single line in
+ * `blockBuilder.ts`.
  */
 function buildLineRuns(sorted: readonly ClusterToken[], wordBoundaries: readonly WordBoundary[]): LineRun[] {
   const runs: LineRun[] = [];
@@ -206,7 +212,7 @@ function buildLineRuns(sorted: readonly ClusterToken[], wordBoundaries: readonly
   return runs;
 }
 
-/** Skleja tokeny linii w tekst, wstawiajac spacje TYLKO tam, gdzie miedzy nimi byla prawdziwa granica wyrazu (Z1/U2). */
+/** Joins a line's tokens into text, inserting a space ONLY where there was a genuine word boundary between them (Z1/U2). */
 function joinTokenText(sorted: readonly ClusterToken[], wordBoundaries: readonly WordBoundary[]): string {
   let text = '';
   for (let i = 0; i < sorted.length; i++) {
@@ -223,9 +229,9 @@ function joinTokenText(sorted: readonly ClusterToken[], wordBoundaries: readonly
 }
 
 /**
- * Klastruje tokeny JEDNEGO strumienia katowego w linie. Zaklada tokeny juz
- * po Z4 (scalanie wyrazow) dla tego samego kata — wolajacy dostarcza je per
- * strumien, tak jak Z4.
+ * Clusters tokens from ONE angular stream into lines. Assumes the tokens are
+ * already past Z4 (word merging) for the same angle — the caller supplies
+ * them per stream, just as Z4 does.
  */
 export function clusterIntoLines(
   tokens: readonly MergedToken[],
@@ -238,10 +244,11 @@ export function clusterIntoLines(
     return { token, size: fontSizeFromTransform(token.transform), along, cross };
   });
 
-  // Podpowiedz rynny TYLKO dla strumienia podstawowego (0°) — tam `along` = X
-  // realnej strony, a koncepcja kolumn ma sens (patrz gutterHint.ts). rowId =
-  // zaokraglona pozycja cross-axis (ten sam mechanizm co bucketByBaseline w
-  // wordMerge.ts) — gutter hint musi liczyc DYSTYNKTYWNE wiersze, nie tokeny.
+  // Gutter hint ONLY for the primary stream (0°) — that's where `along` = the
+  // real page's X, and the concept of columns makes sense (see gutterHint.ts).
+  // rowId = rounded cross-axis position (the same mechanism as
+  // bucketByBaseline in wordMerge.ts) — the gutter hint must count DISTINCT
+  // rows, not tokens.
   const gutters: GutterHint[] =
     angle === 0
       ? findLikelyGutters(
@@ -277,7 +284,7 @@ export function clusterIntoLines(
     );
     const bbox = tokenBBoxes.reduce((acc, r) => (acc ? unionRect(acc, r) : r), null as Rect | null)!;
 
-    // Pozycja cross-axis reprezentatywna dla linii: dominujacego (najczestszego) fontu, nie srednia (odporne na indeksy gorne/dolne).
+    // Cross-axis position representative of the line: from the dominant (most common) font, not an average (robust against superscripts/subscripts).
     const dominantTokens = sorted.filter((t) => t.token.fontKey === dominantFont.key);
     const crossAxisPosition = dominantTokens[0]?.cross ?? sorted[0]!.cross;
 
@@ -295,8 +302,8 @@ export function clusterIntoLines(
     });
   }
 
-  // Kolejnosc czytania: wzdluz osi PROSTOPADLEJ (linie ida "w dol" strumienia); dla 0°/90° cross rosnie w dol/w prawo
-  // w ukladzie PDF (Y rosnie w gore), wiec porzadek czytania to malejace Y dla 0°/180°, rosnace X dla 90°/270°.
+  // Reading order: along the PERPENDICULAR axis (lines go "down" the stream); for 0°/90° cross increases downward/rightward
+  // in PDF space (Y increases upward), so reading order means decreasing Y for 0°/180°, increasing X for 90°/270°.
   const readingOrderSign = angle === 0 || angle === 180 ? -1 : 1;
   lines.sort((a, b) => readingOrderSign * (a.crossAxisPosition - b.crossAxisPosition));
   lines.forEach((line, i) => {
@@ -306,7 +313,7 @@ export function clusterIntoLines(
   return joinHyphenatedLineWraps(lines, gutters);
 }
 
-/** Czy jakas podpowiedziana rynna lezy MIEDZY dwoma bboxami wzdluz X (jak `gutterBetween`, ale na juz uformowanych liniach). */
+/** Whether some hinted gutter lies BETWEEN two bboxes along X (like `gutterBetween`, but on already-formed lines). */
 function gutterBetweenBBoxes(a: Rect, b: Rect, gutters: readonly GutterHint[]): boolean {
   if (gutters.length === 0) return false;
   const [earlier, later] = a.minX <= b.minX ? [a, b] : [b, a];
@@ -314,19 +321,21 @@ function gutterBetweenBBoxes(a: Rect, b: Rect, gutters: readonly GutterHint[]): 
 }
 
 /**
- * Skleja wyraz przenoszony lacznikiem na koncu linii z poczatkiem nastepnej —
- * PO uformowaniu linii (brief Z5). Warunek: linia konczy sie plaskim lacznikiem
- * U+002D I nastepna linia zaczyna sie mala litera (zabezpieczenie przed
- * sklejeniem prawdziwego myslnika w tytule, np. "Chapter One-Two").
+ * Joins a word hyphenated at the end of a line with the start of the next one —
+ * AFTER lines have been formed (per the brief, Z5). Condition: the line ends
+ * with a plain hyphen U+002D AND the next line starts with a lowercase letter
+ * (a safeguard against merging a genuine dash in a title, e.g. "Chapter
+ * One-Two").
  *
- * [KROK-6, odkrycie] Bez sprawdzenia rynny to sklejalo koniec linii PRAWEJ
- * kolumny z poczatkiem linii LEWEJ kolumny nastepnego wiersza w globalnym
- * sortowaniu po Y (ktore nie wie nic o kolumnach) — zawsze gdy prawa kolumna
- * konczyla sie lacznikiem, a kolejna linia w sortowaniu (jakakolwiek, z
- * dowolnej kolumny) zaczynala sie mala litera. Zmierzone na prawdziwym pliku
- * (Cienie_posrod_mgie.pdf str. 46): "...Splot bezpo-" (prawa kolumna) sklejone
- * z "wadze sił..." (LEWA kolumna, zupelnie inny fragment tekstu) w jedno
- * fikcyjne slowo "bezpowadze".
+ * [Step 6, discovery] Without the gutter check, this used to merge the end of
+ * a line from the RIGHT column with the start of a line from the LEFT column
+ * of the next row in the global Y-sort (which knows nothing about columns) —
+ * whenever the right column ended with a hyphen and the next line in the sort
+ * (from any column at all) started with a lowercase letter. Measured on a
+ * real file (Cienie_posrod_mgie.pdf p. 46): a hyphenated word fragment ending
+ * the right column's line
+ * merged with the start of an unrelated line from the LEFT column (a completely different piece of
+ * text) into one fictitious, glued-together word.
  */
 function joinHyphenatedLineWraps(lines: readonly TextLine[], gutters: readonly GutterHint[]): TextLine[] {
   const result: TextLine[] = [];
@@ -339,10 +348,11 @@ function joinHyphenatedLineWraps(lines: readonly TextLine[], gutters: readonly G
         const continuation = continuationMatch ? continuationMatch[0] : line.text;
         prev.text = prev.text.slice(0, -1) + continuation;
         prev.bbox = unionRect(prev.bbox, line.bbox);
-        // Przyblizenie: doklejamy CALE runs nastepnej linii, bez dzielenia jej
-        // pierwszego runu na "zjedzona przez continuation" i "reszte" czesc —
-        // rzadki zbieg okolicznosci (przeniesienie lacznikiem DOKLADNIE w
-        // miejscu przejscia roli fontu) nie uzasadnial dokladnego ciecia tekstu runu.
+        // Approximation: we append the WHOLE runs of the next line, without
+        // splitting its first run into a "consumed by the continuation" part
+        // and a "remainder" part — the rare coincidence (a hyphen break
+        // EXACTLY at a font-role transition) didn't justify precise slicing
+        // of the run's text.
         prev.runs = [...(prev.runs ?? []), ...(line.runs ?? [])];
         prev.tokens = [...(prev.tokens ?? []), ...(line.tokens ?? [])];
         const remainder = line.text.slice(continuation.length).replace(/^\s+/, '');

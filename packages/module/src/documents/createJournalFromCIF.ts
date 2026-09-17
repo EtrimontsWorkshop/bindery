@@ -1,22 +1,24 @@
 import { uploadImage } from './uploadImages.js';
 
 /**
- * Journale z CIF (KROK-9 Z4/Z5, faza 8 MDD). Wejscie jest juz gotowym
- * `CIFDocument` (hierarchia + HTML zbudowane w `packages/core`, zero logiki
- * decyzyjnej tutaj — A1/`check:boundary`): ten modul WYLACZNIE (1) wgrywa
- * obrazy embedowane w tresci i (2) podmienia placeholder `assetRef` (=
- * `CIFImage.id`, patrz `buildCIFDocument.ts`) na prawdziwa sciezke Foundry w
- * atrybucie `src`, po czym tworzy `JournalEntry`+`JournalEntryPage`.
+ * Journals from CIF (Step 9 Z4/Z5, MDD phase 8). The input is an
+ * already-built `CIFDocument` (hierarchy + HTML built in `packages/core`,
+ * zero decision logic here — A1/`check:boundary`): this module ONLY (1)
+ * uploads images embedded in the content and (2) replaces the `assetRef`
+ * placeholder (= `CIFImage.id`, see `buildCIFDocument.ts`) with the real
+ * Foundry path in the `src` attribute, then creates a
+ * `JournalEntry`+`JournalEntryPage`.
  *
- * [KROK-9, kształt JournalEntryPage v14 zweryfikowany w zrodlach PRZED
- * napisaniem tego kodu, zgodnie z ostrzezeniem briefu] `common/documents/
- * journal-entry-page.mjs`: schemat PLASKI (`text.content` HTMLField,
- * `title.level` 1-6, `format` domyslnie `JOURNAL_ENTRY_PAGE_FORMATS.HTML`) —
- * ZERO shimow/embedded-dokumentow-pulapek analogicznych do `Scene#background`
- * (KROK-8). `JournalEntry.pages` to zwykle `EmbeddedCollectionField` — dane
- * stron mozna przekazac WPROST w `JournalEntry.create({pages: [...]})`, bez
- * osobnego `createEmbeddedDocuments` ani ryzyka "domyslnego pustego wpisu"
- * (to byl specyficzny dla `Scene`/`Level` przypadek, nie ogolny wzorzec Foundry).
+ * [Step 9, the v14 JournalEntryPage shape was verified in the source BEFORE
+ * writing this code, per the brief's warning] `common/documents/
+ * journal-entry-page.mjs`: a FLAT schema (`text.content` HTMLField,
+ * `title.level` 1-6, `format` defaulting to `JOURNAL_ENTRY_PAGE_FORMATS.HTML`)
+ * — ZERO shims/embedded-document traps analogous to `Scene#background`
+ * (Step 8). `JournalEntry.pages` is a plain `EmbeddedCollectionField` — page
+ * data can be passed DIRECTLY in `JournalEntry.create({pages: [...]})`,
+ * without a separate `createEmbeddedDocuments` or the risk of a "default
+ * empty entry" (that was a case specific to `Scene`/`Level`, not a general
+ * Foundry pattern).
  */
 
 export interface CIFImageForUpload {
@@ -38,11 +40,11 @@ export interface CIFJournalForCreation {
 export interface CreateJournalsFromCIFInput {
   journals: readonly CIFJournalForCreation[];
   images: readonly CIFImageForUpload[];
-  /** `CIFImage.id` -> bajty juz zakodowane (z `buildCIFDocument`'s `imageBytesById`). */
+  /** `CIFImage.id` -> already-encoded bytes (from `buildCIFDocument`'s `imageBytesById`). */
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>;
-  /** Uzywane do nazw plikow wgrywanych obrazow — zwykle nazwa zrodlowego PDF-a bez rozszerzenia. */
+  /** Used for the file names of uploaded images — usually the source PDF's name without extension. */
   baseName: string;
-  /** [KROK-11 Z6] Id folderu `JournalEntry` (patrz `ensureFolder.ts`) — `undefined` = korzen. */
+  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 
@@ -54,13 +56,13 @@ export interface CreatedJournalRef {
 
 export interface CreateJournalsFromCIFResult {
   journalIds: string[];
-  /** [KROK-11 Z6] Utworzone journale z pelnym `uuid` — do linkowania z podsumowania po imporcie. */
+  /** [Step 11 Z6] Created journals with their full `uuid` — for linking from the post-import summary. */
   createdJournals: CreatedJournalRef[];
-  /** Obrazy, ktorych bajtow nie znaleziono w `imageBytesById` (nie powinno sie zdarzyc — diagnostyka). */
+  /** Images whose bytes weren't found in `imageBytesById` (shouldn't happen — diagnostics). */
   missingImageIds: string[];
 }
 
-/** Wgrywa WSZYSTKIE obrazy embedowane w journalach, zwraca `CIFImage.id` -> prawdziwa sciezka Foundry. */
+/** Uploads ALL images embedded in journals, returns `CIFImage.id` -> real Foundry path. */
 async function uploadAllImages(
   images: readonly CIFImageForUpload[],
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>,
@@ -81,7 +83,7 @@ async function uploadAllImages(
   return { pathById, missingImageIds };
 }
 
-/** Podmienia `src="<CIFImage.id>"` (placeholder, patrz naglowek pliku) na prawdziwa sciezke — dopasowanie po DOKLADNYM atrybucie, nie po samym id, zeby nie trafic przypadkiem w tekst tresci. */
+/** Replaces `src="<CIFImage.id>"` (placeholder, see the file header) with the real path — matched by the EXACT attribute, not just the id, so it doesn't accidentally match text in the content. */
 function substituteImagePaths(html: string, pathById: ReadonlyMap<string, string>): string {
   let result = html;
   for (const [id, path] of pathById) {
@@ -107,7 +109,7 @@ export async function createJournalsFromCIF(input: CreateJournalsFromCIFInput): 
     }));
     const entry = await JournalEntryCls.create({ name: journal.name, pages: pagesData, folder: input.folder });
     if (!entry) {
-      throw new Error(`Bindery | nie udalo sie utworzyc journala "${journal.name}"`);
+      throw new Error(`Bindery | failed to create journal "${journal.name}"`);
     }
     journalIds.push(entry.id);
     createdJournals.push({ id: entry.id, uuid: entry.uuid, name: journal.name });

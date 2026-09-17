@@ -367,6 +367,9 @@
       "frameColor": "Kolor ramki",
       "frameCustomUpload": "Wybierz plik ramki…",
       "frameCustomHint": "Plik PNG z przezroczystością, tego samego kwadratowego kształtu co token — zostanie nałożony na wierzch.",
+      "setDefault": "Ustaw jako domyślny",
+      "setDefaultHint": "Zapisuje bieżący kształt, usuwanie tła, ramkę, rozmiar i format jako punkt startowy dla każdego kolejnego przygotowywanego tokenu.",
+      "setDefaultSaved": "Zapisano jako domyślne ustawienia tokenu.",
       "confirm": "Zapisz token",
       "cancel": "Anuluj"
     },

@@ -2,23 +2,23 @@ import type { ProfileV2 } from '../profiles/schema.js';
 import type { ContentKind, SystemAdapter } from './adapter.js';
 
 /**
- * [KROK-19 Z2] Mechanizm zgodnosci profil<->system aktywnego swiata —
- * dokladnie MDD §6.5. Odpowiada na pytanie "co sie dzieje, gdy PDF CoC trafi
- * do swiata WFRP". CELOWO nie zawiera D2 (scoreProfile) ani D3 (detekcja
- * jezyka) — `resolve` przyjmuje juz gotowy wynik detekcji (`Detection`); SAM
- * scoring/detekcja jezyka to osobny, wiekszy zakres (rejestr profili +
- * wczytywanie ich w `packages/module`), poza tym krokiem, ktorego celem jest
- * WYLACZNIE dostarczenie adaptera jako warunku pomiaru B'/A (patrz
- * KROK-19-adapter-coc7.md).
+ * [Step 19 Z2] The profile<->active-world-system compatibility mechanism —
+ * exactly MDD §6.5. Answers the question "what happens when a CoC PDF ends
+ * up in a WFRP world". DELIBERATELY does not include D2 (scoreProfile) or
+ * D3 (language detection) — `resolve` already receives a ready detection
+ * result (`Detection`); scoring/language detection ITSELF is a separate,
+ * larger scope (profile registry + loading them in `packages/module`),
+ * outside this step, whose goal is ONLY to deliver the adapter as a
+ * precondition for the B'/A measurement (see KROK-19-adapter-coc7.md).
  *
- * Pure function — zero odwolan do `game`/Foundry (A1): aktywny system
- * (`activeSystemId`/`activeSystemVersion`) przychodzi jako PARAMETR, nie jako
- * odczyt globalnego `game.system`. Warstwa modulu (Foundry-specyficzna)
- * dostarcza te wartosci wolajac `resolve(det, adapters, game.system.id,
- * game.system.version)`.
+ * A pure function — zero references to `game`/Foundry (A1): the active
+ * system (`activeSystemId`/`activeSystemVersion`) comes in as a PARAMETER,
+ * not as a read of the global `game.system`. The module layer
+ * (Foundry-specific) supplies these values by calling `resolve(det,
+ * adapters, game.system.id, game.system.version)`.
  */
 
-/** Tresci systemowo neutralne — ZAWSZE dozwolone, niezaleznie od wyniku dopasowania (MDD §6.5). */
+/** System-neutral content — ALWAYS allowed, regardless of the matching result (MDD §6.5). */
 export const NEUTRAL_CONTENT_KINDS: readonly ContentKind[] = ['journals', 'scenes', 'images'];
 
 export interface ScoredProfile {
@@ -27,8 +27,8 @@ export interface ScoredProfile {
 }
 
 /**
- * Wynik detekcji profilu (D2, poza zakresem tego pliku — patrz komentarz
- * powyzej). Zdefiniowany tutaj wylacznie jako typ WEJSCIOWY dla `resolve`.
+ * Result of profile detection (D2, outside the scope of this file — see
+ * the comment above). Defined here only as the INPUT type for `resolve`.
  */
 export type Detection =
   | { kind: 'confident'; profile: ProfileV2; score: number }
@@ -46,11 +46,12 @@ export type Resolution =
       blocked: readonly ContentKind[];
       reason: ResolutionReason;
       /**
-       * [KROK-19 Z2, luka wobec MDD] Tylko dla `reason: 'version-mismatch'`.
-       * MDD §6.5 nie niesie tej wartosci w typie `Resolution`, ale §6.8
-       * wymaga jej w komunikacie ("Adapter wymaga systemu X w wersji Y") —
-       * bez niej baner nie da rady wyswietlic wlasnej tresci z wlasnej
-       * specyfikacji. Dodane tutaj zamiast zgadywac/pomijac w UI.
+       * [Step 19 Z2, gap relative to MDD] Only for `reason:
+       * 'version-mismatch'`. MDD §6.5 does not carry this value in the
+       * `Resolution` type, but §6.8 requires it in the message ("Adapter
+       * requires system X in version Y") — without it the banner cannot
+       * display its own content from its own spec. Added here instead of
+       * guessing/omitting it in the UI.
        */
       requiredVersion?: string;
     }
@@ -63,18 +64,18 @@ function intersectContentKinds(a: readonly ContentKind[], b: readonly ContentKin
 }
 
 /**
- * Bardzo uproszczone sprawdzenie zakresu semver ("*", ">=X.Y.Z", "*.*.* <A.B.C"
- * itp.) — wystarczajace dla porownan `>=` uzywanych przez adaptery w tym
- * projekcie (patrz `coc7Adapter.systemVersion`). NIE jest pelnym parserem
- * semver-range (biblioteka `semver` z przykladu MDD nie jest zaleznoscia
- * `packages/core` — dokladac ja tylko dla jednego porownania byloby
- * nieproporcjonalne).
+ * A very simplified semver range check ("*", ">=X.Y.Z", "*.*.* <A.B.C" etc.)
+ * — sufficient for the `>=` comparisons used by the adapters in this
+ * project (see `coc7Adapter.systemVersion`). NOT a full semver-range parser
+ * (the `semver` library from the MDD example is not a dependency of
+ * `packages/core` — adding it just for one comparison would be
+ * disproportionate).
  */
 function satisfiesVersionRange(version: string, range: string): boolean {
   const trimmed = range.trim();
   if (trimmed === '*' || trimmed === '') return true;
   const match = /^>=\s*(\d+)\.(\d+)\.(\d+)/.exec(trimmed);
-  if (!match) return true; // zakres nierozpoznany -> nie blokuj na tym, czego nie umiemy sparsowac
+  if (!match) return true; // unrecognized range -> don't block on something we can't parse
   const [, reqMajorStr, reqMinorStr, reqPatchStr] = match;
   const reqMajor = Number(reqMajorStr);
   const reqMinor = Number(reqMinorStr);

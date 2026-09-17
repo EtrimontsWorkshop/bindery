@@ -6,9 +6,9 @@ import { buildVectorRegions, type VectorRegion } from './vectorRegistry.js';
 import { walkOperators } from './walkOperators.js';
 
 /**
- * Orkiestracja przebiegu inwentaryzacyjnego (MDD zal. A8, KROK-4 Z5).
- * Strona po stronie, sekwencyjnie — NIGDY Promise.all na wszystkich stronach
- * (reguła wydajnościowa #2 z MDD §12). Zero `objs.get()`, zero `render()`.
+ * Orchestration of the inventory pass (MDD annex A8, Step 4 Z5). Page by
+ * page, sequentially — NEVER Promise.all across all pages (performance
+ * rule #2 from MDD §12). Zero `objs.get()`, zero `render()`.
  */
 
 export interface InventoryResult {
@@ -26,8 +26,8 @@ export interface BuildInventoryOptions {
 }
 
 /**
- * Duck-typed podzbior `PDFPageProxy` faktycznie uzywany tutaj — pozwala
- * testowac orkiestracje bez prawdziwego dokumentu pdf.js.
+ * Duck-typed subset of `PDFPageProxy` actually used here — lets us test the
+ * orchestration without a real pdf.js document.
  */
 export interface PdfPageLike {
   view: readonly number[];
@@ -50,7 +50,7 @@ function viewToRect(view: readonly number[]): Rect {
 
 function checkAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw new DOMException('buildInventory przerwane przez AbortSignal', 'AbortError');
+    throw new DOMException('buildInventory aborted by AbortSignal', 'AbortError');
   }
 }
 
@@ -82,7 +82,7 @@ export async function buildInventory(
       const pageBox = viewToRect(page.view);
       perPage.push({ pageNumber, box: pageBox, rotation: page.rotate ?? 0 });
 
-      // JEDNO przejscie po operator liscie tej strony — obrazy, wektory, grupy.
+      // ONE pass over this page's operator list — images, vectors, groups.
       const ops = await page.getOperatorList();
       checkAborted(signal);
       const events = walkOperators(ops, pageBox);
@@ -90,12 +90,12 @@ export async function buildInventory(
       perPageImageEvents.push({ page: pageNumber, pageBox, events });
       allVectors.push(...buildVectorRegions(events, pageNumber, pageBox));
 
-      // Fingerprinting fontow: getTextContent() jest OSOBNYM wywolaniem pdf.js
-      // (nie drugim przejsciem po fnArray z operator listy) — potrzebne do
-      // realnych liczb glifow per font, ktorych operator lista sama nie daje
-      // w formie wygodnej do zliczania bez duplikowania logiki pdf.js.
-      // commonObjs jest juz wypelnione dzieki getOperatorList() powyzej (F0-Q1) —
-      // nie wymaga renderu.
+      // Font fingerprinting: getTextContent() is a SEPARATE pdf.js call (not a
+      // second pass over the operator list's fnArray) — needed for real
+      // per-font glyph counts, which the operator list alone doesn't provide
+      // in a form convenient to count without duplicating pdf.js's logic.
+      // commonObjs is already populated thanks to getOperatorList() above (F0-Q1) —
+      // no render required.
       const textContent = await page.getTextContent();
       checkAborted(signal);
       for (const item of textContent.items as Array<Record<string, unknown>>) {
@@ -106,20 +106,21 @@ export async function buildInventory(
         const baseFont = fontObj?.name;
         if (!baseFont) continue;
 
-        // [KROK-9, odkrycie] MUSI byc DOKLADNIE ta sama formula co
-        // `fontSizeFromTransform` (layout/textGeometry.ts, uzywana przez cala
-        // dalsza warstwe tekstu/layoutu do budowy `TextLine.dominantFont.key`) —
-        // przed ta poprawka ten plik liczyl rozmiar z transform[2]/[3] (os Y),
-        // podczas gdy `fontSizeFromTransform` liczy z transform[0]/[1] (os X).
-        // Dla tekstu ze skalowaniem poziomym (`Tz`, fonty condensed/expanded)
-        // te dwie wartosci ROZNIE SIE, wiec `buildFontKey` produkowal RozNY
-        // klucz niz ten, ktory faktycznie trafial do `TextLine` — linie
-        // uzywajace takiego fontu nigdy nie znajdowaly swojej roli w
-        // `fontRoles` (kluczy brakowalo w rejestrze), co zmierzono jako 284/369
-        // blokow `unknown` na Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf majacych
-        // dominujacy klucz `CaxtonStd-Book@7.5`, ktorego NIE BYLO w `inv.fonts`
-        // (prawdziwy rejestr mial `CaxtonStd-Book@8` i `@8.5`, zbudowane ta
-        // sama formula co teraz tutaj).
+        // [Step 9, discovery] MUST be EXACTLY the same formula as
+        // `fontSizeFromTransform` (layout/textGeometry.ts, used by the entire
+        // downstream text/layout layer to build `TextLine.dominantFont.key`) —
+        // before this fix, this file computed size from transform[2]/[3] (the
+        // Y axis), while `fontSizeFromTransform` computes it from
+        // transform[0]/[1] (the X axis). For text with horizontal scaling
+        // (`Tz`, condensed/expanded fonts) these two values DIFFER, so
+        // `buildFontKey` produced a DIFFERENT key than the one that actually
+        // ended up in `TextLine` — lines using such a font never found their
+        // role in `fontRoles` (the key was missing from the registry), which
+        // was measured as 284/369 `unknown` blocks on
+        // Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf, whose dominant key was
+        // `CaxtonStd-Book@7.5`, which was NOT in `inv.fonts` (the real
+        // registry had `CaxtonStd-Book@8` and `@8.5`, built with the same
+        // formula as here now).
         const transform = item['transform'] as number[] | undefined;
         const size = transform ? fontSizeFromTransform(transform) : 0;
         const key = buildFontKey(baseFont, size);
@@ -134,7 +135,7 @@ export async function buildInventory(
         acc.pages.add(pageNumber);
       }
     } finally {
-      // Zmierzone w fazie 0: oszczedza 33% pamieci przy zerowym koszcie czasu.
+      // Measured in phase 0: saves 33% memory at zero time cost.
       page.cleanup();
     }
 
@@ -161,8 +162,8 @@ export async function buildInventory(
 
   const fontRoles = rankFontRoles(fonts);
 
-  // Determinizm: kolejnosc ustalona po stabilnym kluczu, nie po kolejnosci
-  // iteracji Map/Set (wektory sortowane po stronie, potem po bbox).
+  // Determinism: order fixed by a stable key, not by Map/Set iteration order
+  // (vectors sorted by page, then by bbox).
   allVectors.sort((a, b) => a.page - b.page || a.bbox.minX - b.bbox.minX || a.bbox.minY - b.bbox.minY);
 
   return {

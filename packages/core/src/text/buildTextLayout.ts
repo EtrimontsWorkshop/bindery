@@ -8,13 +8,13 @@ import { runHygiene } from './hygiene.js';
 import type { Diagnostic, PdfTextItemLike, StreamAngle, WordBoundary } from './types.js';
 
 /**
- * Orkiestracja warstwy tekstu (KROK-5, MDD §5.1) — spina Z1-Z5 w jeden przebieg
- * per dokument. DWIE fazy geometryczne, zgodnie z zalozeniem A8 (jak w kroku 4):
- * (1) higiena + zbieranie probek odstepow na CALYM dokumencie — enabler Z2,
- * nie da sie tego policzyc na jednej stronie; (2) scalanie i klastrowanie w
- * linie per strona, korzystajac z profilow zbudowanych w fazie 1. Obie fazy
- * dziela TE SAME juz wyciagniete dane per strone (cache w pamieci) — bez
- * drugiego wywolania `getTextContent()`.
+ * Orchestration of the text layer (Step 5, MDD §5.1) — wires Z1-Z5 into a
+ * single pass per document. TWO geometric phases, per assumption A8 (as in
+ * step 4): (1) hygiene + collecting gap samples across the WHOLE document —
+ * the Z2 enabler, this can't be computed on a single page; (2) merging and
+ * line clustering per page, using the profiles built in phase 1. Both phases
+ * share the SAME already-extracted per-page data (in-memory cache) — without
+ * a second call to `getTextContent()`.
  */
 
 export interface TextStream {
@@ -37,13 +37,13 @@ export interface BuildTextLayoutResult {
 export interface PdfPageLike {
   getTextContent(): Promise<{ items: unknown[] }>;
   /**
-   * `commonObjs` (uzywane przez `resolveFontKey`) jest wypelniane przez
-   * `getOperatorList()`, NIE przez samo `getTextContent()` — pominiecie tego
-   * wywolania sprawia, ze `commonObjs.has(fontName)` jest zawsze false, a
-   * rozwiazywanie fontKey cicho spada do niedeterministycznego wewnetrznego id
-   * pdf.js (`g_dN_fM`, gdzie N to GLOBALNY licznik dokumentow w procesie, nie
-   * per-dokument — zweryfikowane empirycznie w KROK-5 przez test determinizmu).
-   * Musi byc wywolane PRZED `getTextContent()`, dokladnie jak w `inventory.ts`.
+   * `commonObjs` (used by `resolveFontKey`) is populated by
+   * `getOperatorList()`, NOT by `getTextContent()` alone — skipping that call
+   * makes `commonObjs.has(fontName)` always false, and fontKey resolution
+   * silently falls back to pdf.js's non-deterministic internal id
+   * (`g_dN_fM`, where N is a GLOBAL document counter within the process, not
+   * per-document — verified empirically in Step 5 via a determinism test).
+   * Must be called BEFORE `getTextContent()`, exactly as in `inventory.ts`.
    */
   getOperatorList(): Promise<unknown>;
   commonObjs: { has(id: string): boolean; get(id: string): unknown };
@@ -62,7 +62,7 @@ export interface BuildTextLayoutOptions {
 
 function checkAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw new DOMException('buildTextLayout przerwane przez AbortSignal', 'AbortError');
+    throw new DOMException('buildTextLayout aborted by AbortSignal', 'AbortError');
   }
 }
 
@@ -83,12 +83,12 @@ export async function buildTextLayout(
   const cachedPages: CachedPage[] = [];
   const allGapSamples: GapSample[] = [];
 
-  // Faza 1: higiena + fontKey per item + probki odstepow, na calym dokumencie.
+  // Phase 1: hygiene + per-item fontKey + gap samples, across the whole document.
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
     checkAborted(signal);
     const page = await doc.getPage(pageNumber);
     try {
-      // Wypelnia commonObjs (fonty) BEZ renderu — patrz komentarz na PdfPageLike.getOperatorList.
+      // Populates commonObjs (fonts) WITHOUT a render — see the comment on PdfPageLike.getOperatorList.
       await page.getOperatorList();
       checkAborted(signal);
       const textContent = await page.getTextContent();
@@ -112,12 +112,12 @@ export async function buildTextLayout(
     onProgress?.(pageNumber, pageCount);
   }
 
-  // [KROK-6 Z1a] Profil hierarchiczny (dokument + per-strona) — mergeWords uzywa
-  // bardziej zachowawczego z dwoch progow, naprawiajac sklejenia na stronach o
-  // gestym, nietypowym ukladzie (spisy tresci) bez zadnej wiedzy o semantyce.
+  // [Step 6 Z1a] Hierarchical profile (document + per-page) — mergeWords uses
+  // the more conservative of the two thresholds, fixing merges on pages with
+  // a dense, atypical layout (tables of contents) without any semantic knowledge.
   const fontGapProfiles = buildHierarchicalGapProfiles(allGapSamples, fontSizeByKey);
 
-  // Faza 2: scalanie (Z4) + klastrowanie w linie (Z5) per strumien katowy, per strona. Czysta, brak I/O.
+  // Phase 2: merging (Z4) + line clustering (Z5) per angular stream, per page. Pure, no I/O.
   const pages: PageTextResult[] = cachedPages.map(({ pageNumber, items, wordBoundaries }) => {
     checkAborted(signal);
     const { streams: angleBuckets, diagnostics: angleDiagnostics } = groupByAngle(items, pageNumber);

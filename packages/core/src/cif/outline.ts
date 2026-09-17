@@ -1,15 +1,16 @@
 /**
- * Ekstrakcja i rozwiazywanie zakladek PDF (KROK-9 Z4, `doc.getOutline()`).
- * Empirycznie zweryfikowane na WSZYSTKICH 9 plikach z `samples/`: 9/9 MA
- * zakladki (glebokosc 1-5), wiec fallback (Z4b, bez outline) nie ma na czym
- * sie sam-sprawdzic na prawdziwych plikach — testowany wylacznie syntetycznie.
+ * Extraction and resolution of PDF bookmarks (Step 9 Z4, `doc.getOutline()`).
+ * Empirically verified on ALL 9 files from `samples/`: 9/9 HAVE bookmarks
+ * (depth 1-5), so the fallback (Z4b, without outline) has nothing to
+ * self-check against on real files — tested only synthetically.
  *
- * Ksztalt `OutlineNode`/`getDestination`/`getPageIndex` — pdfjs-dist
- * `types/src/display/api.d.ts` (zweryfikowane wprost w zainstalowanej wersji,
- * nie zgadywane): `dest` to `string | Array<any> | null` — string = nazwana
- * destynacja (wymaga `getDestination()`), tablica = destynacja jawna (pierwszy
- * element to `RefProxy` gotowy dla `getPageIndex()`), null = brak (np. wpis
- * outline bez celu, tylko etykieta grupujaca).
+ * The shape of `OutlineNode`/`getDestination`/`getPageIndex` — pdfjs-dist
+ * `types/src/display/api.d.ts` (verified directly against the installed
+ * version, not guessed): `dest` is `string | Array<any> | null` — string =
+ * named destination (requires `getDestination()`), array = explicit
+ * destination (the first element is a `RefProxy` ready for
+ * `getPageIndex()`), null = none (e.g. an outline entry with no target,
+ * just a grouping label).
  */
 
 export interface PdfOutlineNode {
@@ -26,9 +27,9 @@ export interface PdfDocumentForOutline {
 
 export interface ResolvedOutlineNode {
   title: string;
-  /** 1-indeksowany numer strony; null = nierozwiazywalny cel (np. link zewnetrzny) — degraduj, nie failuj (A7). */
+  /** 1-indexed page number; null = unresolvable target (e.g. an external link) — degrade, don't fail (A7). */
   pageNumber: number | null;
-  /** 1 = najwyzszy poziom (tablica najwyzsza `getOutline()`). */
+  /** 1 = topmost level (the top-level array of `getOutline()`). */
   depth: number;
   children: ResolvedOutlineNode[];
 }
@@ -51,7 +52,7 @@ async function resolveNode(node: PdfOutlineNode, depth: number, doc: PdfDocument
   return { title: node.title, pageNumber, depth, children };
 }
 
-/** Zwraca [] gdy PDF nie ma zakladek (albo `getOutline()` rzuci) — brak outline to poprawny, oczekiwany wynik (A7: degraduj, nie failuj). */
+/** Returns [] when the PDF has no bookmarks (or `getOutline()` throws) — no outline is a valid, expected result (A7: degrade, don't fail). */
 export async function extractOutline(doc: PdfDocumentForOutline): Promise<ResolvedOutlineNode[]> {
   let raw: PdfOutlineNode[] | null;
   try {
@@ -63,7 +64,7 @@ export async function extractOutline(doc: PdfDocumentForOutline): Promise<Resolv
   return Promise.all(raw.map((n) => resolveNode(n, 1, doc)));
 }
 
-/** Splaszcza drzewo do listy plaskiej (kolejnosc DFS, glebokosc zachowana per-wezel). */
+/** Flattens the tree into a flat list (DFS order, depth preserved per node). */
 export function flattenOutline(nodes: readonly ResolvedOutlineNode[]): ResolvedOutlineNode[] {
   const flat: ResolvedOutlineNode[] = [];
   function walk(list: readonly ResolvedOutlineNode[]): void {

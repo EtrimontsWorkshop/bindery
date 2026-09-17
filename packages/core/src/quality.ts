@@ -1,32 +1,32 @@
 /**
- * Detektor jakości warstwy tekstowej (MDD §6.2).
+ * Text-layer quality detector (MDD §6.2).
  *
- * Metodyka zweryfikowana empirycznie w fazie 0 (spike) na 6 podręcznikach RPG.
- * Próbka spike'u pochodziła z jednego pipeline'u re-emisji (R-15) — te funkcje są
- * siatką bezpieczeństwa dla plików spoza tej próbki (starych PDF-ów, skanów),
- * nie tylko diagnostyką dla przypadku dobrego.
+ * Methodology empirically verified in phase 0 (spike) on 6 RPG manuals.
+ * The spike sample came from a single re-emission pipeline (R-15) — these
+ * functions are a safety net for files outside that sample (old PDFs,
+ * scans), not just diagnostics for the good case.
  *
- * Czyste funkcje — testowalne na syntetycznych stringach, bez otwierania PDF-a.
+ * Pure functions — testable on synthetic strings, without opening a PDF.
  */
 
 export interface QualitySignals {
   totalChars: number;
-  /** Znaki spoza (Basic Latin + Latin-1 Supplement + Latin Extended-A). */
+  /** Characters outside (Basic Latin + Latin-1 Supplement + Latin Extended-A). */
   outsideBasicLatin: number;
-  /** U+FFFD — znak zastępczy, silny sygnał uszkodzonego ToUnicode. */
+  /** U+FFFD — replacement character, a strong signal of a broken ToUnicode. */
   replacementChar: number;
-  /** U+E000–U+F8FF — Private Use Area, silny sygnał uszkodzonego mapowania glifów. */
+  /** U+E000–U+F8FF — Private Use Area, a strong signal of broken glyph mapping. */
   privateUse: number;
-  /** U+FB00–U+FB06 — ligatury nierozwinięte. */
+  /** U+FB00–U+FB06 — unexpanded ligatures. */
   ligatures: number;
   /** U+00AD — soft hyphen. */
   softHyphens: number;
-  /** U+0300–U+036F — znaki łączące (diakrytyki zdekomponowane, nie NFC). */
+  /** U+0300–U+036F — combining marks (decomposed diacritics, not NFC). */
   combiningMarks: number;
 }
 
 function isBasicLatinExtended(code: number): boolean {
-  // Basic Latin + Latin-1 Supplement + Latin Extended-A + typografia ogólna (spacje, myślniki, cudzysłowy)
+  // Basic Latin + Latin-1 Supplement + Latin Extended-A + general typography (spaces, dashes, quotation marks)
   return code === 0x20 || (code >= 0x0000 && code <= 0x024f) || (code >= 0x2000 && code <= 0x206f);
 }
 
@@ -42,7 +42,7 @@ export function emptySignals(): QualitySignals {
   };
 }
 
-/** Zlicza sygnały jakości dla pojedynczego fragmentu tekstu. */
+/** Tallies quality signals for a single piece of text. */
 export function tallySignals(text: string): QualitySignals {
   const s = emptySignals();
   for (const ch of text) {
@@ -59,7 +59,7 @@ export function tallySignals(text: string): QualitySignals {
   return s;
 }
 
-/** Sumuje wiele odczytów sygnałów (np. z kilku próbkowanych stron) w jeden. */
+/** Sums multiple signal readings (e.g. from several sampled pages) into one. */
 export function mergeSignals(all: readonly QualitySignals[]): QualitySignals {
   const merged = emptySignals();
   for (const s of all) {
@@ -81,9 +81,10 @@ function clamp01(n: number): number {
 }
 
 /**
- * Wynik 0–1. Sygnały jednoznacznie korumpujące (znak zastępczy, Private Use Area,
- * znaki łączące — diakrytyki nie w NFC) ważone mocno; znaki spoza zakresu podstawowego
- * ważone łagodniej, bo mogą być legalne (inne skrypty), nie tylko uszkodzeniem.
+ * A 0–1 score. Signals that unambiguously indicate corruption (replacement
+ * character, Private Use Area, combining marks — diacritics not in NFC)
+ * are weighted heavily; characters outside the basic range are weighted
+ * more leniently, since they may be legitimate (other scripts), not just corruption.
  */
 export function computeUnicodeConfidence(signals: QualitySignals): number {
   if (signals.totalChars === 0) return 0;
@@ -100,8 +101,8 @@ export interface QualityVerdict {
 }
 
 /**
- * Klasyfikacja per progi z MDD §6.2.
- * `glyphCount` to suma znaków na próbkowanych stronach (przed odjęciem pustych itemów).
+ * Classification per the thresholds from MDD §6.2.
+ * `glyphCount` is the total number of characters on the sampled pages (before subtracting empty items).
  */
 export function classifyQuality(glyphCount: number, signals: QualitySignals): QualityVerdict {
   const suspectedScan = glyphCount === 0;
@@ -113,7 +114,7 @@ export function classifyQuality(glyphCount: number, signals: QualitySignals): Qu
   };
 }
 
-/** Które numery stron próbkować dla dokumentu o `pageCount` stronach (metodyka fazy 0: 1, 25%, 50%, 75%, ostatnia). */
+/** Which page numbers to sample for a document with `pageCount` pages (phase 0 methodology: 1, 25%, 50%, 75%, last). */
 export function pickSamplePages(pageCount: number): number[] {
   if (pageCount <= 0) return [];
   const pages = new Set<number>([

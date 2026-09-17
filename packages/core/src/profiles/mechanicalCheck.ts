@@ -1,35 +1,35 @@
 import type { EntityAnalysis } from './studioAnalysis.js';
 
 /**
- * [KROK-24 Z3, "jedyna funkcja łapiąca cichą korupcję mapowań" per brief] W
- * kroku 19 klucz `P` byl zmapowany na `hitPoints`, a okazal sie
- * `sanity` (Poczytalnoscia) — zaden test tego nie lapal, bo wartosci
- * wygladaly wiarygodnie (liczby w sensownym zakresie). Wykryla to dopiero
- * relacja `PW ≈ (KON+BC)/10` sprawdzona recznie na 27 statblokach. Ten plik
- * automatyzuje DOKLADNIE ten pomysl: autor profilu, ktory zna wzory swojego
- * systemu na pamiec, wpisuje relacje miedzy kluczami kanonicznymi, silnik
- * sprawdza je na WSZYSTKICH znalezionych encjach i pokazuje rozbieznosci Z
- * KONKRETNYMI WARTOSCIAMI, nie sam procent zgodnosci.
+ * [Step 24 Z3, "the only function that catches silent mapping corruption" per the brief] In
+ * step 19 the key `P` was mapped to `hitPoints`, but it turned out to be
+ * `sanity` — no test caught this, because the values
+ * looked plausible (numbers within a sensible range). It was only caught by
+ * the relation `HP ≈ (CON+SIZ)/10` checked manually across 27 statblocks. This file
+ * automates EXACTLY that idea: a profile author who knows their system's
+ * formulas by heart enters relations between canonical keys, the engine
+ * checks them across ALL found entities and shows mismatches WITH
+ * CONCRETE VALUES, not just a match percentage.
  *
- * [Brief, dosłownie] "Nie buduj jezyka wyrazen — dwa operatory, cztery
- * dzialania, odwolania do kluczy kanonicznych." Skladnia relacji: `klucz ≈
- * wyrazenie` albo `klucz = wyrazenie`, wyrazenie to `+ - * /` i nawiasy nad
- * kluczami kanonicznymi i liczbami. Zaden inny operator/funkcja.
+ * [Brief, verbatim] "Don't build an expression language — two operators, four
+ * operations, references to canonical keys." Relation syntax: `key ≈
+ * expression` or `key = expression`, where an expression is `+ - * /` and parentheses over
+ * canonical keys and numbers. No other operator/function.
  */
 
 export interface EntityCanonicalValues {
-  /** Etykieta do wyswietlenia w rozbieznosci (nazwa encji albo placeholder) — CZYTELNA, nie surowy `ordinal`. */
+  /** Label to display in a mismatch (entity name or placeholder) — HUMAN-READABLE, not a raw `ordinal`. */
   label: string;
   values: Readonly<Record<string, number>>;
 }
 
-/** Pierwsza liczba (calkowita albo dziesietna, opcjonalnie ujemna) znaleziona w tekscie wartosci z PDF-a — "12/12" -> 12, "+1K4" -> 1, "–" -> brak (null). Notacja kostek (K4/K6) jest CELOWO poza zakresem (ten sam brief co inferencja z zaznaczenia — "nie probuj byc madrzejszy"). */
+/** The first number (integer or decimal, optionally negative) found in a value's text from the PDF — "12/12" -> 12, a dice-notation damage modifier like "+1D4" -> 1, "–" -> none (null). Dice notation (e.g. D4/D6) is DELIBERATELY out of scope (the same brief as selection-based inference — "don't try to be clever"). */
 function parseNumericValue(raw: string): number | null {
   const m = /-?\d+(?:\.\d+)?/.exec(raw);
   return m ? Number(m[0]) : null;
 }
 
-/** [KROK-24 Z3] Wyciaga wartosci liczbowe kluczy kanonicznych z JUZ POLICZONEJ analizy encji (`grid.pairs` + `derived.match.pairs`, siatka cech i blok pochodnych — jedyne dwa miejsca `labelledPairs`, gdzie `canonicalKey` w ogole istnieje). Wartosci nie-liczbowe (myslniki, notacja kostek) sa POMIJANE — relacja odwolujaca sie do takiego klucza zwyczajnie nie da sie policzyc na tej encji (patrz `totalChecked` w wyniku), nie liczy sie jako "0" ani jako blad. */
+/** [Step 24 Z3] Extracts numeric values of canonical keys from an ALREADY COMPUTED entity analysis (`grid.pairs` + `derived.match.pairs`, the attribute grid and the derived-stats block — the only two `labelledPairs` locations where `canonicalKey` exists at all). Non-numeric values (dashes, dice notation) are SKIPPED — a relation referencing such a key simply can't be evaluated for that entity (see `totalChecked` in the result), and doesn't count as "0" or as an error. */
 export function extractCanonicalValues(entity: EntityAnalysis): EntityCanonicalValues {
   const values: Record<string, number> = {};
   for (const p of entity.grid.pairs) {
@@ -56,7 +56,7 @@ export interface ParsedRelation {
 
 const RELATION_RE = /^\s*([A-Za-z][A-Za-z0-9]*)\s*(≈|=)\s*(.+?)\s*$/u;
 
-/** `null` gdy tekst nie pasuje do skladni `klucz ≈ wyrazenie` / `klucz = wyrazenie` w ogole (np. brak operatora). */
+/** `null` when the text doesn't match the `key ≈ expression` / `key = expression` syntax at all (e.g. no operator). */
 export function parseRelation(text: string): ParsedRelation | null {
   const m = RELATION_RE.exec(text);
   if (!m) return null;
@@ -66,14 +66,14 @@ export function parseRelation(text: string): ParsedRelation | null {
 const EXPR_TOKEN_RE = /[A-Za-z][A-Za-z0-9]*|\d+(?:\.\d+)?|[()+\-*/]/g;
 
 /**
- * Ewaluuje wyrazenie arytmetyczne (`+ - * /`, nawiasy, klucze kanoniczne,
- * liczby) nad `values`. `null` przy bledzie skladni ALBO nieznanym/brakujacym
- * kluczu (odrozniane od "0" — brakujaca wartosc NIE jest zerem) ALBO
- * dzieleniu przez zero.
+ * Evaluates an arithmetic expression (`+ - * /`, parentheses, canonical keys,
+ * numbers) over `values`. Returns `null` on a syntax error OR an unknown/missing
+ * key (distinguished from "0" — a missing value is NOT zero) OR
+ * division by zero.
  */
 export function evaluateExpression(expr: string, values: Readonly<Record<string, number>>): number | null {
   const tokens = expr.match(EXPR_TOKEN_RE);
-  if (!tokens || tokens.join('').length !== expr.replace(/\s+/g, '').length) return null; // znak spoza dozwolonego alfabetu gdzies w wyrazeniu
+  if (!tokens || tokens.join('').length !== expr.replace(/\s+/g, '').length) return null; // a character outside the allowed alphabet somewhere in the expression
   let pos = 0;
   const peek = (): string | undefined => tokens[pos];
   const consume = (): string => tokens[pos++]!;
@@ -133,11 +133,11 @@ export function evaluateExpression(expr: string, values: Readonly<Record<string,
   }
 
   const result = parseExpr();
-  if (pos !== tokens.length) return null; // tokeny pozostale po sparsowaniu calego wyrazenia = blad skladni (np. dwa wyrazenia obok siebie)
+  if (pos !== tokens.length) return null; // tokens remaining after parsing the whole expression = a syntax error (e.g. two expressions next to each other)
   return result;
 }
 
-/** Tolerancja zaokraglenia dla `≈` — WIEKSZA z {1, 5% oczekiwanej wartosci}, zeby pochlonac zaokraglenie dzielenia (np. `(KON+BC)/10`) bez ukrywania prawdziwych rozbieznosci przy duzych wartosciach. Nieskalibrowana na zadnym konkretnym systemie (zaden nie byl dostepny do pomiaru w tym kroku) — udokumentowana i latwa do zmiany, nie zaszyta bez wyjasnienia (ten sam standard co `AMBIGUITY_RATIO_THRESHOLD` w `entityAssembly.ts`). */
+/** Rounding tolerance for `≈` — the LARGER of {1, 5% of the expected value}, to absorb rounding from division (e.g. an averaging formula like `(CON+SIZ)/10`) without hiding genuine mismatches at large values. Not calibrated against any specific system (none was available to measure at this step) — documented and easy to change, not hardcoded without explanation (the same standard as `AMBIGUITY_RATIO_THRESHOLD` in `entityAssembly.ts`). */
 function withinApproxTolerance(actual: number, expected: number): boolean {
   const tolerance = Math.max(1, Math.abs(expected) * 0.05);
   return Math.abs(actual - expected) <= tolerance;
@@ -154,36 +154,36 @@ export interface RelationCheckOk {
   ok: true;
   lhsKey: string;
   op: RelationOperator;
-  /** Liczba encji, na ktorych OBIE strony (lhsKey i wyrazenie) dalo sie policzyc — mianownik zgodnosci. */
+  /** Number of entities for which BOTH sides (lhsKey and the expression) could be evaluated — the denominator of the match rate. */
   totalChecked: number;
   matchCount: number;
-  /** Rozbieznosci Z KONKRETNYMI WARTOSCIAMI (brief: "nie sam procent") — WSZYSTKIE, nie tylko przyklad. */
+  /** Mismatches WITH CONCRETE VALUES (brief: "not just a percentage") — ALL of them, not just an example. */
   mismatches: readonly RelationMismatch[];
-  /** [Brief] "ostrzezenie, gdy zgodnosc jest bardzo niska (prawdopodobnie zle mapowanie) albo idealna dla relacji rownosci (prawdopodobnie to samo pole zmapowane dwa razy)". */
+  /** [Brief] "a warning when the match rate is very low (probably a bad mapping) or perfect for an equality relation (probably the same field mapped twice)". */
   warning: 'low-match-rate' | 'suspiciously-perfect-equality' | null;
 }
 
 export interface RelationCheckError {
   text: string;
   ok: false;
-  /** Kod bledu, nie gotowy tekst — lokalizacja jest po stronie UI (`packages/module`), ten pakiet nie ma i18n (A1). */
+  /** An error code, not ready-made text — localization happens on the UI side (`packages/module`), this package has no i18n (A1). */
   errorCode: 'unparseable';
 }
 
 export type RelationCheckResult = RelationCheckOk | RelationCheckError;
 
-// [KROK-24 Z3, skalibrowane na prawdziwej ksiazce] Poprawna relacja
-// (`hitPoints ≈ (constitution+size)/10` z ORYGINALNYM, poprawnym mapowaniem)
-// dala 13/14 = 93% zgodnosci na `coc7-niczas-pl`. Symulacja bledu A11 ("P"
-// zmapowane na `hitPoints` zamiast `sanity`) dala 8/14 = 57%. Prog 0.5 (polowa)
-// byl ZA NISKI -- 57% mieściloby się jako "wystarczajaco dobre" i blad
-// przeszedlby CICHO, dokladnie tak jak w prawdziwym incydencie z kroku 19.
-// 0.7 poprawnie rozdziela oba zmierzone przypadki.
+// [Step 24 Z3, calibrated on a real book] The correct relation
+// (`hitPoints ≈ (constitution+size)/10` with the ORIGINAL, correct mapping)
+// gave 13/14 = 93% match rate on `coc7-niczas-pl`. Simulating bug A11 ("P"
+// mapped to `hitPoints` instead of `sanity`) gave 8/14 = 57%. A threshold of 0.5 (half)
+// was TOO LOW -- 57% would have counted as "good enough" and the bug would have
+// gone through SILENTLY, exactly as in the real incident from step 19.
+// 0.7 correctly separates both measured cases.
 const LOW_MATCH_RATE_THRESHOLD = 0.7;
 const LOW_MATCH_MIN_SAMPLE = 2;
 const PERFECT_EQUALITY_MIN_SAMPLE = 2;
 
-/** Sprawdza JEDNA relacje na WSZYSTKICH dostarczonych encjach. Nigdy nie rzuca — zla skladnia/nieznany klucz daje czytelny `ok: false`, nie wyjatek (ten sam standard co `validateProfile`). */
+/** Checks ONE relation across ALL supplied entities. Never throws — bad syntax/an unknown key gives a readable `ok: false`, not an exception (the same standard as `validateProfile`). */
 export function checkRelation(text: string, entities: readonly EntityCanonicalValues[]): RelationCheckResult {
   const parsed = parseRelation(text);
   if (!parsed) return { text, ok: false, errorCode: 'unparseable' };
@@ -212,7 +212,7 @@ export function checkRelation(text: string, entities: readonly EntityCanonicalVa
   return { text, ok: true, lhsKey: parsed.lhsKey, op: parsed.op, totalChecked, matchCount, mismatches, warning };
 }
 
-/** Sprawdza WIELE relacji naraz (jeden wiersz formularza na relacje) — czysta wygoda wywolania, `checkRelation` per wiersz. */
+/** Checks MULTIPLE relations at once (one form row per relation) — a pure call-site convenience, `checkRelation` per row. */
 export function checkRelations(texts: readonly string[], entities: readonly EntityCanonicalValues[]): RelationCheckResult[] {
   return texts.map((text) => checkRelation(text, entities));
 }

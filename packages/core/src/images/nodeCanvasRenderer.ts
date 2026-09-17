@@ -4,16 +4,17 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import type { Rect } from '../geometry.js';
 
 /**
- * Implementacja Node (`@napi-rs/canvas`, backend Skia) — WYLACZNIE do testow i
- * `tools/calibrate-images.ts`. CELOWO NIEEKSPORTOWANA z `src/index.ts`: to
- * natywny dodatek (`.node` binarny per platforma), ktorego bundler (Vite w
- * `packages/module`) nie potrafi zbundlowac do przegladarki — gdyby ten import
- * byl osiagalny z publicznego barrelu, `packages/module`'s build probowalby go
- * rozwiazac i albo padnie, albo wciagnie natywny binarny plik w kod
- * przegladarki. Ten sam wzorzec ostroznosci co zewnetryzacja `pdfjs-dist` w
- * `vite.config.ts` (packages/core) — importuj ten plik WYLACZNIE bezposrednio
- * ze zrodel core (`../../src/images/nodeCanvasRenderer.js`), nigdy przez
- * zbudowany `@bindery/core`.
+ * Node implementation (`@napi-rs/canvas`, Skia backend) — EXCLUSIVELY for
+ * tests and `tools/calibrate-images.ts`. DELIBERATELY NOT EXPORTED from
+ * `src/index.ts`: it's a native addon (a per-platform `.node` binary) that
+ * the bundler (Vite in `packages/module`) can't bundle for the browser — if
+ * this import were reachable from the public barrel, `packages/module`'s
+ * build would try to resolve it and either fail outright or pull a native
+ * binary file into browser code. The same caution pattern as externalizing
+ * `pdfjs-dist` in `vite.config.ts` (packages/core) — import this file
+ * EXCLUSIVELY directly from core's sources
+ * (`../../src/images/nodeCanvasRenderer.js`), never through the built
+ * `@bindery/core`.
  */
 export const nodeCanvasRegionRenderer: RegionRenderer = {
   renderRegion(page: PdfPageForRender, bbox: Rect, opts: RenderRegionOptions): Promise<DecodedImage> {

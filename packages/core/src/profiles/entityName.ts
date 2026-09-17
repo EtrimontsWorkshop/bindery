@@ -3,16 +3,16 @@ import type { ProfileToken } from './types.js';
 import type { FontRoleCandidatePattern } from './schema.js';
 
 /**
- * [KROK-18 Z3] Kandydaci na nazwe encji — implementacja wzorca
- * `fontRoleCandidate` z §5.5 MDD, uogolnia H2 ze spike'u kroku 13
- * (`collectNameCandidates`): krotki tekst o roli fontu innej niz wykluczone
- * (typowo != 'body'), z dwoma dodatkowymi filtrami odkrytymi w kroku 12 —
- * naglowki biegnace (ten sam tekst na wielu stronach) i kontynuacje wyrazow
- * przenoszonych dywizacja.
+ * [Step 18 Z3] Candidates for entity name — implementation of the
+ * `fontRoleCandidate` pattern from MDD §5.5, generalizing H2 from the step-13
+ * spike (`collectNameCandidates`): short text with a font role other than an excluded
+ * one (typically != 'body'), with two additional filters discovered in step 12 —
+ * running headers (same text on many pages) and continuations of words
+ * broken across lines by hyphenation.
  *
- * [H2, krok 12] Sama rola fontu NIE wystarcza jako samodzielne rozstrzygniecie
- * (724 kandydatow na 106 stronach, "fatalna precyzja") — jest WEJSCIEM do
- * filtra geometrycznego (`entityAssembly.ts`), nie samodzielnym wynikiem.
+ * [H2, step 12] The font role ALONE is NOT sufficient as a standalone decision
+ * (724 candidates across 106 pages, "fatal precision") — it is an INPUT to
+ * the geometric filter (`entityAssembly.ts`), not a standalone result.
  */
 
 export interface FontRoleCandidateMatch {
@@ -22,26 +22,26 @@ export interface FontRoleCandidateMatch {
 }
 
 /**
- * Tekst+fontKey -> zbior numerow stron, na ktorych sie pojawia — do
- * `excludeRepeatedAcrossPages`. Wymaga `token.page`; bez niego (jedna strona
- * naraz) nic nie zostanie odrzucone (bezpieczny brak dzialania, nie falszywe
- * odrzucenie).
+ * Text+fontKey -> the set of page numbers it appears on — for
+ * `excludeRepeatedAcrossPages`. Requires `token.page`; without it (a single page
+ * at a time) nothing gets rejected (a safe no-op, not a false
+ * rejection).
  *
- * [KROK-30 Z5, zmierzony na zywo blad] Klucz TYLKO po tekscie (bez fontKey)
- * fałszywie odrzucał wlasna nazwe encji, gdy ten sam ciag znakow pojawia sie
- * GDZIE INDZIEJ w ksiazce z INNEJ przyczyny — zmierzone wprost: "Sciapod"
- * (str. 24 "Zew Cthulhu 7ed. Wrak.pdf") to zarowno naglowek statbloku
- * (`Cambria-Bold@11`, gora strony), JAK I osobna, prawdziwa biegnaca stopka
- * (`ACaslonPro-Italic@8.5`, dol strony, str. 23+24) ORAZ zwykle pogrubione
- * wystapienia w prozie gdzie indziej w ksiazce (`ACaslonPro-Bold@9`, str.
- * 6+14, np. indeks/odnosniki) — RAZEM 4 odrebne strony, ponad prog 3, mimo ze
- * ZADNE POJEDYNCZE zrodlo (ten sam font) nie powtarza sie tyle razy. Prawdziwy
- * naglowek/stopka biegnaca z DEFINICJI utrzymuje SPOJNY styl przy kazdym
- * powtorzeniu (na tym polega bycie "biegnacym") — klucz PO PARZE
- * (tekst, fontKey) rozroznia te przypadki, zachowujac wykrywanie prawdziwych
- * naglowkow biegnacych (ten sam tekst, ten sam font, na wielu stronach) bez
- * fałszywego odrzucania nazwy encji, ktora przypadkiem dzieli SAM TEKST z
- * czyms innym o INNYM foncie gdzie indziej.
+ * [Step 30 Z5, bug measured live] A key based ONLY on text (without fontKey)
+ * would falsely reject a genuine entity name when the same character string appears
+ * ELSEWHERE in the book for an UNRELATED reason — measured directly: a monster's name
+ * (p. 24 "Zew Cthulhu 7ed. Wrak.pdf") is both a statblock heading
+ * (`Cambria-Bold@11`, top of page), AND a separate, genuine running footer
+ * (`ACaslonPro-Italic@8.5`, bottom of page, p. 23+24) AND ordinary bold
+ * occurrences in prose elsewhere in the book (`ACaslonPro-Bold@9`, p.
+ * 6+14, e.g. index/cross-references) — TOGETHER 4 distinct pages, above the threshold of 3, even though
+ * NO SINGLE source (the same font) repeats that many times. A genuine
+ * running header/footer, BY DEFINITION, keeps a CONSISTENT style on every
+ * repetition (that is what "running" means) — a key based on the PAIR
+ * (text, fontKey) distinguishes these cases, preserving detection of genuine
+ * running headers (same text, same font, across many pages) without
+ * falsely rejecting an entity name that happens to share ITS TEXT with
+ * something else using a DIFFERENT font elsewhere.
  */
 function countDistinctPagesPerText(tokens: readonly ProfileToken[]): Map<string, Map<string | undefined, Set<number>>> {
   const byText = new Map<string, Map<string | undefined, Set<number>>>();
@@ -61,33 +61,33 @@ const RUNNING_HEADER_MIN_DISTINCT_PAGES = 3;
 export function matchFontRoleCandidate(tokens: readonly ProfileToken[], pattern: FontRoleCandidatePattern): FontRoleCandidateMatch[] {
   const excludeRoles = new Set(pattern.excludeRoles);
   const pageCountByText = pattern.excludeRepeatedAcrossPages ? countDistinctPagesPerText(tokens) : null;
-  // [KROK-29 Z3] Puste `requireFontKeys` (domyslne, wsteczna zgodnosc) = brak
-  // dodatkowego filtra, zachowanie identyczne jak przed KROK-29.
+  // [Step 29 Z3] An empty `requireFontKeys` (the default, for backward compatibility) = no
+  // additional filter, behavior identical to before Step 29.
   const requiredFontKeys = pattern.requireFontKeys.length > 0 ? new Set(pattern.requireFontKeys) : null;
 
   const out: FontRoleCandidateMatch[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i]!;
     if (!tok.text || tok.text.length === 0 || tok.text.length > pattern.maxLength) continue;
-    // [KROK-18 Z7, naprawa zgloszonego przez pomiar bledu] `fontRole ===
-    // 'unknown'` (rola FAKTYCZNIE obliczona, ale bez wystarczajacej liczby
-    // wystapien w `buildInventory` zeby pewnie zaklasyfikowac) NIE jest tym
-    // samym co "rola inna niz body" — to brak sygnalu, nie sygnal pozytywny.
-    // Zmierzone wprost: rzadki wariant fontu ("ACaslonPro-Regular@9.5" —
-    // wystepujacy tylko w krotkich zdaniach objasniajacych typu "Prawa i lewa
-    // reka sa osobnymi istotami...") dostawal `unknown`, nie `body`, wiec
-    // domyslny `excludeRoles: ['body']` z profilu (§5.5 MDD) go przepuszczal.
-    // Traktuj `unknown` identycznie jak brak roli w ogole.
+    // [Step 18 Z7, fix for a bug reported via measurement] `fontRole ===
+    // 'unknown'` (a role that WAS actually computed, but without enough
+    // occurrences in `buildInventory` to classify it confidently) is NOT the
+    // same as "a role other than body" — it's an absence of signal, not a positive signal.
+    // Measured directly: a rare font variant ("ACaslonPro-Regular@9.5" —
+    // occurring only in short explanatory sentences appended after certain
+    // body-part headings) was getting `unknown`, not `body`, so
+    // the profile's default `excludeRoles: ['body']` (MDD §5.5) let it through.
+    // Treat `unknown` identically to having no role at all.
     if (!tok.fontRole || tok.fontRole === 'unknown' || excludeRoles.has(tok.fontRole)) continue;
     if (requiredFontKeys && (!tok.fontKey || !requiredFontKeys.has(tok.fontKey))) continue;
-    // [KROK-18 Z7, naprawa zgloszonego przez pomiar bledu] Zmierzone na realnej
-    // ksiazce: zdanie objasniajace bezposrednio po naglowku czesci ciala
-    // ("Prawa i lewa reka sa osobnymi istotami, ktore maja te same
-    // statystyki.", str. 56) mieszczlo sie pod `maxLength` I mialo role fontu
-    // != 'body' (whoski/kursywa wstepu do opisu), wiec przeszlo jako "pewna"
-    // nazwa zamiast placeholdera — dokladnie przypadek, przed ktorym S4 mialo
-    // chronic. Zadna prawdziwa nazwa w zmierzonej probce nie konczy sie
-    // kropka/wykrzyknikiem/pytajnikiem — prozaiczne zdania niemal zawsze tak.
+    // [Step 18 Z7, fix for a bug reported via measurement] Measured on a real
+    // book: an explanatory sentence directly after a body-part heading (a
+    // short note clarifying that a paired body part is a separate creature
+    // with the same stats, p. 56) fit within `maxLength` AND had a font role
+    // != 'body' (small caps/italic lead-in to the description), so it passed as a "confident"
+    // name instead of a placeholder — exactly the case S4 was supposed to
+    // guard against. No genuine name in the measured sample ends with a
+    // period/exclamation mark/question mark — prose sentences almost always do.
     if (/[.!?]$/.test(tok.text.trim())) continue;
 
     if (pattern.excludeHyphenContinuations) {
@@ -102,13 +102,13 @@ export function matchFontRoleCandidate(tokens: readonly ProfileToken[], pattern:
       if (pages && pages.size >= RUNNING_HEADER_MIN_DISTINCT_PAGES) continue;
     }
 
-    // [KROK-20 Z2, zmierzony na zywo blad] Nazwa bywa jednym tokenem razem z
-    // naslepujacym przecinkiem, gdy zaraz po niej w zdaniu idzie opis roli
-    // ("Jacob Beaker, doker" -> token "Jacob Beaker,") — pdf.js laczy je,
-    // bo dzielą ten sam font/rozmiar co reszta frazy. Przecinek nie jest
-    // czescia nazwy w zadnym zmierzonym przypadku; obcinany z KONCA tekstu
-    // kandydata, nie z calego tokenu (odrzucenie calego tokenu zgubiloby
-    // prawdziwa nazwe).
+    // [Step 20 Z2, bug measured live] A name is sometimes one token together with a
+    // trailing comma, when it's immediately followed in the sentence by a role description
+    // (e.g. "<name>, <occupation>" -> token "<name>,") — pdf.js merges them,
+    // because they share the same font/size as the rest of the phrase. The comma is never
+    // part of the name in any measured case; it is trimmed from the END of the
+    // candidate text, not from the whole token (rejecting the whole token would lose
+    // the genuine name).
     const text = tok.text.replace(/,+$/, '');
     if (!text) continue;
 

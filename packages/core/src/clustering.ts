@@ -1,26 +1,27 @@
 import { rectsOverlap, type Rect } from './geometry.js';
 
 /**
- * Klastrowanie po przechodnio nakladajacych sie bboksach, NA TEJ SAMEJ STRONIE
- * (A naklada sie z B, B z C => A, B, C w jednym klastrze, nawet jesli A i C
- * same w sobie sie nie stykaja) — jeden wspolny mechanizm (KROK-8 Z1, ten sam
- * powod co `groupByQuantizedPosition`, KROK-6 Z1d) zamiast dwoch niezaleznych
- * implementacji: `clusterOccurrencesByPage` w `imageRegistry.ts` (KROK-4/5,
- * WSZYSTKIE wystapienia, w tym przyszla dekoracja/maska) i rekomputacja
- * klastrow WYLACZNIE dla kandydatow `content`/`undecided` w
- * `buildImageExtraction.ts` (KROK-8 Z1).
+ * Clustering by transitively overlapping bboxes, ON THE SAME PAGE (A
+ * overlaps B, B overlaps C => A, B, C in one cluster, even if A and C don't
+ * touch each other directly) — one shared mechanism (Step 8 Z1, the same
+ * reason as `groupByQuantizedPosition`, Step 6 Z1d) instead of two
+ * independent implementations: `clusterOccurrencesByPage` in
+ * `imageRegistry.ts` (Step 4/5, ALL occurrences, including future
+ * decoration/mask) and recomputing clusters ONLY for `content`/`undecided`
+ * candidates in `buildImageExtraction.ts` (Step 8 Z1).
  *
- * [KROK-8, odkrycie] Bez rekomputacji na przefiltrowanym zbiorze, klaster
- * ekstrakcji dziedziczyl `clusterId` policzony PRZED klasyfikacja, na
- * WSZYSTKICH wystapieniach — lancuch malych, nakladajacych sie kafli tekstury
- * tla (klasyfikowanych `decoration`/`undecided`, individualnie male) mogl
- * "zmostkowac" dwa genuinie osobne, oddalone od siebie obrazy tresci w JEDEN
- * klaster, ktorego unia bboksow obejmuje niemal cala strone — zaobserwowane
- * wprost w RAPORT-KROK-7.md (`img_p7_6` z `Wrath_&_Glory`, cala strona tekstu
- * wyrenderowana jako "obraz"). Klastrowanie MUSI byc przeliczone OD ZERA na
- * zbiorze juz-przefiltrowanym (bez dekoracji/masek) — filtrowanie WYNIKU
- * pre-computed klastrowania (usuwanie mostkujacych wpisow z gotowej grupy) nie
- * wystarczy, bo grupa juz istnieje z ich udzialem.
+ * [Step 8, discovery] Without recomputation on the filtered set, the
+ * extraction cluster inherited a `clusterId` computed BEFORE
+ * classification, over ALL occurrences — a chain of small, overlapping
+ * background-texture tiles (classified as `decoration`/`undecided`,
+ * individually small) could "bridge" two genuinely separate, far-apart
+ * content images into ONE cluster whose bbox union covers almost the
+ * entire page — observed directly in RAPORT-KROK-7.md (`img_p7_6` from
+ * `Wrath_&_Glory`, an entire page of text rendered as an "image").
+ * Clustering MUST be recomputed FROM SCRATCH on the already-filtered set
+ * (without decoration/masks) — filtering the RESULT of pre-computed
+ * clustering (removing bridging entries from an already-formed group) is
+ * not enough, because the group already exists with their participation.
  */
 class UnionFind {
   private parent: number[];
@@ -42,25 +43,25 @@ class UnionFind {
 }
 
 /**
- * Klastruje `items` po przechodnio nakladajacych sie bboksach, osobno per
- * strona (`pageOf`). Zwraca Map item -> clusterId (`p${page}-c${num}`, unikalne
- * w calym wywolaniu). Kolejnosc numeracji klastrow w obrebie strony jest
- * deterministyczna (kolejnosc wejscia w `items`), nie zalezy od implementacji
- * `Map`/`Set`.
+ * Clusters `items` by transitively overlapping bboxes, separately per page
+ * (`pageOf`). Returns a Map item -> clusterId (`p${page}-c${num}`, unique
+ * across the whole call). Cluster numbering order within a page is
+ * deterministic (the order of entry in `items`), it does not depend on the
+ * `Map`/`Set` implementation.
  *
- * [KROK-16 Z2, naprawa zgloszonego bledu] `extraMergeGate` — opcjonalny,
- * dodatkowy warunek ANDowany z bazowym `rectsOverlap`; domyslnie (brak
- * argumentu) zachowanie IDENTYCZNE jak wczesniej (kazde nakladanie sie laczy),
- * wiec wywolanie z `imageRegistry.ts` (surowe wystapienia, wlacznie z przyszla
- * dekoracja/maska) jest w ogole nietkniete. Uzyty WYLACZNIE przez
- * `buildImageExtraction.ts`, zeby odrozniac "lancuch malych kafli sklejajacy
- * jedna kompozycje" (musi zostac polaczony — pierwotny powod istnienia tej
- * funkcji, patrz komentarz na gorze pliku) od "dwa NIEZALEZNIE duze, gotowe
- * obrazy tresci stykajace sie tylko krawedzia" (nie powinny sie laczyc —
- * zaobserwowane wprost: `Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf` str. 16,
- * dwa portrety ~27%/~22% powierzchni strony, nakladanie ~4% powierzchni
- * mniejszego z nich, polaczone w jedna jednostke ekstrakcji ktora zlapala tez
- * kolumne tekstu miedzy nimi).
+ * [Step 16 Z2, reported-bug fix] `extraMergeGate` — an optional, additional
+ * condition ANDed with the base `rectsOverlap`; by default (no argument)
+ * the behavior is IDENTICAL to before (every overlap merges), so the call
+ * from `imageRegistry.ts` (raw occurrences, including future
+ * decoration/mask) is entirely untouched. Used ONLY by
+ * `buildImageExtraction.ts`, to distinguish "a chain of small tiles gluing
+ * together one composition" (must be merged — the original reason this
+ * function exists, see the comment at the top of the file) from "two
+ * INDEPENDENTLY large, finished content images touching only at an edge"
+ * (should not be merged — observed directly:
+ * `Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf` p. 16, two portraits
+ * ~27%/~22% of the page area, an overlap of ~4% of the smaller one's area,
+ * merged into one extraction unit that also caught the text column between them).
  */
 export function clusterByOverlap<T>(
   items: readonly T[],

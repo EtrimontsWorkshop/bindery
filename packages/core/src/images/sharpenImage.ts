@@ -1,28 +1,29 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [KROK-42 Z4, "wyostrzanie — tanie, dorzucone przy okazji"] Standardowa maska
- * wyostrzajaca (unsharp mask): rozmyj obraz (box blur, maly promien —
- * wylapuje TYLKO wysokie czestotliwosci/detale, nie ogolna kompozycje),
- * odejmij rozmyty od oryginalu (to, co rozmycie "zgubilo" = detal), dodaj z
- * powrotem do oryginalu wazone `amount`. Dziala WYLACZNIE na R/G/B — alfa
- * (przezroczystosc z maski/usunietego tla) bez zmian, tak jak `brightenImage.ts`.
+ * [Step 42 Z4, "sharpening — cheap, thrown in along the way"] A standard
+ * unsharp mask: blur the image (box blur, small radius — catches ONLY high
+ * frequencies/detail, not the overall composition), subtract the blurred
+ * version from the original (what the blur "lost" = detail), add it back to
+ * the original weighted by `amount`. Operates EXCLUSIVELY on R/G/B — alpha
+ * (transparency from a mask/removed background) is untouched, just like
+ * `brightenImage.ts`.
  *
- * [kalibracja, patrz RAPORT-KROK-42.md] Najbardziej widoczne na mapach
- * bitmapowych przeskalowanych w gore (brief) — parametry dobrane na
- * portretach/ilustracjach z `sample/ZewCthulhu-WRAK.pdf`.
+ * [calibration, see RAPORT-KROK-42.md] Most noticeable on bitmap maps
+ * scaled up (per the brief) — parameters tuned on portraits/illustrations
+ * from `sample/ZewCthulhu-WRAK.pdf`.
  */
 
 export interface SharpenOptions {
-  /** Promien box-bluru uzytego do wykrycia detalu (px). Wiekszy = "grubszy" wyostrzony detal. */
+  /** Radius of the box blur used to detect detail (px). Larger = "coarser" sharpened detail. */
   radiusPx: number;
-  /** Sila wzmocnienia — 0 brak zmiany, typowo 0.3-1.0. Wyzej = mocniejszy efekt, ale i mocniejsze halo/szum. */
+  /** Boost strength — 0 no change, typically 0.3-1.0. Higher = stronger effect, but also stronger halo/noise. */
   amount: number;
 }
 
 export const DEFAULT_SHARPEN: SharpenOptions = { radiusPx: 1, amount: 0.5 };
 
-/** Separowalny box blur (poziomy przebieg, potem pionowy) NA KANALACH R/G/B — alfa pomijana. */
+/** Separable box blur (horizontal pass, then vertical) ON THE R/G/B CHANNELS — alpha skipped. */
 function boxBlurRgb(rgba: Uint8ClampedArray, width: number, height: number, radius: number): Float64Array {
   const channels = 3;
   const src = new Float64Array(width * height * channels);

@@ -1,41 +1,41 @@
 import type { Rect } from './geometry.js';
 
 /**
- * [KROK-11 Z3] Konwersja bboksa PDF (Y w gore) -> wspolrzedne ekranu/nakladki
- * SVG nad wyrenderowanym podgladem strony (Y w dol) — brief wprost: "napisz
- * JEDNA funkcje konwersji, przetestuj ja jednostkowo, uzywaj WYLACZNIE jej".
- * To CZWARTY wystapienie tej samej klasy bledu w projekcie (krok 4: ksztalt
- * argumentow `cm`; krok 5: `constructPath`; krok 6: `item.width` juz w
- * przestrzeni urzadzenia) — stad w `packages/core`, nie `packages/module`
- * (gdzie NIE MA infrastruktury testowej, patrz CLAUDE.md/package.json), zeby
- * dalo sie ja realnie zweryfikowac testem jednostkowym, nie tylko "na oko" w
- * przegladarce.
+ * [Step 11 Z3] Conversion of a PDF bbox (Y up) -> screen/SVG-overlay
+ * coordinates over the rendered page preview (Y down) — the brief states
+ * directly: "write ONE conversion function, unit-test it, use ONLY it".
+ * This is the FOURTH occurrence of the same bug class in the project (step
+ * 4: the shape of `cm` arguments; step 5: `constructPath`; step 6:
+ * `item.width` already in device space) — hence it lives in
+ * `packages/core`, not `packages/module` (which has NO test
+ * infrastructure, see CLAUDE.md/package.json), so it can actually be
+ * verified with a unit test, not just "eyeballed" in the browser.
  */
 
 export type PageRotation = 0 | 90 | 180 | 270;
 
 export interface RenderedPageGeometry {
-  /** Box strony w przestrzeni PDF (np. `PreviewPageHandle.box`/`Provenance` strony) — PRZED rotacja. */
+  /** Page box in PDF space (e.g. `PreviewPageHandle.box`/page `Provenance`) — BEFORE rotation. */
   pageBox: Rect;
-  /** Piksele FAKTYCZNIE wyrenderowanej bitmapy (PO uwzglednieniu rotacji, np. `EncodedImage`/`DecodedImage` z `renderPagePreview`). */
+  /** Pixels of the ACTUALLY rendered bitmap (AFTER accounting for rotation, e.g. `EncodedImage`/`DecodedImage` from `renderPagePreview`). */
   imageWidthPx: number;
   imageHeightPx: number;
-  /** `PreviewPageHandle.rotation`/`page.rotate` — 0 w OGROMNEJ wiekszosci prawdziwych PDF-ow (wszystkie 9 plikow `samples/` tego projektu). */
+  /** `PreviewPageHandle.rotation`/`page.rotate` — 0 in the VAST majority of real PDFs (all 9 `samples/` files in this project). */
   rotation: PageRotation;
 }
 
 /**
- * Pojedynczy punkt PDF -> piksel ekranu (0,0 = lewy-gorny róg wyrenderowanej
- * bitmapy, Y rosnie w DOL — konwencja DOM/canvas/SVG).
+ * A single PDF point -> screen pixel (0,0 = top-left corner of the
+ * rendered bitmap, Y increases DOWNWARD — DOM/canvas/SVG convention).
  *
- * [WERYFIKACJA] Przypadek `rotation === 0` jest w pelni pokryty testami
- * jednostkowymi (`pageOverlayGeometry.test.ts`) na wprost policzonych
- * przykladach. Przypadki `90`/`180`/`270` maja formuly wyprowadzone z tego
- * samego modelu (odbicie Y, potem obrot zgodny z konwencja `page.rotate`
- * pdf.js — obrot TRESCI zgodnie z ruchem wskazowek zegara), ale ze wzgledu na
- * brak w `samples/` (gitignored, R1) ani jednego realnego pliku z rotacja !=
- * 0 NIE zostaly zweryfikowane wizualnie na prawdziwej stronie — oznaczone
- * jako "do potwierdzenia przy pierwszym realnym przypadku" w RAPORT-KROK-11.md.
+ * [VERIFICATION] The `rotation === 0` case is fully covered by unit tests
+ * (`pageOverlayGeometry.test.ts`) on directly computed examples. The
+ * `90`/`180`/`270` cases have formulas derived from the same model (Y
+ * flip, then rotation following pdf.js's `page.rotate` convention —
+ * rotating the CONTENT clockwise), but due to the absence in `samples/`
+ * (gitignored, R1) of even a single real file with rotation != 0, they
+ * have NOT been visually verified on a real page — marked as "to be
+ * confirmed on the first real case" in RAPORT-KROK-11.md.
  */
 export function pdfPointToScreen(x: number, y: number, page: RenderedPageGeometry): [number, number] {
   const { pageBox, imageWidthPx, imageHeightPx, rotation } = page;
@@ -43,10 +43,10 @@ export function pdfPointToScreen(x: number, y: number, page: RenderedPageGeometr
   const pageHeight = pageBox.maxY - pageBox.minY;
   if (pageWidth <= 0 || pageHeight <= 0) return [0, 0];
 
-  // Normalizacja wzgledem lewego-DOLNEGO rogu strony, wciaz w ukladzie PDF (Y w gore).
+  // Normalization relative to the BOTTOM-left corner of the page, still in PDF space (Y up).
   const nx = x - pageBox.minX;
   const nyUp = y - pageBox.minY;
-  // JEDYNE miejsce odbicia osi Y w calym module — PDF Y-w-gore -> ekran Y-w-dol, PRZED rotacja.
+  // THE ONLY place the Y axis is flipped in the whole module — PDF Y-up -> screen Y-down, BEFORE rotation.
   const nyDown = pageHeight - nyUp;
 
   let rx: number;
@@ -85,7 +85,7 @@ export function pdfPointToScreen(x: number, y: number, page: RenderedPageGeometr
   return [rx * scaleX, ry * scaleY];
 }
 
-/** Bbox PDF -> bbox ekranu — bierze WSZYSTKIE 4 rogi przez `pdfPointToScreen` i liczy otoczke, wiec dziala poprawnie niezaleznie od rotacji (bez osobnej formuly min/max per przypadek). */
+/** PDF bbox -> screen bbox — takes ALL 4 corners through `pdfPointToScreen` and computes the bounding box, so it works correctly regardless of rotation (without a separate min/max formula per case). */
 export function pdfRectToScreen(rect: Rect, page: RenderedPageGeometry): Rect {
   const corners: Array<[number, number]> = [
     [rect.minX, rect.minY],
@@ -100,15 +100,16 @@ export function pdfRectToScreen(rect: Rect, page: RenderedPageGeometry): Rect {
 }
 
 /**
- * [KROK-18, "Zaznacz i wytnij"] ODWROTNOSC `pdfPointToScreen` — piksel ekranu
- * (nakladki nad wyrenderowanym podgladem strony) -> punkt PDF. Potrzebne, gdy
- * uzytkownik SAM rysuje bbox myszka (nie odczytujemy juz istniejacego
- * `provenance.bbox`, jak `pdfRectToScreen`, tylko idziemy w druga strone).
- * Wyprowadzone algebraicznie z `pdfPointToScreen` (odwrocenie kolejnosci:
- * naprzod skalowanie -> rotacja -> odbicie Y -> przesuniecie, tutaj w
- * odwrotnej kolejnosci) — TA SAMA funkcja uzywana w obie strony (naglowek
- * pliku: "napisz JEDNA funkcje konwersji... uzywaj WYLACZNIE jej", tu
- * analogicznie jedna funkcja per kierunek, nie duplikat logiki rotacji).
+ * [Step 18, "Select and crop"] The INVERSE of `pdfPointToScreen` — a screen
+ * pixel (of the overlay over the rendered page preview) -> a PDF point.
+ * Needed when the user draws a bbox with the mouse themselves (we're not
+ * reading an already-existing `provenance.bbox`, like `pdfRectToScreen`,
+ * but going the other way). Derived algebraically from `pdfPointToScreen`
+ * (reversing the order: forward is scaling -> rotation -> Y flip ->
+ * translation, here in reverse order) — THE SAME function used in both
+ * directions (file header: "write ONE conversion function... use ONLY
+ * it", here analogously one function per direction, not a duplicate of
+ * the rotation logic).
  */
 export function screenPointToPdf(screenX: number, screenY: number, page: RenderedPageGeometry): [number, number] {
   const { pageBox, imageWidthPx, imageHeightPx, rotation } = page;
@@ -146,7 +147,7 @@ export function screenPointToPdf(screenX: number, screenY: number, page: Rendere
   return [nx + pageBox.minX, nyUp + pageBox.minY];
 }
 
-/** Bbox ekranu -> bbox PDF — mirror `pdfRectToScreen` (4 rogi przez `screenPointToPdf`, otoczka), robuste niezaleznie od rotacji. */
+/** Screen bbox -> PDF bbox — mirror of `pdfRectToScreen` (4 corners through `screenPointToPdf`, bounding box), robust regardless of rotation. */
 export function screenRectToPdf(rect: Rect, page: RenderedPageGeometry): Rect {
   const corners: Array<[number, number]> = [
     [rect.minX, rect.minY],
@@ -161,11 +162,11 @@ export function screenRectToPdf(rect: Rect, page: RenderedPageGeometry): Rect {
 }
 
 /**
- * [zgloszenie uzytkownika, "Zaznacz i wytnij" — mozliwosc obrocenia
- * zaznaczonego obszaru] Prostokat, ktory NIE jest rownolegly do osi —
- * srodek + wymiary WLASNE (przed obrotem) + kat. `rotationRad` to kat OSI
- * "szerokosci" (lokalny +X) wzgledem dodatniej osi X danego ukladu
- * wspolrzednych, W KONWENCJI TEGO ukladu (Y w dol dla `screen`, radiany).
+ * [user report, "Select and crop" — ability to rotate the selected area] A
+ * rectangle that is NOT axis-aligned — center + OWN dimensions (before
+ * rotation) + angle. `rotationRad` is the angle of the "width" AXIS (local
+ * +X) relative to the positive X axis of the given coordinate system, IN
+ * THE CONVENTION OF THAT system (Y down for `screen`, radians).
  */
 export interface RotatedRect {
   centerX: number;
@@ -176,23 +177,24 @@ export interface RotatedRect {
 }
 
 /**
- * [zgloszenie uzytkownika] Prostokat obrocony (ekran) -> prostokat obrocony
- * (PDF) — NIE robi WLASNEJ, osobnej algebry na kacie (zaden nowy powod do
- * pomylenia znaku/kierunku obrotu): liczy 4 rogi prostokata w PRZESTRZENI
- * EKRANU (zwykla geometria), przepuszcza KAZDY z osobna przez JUZ dowiedziony
- * `screenPointToPdf` (ta sama funkcja co `screenRectToPdf` powyzej — dziala
- * poprawnie niezaleznie od rotacji STRONY), a srodek/wymiary/kat w przestrzeni
- * PDF wyprowadza z POZYCJI przeksztalconych rogow (srodek = srednia rogow,
- * szerokosc/wysokosc = odleglosci miedzy sasiednimi rogami, kat = `atan2`
- * wektora jednej z krawedzi) — DOKLADNIE ten sam wzorzec, co juz dowiedziony
- * `rotateAndCropImage` (`rotateCrop.ts`) uzywa PO stronie ekstrakcji pikseli:
- * "wyprowadz kat z PRAWDZIWYCH, juz przeksztalconych punktow", nigdy z
- * osobnej, recznie odwracanej formuly na sam kat.
+ * [user report] A rotated rectangle (screen) -> a rotated rectangle (PDF)
+ * — does NOT do its OWN, separate algebra on the angle (no new opportunity
+ * to mix up the sign/direction of rotation): it computes the rectangle's 4
+ * corners in SCREEN SPACE (plain geometry), passes EACH one individually
+ * through the ALREADY proven `screenPointToPdf` (the same function as
+ * `screenRectToPdf` above — works correctly regardless of PAGE rotation),
+ * and derives the center/dimensions/angle in PDF space from the POSITIONS
+ * of the transformed corners (center = average of corners, width/height =
+ * distances between adjacent corners, angle = `atan2` of one edge's
+ * vector) — EXACTLY the same pattern that the already-proven
+ * `rotateAndCropImage` (`rotateCrop.ts`) uses on the pixel-extraction
+ * side: "derive the angle from REAL, already-transformed points", never
+ * from a separate, manually-inverted formula for the angle alone.
  *
- * Zaklada JEDNORODNA skale (ten sam wspolczynnik piksele/punkt w X i Y) —
- * prawdziwe dla KAZDEGO podgladu strony w tym projekcie (nigdy nie
- * rozciagamy podgladu anizotropowo) — inaczej obrocony prostokat w ekranie
- * mapowalby sie na rownolegloscian (nie prostokat) w przestrzeni PDF.
+ * Assumes a UNIFORM scale (the same pixels/point ratio in X and Y) — true
+ * for EVERY page preview in this project (we never stretch the preview
+ * anisotropically) — otherwise a rotated rectangle on screen would map to
+ * a parallelogram (not a rectangle) in PDF space.
  */
 export function screenRotatedRectToPdf(rect: RotatedRect, page: RenderedPageGeometry): RotatedRect {
   const hw = rect.width / 2;
@@ -219,14 +221,15 @@ export function screenRotatedRectToPdf(rect: RotatedRect, page: RenderedPageGeom
 }
 
 /**
- * Otoczka (bbox rownolegly do osi) obroconego prostokata — CZYSTA geometria,
- * niezalezna od ukladu (dziala identycznie dla `screen` i `pdf`, jedyna
- * roznica miedzy nimi to kierunek osi Y, ktory nie wplywa na sama otoczke).
- * Uzywana przez `ReviewScreen.ts`, zeby zapisac `CIFImage.provenance.bbox`
- * (ZAWSZE rownolegle do osi w calym projekcie) dla recznie obroconego
- * wyciecia — jedno miejsce na wzorzec "4 rogi z lokalnych wspolrzednych
- * przez obrot, potem min/max", zamiast n-tej kopii tej samej algebry (patrz
- * `renderRotatedRegion.ts`, gdzie ten sam wzorzec juz wystepuje).
+ * The bounding box (axis-aligned bbox) of a rotated rectangle — PURE
+ * geometry, independent of the coordinate system (works identically for
+ * `screen` and `pdf`, the only difference between them being the direction
+ * of the Y axis, which doesn't affect the bounding box itself). Used by
+ * `ReviewScreen.ts` to store `CIFImage.provenance.bbox` (ALWAYS
+ * axis-aligned throughout the project) for a manually rotated crop — one
+ * place for the "4 corners from local coordinates via rotation, then
+ * min/max" pattern, instead of yet another copy of the same algebra (see
+ * `renderRotatedRegion.ts`, where the same pattern already occurs).
  */
 export function rotatedRectBounds(rect: RotatedRect): Rect {
   const hw = rect.width / 2;

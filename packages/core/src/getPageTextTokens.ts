@@ -4,36 +4,36 @@ import { fontSizeFromTransform } from './layout/textGeometry.js';
 import { resolveFontKey } from './inventory/fontRegistry.js';
 
 /**
- * [KROK-23 Z6] Surowe tokeny tekstowe JEDNEJ strony (tekst + bbox) — WYLACZNIE
- * do "klik na stronie wkleja tekst do pola formularza" w edytorze profilu.
- * Celowo NIE liczy `fontRole` (bez `buildInventory`, ktore wymaga przebiegu
- * po CALYM dokumencie) — Z6 nie potrzebuje roli fontu, tylko tekstu, wiec
- * pomijamy koszt, ktorego reszta profilu (`analyzeProfileDocument`) i tak juz
- * placi przy pelnym przebiegu. Ten sam wzorzec otwierania co
- * `openPreviewDocument.ts`/`inspectDocument.ts` (wlasna kopia bajtow).
+ * [Step 23 Z6] Raw text tokens for ONE page (text + bbox) — EXCLUSIVELY for
+ * "click on the page to paste text into a form field" in the profile editor.
+ * Deliberately does NOT compute `fontRole` (which needs `buildInventory`,
+ * requiring a pass over the WHOLE document) — Z6 doesn't need the font role,
+ * only the text, so we skip a cost that the rest of the profile flow
+ * (`analyzeProfileDocument`) already pays for during its full pass anyway.
+ * Same opening pattern as `openPreviewDocument.ts`/`inspectDocument.ts` (its
+ * own copy of the bytes).
  *
- * [KROK-29 Z3] `fontKey` NATOMIAST liczony jest tutaj, mimo powyzszego —
- * `resolveFontKey` potrzebuje WYLACZNIE `page.commonObjs` (JEDNEJ strony), nie
- * calodokumentowego `buildInventory`. Klikniecie kandydata na nazwe w
- * zakladce "Nazwa" (Profile Studio) uczy sie TEGO klucza — bez niego nie
- * byloby czego sie uczyc.
+ * [Step 29 Z3] `fontKey`, however, IS computed here despite the above —
+ * `resolveFontKey` needs ONLY `page.commonObjs` (a SINGLE page), not the
+ * whole-document `buildInventory`. Clicking a name candidate on the "Name"
+ * tab (Profile Studio) learns THIS key — without it there would be nothing
+ * to learn.
  *
- * [ZGŁOSZENIE na zywo, "requireFontKeys nie zapisuje sie mimo klikniecia w
- * prawdziwe imie"] Poprzednia wersja tego komentarza twierdzila, ze
- * `page.commonObjs` jest "juz wypelnione przez getTextContent()" (F0-Q1) —
- * zmierzone wprost jako FALSZYWE dla rzadziej uzywanych/ozdobnych fontow
- * (np. font imienia postaci, uzyty raz na strone): `getTextContent()` NIE
- * gwarantuje, ze KAZDY napotkany font zdazy w pelni zaladowac sie do
- * `commonObjs` przed rozwiazaniem swojej obietnicy — `resolveFontKey` cicho
- * zwraca `null` dla takiego tokenu (`commonObjs.has(fontName)` jeszcze
- * `false`), a klikniecie w Studiu "dziala" wizualnie (podglad tekstu sie
- * aktualizuje — `#namePreviewText`, calkowicie niezalezne pole), ale
- * `requireFontKeys` nigdy nie dostaje wpisu. Prawdziwe, udokumentowane od
- * fazy 0 zrodlo prawdy (patrz `CLAUDE.md`, "Font fingerprinting works via
- * `commonObjs.get(fontName).name` AFTER `getOperatorList()`") — ten sam
- * wzorzec, ktorego reszta kodu (`tokenizePage.ts`'s prawdziwi wywolujacy,
- * `buildInventory`) juz uzywa poprawnie; ta funkcja byla jedynym miejscem,
- * ktore go pominelo.
+ * [LIVE bug report, "requireFontKeys isn't saved even after clicking a real
+ * name"] The previous version of this comment claimed that `page.commonObjs`
+ * is "already populated by getTextContent()" (F0-Q1) — measured directly to
+ * be FALSE for less common/decorative fonts (e.g. a character-name font used
+ * once per page): `getTextContent()` does NOT guarantee that EVERY font
+ * encountered finishes fully loading into `commonObjs` before its promise
+ * resolves — `resolveFontKey` silently returns `null` for such a token
+ * (`commonObjs.has(fontName)` still `false`), and clicking in the Studio
+ * "works" visually (the text preview updates — `#namePreviewText`, a
+ * completely independent field), but `requireFontKeys` never gets an entry.
+ * The real source of truth, documented since phase 0 (see `CLAUDE.md`, "Font
+ * fingerprinting works via `commonObjs.get(fontName).name` AFTER
+ * `getOperatorList()`") — the same pattern the rest of the code
+ * (`tokenizePage.ts`'s actual callers, `buildInventory`) already uses
+ * correctly; this function was the one place that skipped it.
  */
 
 export interface PageTextToken {

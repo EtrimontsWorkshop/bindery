@@ -4,19 +4,21 @@ import type { PageRoute } from '../profiles/pageRoute.js';
 import type { Diagnostic } from '../text/types.js';
 
 /**
- * CIF — Canonical Intermediate Format (KROK-9 Z3, MDD §5.3). Format neutralny:
- * nie zawiera pojec zadnego konkretnego systemu gry ani Foundry.
+ * CIF — Canonical Intermediate Format (Step 9 Z3, MDD §5.3). A neutral
+ * format: it contains no concepts from any specific game system or Foundry.
  *
- * MDD v1.2 definiuje `CIFDocument`/`CIFActor`/`CIFScene`/`Provenance`/`Diagnostic`
- * wprost, ale WYLACZNIE UZYWA (nie definiuje) `CIFJournal`/`CIFImage` w typach pol
- * — te dwa musialy zostac zaprojektowane tutaj od zera (zweryfikowane grepem po
- * MDD, brak `interface CIFJournal`/`interface CIFImage` gdziekolwiek w pliku).
+ * MDD v1.2 defines `CIFDocument`/`CIFActor`/`CIFScene`/`Provenance`/`Diagnostic`
+ * directly, but only USES (does not define) `CIFJournal`/`CIFImage` in
+ * field types — these two had to be designed here from scratch (verified
+ * by grepping the MDD, no `interface CIFJournal`/`interface CIFImage`
+ * anywhere in the file).
  *
- * `CIFActor` (statblocki) swiadomie POMINIETY — brief KROK-9 wprost: "MVP nie
- * potrzebuje CIFActor (statblocki to v2.0)". Gdy pojawi sie w v2.0, dodanie pola
- * `actors: CIFActor[]` do `CIFDocument` jest zmiana ADDYTYWNA (opcjonalna lub z
- * defaultem), nie musi byc breaking/major — ale KAZDA zmiana ksztaltu
- * ISTNIEJACYCH pol (schemaVersion:1) wymaga bumpu major (brief, KROK-9).
+ * `CIFActor` (statblocks) was deliberately OMITTED — the Step 9 brief
+ * states directly: "the MVP does not need CIFActor (statblocks are v2.0)".
+ * When it appears in v2.0, adding an `actors: CIFActor[]` field to
+ * `CIFDocument` is an ADDITIVE change (optional or with a default), it
+ * doesn't have to be breaking/major — but ANY change to the shape of
+ * EXISTING fields (schemaVersion:1) requires a major bump (brief, Step 9).
  */
 
 export interface Provenance {
@@ -26,51 +28,55 @@ export interface Provenance {
 }
 
 /**
- * [KROK-18 Z6] `CIFActor` — dokladnie z MDD §5.3 (byl swiadomie pominiety w
- * `CIFDocument` przy pierwszym projekcie CIF-u w kroku 9, "MVP nie potrzebuje
- * CIFActor" — patrz komentarz na gorze pliku). Dodanie tutaj jest zmiana
- * ADDYTYWNA: nowe typy, `CIFDocument.actors?: CIFActor[]` opcjonalne, zero
- * zmian w istniejacych polach — `schemaVersion` zostaje `1`.
+ * [Step 18 Z6] `CIFActor` — exactly per MDD §5.3 (it was deliberately
+ * omitted from `CIFDocument` in the initial CIF design in step 9, "the MVP
+ * does not need CIFActor" — see the comment at the top of the file). Adding
+ * it here is an ADDITIVE change: new types, `CIFDocument.actors?:
+ * CIFActor[]` optional, zero changes to existing fields — `schemaVersion`
+ * stays `1`.
  *
- * [Zawezenie zakresu, KROK-18, doprecyzowane KROK-20 Z2b, rozszerzone KROK-39
- * Z1] Poczatkowo ten krok budowal CIFActor WYLACZNIE dla NPC/potworow (Z0: 15
- * z 27 "siatek" w ksiazce testowej, pregeny Badaczy swiadomie poza zakresem).
- * Od kroku 39 `route` (nizej) rozroznia obie kategorie — patrz
- * `profiles/pageRoute.ts` i `profiles/assembleStatblocks.ts`. `traits`/`equipment`/`spells` NIE sa
- * wypelniane przez `buildCIFActor` (zaden wzorzec do ich parsowania nie
- * zostal zbudowany); zostaja puste tablice, nie zgadywane wartosci
- * placeholder. `skills` wypelniane od KROK-20 Z2b, ale WYLACZNIE gdy profil
- * skonfigurowal `entityAssembly.skillsPattern` — starsze/inne profile nadal
- * dostaja pusta tablice. Pola istnieja w typie (zgodnie z MDD), bo naleza do
- * `CIFActor` jako calosci, nawet gdy akurat nie wypelnione.
+ * [Scope narrowing, Step 18, clarified in Step 20 Z2b, extended in Step 39
+ * Z1] Initially this step built CIFActor ONLY for NPCs/monsters (Z0: 15 out
+ * of 27 "grids" in the test book, pre-generated Investigators deliberately
+ * out of scope). Since step 39, `route` (below) distinguishes both
+ * categories — see `profiles/pageRoute.ts` and
+ * `profiles/assembleStatblocks.ts`. `traits`/`equipment`/`spells` are NOT
+ * populated by `buildCIFActor` (no pattern for parsing them has been built
+ * yet); they remain empty arrays, not guessed placeholder values. `skills`
+ * has been populated since Step 20 Z2b, but ONLY when the profile
+ * configured `entityAssembly.skillsPattern` — older/other profiles still
+ * get an empty array. The fields exist in the type (per MDD), because they
+ * belong to `CIFActor` as a whole, even when not currently populated.
  */
 export interface CIFActor {
   id: string;
   name: string;
   /**
-   * [KROK-20 Z2] Czy `name` jest realna nazwa z podrecznika (pewnosc >= progu,
-   * `entityAssembly.nameConfidenceThreshold`) czy placeholder. Bez tego pola
-   * ekran przegladu musialby zgadywac po TRESCI stringa (np. dopasowywac
-   * szablon `namePlaceholder` z profilu) — kruche, bo szablon jest
-   * konfigurowalny per profil, wiec kazdy odczytujacy `CIFActor` musialby
-   * znac profil, ktory go wyprodukowal. Jawne pole, addytywne.
+   * [Step 20 Z2] Whether `name` is a real name from the manual (confidence
+   * >= the threshold, `entityAssembly.nameConfidenceThreshold`) or a
+   * placeholder. Without this field, the review screen would have to guess
+   * from the string's CONTENT (e.g. matching the profile's
+   * `namePlaceholder` template) — fragile, because the template is
+   * configurable per profile, so anything reading `CIFActor` would have to
+   * know which profile produced it. An explicit, additive field.
    */
   nameConfident: boolean;
   /**
-   * [KROK-19 Z4, zmierzony na zywo brak] Wypelnione WYLACZNIE gdy `name` jest
-   * placeholderem (pewnosc ponizej progu) — lista kandydatow rozwazanych
-   * przez parowanie geometryczne (`entityAssembly`), zeby uzytkownik mial
-   * SZANSE ustalic, ktora prawdziwa postac z ksiazki kryje sie pod
-   * placeholderem "NPC ze str. N (#k)", zamiast zgadywac z samej strony.
-   * Bez tego pola informacja byla policzona (`AssembledStatblock.name.
-   * candidates`) ale gubiona przy budowaniu `CIFActor` — dokladnie luka,
-   * ktorej DoD Z1 wymagal ("Nazwa poniżej progu → placeholder z listą
-   * kandydatów"), zaznaczona jako spelniona zanim faktycznie taka byla.
+   * [Step 19 Z4, gap measured live] Populated ONLY when `name` is a
+   * placeholder (confidence below the threshold) — a list of candidates
+   * considered by geometric pairing (`entityAssembly`), so the user has a
+   * CHANCE to determine which real character from the book is hiding
+   * behind the placeholder "NPC from p. N (#k)", instead of guessing from
+   * the page alone. Without this field, the information was computed
+   * (`AssembledStatblock.name.candidates`) but lost when building
+   * `CIFActor` — exactly the gap that Z1's DoD required ("Name below
+   * threshold → placeholder with a list of candidates"), marked as
+   * satisfied before it actually was.
    */
   nameCandidates?: readonly string[];
-  /** Swobodna etykieta z podrecznika: "Cultist", "Zbir", "Ghoul". Bez interpretacji. */
+  /** Free-form label from the manual: "Cultist", "Thug", "Ghoul". No interpretation applied. */
   typeLabel?: string;
-  /** Klucze KANONICZNE (§5.4 MDD), nie nazwy z podrecznika — `LabelledPairMatchEntry.canonicalKey`. */
+  /** CANONICAL keys (MDD §5.4), not names from the manual — `LabelledPairMatchEntry.canonicalKey`. */
   statistics: Record<string, CIFStat>;
   skills: CIFNamedValue[];
   attacks: CIFAttack[];
@@ -78,138 +84,142 @@ export interface CIFActor {
   equipment: CIFNamedText[];
   spells: CIFNamedText[];
   description?: string;
-  /** Id z `CIFImage[]`. */
+  /** Id from `CIFImage[]`. */
   imageRef?: string;
-  /** ZAWSZE wypelnione (A3). */
+  /** ALWAYS populated (A3). */
   rawText: string;
   provenance: Provenance;
-  /** Pola, ktorych profil nie umial zaklasyfikowac. Traja do notatek dokumentu. */
+  /** Fields the profile was unable to classify. End up in the document's notes. */
   unmapped: CIFNamedText[];
   /**
-   * [KROK-34 Z2] Bloki prozy dolaczone geometrycznie (`entityAssembly.notesPatterns`)
-   * — patrz `AssembledStatblock.notes`. `[]`, gdy profil nie ma takiego wzorca
-   * LUB zaden nie trafil (A10). Opcjonalne — pole addytywne (jak
-   * `attackBelowTexts` w `AssembledStatblock`), zeby kod konstruujacy
-   * `CIFActor` bezposrednio (fixtury testowe sprzed tego pola) nie musial sie zmieniac.
+   * [Step 34 Z2] Prose blocks attached geometrically
+   * (`entityAssembly.notesPatterns`) — see `AssembledStatblock.notes`. `[]`
+   * when the profile has no such pattern OR none matched (A10). Optional —
+   * an additive field (like `attackBelowTexts` in `AssembledStatblock`), so
+   * code that constructs `CIFActor` directly (test fixtures predating this
+   * field) doesn't have to change.
    */
   notes?: { label: string; text: string }[];
   /**
-   * [KROK-39 Z1] Trasa, ktorej zestawem wzorcow ta encja zostala zbudowana —
-   * `'npc'` (potwor/NPC) albo `'playerCharacter'` (gotowy Badacz). Adapter
-   * (`packages/module/src/adapters/coc7.ts`) uzywa jej do wyboru typu aktora
-   * Foundry (`npc` vs `character`). Opcjonalne — pole addytywne (jak `notes`
-   * powyzej), zeby kod konstruujacy `CIFActor` bezposrednio (fixtury testowe
-   * sprzed tego pola) nie musial sie zmieniac; `undefined` traktowany przez
-   * adapter jak `'npc'` (zachowanie sprzed kroku 39).
+   * [Step 39 Z1] The route whose set of patterns built this entity —
+   * `'npc'` (monster/NPC) or `'playerCharacter'` (ready-made Investigator).
+   * The adapter (`packages/module/src/adapters/coc7.ts`) uses it to choose
+   * the Foundry actor type (`npc` vs `character`). Optional — an additive
+   * field (like `notes` above), so code that constructs `CIFActor` directly
+   * (test fixtures predating this field) doesn't have to change;
+   * `undefined` is treated by the adapter as `'npc'` (the behavior before
+   * step 39).
    */
   route?: PageRoute;
 }
 
 export interface CIFStat {
-  /** Wartosc surowa, tak jak w ksiazce. */
+  /** Raw value, exactly as in the book. */
   raw: string;
   numeric?: number;
   unit?: 'percent' | 'plain' | 'dice' | 'modifier';
-  /** Etykieta oryginalna — do wyswietlenia w przegladzie i do notatek. */
+  /** Original label — for display in the review screen and for notes. */
   sourceLabel: string;
   confidence: number;
-  /** [KROK-33 Z1] Przypis znaleziony na wlasnym wierszu tuz po bloku, powiazany z ta wartoscia bo TYLKO ona w bloku konczy sie gola gwiazdka — patrz `LabelledPairMatchEntry.footnoteText` (profiles/patterns.ts). */
+  /** [Step 33 Z1] Footnote found on its own line right after the block, associated with this value because it is the ONLY one in the block that ends with a bare asterisk — see `LabelledPairMatchEntry.footnoteText` (profiles/patterns.ts). */
   footnoteText?: string;
-  /** [KROK-34 Z1] Opis odciety od `raw` PO liczbie na poczatku tej samej wartosci ("Pancerz: 5, niezwykle gruba skóra" -> `raw`="5", to pole="niezwykle gruba skóra") — patrz `LabelledPairMatchEntry.descriptionText` (profiles/patterns.ts). */
+  /** [Step 34 Z1] Description cut off from `raw` AFTER the number at the start of the same value ("Armor: 5, unusually thick skin" -> `raw`="5", this field="unusually thick skin") — see `LabelledPairMatchEntry.descriptionText` (profiles/patterns.ts). */
   descriptionText?: string;
 }
 
 export interface CIFAttack {
   name: string;
-  /** Surowy string; adapter parsuje wg wlasnych regul (MDD §5.3 — nie CIF-owa interpretacja). */
+  /** Raw string; the adapter parses it according to its own rules (MDD §5.3 — not a CIF-level interpretation). */
   toHit?: string;
   damage?: string;
   range?: string;
   properties: string[];
   rawText: string;
-  /** [KROK-33 Z4] Opis znaleziony w prozie ponizej sekcji ATAKI, wprowadzony wlasnym podnaglowkiem zaczynajacym sie od pelnej nazwy tego ataku — patrz `attackDescriptionCrossReference.ts`. `undefined`, gdy nic nie znaleziono. */
+  /** [Step 33 Z4] Description found in the prose below the ATTACKS section, introduced by its own subheading starting with the full name of this attack — see `attackDescriptionCrossReference.ts`. `undefined` when nothing was found. */
   belowText?: string;
 }
 
-/** [KROK-18, zaprojektowane od zera — MDD uzywa tego typu w polu `skills`, nigdy go nie definiuje] Nazwa + pojedyncza wartosc, np. umiejetnosc + procent. */
+/** [Step 18, designed from scratch — the MDD uses this type in the `skills` field, but never defines it] Name + single value, e.g. skill + percentage. */
 export interface CIFNamedValue {
   name: string;
   value: string;
   confidence?: number;
 }
 
-/** [KROK-18, zaprojektowane od zera — jw., pola `traits`/`equipment`/`spells`/`unmapped`] Nazwa + dowolny tekst towarzyszacy. */
+/** [Step 18, designed from scratch — as above, the `traits`/`equipment`/`spells`/`unmapped` fields] Name + arbitrary accompanying text. */
 export interface CIFNamedText {
   name: string;
   text: string;
 }
 
 /**
- * [KROK-9 odkrycie] MDD definiuje `CIFScene` BEZ `rawText`, ale brief KROK-9
- * wymaga wprost "rawText z oryginalna trescia (zalozenie A3) dla KAZDEGO
- * elementu" — rozszerzenie MDD-owego typu o `rawText` (pusty string, gdy scena
- * nie ma zadnego towarzyszacego tekstu — nagłowka/podpisu).
+ * [Step 9 discovery] The MDD defines `CIFScene` WITHOUT `rawText`, but the
+ * Step 9 brief directly requires "rawText with the original content
+ * (assumption A3) for EVERY element" — extending the MDD's type with
+ * `rawText` (an empty string when a scene has no accompanying text at all
+ * — heading/caption).
  */
 export interface CIFScene {
   id: string;
   name: string;
   imageRef: string;
-  /** null = nie wykryto. NIE zgaduj (MDD) — auto-detekcja siatki poza MVP. */
+  /** null = not detected. Do NOT guess (MDD) — automatic grid detection is out of MVP scope. */
   suggestedGrid: { sizePx: number; offsetX: number; offsetY: number } | null;
   rawText: string;
   provenance: Provenance;
 }
 
-/** [KROK-9, zaprojektowane od zera — patrz komentarz na gorze pliku] Obraz neutralny (mapa/handout/portret), niezalezny od tego, czy trafi na scene czy do journala. */
+/** [Step 9, designed from scratch — see the comment at the top of the file] A system-neutral image (map/handout/portrait), independent of whether it ends up on a scene or in a journal. */
 export interface CIFImage {
   id: string;
   targetKind: ImageTargetKind;
   width: number;
   height: number;
   format: string;
-  /** Referencja do bajtow obrazu — wypelniana przez warstwe importu (poza CIF-em, ktory jest czysto danymi), NIE binarna zawartosc. */
+  /** Reference to the image bytes — filled in by the import layer (outside the CIF, which is pure data), NOT the binary content itself. */
   assetRef: string;
-  /** Podpis/tekst towarzyszacy (blok `caption` w poblizu), jesli byl. */
+  /** Caption/accompanying text (a nearby `caption` block), if any. */
   caption?: string;
   /**
-   * [KROK-11 Z4, pole ADDYTYWNE — nie zmienia schemaVersion:1] `'content'`
-   * lub `'undecided'` — WYLACZNIE te dwie wartosci trafiaja do CIF
-   * (`decoration`/`mask` sa odrzucane wczesniej, patrz `buildCIFDocument.ts`).
-   * Ekran przegladu (faza 9) uzywa tego pola do domyslnego
-   * zaznaczenia/sortowania — `packages/module` NIE liczy klasyfikacji samo,
-   * tylko CZYTA to, co juz zdecydowal `core` (A1/check:boundary).
+   * [Step 11 Z4, ADDITIVE field — does not change schemaVersion:1]
+   * `'content'` or `'undecided'` — ONLY these two values enter the CIF
+   * (`decoration`/`mask` are rejected earlier, see `buildCIFDocument.ts`).
+   * The review screen (phase 9) uses this field for default
+   * checking/sorting — `packages/module` does NOT compute the
+   * classification itself, it only READS what `core` has already decided
+   * (A1/check:boundary).
    */
   classification: 'content' | 'undecided';
-  /** [KROK-11 Z4, pole ADDYTYWNE] Patrz `ClassifiedImage.confidence` w `images/classify.ts`. */
+  /** [Step 11 Z4, ADDITIVE field] See `ClassifiedImage.confidence` in `images/classify.ts`. */
   confidence: number;
   /**
-   * [KROK-17, pole ADDYTYWNE] Sugestia auto-detekcji siatki z pikseli
-   * (`images/detectGrid.ts`) — best-effort, `undefined` gdy nic nie znaleziono.
-   * WYLACZNIE sugestia do wstepnego wypelnienia recznego kalibratora
-   * (`GridPicker`, `packages/module`) — `packages/core` NIE decyduje, czy jest
-   * "wystarczajaco pewna", zeby ja pokazac (ta decyzja to polityka UI, patrz
-   * komentarz w `detectGrid.ts`).
+   * [Step 17, ADDITIVE field] Automatic grid-detection suggestion from
+   * pixels (`images/detectGrid.ts`) — best-effort, `undefined` when nothing
+   * was found. ONLY a suggestion to pre-fill the manual calibrator
+   * (`GridPicker`, `packages/module`) — `packages/core` does NOT decide
+   * whether it is "confident enough" to show (that decision is UI policy,
+   * see the comment in `detectGrid.ts`).
    */
   suggestedGrid?: { size: number; offsetX: number; offsetY: number; confidence: number };
   rawText: string;
   provenance: Provenance;
 }
 
-/** [KROK-9, zaprojektowane od zera] Jedna strona journala — odpowiednik `JournalEntryPage` (Foundry), ale neutralny. */
+/** [Step 9, designed from scratch] A single journal page — the equivalent of `JournalEntryPage` (Foundry), but neutral. */
 export interface CIFJournalPage {
   id: string;
   name: string;
-  /** 1-6, poziom naglowka Z KTOREGO powstala ta strona (Foundry `title.level`). */
+  /** 1-6, the heading level FROM WHICH this page was created (Foundry `title.level`). */
   headingLevel: number;
-  /** HTML juz SANITYZOWANY (Z5) — gotowy do `JournalEntryPage.text.content`. */
+  /** HTML already SANITIZED (Z5) — ready for `JournalEntryPage.text.content`. */
   html: string;
-  /** `CIFImage.id` osadzonych w tresci tej strony, w kolejnosci wystapienia. */
+  /** `CIFImage.id` of images embedded in this page's content, in order of occurrence. */
   imageRefs: string[];
   rawText: string;
   provenance: Provenance;
 }
 
-/** [KROK-9, zaprojektowane od zera] Jeden wpis journala — odpowiednik `JournalEntry` (Foundry), ale neutralny; drzewo zakladek splaszczone do (JournalEntry -> strony), patrz `buildJournalHierarchy.ts`. */
+/** [Step 9, designed from scratch] A single journal entry — the equivalent of `JournalEntry` (Foundry), but neutral; the bookmark tree flattened into (JournalEntry -> pages), see `buildJournalHierarchy.ts`. */
 export interface CIFJournal {
   id: string;
   name: string;
@@ -232,7 +242,7 @@ export interface CIFDocument {
   journals: CIFJournal[];
   scenes: CIFScene[];
   images: CIFImage[];
-  /** [KROK-18 Z6, pole ADDYTYWNE — nie zmienia schemaVersion:1] Statbloki NPC/potworów, patrz `cif/buildCIFActor.ts`. Opcjonalne: dokumenty budowane przed tym krokiem (i wszystkie testy je konstruujące) nadal poprawne bez tego pola. */
+  /** [Step 18 Z6, ADDITIVE field — does not change schemaVersion:1] NPC/monster statblocks, see `cif/buildCIFActor.ts`. Optional: documents built before this step (and all tests constructing them) remain valid without this field. */
   actors?: CIFActor[];
   diagnostics: Diagnostic[];
 }

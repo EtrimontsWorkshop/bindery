@@ -1,20 +1,21 @@
 import { MODULE_ID } from '../settings.js';
 
 /**
- * GridPicker (KROK-8 Z5) — podglad na zywo z suwakami rozmiaru/offsetu i
- * nakladka siatki, zapamietujacy ostatnie ustawienie (`lastGridConfig`).
- * Zero automatycznego wykrywania siatki (brief: poza MVP) — uzytkownik
- * ustawia recznie, majac natychmiastowy podglad efektu.
+ * GridPicker (Step 8 Z5) — live preview with size/offset sliders and a grid
+ * overlay, remembering the last setting (`lastGridConfig`). Zero automatic
+ * grid detection (brief: out of MVP scope) — the user sets it manually, with
+ * an immediate preview of the effect.
  *
- * [KROK-8, odkrycie] Pierwsza wersja uzywala `DialogV2.wait({content, render})`
- * z surowym HTML w stringu — zawodzilo w prawdziwym Foundry: `render` (event,
- * dialog) => dialog.element.querySelector(...) zwracalo `null` (blad "Cannot
- * read properties of null (reading 'getContext')"), mimo poprawnej skladni.
- * Przyczyna nieustalona (mozliwe niuanse cyklu renderu DialogV2 z surowym
- * content vs. PARTS Handlebars) — zamiast dalej zgadywac, przepisane na
- * WLASNA klase `ApplicationV2`+`HandlebarsApplicationMixin` z `_onRender`,
- * DOKLADNIE ten sam, juz sprawdzony wzorzec co `ImportWizard` (ktory
- * niezawodnie robi `this.element.querySelector(...)` w `_onRender`).
+ * [Step 8, discovery] The first version used `DialogV2.wait({content, render})`
+ * with raw HTML in a string — this failed in a real Foundry instance:
+ * `render` (event, dialog) => dialog.element.querySelector(...) returned
+ * `null` (error "Cannot read properties of null (reading 'getContext')"),
+ * despite correct syntax. The cause was never determined (possibly nuances
+ * of DialogV2's render cycle with raw content vs. Handlebars PARTS) —
+ * instead of continuing to guess, this was rewritten as its OWN
+ * `ApplicationV2`+`HandlebarsApplicationMixin` class with `_onRender`,
+ * EXACTLY the same, already-proven pattern as `ImportWizard` (which reliably
+ * does `this.element.querySelector(...)` in `_onRender`).
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -34,11 +35,12 @@ export interface PickGridInput {
   imageWidth: number;
   imageHeight: number;
   /**
-   * [KROK-17] Sugestia auto-detekcji siatki z pikseli mapy (`@bindery/core`,
-   * `images/detectGrid.ts`) — gdy podana, PREFEROWANA nad ostatnio zapisana
-   * konfiguracja (`lastGridConfig`) jako wstepne wypelnienie suwakow. Decyzja
-   * "czy przekazac" (np. prog pewnosci) nalezy do wolajacego (`ReviewScreen`),
-   * nie do tego modulu — patrz komentarz przy `CIFImage.suggestedGrid`.
+   * [Step 17] Suggestion from automatic grid detection on the map's pixels
+   * (`@bindery/core`, `images/detectGrid.ts`) — when provided, PREFERRED over
+   * the last saved configuration (`lastGridConfig`) as the initial fill for
+   * the sliders. The decision of "whether to pass it" (e.g. a confidence
+   * threshold) belongs to the caller (`ReviewScreen`), not to this module —
+   * see the comment near `CIFImage.suggestedGrid`.
    */
   suggestedGrid?: GridConfig;
 }
@@ -50,7 +52,7 @@ function drawPreview(ctx: CanvasRenderingContext2D, img: HTMLImageElement, previ
   ctx.drawImage(img, 0, 0, w, h);
 
   const size = grid.size * previewScale;
-  if (size < 2) return; // suwak na skrajnie malej wartosci — nie rysuj nieczytelnej siatki
+  if (size < 2) return; // slider at an extremely small value — don't draw an illegible grid
 
   ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
   ctx.lineWidth = 1;
@@ -106,10 +108,11 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   static async pick(input: PickGridInput): Promise<GridConfig | null> {
-    // [KROK-17] Sugestia auto-detekcji (gdy podana) ma pierwszenstwo nad
-    // ostatnio zapisana reczna konfiguracja — inny obraz ma inna siatke, wiec
-    // "co bylo ostatnio" jest gorszym punktem startowym niz "co widac na TYM
-    // konkretnym obrazie", o ile cokolwiek wykryto.
+    // [Step 17] An auto-detection suggestion (when provided) takes priority
+    // over the last saved manual configuration — a different image has a
+    // different grid, so "what it was last time" is a worse starting point
+    // than "what's visible on THIS particular image", provided anything was
+    // detected.
     const base = input.suggestedGrid ?? game.settings!.get(MODULE_ID, 'lastGridConfig');
     const initialGrid: GridConfig = {
       size: Math.min(MAX_GRID_SIZE_PX, Math.max(MIN_GRID_SIZE_PX, base.size)),
@@ -144,7 +147,7 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const root = this.element;
     const canvas = root.querySelector<HTMLCanvasElement>('canvas.bindery-grid-canvas');
     if (!canvas) {
-      console.warn('Bindery | GridPicker: brak <canvas> w wyrenderowanym DOM');
+      console.warn('Bindery | GridPicker: missing <canvas> in the rendered DOM');
       return;
     }
     const ctx = canvas.getContext('2d')!;
@@ -186,7 +189,7 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 }
 
-/** Otwiera GridPicker, zwraca wybrana konfiguracje siatki albo `null` (anulowano). */
+/** Opens GridPicker, returns the chosen grid configuration or `null` (cancelled). */
 export async function pickGrid(input: PickGridInput): Promise<GridConfig | null> {
   return GridPickerApp.pick(input);
 }

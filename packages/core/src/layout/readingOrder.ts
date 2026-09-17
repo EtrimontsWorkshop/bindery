@@ -4,11 +4,11 @@ import type { SpanningSplit } from './spanning.js';
 import type { StreamAngle } from '../text/types.js';
 
 /**
- * Kolejnosc czytania (KROK-6 Z4) — algorytm PASMOWY, odporny na elementy
- * rozpinajace: strona jest ciachana na pasma poziome na kazdej linii
- * rozpinajacej (Z2); wewnatrz pasma kolumny ida lewo->prawo (Z3), wewnatrz
- * kolumny linie gora->dol; pasma gora->dol; strumienie o kacie != 0° NA KONCU,
- * kazdy jako osobna sekwencja (marginalia NIE sa wplatane w tok glowny).
+ * Reading order (Step 6 Z4) — a BAND algorithm, resilient to spanning
+ * elements: the page is sliced into horizontal bands at every spanning line
+ * (Z2); within a band, columns go left->right (Z3), within a column lines go
+ * top->bottom; bands go top->bottom; streams with angle != 0° come LAST,
+ * each as its own sequence (marginalia are NOT interleaved into the main flow).
  */
 
 export interface OrderedLine {
@@ -20,7 +20,7 @@ function midY(line: TextLine): number {
   return (line.bbox.minY + line.bbox.maxY) / 2;
 }
 
-/** Kolumna o NAJWIEKSZYM pokryciu X z linia — odporne na drobne niedoklosci na granicy rynny. */
+/** The column with the LARGEST X overlap with the line — robust against small inaccuracies at the gutter boundary. */
 function assignColumnIndex(line: TextLine, columns: readonly ColumnRegion[]): number {
   if (columns.length === 0) return -1;
   let best = columns[0]!;
@@ -37,17 +37,18 @@ function assignColumnIndex(line: TextLine, columns: readonly ColumnRegion[]): nu
   return best.index;
 }
 
-/** Kolejnosc kolumn w paśmie — lewo->prawo, ODWROCONA dla stron obroconych o 180° (kierunek czytania sie odwraca). */
+/** Column order within a band — left->right, REVERSED for pages rotated 180° (the reading direction reverses). */
 function orderedColumnIndices(columns: readonly ColumnRegion[], pageRotation: 0 | 90 | 180 | 270): number[] {
   const indices = columns.map((c) => c.index).sort((a, b) => a - b);
   return pageRotation === 180 ? indices.reverse() : indices;
 }
 
 /**
- * Buduje kolejnosc czytania strumienia PODSTAWOWEGO (kat 0°) z podzialu
- * rozpinajace/kolumnowe (Z2) i wykrytych kolumn (Z3), po czym dokleja pozostale
- * strumienie (kat != 0°) NA KONCU, kazdy jako wlasna, nieprzerywana sekwencja
- * we WLASNEJ juz istniejacej kolejnosci (marginalia nie sa wplatane w tok glowny).
+ * Builds the reading order of the PRIMARY stream (angle 0°) from the
+ * spanning/columnar split (Z2) and the detected columns (Z3), then appends the
+ * remaining streams (angle != 0°) AT THE END, each as its own unbroken
+ * sequence in its OWN pre-existing order (marginalia are not interleaved into
+ * the main flow).
  */
 export function buildReadingOrder(
   split: SpanningSplit,
@@ -57,7 +58,7 @@ export function buildReadingOrder(
 ): OrderedLine[] {
   const result: OrderedLine[] = [];
 
-  // Pasma: posortuj linie rozpinajace gora->dol; kazda dzieli strone na pasmo-kolumnowe + siebie samą jako osobne pasmo.
+  // Bands: sort spanning lines top->bottom; each splits the page into a columnar band + itself as a separate band.
   const sortedSpanning = [...split.spanning].sort((a, b) => midY(b) - midY(a));
   const orderedCols = orderedColumnIndices(columns, pageRotation);
 
@@ -77,7 +78,7 @@ export function buildReadingOrder(
       const lines = (byColumn.get(colIndex) ?? []).sort((a, b) => midY(b) - midY(a));
       for (const line of lines) result.push({ line, streamAngle: 0 });
     }
-    // Linie kolumnowe nieprzypisane do zadnej wykrytej kolumny (columns=[]) trafiaja pod klucz -1.
+    // Columnar lines not assigned to any detected column (columns=[]) go under key -1.
     if (columns.length === 0) {
       const orphan = (byColumn.get(-1) ?? []).sort((a, b) => midY(b) - midY(a));
       for (const line of orphan) result.push({ line, streamAngle: 0 });

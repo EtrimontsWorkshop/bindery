@@ -1,48 +1,49 @@
 /**
- * [KROK-11 Z2] Wirtualizacja listy — cel z briefu: 2500 elementow bez
- * zacinania przy przewijaniu. Renderuje WYLACZNIE widoczne wiersze + margines,
- * poza cyklem `render()`/Handlebars ApplicationV2 (kazdy scroll-frame
- * odtwarzajacy CALY DOM przez Handlebars bylby katastrofalnie wolny i
- * gubilby pozycje przewijania) — czysta manipulacja DOM w `attach()`,
- * wywolywana raz z `_onRender`.
+ * [Step 11 Z2] List virtualization — goal from the brief: 2500 elements
+ * without stuttering while scrolling. Renders ONLY the visible rows +
+ * margin, outside the `render()`/Handlebars ApplicationV2 cycle (a
+ * scroll-frame that rebuilt the ENTIRE DOM via Handlebars on every frame
+ * would be catastrophically slow and would lose the scroll position) —
+ * plain DOM manipulation in `attach()`, called once from `_onRender`.
  *
- * Brak zaleznosci od Foundry — czysty DOM (`HTMLElement`/`document`),
- * ale zyje w `packages/module` (nie `packages/core`) bo operuje na realnym
- * drzewie DOM, nie na danych; `packages/core` nigdy nie dotyka DOM (A1).
+ * No dependency on Foundry — plain DOM (`HTMLElement`/`document`), but it
+ * lives in `packages/module` (not `packages/core`) because it operates on a
+ * real DOM tree, not on data; `packages/core` never touches the DOM (A1).
  */
 
 export interface VirtualListOptions<T> {
-  /** Kontener ze stalej wysokoscia i `overflow-y: auto` (juz w markup/CSS, patrz `review-screen.hbs`). */
+  /** Container with a fixed height and `overflow-y: auto` (already in the markup/CSS, see `review-screen.hbs`). */
   container: HTMLElement;
   items: readonly T[];
-  /** Stala wysokosc wiersza w px — wymog uproszczonej wirtualizacji (brak wierszy zmiennej wysokosci). */
+  /** Fixed row height in px — a requirement of this simplified virtualization (no variable-height rows). */
   rowHeightPx: number;
-  /** Buduje/aktualizuje DOM JEDNEGO wiersza. `recycled` to element z puli do ponownego uzycia (moze byc null przy pierwszym wypelnieniu) — implementacja MUSI zwrocic element gotowy do wstawienia (nowy albo `recycled` po aktualizacji). */
+  /** Builds/updates the DOM of ONE row. `recycled` is an element from the pool to reuse (may be null on the first fill) — the implementation MUST return an element ready to insert (either new or the updated `recycled` one). */
   renderRow: (item: T, index: number, recycled: HTMLElement | null) => HTMLElement;
-  /** Liczba dodatkowych wierszy renderowanych POZA widocznym obszarem (gora+dol) — chroni przed bialym mignieciem przy szybkim przewijaniu. */
+  /** Number of extra rows rendered OUTSIDE the visible area (top+bottom) — protects against a white flash during fast scrolling. */
   overscan?: number;
   /**
-   * [zgloszenie uzytkownika, "wybieram obraz z listy, przeskakuje na
-   * początek"] Przywraca przewijanie NATYCHMIAST po zbudowaniu spacera
-   * (`#layout`), WIEC KONTENER JEST WTEDY JUZ SKROLOWALNY — Foundry'owy
-   * `scrollable` (`ReviewScreen.ts`'s `PARTS.main`) tego NIE ZAPEWNIA dla
-   * list wirtualizowanych: przywraca `scrollTop` PRZED `_onRender`, gdy
-   * kontener z szablonu Handlebars jest jeszcze CALKIEM PUSTY (bez `#spacer`
-   * nadajacego mu wysokosc do przewiniecia) — ustawienie `scrollTop` na
-   * elemencie bez zadnego nadmiaru tresci jest przegladarkowo przycinane do
-   * 0, wiec przywrocenie CICHO nie dzialalo. Wywolujacy (`ReviewScreen.ts`)
-   * musi wiec sledzic i przekazywac pozycje SAM, poza mechanizmem Foundry.
+   * [user report, "I select an image from the list, it jumps back to the
+   * top"] Restores scroll IMMEDIATELY after building the spacer
+   * (`#layout`), SO THE CONTAINER IS ALREADY SCROLLABLE AT THAT POINT —
+   * Foundry's `scrollable` (`ReviewScreen.ts`'s `PARTS.main`) does NOT
+   * guarantee this for virtualized lists: it restores `scrollTop` BEFORE
+   * `_onRender`, when the container from the Handlebars template is still
+   * COMPLETELY EMPTY (without `#spacer` giving it a height to scroll) —
+   * setting `scrollTop` on an element with no overflow content is clamped
+   * to 0 by the browser, so the restore SILENTLY didn't work. The caller
+   * (`ReviewScreen.ts`) therefore has to track and pass the position
+   * ITSELF, outside Foundry's mechanism.
    */
   initialScrollTop?: number;
-  /** Wywolywane przy KAZDYM zdarzeniu scroll (throttled przez `requestAnimationFrame`, ten sam co `#renderVisible`) — pozwala wywolujacemu sledzic biezaca pozycje BEZ wlasnego dostepu do surowego DOM-u kontenera (patrz `initialScrollTop`). */
+  /** Called on EVERY scroll event (throttled via `requestAnimationFrame`, the same one used by `#renderVisible`) — lets the caller track the current position WITHOUT its own access to the container's raw DOM (see `initialScrollTop`). */
   onScroll?: (scrollTop: number) => void;
 }
 
 /**
- * Kontroler wirtualizowanej listy — "spacer" o pelnej wysokosci wszystkich
- * elementow (poprawny pasek przewijania), wewnatrz niego okno faktycznie
- * wstawionych wierszy, pozycjonowane `transform: translateY` (tansza
- * repozycja niz `top`, nie wywoluje reflow calej reszty).
+ * Virtualized list controller — a "spacer" with the full height of all
+ * items (for a correct scrollbar), inside which sits the window of
+ * actually-inserted rows, positioned via `transform: translateY` (cheaper
+ * repositioning than `top`, doesn't trigger reflow of everything else).
  */
 export class VirtualList<T> {
   #container: HTMLElement;
@@ -92,15 +93,15 @@ export class VirtualList<T> {
     this.#container.addEventListener('scroll', this.#onScrollListener);
 
     this.#layout();
-    // [zgloszenie uzytkownika, "przeskakuje na początek"] MUSI byc PO
-    // `#layout()` (nadaje `#spacer`-owi wysokosc) — ustawienie `scrollTop` na
-    // kontenerze bez zadnego nadmiaru tresci jest przegladarkowo przycinane
-    // do 0, patrz uzasadnienie przy `initialScrollTop` w interfejsie wyzej.
+    // [user report, "jumps back to the top"] MUST be AFTER `#layout()`
+    // (which gives `#spacer` its height) — setting `scrollTop` on a
+    // container with no overflow content is clamped by the browser to 0,
+    // see the rationale near `initialScrollTop` in the interface above.
     if (opts.initialScrollTop) this.#container.scrollTop = opts.initialScrollTop;
     this.#renderVisible();
   }
 
-  /** Zmien zbior elementow (np. po zmianie filtra/sortowania) bez odtwarzania calego kontrolera. */
+  /** Change the item set (e.g. after a filter/sort change) without rebuilding the whole controller. */
   setItems(items: readonly T[]): void {
     this.#items = items;
     for (const el of this.#pool.values()) el.remove();
@@ -122,7 +123,7 @@ export class VirtualList<T> {
       Math.ceil((scrollTop + viewportHeight) / this.#rowHeightPx) + this.#overscan,
     );
 
-    // Usun z puli wiersze, ktore wypadly z okna.
+    // Remove rows from the pool that fell out of the window.
     for (const [index, el] of this.#pool) {
       if (index < firstVisible || index > lastVisible) {
         el.remove();
@@ -146,7 +147,7 @@ export class VirtualList<T> {
     }
   }
 
-  /** Przewin tak, zeby dany indeks byl widoczny (np. po kliknieciu nakladki bbox -> zaznacz odpowiadajacy wiersz, patrz Z3). */
+  /** Scroll so that the given index is visible (e.g. after clicking a bbox overlay -> select the corresponding row, see Z3). */
   scrollToIndex(index: number): void {
     const target = index * this.#rowHeightPx;
     const viewportHeight = this.#container.clientHeight;

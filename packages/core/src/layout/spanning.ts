@@ -2,29 +2,29 @@ import { unionRect, type Rect } from '../geometry.js';
 import type { TextLine } from './lineCluster.js';
 
 /**
- * Rozdzielenie linii rozpinajacych od kolumnowych (KROK-6 Z2) — MUSI poprzedzac
- * detekcje kolumn (Z3): pelnowymiarowy naglowek nad dwiema kolumnami wypelnia
- * rynne miedzy nimi i niszczy dolina w histogramie gestosci. Dziala WYLACZNIE
- * na strumieniu podstawowym (0°) — strumienie ≠ 0° to marginalia, poza
- * zakresem detekcji kolumn z definicji (MDD §5.1).
+ * Separating spanning lines from columnar lines (Step 6 Z2) — MUST precede
+ * column detection (Z3): a full-width header over two columns fills in the
+ * gutter between them and destroys the valley in the density histogram.
+ * Operates SOLELY on the primary stream (0°) — streams ≠ 0° are marginalia,
+ * outside the scope of column detection by definition (MDD §5.1).
  */
 
 export interface SpanningSplit {
   spanning: TextLine[];
   columnar: TextLine[];
-  /** Szerokosc bloku tekstu uzyta do progu — do diagnostyki/kalibracji. */
+  /** Text block width used for the threshold — for diagnostics/calibration. */
   textBlockWidth: number;
 }
 
 /**
- * Prog "rozpinajaca" jako udzial szerokosci bloku tekstu. Wartosc startowa z
- * briefu (~70%) — dwukolumnowy uklad ma kolumny o szerokosci ~45-48% bloku
- * (z odstepem miedzy nimi), wiec 70% jednoznacznie odrzuca pojedyncza kolumne,
- * ale lapie kazdy naglowek szerszy niz jakakolwiek pojedyncza kolumna moglaby
- * byc. Kalibrowane na plikach z `samples/` (RAPORT-KROK-6.md).
+ * The "spanning" threshold as a fraction of text block width. Starting value
+ * from the brief (~70%) — a two-column layout has columns ~45-48% of the
+ * block wide (with a gap between them), so 70% unambiguously rejects a single
+ * column but catches any header wider than a single column could be.
+ * Calibrated on files from `samples/` (RAPORT-KROK-6.md).
  */
 const DEFAULT_SPANNING_WIDTH_RATIO = 0.7;
-/** Te same progi co domyslne w runningElements.ts (Z5) — pasmo pionowe uznawane za margines strony. */
+/** Same thresholds as the defaults in runningElements.ts (Z5) — the vertical band considered page margin. */
 const DEFAULT_HEADER_BAND_FRACTION = 0.93;
 const DEFAULT_FOOTER_BAND_FRACTION = 0.07;
 
@@ -37,19 +37,19 @@ function lineWidth(line: TextLine): number {
 }
 
 /**
- * [KROK-6, odkrycie] Linia w pasmie naglowka/stopki (patrz Z5) potrafi
- * siedziec DALEKO na marginesie (np. numer stopki x=5, podczas gdy prawdziwa
- * tresc zaczyna sie od x=51) — wliczona do histogramu kolumn (Z3) przesuwa
- * granice bloku tekstu i tworzy FIKCYJNA "dolinie" tuz kolo marginesu zamiast
- * prawdziwej rynny miedzykolumnowej. Zmierzone na Cienie_posrod_mgie.pdf str.
- * 20: stopka "Maciej Pasierbek..." (x=5) + numer strony "20" (x=30) psuly
- * detekcje 2 kolumn (dawaly falszywa "kolumne" 1-elementowa kolo x=5-51,
- * ktora poprawka "sparse merge" [patrz columns.ts] zjadala razem z PRAWDZIWA
- * rynna). Naglowki/stopki NIE naleza do zadnej kolumny z definicji — musza
- * wypasc z histogramu, niezaleznie od szerokosci. Nie usuwamy ich z modelu
- * (brief Z5) — trafiaja do `spanning`, ktore i tak wraca w Z4 jako wlasne
- * pasmo (naglowek/stopka na koncu/poczatku kolejnosci czytania, tak jak
- * powinno byc).
+ * [Step 6, discovery] A line in the header/footer band (see Z5) can sit FAR
+ * out in the margin (e.g. a footer number at x=5, while the real content
+ * starts at x=51) — included in the column histogram (Z3) it shifts the text
+ * block boundary and creates a FICTITIOUS "valley" right next to the margin
+ * instead of the true inter-column gutter. Measured on
+ * Cienie_posrod_mgie.pdf p. 20: the footer "Maciej Pasierbek..." (x=5) +
+ * page number "20" (x=30) broke 2-column detection (they produced a false
+ * 1-element "column" around x=5-51, which the "sparse merge" fix [see
+ * columns.ts] then swallowed together with the TRUE gutter). Headers/footers
+ * belong to no column by definition — they must be excluded from the
+ * histogram regardless of width. We don't remove them from the model (per the
+ * Z5 brief) — they go into `spanning`, which comes back in Z4 as its own band
+ * anyway (header/footer at the end/start of reading order, as it should be).
  */
 function isInMarginBand(line: TextLine, pageHeight: number): boolean {
   if (pageHeight <= 0) return false;
@@ -58,12 +58,12 @@ function isInMarginBand(line: TextLine, pageHeight: number): boolean {
 }
 
 /**
- * Dzieli linie strumienia podstawowego na rozpinajace (szerokosc >= prog *
- * szerokosc bloku tekstu, lub w pasmie naglowka/stopki — patrz `isInMarginBand`)
- * i kolumnowe (reszta). Histogram kolumn (Z3) liczy WYLACZNIE z `columnar`;
- * `spanning` wraca przy budowie kolejnosci czytania (Z4). `pageHeight=0`
- * (domyslnie) wylacza sprawdzanie pasma marginesu — wymaga geometrii calej
- * strony, ktorej fixture'y jednostkowe czesto nie potrzebuja.
+ * Splits the primary stream's lines into spanning (width >= threshold *
+ * text block width, or in the header/footer band — see `isInMarginBand`)
+ * and columnar (the rest). The column histogram (Z3) is computed SOLELY from
+ * `columnar`; `spanning` comes back when building reading order (Z4).
+ * `pageHeight=0` (the default) disables the margin-band check — it requires
+ * whole-page geometry, which unit fixtures often don't need.
  */
 export function splitSpanningLines(
   lines: readonly TextLine[],
@@ -86,16 +86,16 @@ export function splitSpanningLines(
   const threshold = textBlockWidth * widthRatio;
   const candidates = bodyLines.filter((line) => lineWidth(line) >= threshold);
 
-  // [KROK-6, odkrycie] Prog "70% szerokosci bloku" zaklada cichy TYPOWY przypadek:
-  // rozpinajacy naglowek to MNIEJSZOSC linii strony, otoczona wyrazniej wezszymi
-  // liniami kolumnowymi. Na PRAWDZIWIE jednokolumnowej stronie kazda linia z
-  // definicji wypelnia niemal cala szerokosc WLASNEGO bloku tekstu — blok liczony
-  // ze WSZYSTKICH linii tej strony, wiec "szerokosc bloku" to w praktyce "typowa
-  // szerokosc linii", i prawie kazda linia (>50%) przekracza prog. Bez tej
-  // poprawki cala strona jednokolumnowa trafiala do `spanning`, zostawiajac Z3
-  // (detectColumns) bez zadnych linii kolumnowych — zweryfikowane empirycznie na
-  // fixture layout-1col (10/10 linii, brak dolin do znalezienia, zero kolumn
-  // zamiast poprawnej odpowiedzi "1 kolumna").
+  // [Step 6, discovery] The "70% of block width" threshold silently assumes the
+  // TYPICAL case: a spanning header is a MINORITY of the page's lines,
+  // surrounded by noticeably narrower columnar lines. On a TRULY single-column
+  // page, every line by definition fills nearly the entire width of its OWN
+  // text block — the block is computed from ALL lines on that page, so "block
+  // width" is in practice "typical line width", and nearly every line (>50%)
+  // exceeds the threshold. Without this fix, an entire single-column page
+  // would end up in `spanning`, leaving Z3 (detectColumns) with no columnar
+  // lines at all — verified empirically on fixture layout-1col (10/10 lines,
+  // no valleys to find, zero columns instead of the correct answer "1 column").
   if (candidates.length > bodyLines.length / 2) {
     return { spanning: [...marginLines], columnar: [...bodyLines], textBlockWidth };
   }

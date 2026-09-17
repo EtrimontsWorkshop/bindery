@@ -5,18 +5,18 @@ import { overlapRatio, relativeArea as computeRelativeArea } from '../geometry.j
 import type { WalkEvent } from './walkOperators.js';
 
 /**
- * Rejestr obrazow — objId -> wystapienia na stronach, dowod maski, klaster
- * (MDD faza 3, F0 Q2/Q3, KROK-4 Z3). Klasyfikacja tresc/dekoracja NALEZY DO
- * FAZY 3 — ten modul tylko zbiera fakty (pageRefs, maskEvidence, clusterId),
- * nigdy nie decyduje.
+ * Image registry — objId -> occurrences across pages, mask evidence, cluster
+ * (MDD phase 3, F0 Q2/Q3, Step 4 Z3). Content/decoration classification
+ * BELONGS TO PHASE 3 — this module only collects facts (pageRefs,
+ * maskEvidence, clusterId), it never decides.
  */
 
 /**
- * Trzy niezalezne sciezki dowodowe na maske — pojedyncza ma luke:
- * - 'group'    — obraz wewnatrz beginGroup/Luminosity. Najsilniejszy dowod, ufaj bezwarunkowo.
- * - 'opcode'   — paintImageMaskXObject (83). Jednoznaczne z definicji formatu PDF.
- * - 'geometry' — bbox pokrywa sie >=95% z obrazem narysowanym index<=3 wczesniej.
- *                Slaby dowod (moze byc tez zwykly duplikat) — nigdy nie zwijaj do boolean.
+ * Three independent evidence paths for a mask — each individually has a gap:
+ * - 'group'    — the image is inside a beginGroup/Luminosity. Strongest evidence, trust unconditionally.
+ * - 'opcode'   — paintImageMaskXObject (83). Unambiguous by the PDF format's own definition.
+ * - 'geometry' — the bbox overlaps >=95% with an image drawn at index<=3 earlier.
+ *                Weak evidence (could also be an ordinary duplicate) — never collapse to a boolean.
  */
 export type MaskEvidence = 'group' | 'opcode' | 'geometry' | null;
 
@@ -28,33 +28,34 @@ export interface ImageOccurrence {
 
 export interface ImageEntry {
   objId: string | null;
-  /** Ten sam zasob moze byc rysowany wielokrotnie (na jednej lub wielu stronach). */
+  /** The same resource may be drawn multiple times (on one or several pages). */
   occurrences: ImageOccurrence[];
-  /** Unikalne numery stron. */
+  /** Unique page numbers. */
   pageRefs: number[];
-  /** Najwiekszy bbox/powierzchnia-strony ze wszystkich wystapien. */
+  /** The largest bbox/page-area ratio across all occurrences. */
   maxRelativeArea: number;
   isMaskLayer: boolean;
   maskEvidence: MaskEvidence;
   masksImageObjId?: string;
   clusterId?: string;
   /**
-   * [KROK-16 Z1] Rozdzielczosc wewnetrzna z PIERWSZEGO wystapienia, ktore ja
-   * niesie (patrz `WalkEvent['image'].intrinsicWidth/Height`). `null` gdy
-   * zaden opcode w tym wpisie jej nie dostarczyl (repeat/inline). Uzywana
-   * jako dodatkowy skladnik klucza w `correlateImagesByBBox` — dwa rozne
-   * obrazy w tej samej ramce strony maja niemal na pewno rozna rozdzielczosc
-   * zasobu, mimo identycznego bboksa na stronie.
+   * [Step 16 Z1] Intrinsic resolution from the FIRST occurrence that carries
+   * it (see `WalkEvent['image'].intrinsicWidth/Height`). `null` when no
+   * opcode in this entry supplied it (repeat/inline). Used as an additional
+   * key component in `correlateImagesByBBox` — two different images in the
+   * same page frame almost certainly have different resource resolution,
+   * despite an identical bbox on the page.
    */
   intrinsicWidth: number | null;
   intrinsicHeight: number | null;
   /**
-   * [KROK-5 Z6, dlug z KROK-4] `objId` innego wpisu, z ktorym ten wpis zostal
-   * POWIAZANY pozycyjnie (skwantowany bbox, patrz `correlateImagesByBBox`) —
-   * najprawdopodobniej TEN SAM zasob PDF, ktory pdf.js rozdzielil na osobne
-   * wpisy bo nie przydziela stabilnego objId od pierwszego uzycia (RAPORT-KROK-4.md).
-   * NIE nadpisuje `pageRefs` — to osobny, jawny fakt korelacyjny, nie zmiana
-   * tozsamosci; klasyfikacja tego, co z tym zrobic, nalezy do fazy 3.
+   * [Step 5 Z6, debt from Step 4] The `objId` of another entry that this
+   * entry got POSITIONALLY LINKED to (quantized bbox, see
+   * `correlateImagesByBBox`) — most likely the SAME PDF resource that pdf.js
+   * split into separate entries because it doesn't assign a stable objId
+   * from the first use (RAPORT-KROK-4.md). Does NOT overwrite `pageRefs` —
+   * this is a separate, explicit correlation fact, not an identity change;
+   * classifying what to do about it belongs to phase 3.
    */
   correlatedWith?: string;
 }
@@ -71,7 +72,7 @@ interface RawOccurrence extends ImageOccurrence {
   intrinsicHeight: number | null;
 }
 
-/** Wejscie: eventy 'image' z walkOperators dla JEDNEJ strony, w kolejnosci wystapienia. */
+/** Input: 'image' events from walkOperators for ONE page, in occurrence order. */
 export interface PageImageEvents {
   page: number;
   pageBox: Rect;
@@ -103,27 +104,27 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
 
 
 /**
- * Ile kolejnych wystapien NA TEJ SAMEJ STRONIE przeszukac w poszukiwaniu
- * tresci narysowanej POD maska (dowod 'group'/'opcode') — miedzy zamknieciem
- * grupy maski a faktycznym namalowaniem zamaskowanej tresci moze wystapic kilka
- * innych, niepowiazanych operatorow (np. `setGState`), wiec nie zawsze jest to
- * NASTEPNY wprost element.
+ * How many subsequent occurrences ON THE SAME PAGE to search when looking
+ * for content drawn UNDER a mask (evidence 'group'/'opcode') — between the
+ * mask group's close and the actual painting of the masked content, several
+ * other, unrelated operators can occur (e.g. `setGState`), so it isn't
+ * always literally the NEXT element.
  */
 const GROUP_MASK_SEARCH_WINDOW = 5;
 
 /**
- * [KROK-7, odkrycie] `masksImageObjId` byl ustawiany WYLACZNIE przez sciezke
- * 'geometry' (najslabszy dowod) — sciezki 'group'/'opcode' (NAJSILNIEJSZY
- * dowod) nigdy nie zapisywaly, KTORY obraz jest maskowany, bo `beginGroup`
- * opakowuje WYLACZNIE wlasna tresc formy maski (MDD), nie zamaskowany obraz —
- * nie ma zadnego bezposredniego powiazania w operator liscie. Bez tego Z2
- * (strategia ekstrakcji, krok 7) nigdy nie wykrywal `isMasked=true` dla
- * NAJPEWNIEJSZEGO przypadku masek (jawny `beginGroup`/`Luminosity`), tylko dla
- * najslabszego. Naprawa: geometryczne dopasowanie (jak sciezka 'geometry'),
- * ale szukajace W PRZOD (tresc jest malowana PO zamknieciu grupy maski, nie
- * przed) — bbox formy maski (po naprawie CTM z Z4, patrz walkOperators.ts)
- * pokrywa sie z bboxem zamaskowanej tresci, bo obie dziedzicza te sama
- * macierz zewnetrznego `cm` w momencie wywolania `gs`.
+ * [Step 7, discovery] `masksImageObjId` used to be set SOLELY by the
+ * 'geometry' path (the weakest evidence) — the 'group'/'opcode' paths (the
+ * STRONGEST evidence) never recorded WHICH image is masked, because
+ * `beginGroup` wraps SOLELY the mask form's own content (MDD), not the
+ * masked image — there is no direct link in the operator list. Without this
+ * fix, Z2 (extraction strategy, step 7) never detected `isMasked=true` for
+ * the MOST CERTAIN mask case (an explicit `beginGroup`/`Luminosity`), only
+ * for the weakest one. The fix: a geometric match (like the 'geometry'
+ * path), but searching FORWARD (content is painted AFTER the mask group
+ * closes, not before) — the mask form's bbox (after the CTM fix from Z4, see
+ * walkOperators.ts) overlaps the masked content's bbox, because both inherit
+ * the same external `cm` matrix at the moment `gs` is invoked.
  */
 function findMaskedContentObjId(occurrences: readonly RawOccurrence[], indices: readonly number[], pos: number, maskOcc: RawOccurrence): string | undefined {
   for (let fwd = 1; fwd <= GROUP_MASK_SEARCH_WINDOW; fwd++) {
@@ -136,13 +137,13 @@ function findMaskedContentObjId(occurrences: readonly RawOccurrence[], indices: 
   return undefined;
 }
 
-/** Wykrywa dowod maski dla kazdego wystapienia (sciezki group/opcode/geometry, w tej kolejnosci sily). */
+/** Detects mask evidence for each occurrence (paths group/opcode/geometry, in that order of strength). */
 function detectMaskEvidence(
   occurrences: readonly RawOccurrence[],
 ): { evidence: MaskEvidence; masksObjId?: string }[] {
   const results: { evidence: MaskEvidence; masksObjId?: string }[] = occurrences.map(() => ({ evidence: null }));
 
-  // Grupuj indeksy per strona, w kolejnosci `index` rosnaco — potrzebne dla sciezki geometry.
+  // Group indices per page, in ascending `index` order — needed for the geometry path.
   const byPage = new Map<number, number[]>();
   occurrences.forEach((o, i) => {
     const arr = byPage.get(o.page) ?? [];
@@ -158,18 +159,18 @@ function detectMaskEvidence(
       const i = indices[pos]!;
       const occ = occurrences[i]!;
 
-      // Sciezka 1 — group (najsilniejszy dowod).
+      // Path 1 — group (strongest evidence).
       if (occ.groupSubtype === 'Luminosity') {
         results[i] = { evidence: 'group', masksObjId: findMaskedContentObjId(occurrences, indices, pos, occ) };
         continue;
       }
-      // Sciezka 2 — opcode (jednoznaczne).
+      // Path 2 — opcode (unambiguous).
       if (occ.opcode === OPCODE_PAINT_IMAGE_MASK_XOBJECT) {
         results[i] = { evidence: 'opcode', masksObjId: findMaskedContentObjId(occurrences, indices, pos, occ) };
         continue;
       }
-      // Sciezka 3 — geometry (slaby dowod): obraz narysowany index<=3 WCZESNIEJ
-      // na tej samej stronie z bbox pokrywajacym sie >=95%.
+      // Path 3 — geometry (weak evidence): an image drawn index<=3 EARLIER on
+      // the same page with a bbox that overlaps >=95%.
       for (let back = 1; back <= GEOMETRY_INDEX_WINDOW; back++) {
         const prevPos = pos - back;
         if (prevPos < 0) break;
@@ -188,8 +189,8 @@ function detectMaskEvidence(
 }
 
 /**
- * Buduje rejestr obrazow z eventow `walkOperators` zebranych ze WSZYSTKICH stron
- * dokumentu. Zero dekodowania obrazow — wylacznie fakty geometryczne/strukturalne.
+ * Builds the image registry from `walkOperators` events collected from ALL
+ * pages of the document. Zero image decoding — purely geometric/structural facts.
  */
 export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry[] {
   const rawList = collectRawOccurrences(pages);
@@ -202,8 +203,8 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
   const maskInfo = detectMaskEvidence(occurrences);
   const pageBoxByPage = new Map(pages.map((p) => [p.page, p.pageBox]));
 
-  // Klucz grupowania: objId, gdy dostepny; w przeciwnym razie kazde wystapienie
-  // inline jest samo w sobie osobnym wpisem (brak referencji obiektu do korelacji).
+  // Grouping key: objId when available; otherwise each inline occurrence is
+  // its own separate entry (no object reference to correlate by).
   const entriesByKey = new Map<string, ImageEntry>();
   let inlineCounter = 0;
 
@@ -226,9 +227,9 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
 
     entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index });
 
-    // Pierwsze wystapienie niosace rozdzielczosc wewnetrzna wystarcza — ten sam
-    // objId zawsze odnosi sie do tego samego zasobu, wiec kolejne wystapienia
-    // niosa (przy okazji) te sama wartosc.
+    // The first occurrence carrying the intrinsic resolution is enough — the
+    // same objId always refers to the same resource, so later occurrences
+    // carry (incidentally) the same value.
     if (entry.intrinsicWidth === null && occ.intrinsicWidth !== null) entry.intrinsicWidth = occ.intrinsicWidth;
     if (entry.intrinsicHeight === null && occ.intrinsicHeight !== null) entry.intrinsicHeight = occ.intrinsicHeight;
 
@@ -239,8 +240,8 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
     }
 
     const evidence = maskInfo[i]!;
-    // 'group' > 'opcode' > 'geometry' > null — jesli entry ma juz mocniejszy dowod
-    // z innego wystapienia, nie nadpisuj go slabszym.
+    // 'group' > 'opcode' > 'geometry' > null — if the entry already has stronger
+    // evidence from another occurrence, don't overwrite it with weaker evidence.
     const strength: Record<Exclude<MaskEvidence, null>, number> = { group: 3, opcode: 2, geometry: 1 };
     const currentStrength = entry.maskEvidence ? strength[entry.maskEvidence] : 0;
     const newStrength = evidence.evidence ? strength[evidence.evidence] : 0;
@@ -261,7 +262,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
   return correlateImagesByBBox(sorted);
 }
 
-/** Kwantyzacja do 0.5pt — naglowki biegnace/stopki/ramki sa z definicji nieruchome, wiec drobny szum zaokraglenia to jedyna tolerancja potrzebna. */
+/** Quantization to 0.5pt — running headers/footers/frames are static by definition, so small rounding noise is the only tolerance needed. */
 const CORRELATION_QUANTIZE_PT = 0.5;
 
 function quantize(v: number): number {
@@ -273,16 +274,17 @@ function quantizedBBoxKey(bbox: Rect): string {
 }
 
 /**
- * [KROK-16 Z1] Rozdzielczosc wewnetrzna dopisana do klucza — patrz odkrycie w
- * RAPORT-KROK-15.md (grupa o 148 skorelowanych stronach mieszajaca etykiety
- * useful/fragment/decoration). Hipoteza: to nie jeden zasob powtorzony 148 razy,
- * tylko wspolna RAMKA (ten sam prostokat na stronie) z rozna zawartoscia w
- * srodku — korelacja pozycyjna sama nie odroznia tych przypadkow. Ten sam
- * zasob PDF ma zawsze identyczna rozdzielczosc wewnetrzna; rozne ilustracje w
- * tej samej ramce prawie nigdy. Brak danych (`null`) traktowany jako WLASNA
- * kategoria (`*x*`), nie jako "brak ograniczenia" — wpisy bez rozdzielczosci
- * korelujemy tylko ze soba nawzajem, nigdy z wpisami, ktore ja maja, zeby nie
- * cofnac ostroznosci ponizej stanu sprzed tej zmiany.
+ * [Step 16 Z1] Intrinsic resolution appended to the key — see the discovery
+ * in RAPORT-KROK-15.md (a group of 148 correlated pages mixing
+ * useful/fragment/decoration labels). Hypothesis: this isn't one resource
+ * repeated 148 times, just a shared FRAME (the same rectangle on the page)
+ * with different content inside — positional correlation alone doesn't tell
+ * these cases apart. The same PDF resource always has identical intrinsic
+ * resolution; different illustrations in the same frame almost never do.
+ * Missing data (`null`) is treated as its OWN category (`*x*`), not as "no
+ * constraint" — entries without a resolution are correlated only with each
+ * other, never with entries that have one, so as not to roll back caution
+ * below the state before this change.
  */
 function intrinsicSizeKey(entry: ImageEntry): string {
   const w = entry.intrinsicWidth;
@@ -291,42 +293,42 @@ function intrinsicSizeKey(entry: ImageEntry): string {
 }
 
 /**
- * [KROK-30, zmierzony na zywo blad "Zew Cthulhu 7ed. Wrak.pdf"] Obraz
- * pokrywajacy PRAWIE CALA strone ma bbox niemal IDENTYCZNY z MediaBox
- * WLASNEJ strony NIEZALEZNIE OD TEGO, CO FAKTYCZNIE PRZEDSTAWIA — w
- * odroznieniu od malego, KONKRETNIE pozycjonowanego elementu (logo w rogu,
- * ramka-dzielnik), gdzie "ta sama pozycja na wielu stronach" jest realnym,
- * zaskakujacym sygnalem wspolnej tozsamosci (dokladnie cel tej funkcji —
- * patrz komentarz ponizej). Dla pelnostronicowego spadu ta koincydencja jest
- * GWARANTOWANA geometria, nie dowodem.
+ * [Step 30, a bug measured live in "Zew Cthulhu 7ed. Wrak.pdf"] An image
+ * covering NEARLY THE WHOLE page has a bbox almost IDENTICAL to its OWN
+ * page's MediaBox REGARDLESS OF WHAT IT ACTUALLY DEPICTS — unlike a small,
+ * SPECIFICALLY positioned element (a corner logo, a divider frame), where
+ * "the same position across many pages" is a genuine, surprising signal of
+ * shared identity (exactly this function's documented purpose — see the
+ * comment below). For a full-bleed page spread, this coincidence is
+ * GUARANTEED geometry, not evidence.
  *
- * Zmierzone wprost: unikalna okladka (str. 1, gigant kosmicznego horroru nad
- * statkiem) i OSOBNO OSADZONE, zupelnie inne teksturowane tlo kazdej
- * kolejnej strony maja WLASNE, ROZNE piksele (potwierdzone wizualnie), ale
- * IDENTYCZNY bbox (cala strona) I nawet identyczna rozdzielczosc wewnetrzna
- * (eksport z narzedzia DTP do jednego szablonowego rozmiaru platna) — bez
- * tego wykluczenia korelacja mylila 30 z 35 obrazow ksiazki w "dwa
- * powtarzajace sie zasoby", zaniżajac `content` do zera na calym dokumencie.
- * Wykluczone CALKOWICIE z tego mechanizmu — korelacja zostaje dla mniejszych,
- * faktycznie pozycjonowanych elementow (jej udokumentowany cel ponizej).
- * Deduplikacja PRAWDZIWIE identycznych pelnostronicowych obrazow (rzeczywiscie
- * ten sam zasob) nadal dziala pozniej, w fazie ekstrakcji, przez
- * `closeCorrelationByHash` (`finalize.ts`) — TEN mechanizm porownuje
- * faktyczna tresc po dekodowaniu, wiec nie cierpi na te sama slepote
- * geometryczna.
+ * Measured directly: a unique cover (p. 1, a cosmic-horror giant over a
+ * ship) and the SEPARATELY EMBEDDED, completely different textured
+ * background of each subsequent page have their OWN, DIFFERENT pixels
+ * (visually confirmed), but an IDENTICAL bbox (the whole page) AND even
+ * identical intrinsic resolution (exported from a DTP tool to one template
+ * canvas size) — without this exclusion, correlation mistook 30 of 35 images
+ * in the book for "two repeating resources", driving `content` down to zero
+ * across the whole document. Excluded ENTIRELY from this mechanism —
+ * correlation remains for smaller, genuinely positioned elements (its
+ * documented purpose below). Deduplication of TRULY identical full-page
+ * images (that really are the same resource) still works later, in the
+ * extraction phase, via `closeCorrelationByHash` (`finalize.ts`) — THAT
+ * mechanism compares actual content after decoding, so it doesn't suffer
+ * from the same geometric blindness.
  */
 const FULL_PAGE_AREA_THRESHOLD = 0.97;
 
 /**
- * Powiazuje wpisy, ktorych PIERWSZE wystapienie ma identyczny (po kwantyzacji)
- * bbox ORAZ identyczna rozdzielczosc wewnetrzna — bez dekodowania pikseli
- * (KROK-5 Z6.2, rozszerzone KROK-16 Z1, zawezone KROK-30 — patrz
- * `FULL_PAGE_AREA_THRESHOLD` powyzej). Zero-decode, wiec to nadal
- * PRZYBLIZENIE: dwie rozne, male ikony powtarzajace sie w tej samej pozycji I
- * o tej samej rozdzielczosci (np. znaczniki wypunktowania) daja falszywe
- * powiazanie — akceptowalne dla naglowkow/stopek/ramek (cel tego zadania),
- * ale klasyfikacja "czy to naprawde ten sam zasob" nadal nalezy do fazy 3
- * (por. `masksImageObjId`, tez tylko sugestia).
+ * Links entries whose FIRST occurrence has an identical (after quantization)
+ * bbox AND identical intrinsic resolution — without decoding pixels
+ * (Step 5 Z6.2, extended in Step 16 Z1, narrowed in Step 30 — see
+ * `FULL_PAGE_AREA_THRESHOLD` above). Zero-decode, so this is still an
+ * APPROXIMATION: two different, small icons repeating at the same position
+ * AND with the same resolution (e.g. bullet markers) produce a false link —
+ * acceptable for headers/footers/frames (this task's purpose), but
+ * classifying "is this really the same resource" still belongs to phase 3
+ * (cf. `masksImageObjId`, likewise only a suggestion).
  */
 export function correlateImagesByBBox(entries: readonly ImageEntry[]): ImageEntry[] {
   const correlatable = entries.filter((entry) => entry.objId !== null && entry.occurrences.length > 0 && entry.maxRelativeArea < FULL_PAGE_AREA_THRESHOLD);
@@ -338,7 +340,7 @@ export function correlateImagesByBBox(entries: readonly ImageEntry[]): ImageEntr
   const canonicalObjIdByObjId = new Map<string, string>();
   for (const group of groups.values()) {
     if (group.length < 2) continue;
-    // Kanoniczny = najwiecej wystapien; remis rozstrzygniety po objId (determinizm, brak zaleznosci od kolejnosci wejscia).
+    // Canonical = the most occurrences; ties broken by objId (determinism, no dependence on input order).
     const canonical = [...group].sort(
       (a, b) => b.occurrences.length - a.occurrences.length || a.objId!.localeCompare(b.objId!),
     )[0]!;

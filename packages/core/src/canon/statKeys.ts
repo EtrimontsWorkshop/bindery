@@ -1,24 +1,24 @@
 /**
- * [KROK-23, zamknięcie luki MDD] `Bindery-MDD-v2.2.md` §5.4 opisuje rejestr
- * kluczy kanonicznych z podpowiedziami — nigdy niezaimplementowany w kodzie
- * (zweryfikowane przy budowie edytora profilu: `packages/core/src/canon/`
- * nie istniało, `canonicalKey` w `patterns.ts` był dowolnym stringiem bez
- * żadnej pomocy przy wpisywaniu). Ten plik to DOSŁOWNIE tabela z MDD §5.4,
- * przeniesiona do kodu.
+ * [Step 23, closing an MDD gap] `Bindery-MDD-v2.2.md` §5.4 describes a
+ * registry of canonical keys with hints — never actually implemented in code
+ * (verified while building the profile editor: `packages/core/src/canon/`
+ * didn't exist, and `canonicalKey` in `patterns.ts` was an arbitrary string
+ * with no input assistance whatsoever). This file is LITERALLY the table
+ * from MDD §5.4, moved into code.
  *
- * [MDD §5.4, zasada] "hints to podpowiedzi dla kreatora profili, nie
- * automatyczne mapowanie". Ten rejestr NIE jest używany do walidacji ani
- * do żadnej decyzji w potoku parsowania (`patterns.ts`/`assembleStatblocks.ts`
- * NIE go importują) — wyłącznie jako źródło podpowiedzi w formularzu edytora
- * profilu (`packages/module`), żeby autor profilu miał listę znanych kluczy
- * pod ręką zamiast wymyślać własne nazewnictwo dla tych samych pojęć w każdym
- * profilu z osobna. Etykieta nierozpoznana nadal jest w pełni poprawna —
- * `canonicalKey` w `LabelledPairsPattern.labels` to zwykły `z.string()`
- * (`schema.ts`), świadomie bez ograniczenia do tego rejestru.
+ * [MDD §5.4, rule] "hints are suggestions for the profile author, not
+ * automatic mapping". This registry is NOT used for validation or for any
+ * decision in the parsing pipeline (`patterns.ts`/`assembleStatblocks.ts`
+ * do NOT import it) — it exists exclusively as a source of hints in the
+ * profile editor form (`packages/module`), so the profile author has a list
+ * of known keys on hand instead of inventing their own naming for the same
+ * concepts in every profile separately. An unrecognized label is still fully
+ * valid — `canonicalKey` in `LabelledPairsPattern.labels` is a plain
+ * `z.string()` (`schema.ts`), deliberately not constrained to this registry.
  */
 
 export interface CanonicalStatDefinition {
-  /** Podpowiedzi — jak ta cecha bywa nazwana w różnych podręcznikach/językach. WYŁĄCZNIE do wyświetlenia w UI (np. "też bywa: STR, Siła"), nigdy do dopasowania automatycznego. */
+  /** Hints — how this stat tends to be named across different rulebooks/languages. EXCLUSIVELY for display in the UI (e.g. "also seen as: STR, Siła"), never for automatic matching. */
   hints: readonly string[];
 }
 
@@ -42,5 +42,5 @@ export const CANONICAL_STATS = {
 
 export type CanonicalStatKey = keyof typeof CANONICAL_STATS;
 
-/** Lista kluczy w stałej, czytelnej kolejności (kolejność deklaracji obiektu) — do wypełnienia listy podpowiedzi w UI. */
+/** List of keys in a fixed, readable order (object declaration order) — used to populate the hint list in the UI. */
 export const CANONICAL_STAT_KEYS: readonly CanonicalStatKey[] = Object.keys(CANONICAL_STATS) as CanonicalStatKey[];

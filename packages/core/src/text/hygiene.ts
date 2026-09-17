@@ -2,32 +2,32 @@ import { computeUnicodeConfidence, tallySignals } from '../quality.js';
 import type { CleanItem, Diagnostic, HygieneResult, PdfTextItemLike, WordBoundary } from './types.js';
 
 /**
- * Higiena wejscia tekstowego (KROK-5 Z1, MDD §5.1). Funkcja czysta — operuje na
- * `TextItem[]` juz wyciagnietym przez wolajacego (`page.getTextContent()`), zero I/O.
+ * Hygiene of text input (Step 5 Z1, MDD §5.1). A pure function — operates on
+ * a `TextItem[]` already extracted by the caller (`page.getTextContent()`), zero I/O.
  *
- * Kolejnosc krokow ma znaczenie (kazdy zmienia dane dla nastepnego) i jest
- * ZGODNA Z BRIEFEM: filtruj biale znaki -> odrzuc dokladne duplikaty -> scal
- * duplikaty przesuniete (syntheticBold) -> NFC -> ligatury -> soft hyphen -> metryki.
+ * The order of steps matters (each changes data for the next) and FOLLOWS
+ * THE BRIEF: filter whitespace -> discard exact duplicates -> merge
+ * shifted duplicates (syntheticBold) -> NFC -> ligatures -> soft hyphen -> metrics.
  */
 
-// U+FB00–U+FB06 — ligatury lacinskie, NIE rozwijane przez normalize('NFC') (sa to
-// osobne punkty kodowe kompatybilnosci, kanoniczna dekompozycja NFKD by je rozwinela,
-// ale NFC ich celowo nie rusza — musimy zrobic to sami, patrz KROK-3/KROK-5).
+// U+FB00–U+FB06 — Latin ligatures, NOT expanded by normalize('NFC') (these are
+// separate compatibility code points; canonical NFKD decomposition would expand
+// them, but NFC deliberately leaves them alone — we have to do it ourselves, see Step 3/Step 5).
 const LIGATURE_MAP = new Map<string, string>([
   ['ﬀ', 'ff'],
   ['ﬁ', 'fi'],
   ['ﬂ', 'fl'],
   ['ﬃ', 'ffi'],
   ['ﬄ', 'ffl'],
-  ['ﬅ', 'st'], // "long s" + t — brak osobnego glifu w zwyklym tekscie, zbieznosc semantyczna z "st"
+  ['ﬅ', 'st'], // "long s" + t — no separate glyph in ordinary text, semantically equivalent to "st"
   ['ﬆ', 'st'],
 ]);
 const LIGATURE_RE = /[ﬀ-ﬆ]/g;
 const SOFT_HYPHEN_RE = /­/g;
 
-/** Duplikat przesuniety uznajemy za "syntetyczne pogrubienie" ponizej tego progu (KROK-3/4 ustalenie: 0.3pt realny przypadek). */
+/** A shifted duplicate is considered a "synthetic bold" below this threshold (Step 3/4 finding: 0.3pt is the real-world case). */
 const SYNTHETIC_BOLD_MAX_SHIFT = 0.5;
-/** Ile itemow wprzod szukamy pasujacego duplikatu — duplikaty w realnych PDF-ach sa emitowane bezposrednio po sobie. */
+/** How many items ahead we look for a matching duplicate — duplicates in real PDFs are emitted right after each other. */
 const DUPLICATE_LOOKAHEAD = 3;
 
 function isWhitespaceOnly(str: string): boolean {
@@ -61,7 +61,7 @@ interface IndexedItem {
   syntheticBold: boolean;
 }
 
-/** Krok 1: rozdziela wejscie na realne itemy i granice wyrazow z itemow bialoznakowych (sasiadujace scalone w jedna granice). */
+/** Step 1: splits the input into real items and word boundaries from whitespace items (adjacent ones merged into one boundary). */
 function extractWordBoundaries(items: readonly PdfTextItemLike[]): { real: IndexedItem[]; boundaries: WordBoundary[] } {
   const real: IndexedItem[] = [];
   const boundaries: WordBoundary[] = [];
@@ -70,7 +70,7 @@ function extractWordBoundaries(items: readonly PdfTextItemLike[]): { real: Index
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    if (item.str.length === 0) continue; // pusty item — nic do zachowania ani do granicy
+    if (item.str.length === 0) continue; // empty item — nothing to keep and no boundary to record
 
     if (isWhitespaceOnly(item.str)) {
       const gapStart = item.transform[4] ?? 0;
@@ -92,7 +92,7 @@ function extractWordBoundaries(items: readonly PdfTextItemLike[]): { real: Index
   return { real, boundaries };
 }
 
-/** Kroki 2-3: dokladne duplikaty odrzucone, przesuniete scalone z syntheticBold=true. */
+/** Steps 2-3: exact duplicates discarded, shifted ones merged with syntheticBold=true. */
 function dedupePositional(real: readonly IndexedItem[]): IndexedItem[] {
   const result: IndexedItem[] = [];
   const consumed = new Set<number>();
@@ -106,11 +106,11 @@ function dedupePositional(real: readonly IndexedItem[]): IndexedItem[] {
       if (consumed.has(j)) continue;
       const candidate = real[j]!;
       if (isExactDuplicate(current.item, candidate.item)) {
-        consumed.add(j); // dokladny duplikat — odrzucony, zachowujemy pierwsze wystapienie
+        consumed.add(j); // exact duplicate — discarded, we keep the first occurrence
         break;
       }
       if (isNearDuplicate(current.item, candidate.item)) {
-        consumed.add(j); // przesuniety duplikat — scalony, oznaczony jako syntheticBold
+        consumed.add(j); // shifted duplicate — merged, flagged as syntheticBold
         syntheticBold = true;
         break;
       }
@@ -176,7 +176,7 @@ export function runHygiene(items: readonly PdfTextItemLike[]): HygieneResult {
   };
 }
 
-/** Czy jakakolwiek granica wyrazu wypada MIEDZY dwoma oryginalnymi indeksami (wlacznie z lewym, wylacznie prawym) — [U2] twardy zakaz scalania (KROK-5 P1). */
+/** Whether any word boundary falls BETWEEN two original indices (left-inclusive, right-exclusive) — [U2] a hard ban on merging (Step 5 P1). */
 export function hasBoundaryBetween(boundaries: readonly WordBoundary[], leftOriginalIndex: number, rightOriginalIndex: number): boolean {
   return boundaries.some((b) => b.afterItemIndex >= leftOriginalIndex && b.afterItemIndex < rightOriginalIndex);
 }

@@ -2,23 +2,23 @@ import type { Rect } from '../geometry.js';
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * Abstrakcja renderu regionu (KROK-7 Z3, MDD faza 3 "Przebieg 2" fallback).
- * Ten sam wzorzec co `normalizeDecodedImage` — jeden interfejs, dwie implementacje
- * (przegladarka: `OffscreenCanvas`, tutaj; Node/testy: `@napi-rs/canvas`, w
- * `nodeCanvasRenderer.ts`, CELOWO NIEEKSPORTOWANY z `index.ts` — patrz komentarz
- * przy tamtym pliku, dlaczego).
+ * Region-render abstraction (Step 7 Z3, MDD phase 3 "Pass 2" fallback). The
+ * same pattern as `normalizeDecodedImage` — one interface, two
+ * implementations (browser: `OffscreenCanvas`, here; Node/tests:
+ * `@napi-rs/canvas`, in `nodeCanvasRenderer.ts`, DELIBERATELY NOT EXPORTED
+ * from `index.ts` — see the comment on that file for why).
  */
 
 export interface RenderRegionOptions {
-  /** Docelowa dlugosc DLUZSZEJ krawedzi wyniku w pikselach. */
+  /** Target length of the result's LONGER edge in pixels. */
   targetLongEdgePx: number;
   signal?: AbortSignal;
 }
 
 /**
- * Podzbior `PDFPageProxy` faktycznie uzywany tutaj — pozwala testowac logike
- * renderu bez prawdziwego dokumentu pdf.js (ten sam wzorzec co `PdfPageLike`
- * w `buildTextLayout.ts`).
+ * Subset of `PDFPageProxy` actually used here — lets the render logic be
+ * tested without a real pdf.js document (the same pattern as `PdfPageLike`
+ * in `buildTextLayout.ts`).
  */
 export interface PdfPageForRender {
   getViewport(params: { scale: number }): { transform: readonly number[] };
@@ -33,32 +33,32 @@ export interface RegionRenderer {
 }
 
 /**
- * Twardy gorny limit dlugosci krawedzi wyniku (brief: "np. 4096 px") — chroni
- * przed wyprodukowaniem pliku rzedu 200 MB z rozkladowki przy bardzo duzym
- * `targetLongEdgePx` lub bardzo szerokim bboksie. 4096px to typowy limit
- * tekstury/canvasu wielu przegladarek i kart graficznych — bezpieczny sufit,
- * nie proba "najwyzszej mozliwej" rozdzielczosci.
+ * Hard upper limit on the result's edge length (brief: "e.g. 4096 px") —
+ * guards against producing a ~200 MB file from a spread with a very large
+ * `targetLongEdgePx` or a very wide bbox. 4096px is a typical
+ * texture/canvas limit for many browsers and GPUs — a safe ceiling, not an
+ * attempt at the "highest possible" resolution.
  */
 export const MAX_OUTPUT_EDGE_PX = 4096;
 
 function checkAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new DOMException('Renderowanie regionu przerwane (AbortSignal)', 'AbortError');
+  if (signal?.aborted) throw new DOMException('Region render aborted (AbortSignal)', 'AbortError');
 }
 
 /**
- * [naprawa zgloszonego bledu, "rotated crop na stronie z page.rotate != 0
- * wycina zle piksele"] Eksportowana, zeby `renderRotatedRegion.ts` mogl
- * przeliczac DOWOLNY punkt PDF na piksele TEJ SAMEJ bitmapy tym samym
- * wzorem co render — zamiast wlasnej, naiwnej formuly skalowania+odbicia Y,
- * ktora byla poprawna WYLACZNIE dla `page.rotate === 0` (pdf.js
- * `getViewport({scale})` domyslnie zaklada `rotation: page.rotate`, wiec
- * transformacja MOZE zawierac obrot, nie tylko skale+odbicie).
+ * [fix for a reported bug, "rotated crop on a page with page.rotate != 0
+ * cuts out the wrong pixels"] Exported so `renderRotatedRegion.ts` can
+ * convert ANY PDF point into pixels of THAT SAME bitmap using the same
+ * formula as the render — instead of its own, naive scale+Y-flip formula,
+ * which was correct ONLY for `page.rotate === 0` (pdf.js
+ * `getViewport({scale})` defaults to `rotation: page.rotate`, so the
+ * transform MAY include a rotation, not just scale+flip).
  */
 export function transformPoint(m: readonly number[], x: number, y: number): [number, number] {
   return [m[0]! * x + m[2]! * y + m[4]!, m[1]! * x + m[3]! * y + m[5]!];
 }
 
-/** Bbox w przestrzeni urzadzenia (po transformacji viewportu) czterech rogow bboksa w przestrzeni strony PDF. */
+/** Bbox in device space (after the viewport transform) of the four corners of a bbox in PDF page space. */
 function deviceBBoxFromPageSpace(viewportTransform: readonly number[], bbox: Rect): Rect {
   const localCorners: Array<[number, number]> = [
     [bbox.minX, bbox.minY],
@@ -73,21 +73,22 @@ function deviceBBoxFromPageSpace(viewportTransform: readonly number[], bbox: Rec
 }
 
 export interface RenderPlan {
-  /** Skala do przekazania do `page.getViewport({ scale })`. */
+  /** Scale to pass to `page.getViewport({ scale })`. */
   scale: number;
-  /** Docelowa szerokosc/wysokosc canvasu w pikselach (>=1, <= MAX_OUTPUT_EDGE_PX). */
+  /** Target canvas width/height in pixels (>=1, <= MAX_OUTPUT_EDGE_PX). */
   outWidth: number;
   outHeight: number;
-  /** Przesuniecie [dx,dy] tak, zeby lewy-gorny rog bboksa (w skali `scale`) wypadl w (0,0) canvasu. */
+  /** Offset [dx,dy] so that the bbox's top-left corner (at scale `scale`) lands at (0,0) of the canvas. */
   offsetX: number;
   offsetY: number;
 }
 
 /**
- * Liczy plan renderu (skala + wymiary canvasu + przesuniecie) niezaleznie od
- * srodowiska — czysta funkcja, testowalna bez prawdziwego pdf.js. Skaluje tak,
- * zeby DLUZSZA krawedz bboksa (w przestrzeni urzadzenia przy skali 1) osiagnela
- * `targetLongEdgePx`, po czym przycina do `MAX_OUTPUT_EDGE_PX` gdy trzeba.
+ * Computes the render plan (scale + canvas dimensions + offset)
+ * independently of the environment — a pure function, testable without a
+ * real pdf.js document. Scales so that the bbox's LONGER edge (in device
+ * space at scale 1) reaches `targetLongEdgePx`, then clamps to
+ * `MAX_OUTPUT_EDGE_PX` when needed.
  */
 export function computeRenderPlan(getViewportTransform: (scale: number) => readonly number[], bbox: Rect, targetLongEdgePx: number): RenderPlan {
   const transformAtScale1 = getViewportTransform(1);
@@ -96,7 +97,7 @@ export function computeRenderPlan(getViewportTransform: (scale: number) => reado
   const heightAtScale1 = deviceBBoxAtScale1.maxY - deviceBBoxAtScale1.minY;
   const longEdgeAtScale1 = Math.max(widthAtScale1, heightAtScale1);
   if (!(longEdgeAtScale1 > 0)) {
-    throw new Error('computeRenderPlan: bbox ma zerowa lub ujemna powierzchnie w przestrzeni urzadzenia');
+    throw new Error('computeRenderPlan: bbox has zero or negative area in device space');
   }
 
   const rawScale = targetLongEdgePx / longEdgeAtScale1;
@@ -113,15 +114,15 @@ export function computeRenderPlan(getViewportTransform: (scale: number) => reado
   return { scale, outWidth, outHeight, offsetX: deviceBBox.minX, offsetY: deviceBBox.minY };
 }
 
-/** Minimalny podzbior CanvasRenderingContext2D uzywany do wyciagniecia pikseli po renderze — wspoldzielony przez obie implementacje. */
+/** Minimal subset of CanvasRenderingContext2D used to pull out pixels after the render — shared by both implementations. */
 export interface CanvasContextLike {
   getImageData(sx: number, sy: number, sw: number, sh: number): { data: Uint8ClampedArray };
 }
 
 /**
- * Wspolna logika renderu — obie implementacje (przegladarka/Node) roznia sie
- * WYLACZNIE sposobem tworzenia canvasu/kontekstu, reszta (plan renderu,
- * obsluga AbortSignal, wywolanie `page.render()`) jest identyczna.
+ * Shared render logic — both implementations (browser/Node) differ ONLY in
+ * how they create the canvas/context, the rest (the render plan, AbortSignal
+ * handling, calling `page.render()`) is identical.
  */
 export async function renderRegionShared(
   page: PdfPageForRender,
@@ -155,8 +156,8 @@ export async function renderRegionShared(
 }
 
 /**
- * Implementacja przegladarkowa (`OffscreenCanvas` — standard platformy webowej,
- * nie API Foundry, patrz uzasadnienie A1 w `normalizeDecodedImage.ts`).
+ * Browser implementation (`OffscreenCanvas` — a web-platform standard, not a
+ * Foundry API, see the A1 rationale in `normalizeDecodedImage.ts`).
  */
 export const browserRegionRenderer: RegionRenderer = {
   renderRegion(page, bbox, opts) {
@@ -167,12 +168,12 @@ export const browserRegionRenderer: RegionRenderer = {
         ) => { getContext(id: '2d'): (CanvasContextLike & { [key: string]: unknown }) | null })
       | undefined;
     if (!OffscreenCanvasCtor) {
-      throw new Error('browserRegionRenderer: OffscreenCanvas niedostepny w tym srodowisku (prawdopodobnie Node) — uzyj nodeCanvasRenderer w testach.');
+      throw new Error('browserRegionRenderer: OffscreenCanvas is not available in this environment (probably Node) — use nodeCanvasRenderer in tests.');
     }
     return renderRegionShared(page, bbox, opts, (w, h) => {
       const canvas = new OffscreenCanvasCtor(w, h);
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('browserRegionRenderer: nie udalo sie utworzyc kontekstu 2D dla OffscreenCanvas');
+      if (!ctx) throw new Error('browserRegionRenderer: failed to create a 2D context for OffscreenCanvas');
       return ctx;
     });
   },

@@ -2,30 +2,32 @@ import type { SectionListMatch } from './patterns.js';
 import type { ProfileToken } from './types.js';
 
 /**
- * [KROK-33 Z4, zgloszenie uzytkownika: "Nazwy ataków powinny być sprawdzane
- * poniżej i jak zostanie znalezione, to tekst powinien trafić do notatek."]
- * Opisy atakow w podrecznikach CoC bywaja rozwiniete POZA sama pozycja na
- * liscie ATAKI — w prozie POD statblokiem, wprowadzone WLASNYM podnaglowkiem
- * stylu akcentowego (`fontRole: 'accent'`, ten sam styl co etykiety
- * "Ataki:"/"MO:"), np. "Chwyt i miażdżenie (manewr): chwytna stopa
- * potwora może złapać ofiarę..." (str. 24 "Wrak.pdf", Sciapod). Ta tresc
- * dzis nigdzie nie trafia — dokladnie to, czego szuka uzytkownik, gdy pole
- * na karcie okazuje sie zbyt lakoniczne (A3).
+ * [Step 33 Z4, user report: "Attack names should be checked below, and if one is
+ * found, that text should go into the notes."]
+ * Attack descriptions in CoC rulebooks are sometimes expanded OUTSIDE the actual
+ * entry in the ATTACKS list — in prose BELOW the statblock, introduced by its OWN
+ * accent-style subheading (`fontRole: 'accent'`, the same style as the
+ * "Attacks:"/"MOV:" labels), e.g. an attack name followed by a parenthetical
+ * qualifier and a colon, then a paragraph describing what the attack does
+ * (p. 24 "Wrak.pdf", on a specific creature's statblock). This content
+ * currently ends up nowhere — exactly what the user is looking for when the
+ * field on the sheet turns out too terse (A3).
  *
- * [zmierzony na zywo przypadek roznicy dopiskow] Nazwa na liscie ATAKI i
- * podnaglowek ponizej NIE musza miec identycznego dopisku w nawiasie —
- * "Kryształowy łuk" (bez dopisku na liscie) ma ponizej podnaglowek
- * "Kryształowy łuk (atak dystansowy):" (WLASNY, INNY dopisek). Dopasowanie
- * po nazwie bez JEJ WLASNEGO dopisku (jesli taki ma) jako PREFIKSIE
- * podnaglowka, nie po pelnej rownosci stringow.
+ * [case of differing parenthetical suffixes, measured live] The name in the ATTACKS
+ * list and the subheading below it do NOT have to carry an identical parenthetical
+ * suffix — an attack name with no suffix in the list can have below it a subheading
+ * for the SAME attack carrying its OWN, DIFFERENT parenthetical suffix (e.g. a
+ * qualifier describing the attack's delivery method). Matching is
+ * done by the name WITHOUT its OWN suffix (if it has one) as a PREFIX
+ * of the subheading, not by full string equality.
  */
 
-/** "Chwyt i miażdżenie (manewr)" -> "Chwyt i miażdżenie" — usuwa WLASNY koncowy dopisek w nawiasie nazwy ataku, jesli taki ma. */
+/** e.g. an attack name like "Name (maneuver)" -> "Name" — strips the attack name's OWN trailing parenthetical suffix, if it has one. */
 function stripTrailingParenthetical(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, '').trim();
 }
 
-/** Czy `headingText` zaczyna sie od `name` jako CALE slowo (nie fragment) — dopuszcza koniec dokladnie na `name`, spacje albo nawias zaraz po. */
+/** Whether `headingText` starts with `name` as a WHOLE word (not a fragment) — allows the match to end exactly at `name`, followed by a space or a parenthesis. */
 function startsWithWholeName(headingText: string, name: string): boolean {
   if (headingText === name) return true;
   if (!headingText.startsWith(name)) return false;
@@ -34,27 +36,29 @@ function startsWithWholeName(headingText: string, name: string): boolean {
 }
 
 /**
- * [Zmierzony na zywo blad, prawdziwy eksport Actora "Sciapod" z Foundry —
- * "krysz- tałowego łuku", "scia- poda", "potwo- ra" w opisie trafiajacym do
- * notatek] Laczy teksty tokenow spacja jak zwykle, ALE samodzielny token
- * "-"/"–" (zlamanie wiersza w PDF-ie w srodku slowa — ten sam token, ktory
- * `matchSectionList`'s `rejoinHyphenated` rozpoznaje, patrz `patterns.ts`)
- * jest USUWANY, a spacja WOKOL niego pominieta, zamiast dolaczony jako
- * osobne, dyndajace slowo. W odroznieniu od `matchSectionList` nie ma tu
- * WLASNEJ flagi profilu — ta funkcja produkuje WOLNY TEKST notatek, nie
- * podlega dalszemu dopasowaniu regexowemu (brak potrzeby mapowania znak->token
- * jak w `matchSectionList`), wiec nie ma scenariusza, w ktorym autor profilu
- * chcialby ZACHOWAC dzielony wyraz w opisie.
+ * [Bug measured live, a real Actor export from Foundry — a description
+ * containing a word hyphenated across a line break (e.g. a generic invented
+ * example like "crea-" / "ture" split into two tokens) ending up
+ * unrejoined in the notes] Joins token texts with a space as usual, BUT a standalone token
+ * "-"/"–" (a line break in the PDF in the middle of a word — the same token that
+ * `matchSectionList`'s `rejoinHyphenated` recognizes, see `patterns.ts`)
+ * is REMOVED, and the space AROUND it is skipped, instead of being appended as a
+ * separate, dangling word. Unlike `matchSectionList`, there is no
+ * dedicated profile flag here — this function produces FREE-FORM notes text, not
+ * subject to further regex matching (no need to map character->token
+ * as in `matchSectionList`), so there is no scenario in which a profile author
+ * would want to KEEP a split word in the description.
  *
- * [ZGŁOSZENIE na zywo, "zaintere- sowany"] Powyzszy ksztalt (samodzielny
- * token "-") to JEDEN ze sposobow, w jaki pdf.js oddaje zlamanie wiersza w
- * srodku slowa — zmierzone na TEJ SAMEJ ksiazce ("Wrak.pdf"), inne miejsce
- * (str. 30, opis znajomego): dywiz bywa PRZYKLEJONY do konca poprzedniego
- * tokenu ("...zaintere-"), a kontynuacja slowa to NASTEPNY token BEZ wlasnej
- * spacji na poczatku ("sowany..."). Rozpoznawane po literze BEZPOSREDNIO
- * przed koncowym dywizem (`\p{L}[-–]$`) — odroznia to od dywizu po cyfrze/
- * interpunkcji (np. zakres "20-30" nigdy nie konczy sie na literze), gdzie
- * scalanie bez spacji bylabyloby bledne.
+ * [reported live, another word hyphenated across a line break, e.g. a generic
+ * invented example like "inter-" / "ested"] The shape above (a standalone
+ * "-" token) is ONE of the ways pdf.js represents a line break in the
+ * middle of a word — measured on the SAME book ("Wrak.pdf"), a different location
+ * (p. 30, description of an ally/contact): the hyphen is sometimes GLUED to the end of the
+ * previous token (e.g. "...inter-"), and the continuation of the word is the NEXT token WITHOUT its own
+ * leading space (e.g. "ested..."). Recognized by the letter DIRECTLY
+ * before the trailing hyphen (`\p{L}[-–]$`) — this distinguishes it from a hyphen after a digit/
+ * punctuation (e.g. the range "20-30" never ends in a letter), where
+ * merging without a space would be incorrect.
  */
 export function joinRejoiningLineBreakHyphens(texts: readonly string[]): string {
   let result = '';
@@ -79,50 +83,51 @@ export function joinRejoiningLineBreakHyphens(texts: readonly string[]): string 
 }
 
 /**
- * Dla kazdej pozycji w `attacks.items`, szuka w tokenach PO ostatniej
- * dopasowanej pozycji (do `attacks.endIndex` — ta sama granica sekcji, ktora
- * juz respektuje `terminateSectionBefore`/granice innych encji, patrz
- * `matchSectionList`) podnaglowka (`fontRole: 'accent'`) zaczynajacego sie od
- * PELNEJ nazwy tego ataku. Gdy znaleziony, zwraca tekst NASTEPUJACYCH po nim
- * tokenow (do kolejnego podnaglowka albo konca zasiegu) jako "opis
- * rozwiniety" — jeden akapit na atak (A10: dopasowanie calej nazwy, nie
- * fragmentu — "Unik" nie zlapie przypadkowego wystapienia w srodku innego
- * slowa). Zwraca `null` na pozycjach, dla ktorych nic nie znaleziono — brak
- * czegokolwiek do znalezienia to poprawny wynik (A7), nie blad.
+ * For each item in `attacks.items`, searches the tokens AFTER the last
+ * matched item (up to `attacks.endIndex` — the same section boundary that
+ * already respects `terminateSectionBefore`/other entities' boundaries, see
+ * `matchSectionList`) for a subheading (`fontRole: 'accent'`) starting with
+ * the FULL name of that attack. When found, returns the text of the tokens
+ * FOLLOWING it (up to the next subheading or the end of the range) as the
+ * "expanded description" — one paragraph per attack (A10: match the whole name, not
+ * a fragment — "Dodge" won't catch an incidental occurrence in the middle of another
+ * word). Returns `null` for items where nothing was found — finding
+ * nothing is a valid result (A7), not an error.
  */
 export interface AttackDescriptionScan {
-  /** Rownolegle do `attacks.items` — patrz `findAttackDescriptionsBelow`. */
+  /** Parallel to `attacks.items` — see `findAttackDescriptionsBelow`. */
   texts: (string | null)[];
   /**
-   * [KROK-34 Z2] Zakresy tokenow FAKTYCZNIE skonsumowane jako opis JAKIEGOS
-   * ataku (podnaglowek + jego tresc, `[start, end)`) — do wykorzystania przez
-   * `proseBlock` (notatki wskazywane geometrycznie), zeby NIE zaproponowac
-   * TEJ SAMEJ tresci jeszcze raz jako osobnej notatki (brief kroku 34, "Relacja
-   * do Z4 z kroku 33": "sprawdz tylko, czy oba mechanizmy nie dublują tej
-   * samej treści... i jeśli tak — odfiltruj"). Podnaglowki, ktore NIE
-   * dopasowaly zadnej nazwy ataku (np. "Niewidzialność:" na str. 24 "Wrak.pdf"
-   * — to NIE jest atak) sa CELOWO pominiete tutaj — ich tresc zostaje
-   * dostepna dla `proseBlock`, ktory istnieje WLASNIE po to, zeby ja przechwycic.
+   * [Step 34 Z2] Token ranges ACTUALLY consumed as the description of SOME
+   * attack (subheading + its content, `[start, end)`) — for use by
+   * `proseBlock` (notes located geometrically), so it does NOT propose
+   * THE SAME content again as a separate note (step-34 brief, "Relationship
+   * to Z4 from step 33": "just check whether the two mechanisms duplicate the
+   * same content... and if so — filter it out"). Subheadings that did NOT
+   * match any attack name (e.g. a subheading naming some non-attack special
+   * ability, on p. 24 "Wrak.pdf" — that's NOT an attack) are DELIBERATELY skipped here — their content stays
+   * available to `proseBlock`, which exists PRECISELY to capture it.
    */
   claimedRanges: { start: number; end: number }[];
 }
 
 /**
- * Wspolny skan uzywany PRZEZ `findAttackDescriptionsBelow` (tresc) I
- * `proseBlock` z kroku 34 (zakresy do wykluczenia z dedup) — jedno zrodlo
- * prawdy, zeby oba nigdy nie rozjechaly sie w tym, co uznaja za "juz opisane".
+ * A shared scan used BY BOTH `findAttackDescriptionsBelow` (content) AND
+ * `proseBlock` from step 34 (ranges to exclude from dedup) — a single source of
+ * truth, so the two never diverge on what counts as "already described."
  *
- * [KROK-34 Z2, zmierzony na zywo blad, "Wrak.pdf" str. 24] `attacks.endIndex`
- * to granica BUFORA POZYCJI (`terminateSectionBefore`/`matchSectionList`),
- * NIE granica, do ktorej wolno szukac opisow PONIZEJ listy — na realnym
- * profilu `terminateSectionBefore` bywa ustawione WLASNIE NA podnaglowku
- * pierwszego opisu ("Chwyt i miażdżenie (manewr):", zeby lista pozycji NIE
- * zlapala go jako bledna 5. pozycje), co przypadkiem obcina `endIndex`
- * DOKLADNIE tam, gdzie ten skan mial zaczac szukac — `searchStart >=
- * searchEnd` i CALA funkcja Z4 milczy, mimo ze opisy naprawde tam sa.
- * `hardStopTokenIndices` (ta sama granica encji co `matchSectionList` sam
- * dostaje) daje PRAWDZIWA gorna granice, niezalezna od tego, gdzie
- * `terminateSectionBefore` akurat przecina bufor pozycji.
+ * [Step 34 Z2, bug measured live, "Wrak.pdf" p. 24] `attacks.endIndex`
+ * is the boundary of the ITEM BUFFER (`terminateSectionBefore`/`matchSectionList`),
+ * NOT the boundary up to which it's allowed to search for descriptions BELOW the
+ * list — on a real profile `terminateSectionBefore` is sometimes set EXACTLY ON
+ * the subheading of the first description (e.g. an attack name followed by a
+ * parenthetical qualifier and a colon, so the
+ * item list does NOT mistake it for an erroneous 5th item), which happens to cut
+ * `endIndex` EXACTLY where this scan was supposed to start searching —
+ * `searchStart >= searchEnd` and the ENTIRE Z4 function stays silent, even though the
+ * descriptions really are there. `hardStopTokenIndices` (the same entity boundary that
+ * `matchSectionList` itself receives) gives the TRUE upper bound, independent of
+ * where `terminateSectionBefore` happens to cut through the item buffer.
  */
 function scanAttackDescriptions(tokens: readonly ProfileToken[], attacks: SectionListMatch, hardStopTokenIndices?: readonly number[]): AttackDescriptionScan {
   const texts: (string | null)[] = attacks.items.map(() => null);
@@ -130,15 +135,15 @@ function scanAttackDescriptions(tokens: readonly ProfileToken[], attacks: Sectio
   if (attacks.items.length === 0) return { texts, claimedRanges };
 
   const searchStart = Math.max(...attacks.items.map((item) => item.endTokenIndex)) + 1;
-  // `hardStopTokenIndices` NIEPODANE WCALE (nie: puste []) -> DOKLADNIE stare
-  // zachowanie (`searchEnd = attacks.endIndex`), zeby wywolania sprzed tego
-  // pola (i ich testy) nie zauwazyly zadnej zmiany.
+  // `hardStopTokenIndices` NOT PASSED AT ALL (not: an empty []) -> EXACTLY the old
+  // behavior (`searchEnd = attacks.endIndex`), so that call sites predating this
+  // field (and their tests) see no change at all.
   const nextHardStop = hardStopTokenIndices ? (hardStopTokenIndices.filter((h) => h > attacks.headerTokenIndex).sort((a, b) => a - b)[0] ?? tokens.length) : undefined;
   const searchEnd = nextHardStop !== undefined ? Math.max(attacks.endIndex, nextHardStop) : attacks.endIndex;
   if (searchStart >= searchEnd) return { texts, claimedRanges };
 
-  // Nazwy najdluzsze najpierw — zeby dluzsza nazwa nie zostala przypadkiem
-  // "zjedzona" przez dopasowanie krotszej nazwy bedacej jej prefiksem.
+  // Longest names first — so a longer name doesn't accidentally get
+  // "swallowed" by a match on a shorter name that is its prefix.
   const candidates = attacks.items
     .map((item, itemIndex) => ({ itemIndex, name: stripTrailingParenthetical(item.groups['name'] ?? '') }))
     .filter((c) => c.name.length > 0)
@@ -176,7 +181,7 @@ export function findAttackDescriptionsBelow(tokens: readonly ProfileToken[], att
   return scanAttackDescriptions(tokens, attacks, hardStopTokenIndices).texts;
 }
 
-/** [KROK-34 Z2] Patrz `AttackDescriptionScan.claimedRanges`. */
+/** [Step 34 Z2] See `AttackDescriptionScan.claimedRanges`. */
 export function findAttackDescriptionClaimedRanges(tokens: readonly ProfileToken[], attacks: SectionListMatch, hardStopTokenIndices?: readonly number[]): { start: number; end: number }[] {
   return scanAttackDescriptions(tokens, attacks, hardStopTokenIndices).claimedRanges;
 }

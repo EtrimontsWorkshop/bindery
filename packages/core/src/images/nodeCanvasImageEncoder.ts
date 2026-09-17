@@ -3,10 +3,10 @@ import { DEFAULT_OUTPUT_FORMAT, DEFAULT_WEBP_QUALITY, type EncodeOptions, type E
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * Implementacja Node (`@napi-rs/canvas`) — WYLACZNIE do testow i
- * `tools/calibrate-images.ts`. Ten sam powod nieeksportowania z `index.ts` co
- * `nodeCanvasRenderer.ts` (natywny dodatek, bundler przegladarki nie potrafi
- * go zbundlowac) — patrz komentarz tam.
+ * Node implementation (`@napi-rs/canvas`) — EXCLUSIVELY for tests and
+ * `tools/calibrate-images.ts`. Same reason for not exporting from
+ * `index.ts` as `nodeCanvasRenderer.ts` (a native addon that the browser
+ * bundler can't bundle) — see the comment there.
  */
 export const nodeCanvasImageEncoder: ImageEncoder = {
   async encode(image: DecodedImage, opts: EncodeOptions = {}): Promise<EncodedImage> {

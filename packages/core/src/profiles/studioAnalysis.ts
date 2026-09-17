@@ -20,30 +20,30 @@ import {
 import { resolvePatternSetForRoute, sectionListToAttachCandidates } from './assembleStatblocks.js';
 
 /**
- * [KROK-22 Z1-Z3] Analiza diagnostyczna profilu na stronie — silnik Profile
- * Studio ("tester profili"). CELOWO OSOBNA od `assembleStatblocksOnPage`
- * (produkt), NIE jej zastapienie: ta funkcja uzywa DOKLADNIE tych samych
- * prymitywow dopasowania (`matchLabelledPairs`/`matchSectionList`/
+ * [Step 22 Z1-Z3] Diagnostic analysis of a profile on a page — the engine
+ * behind Profile Studio (the "profile tester"). DELIBERATELY SEPARATE from
+ * `assembleStatblocksOnPage` (the product), NOT a replacement for it: this function uses
+ * EXACTLY the same matching primitives (`matchLabelledPairs`/`matchSectionList`/
  * `matchFontRoleCandidate`/`attachNearestWithDiagnostics`/`resolveEntityNames`)
- * wiec sama SEMANTYKA dopasowania jest JEDNYM zrodlem prawdy (zero ryzyka
- * rozjazdu) — ale dodatkowo zbiera diagnostyke (co zostalo ODRZUCONE, gdzie
- * dwie encje zachodza na siebie, ile razy kazdy wzorzec cokolwiek zlapal),
- * ktorej prawdziwy potok (uzywany do faktycznego importu) nigdy nie liczy,
- * bo jej nie potrzebuje. Wybor regul (ktory `attach` to derived/attacks/
- * skills/name) POWIELA logike `assembleStatblocksOnPage` — jedyna czesc,
- * ktora NIE jest wspoldzielona (patrz komentarz przy kazdej regule nizej).
+ * so matching SEMANTICS itself is a SINGLE source of truth (zero risk of
+ * divergence) — but it additionally collects diagnostics (what got REJECTED, where
+ * two entities overlap, how many times each pattern matched anything at all),
+ * which the real pipeline (used for the actual import) never computes,
+ * because it doesn't need it. The rule selection (which `attach` is derived/attacks/
+ * skills/name) DUPLICATES `assembleStatblocksOnPage`'s logic — the only part
+ * that is NOT shared (see the comment at each rule below).
  */
 
 export interface AttachDiagnosticResult<TMatch> {
   match: TMatch | null;
-  /** Zmierzony dystans do dopasowanego kandydata (`match !== null`). */
+  /** The measured distance to the matched candidate (`match !== null`). */
   distance: number | null;
   /**
-   * [odkrycie #6 kroku 21] Obecne WYLACZNIE gdy `match === null`, ale jakis
-   * kandydat istnial na stronie — pokazuje autorowi profilu DOKLADNIE o ile
-   * trzeba by poluzowac limit (`reason: 'tooFar'`), ALBO ze kandydat byl w
-   * zasiegu, tylko przejety przez inna kotwice (`reason: 'claimedByOther'`,
-   * KROK-29 — patrz `OutOfRangeCandidate` w `entityAssembly.ts`).
+   * [step-21 discovery #6] Present ONLY when `match === null`, but some
+   * candidate existed on the page — shows the profile author EXACTLY how much
+   * the limit would need to be loosened (`reason: 'tooFar'`), OR that a candidate
+   * was in range but was taken by another anchor (`reason: 'claimedByOther'`,
+   * Step 29 — see `OutOfRangeCandidate` in `entityAssembly.ts`).
    */
   outOfRange: { distance: number; maxDistancePt: number; reason: OutOfRangeCandidate['reason'] } | null;
 }
@@ -62,11 +62,11 @@ export interface EntityAnalysis {
   derived: AttachDiagnosticResult<LabelledPairsMatch>;
   attacks: AttachDiagnosticResult<SectionListMatch>;
   skills: AttachDiagnosticResult<SectionListMatch>;
-  /** [ZGŁOSZENIE po kroku 30] Swobodna etykieta zawodu/typu, wlasny, niezalezny wzorzec `fontRoleCandidate` — patrz `entityAssembly.typeLabelPattern`. */
+  /** [reported after step 30] A free-form occupation/type label, its own, independent `fontRoleCandidate` pattern — see `entityAssembly.typeLabelPattern`. */
   typeLabel: AttachDiagnosticResult<FontRoleCandidateMatch>;
-  /** [KROK-34 Z2] Bloki prozy dolaczone geometrycznie — patrz `AssembledStatblock.notes` (`assembleStatblocks.ts`), TA SAMA logika. */
+  /** [Step 34 Z2] Prose blocks attached geometrically — see `AssembledStatblock.notes` (`assembleStatblocks.ts`), THE SAME logic. */
   notes: { label: string; text: string }[];
-  /** Wszystkie bboxy "zaklaimowane" przez te encje — wejscie do wykrywania zachodzenia (`overlaps`) i do rysowania nakladek. */
+  /** All bboxes "claimed" by this entity — input to overlap detection (`overlaps`) and to drawing overlays. */
   regions: StudioRegion[];
 }
 
@@ -85,21 +85,21 @@ export interface NameCandidateDiagnostic {
   bbox: Rect;
   tokenIndex: number;
   status: NameCandidateStatus;
-  /** Ordynal encji, do ktorej ten kandydat nalezy (wybrany LUB sugerowany) — `null` dla `status: 'other'`. */
+  /** The ordinal of the entity this candidate belongs to (chosen OR suggested) — `null` for `status: 'other'`. */
   entityOrdinal: number | null;
 }
 
 export interface PatternMatchCount {
   patternId: string;
-  /** Liczba WYSTAPIEN wzorca na stronie (naglowkow sekcji / siatek / kandydatow na nazwe) — NIEZALEZNA od tego, czy cokolwiek zostalo faktycznie dolaczone do jakiejs encji. Zero na CALYM dokumencie zwykle oznacza literowke w regexie (brief kroku 22). */
+  /** Number of OCCURRENCES of the pattern on the page (section headers / grids / name candidates) — INDEPENDENT of whether anything was actually attached to any entity. Zero across the WHOLE document usually means a typo in the regex (step-22 brief). */
   matchCount: number;
 }
 
 export interface PageAnalysis {
   page: number;
-  /** [KROK-39 Z1] Trasa KLASYFIKOWANA dla tej strony (`classifyPageRoute`, `pageRoute.ts`) — zastepuje dawne `isPregen: boolean` (ktore ZAWSZE znaczylo "trasa playerCharacter, wiec pomin"; od kroku 39 ta trasa MOZE byc obslugiwana, patrz `routeSupported`). */
+  /** [Step 39 Z1] The route CLASSIFIED for this page (`classifyPageRoute`, `pageRoute.ts`) — replaces the former `isPregen: boolean` (which ALWAYS meant "playerCharacter route, so skip it"; since step 39 this route CAN be supported, see `routeSupported`). */
   route: PageRoute;
-  /** [KROK-39 Z1] Czy profil ma zestaw wzorcow dla `route` (`resolvePatternSetForRoute`) — `false` = strona pominieta (`entities: []`), tak jak dawne `isPregen: true`, ale teraz z jawnym powodem zamiast domyslnego zalozenia "kazda strona playerCharacter jest pomijana". Dla trasy `npc` ZAWSZE `true` (root profilu zawsze ma wzorce). */
+  /** [Step 39 Z1] Whether the profile has a pattern set for `route` (`resolvePatternSetForRoute`) — `false` = page skipped (`entities: []`), like the former `isPregen: true`, but now with an explicit reason instead of the default assumption "every playerCharacter page is skipped". For the `npc` route ALWAYS `true` (the profile's root always has patterns). */
   routeSupported: boolean;
   entities: EntityAnalysis[];
   nameCandidates: NameCandidateDiagnostic[];
@@ -162,17 +162,17 @@ function detectOverlaps(entities: readonly EntityAnalysis[]): OverlapWarning[] {
 }
 
 /**
- * Analiza JEDNEJ strony. Wywolujacy dostarcza tokeny TEJ strony (jak
- * `assembleStatblocksOnPage`) — klasyfikacja trasy (`classifyPageRoute`,
- * `pageRoute.ts`) to OSOBNY, WCZESNIEJSZY krok, ten plik go NIE wywoluje sam
- * (wolajacy — `analyzeProfileDocument` — decyduje i przekazuje `route`).
+ * Analysis of ONE page. The caller supplies tokens of THAT page (like
+ * `assembleStatblocksOnPage`) — route classification (`classifyPageRoute`,
+ * `pageRoute.ts`) is a SEPARATE, EARLIER step, this file does NOT call it itself
+ * (the caller — `analyzeProfileDocument` — decides and passes `route`).
  *
- * [KROK-39 Z1] `route` zastepuje dawne `isPregen: boolean` — gdy profil nie
- * ma zestawu wzorcow dla tej trasy (`resolvePatternSetForRoute` zwraca
- * `null`, np. trasa `playerCharacter` bez sekcji `profile.playerCharacter`),
- * strona jest pomijana TAK SAMO jak dawne `isPregen: true` (`entities: []`),
- * ale wynik teraz NIESIE jawny powod (`routeSupported: false`) zamiast
- * cichego zalozenia "kazda strona tej trasy jest pomijana".
+ * [Step 39 Z1] `route` replaces the former `isPregen: boolean` — when a profile
+ * has no pattern set for this route (`resolvePatternSetForRoute` returns
+ * `null`, e.g. the `playerCharacter` route without a `profile.playerCharacter` section),
+ * the page is skipped THE SAME WAY as the former `isPregen: true` (`entities: []`),
+ * but the result now CARRIES an explicit reason (`routeSupported: false`) instead of
+ * the silent assumption "every page of this route is skipped".
  */
 export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: ProfileV2, page: number, route: PageRoute): PageAnalysis {
   const patternSet = resolvePatternSetForRoute(profile, route);
@@ -183,12 +183,12 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
   const anchorPatternId = patternSet.entityAssembly.anchor;
   const anchorPattern = patternSet.patterns[anchorPatternId];
   if (!anchorPattern || anchorPattern.kind !== 'labelledPairs') {
-    throw new Error(`analyzeProfilePage: kotwica "${anchorPatternId}" musi byc wzorcem labelledPairs, a jest "${anchorPattern?.kind ?? 'brak'}"`);
+    throw new Error(`analyzeProfilePage: anchor "${anchorPatternId}" must be a labelledPairs pattern, but is "${anchorPattern?.kind ?? 'missing'}"`);
   }
   const grids = matchLabelledPairs(tokens, anchorPattern);
   const anchors: GeometricAnchor[] = grids.map((g) => ({ bbox: g.bbox, anchorTokenIndex: g.startIndex }));
 
-  // [Wybor regul — POWIELA `assembleStatblocksOnPage`, patrz naglowek pliku]
+  // [Rule selection — DUPLICATES `assembleStatblocksOnPage`, see the file header]
   const derivedRule = patternSet.entityAssembly.attach.find((r) => {
     const p = patternSet.patterns[r.pattern];
     return p?.kind === 'labelledPairs' && r.pattern !== anchorPatternId;
@@ -196,17 +196,17 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
   const skillsPatternId = patternSet.entityAssembly.skillsPattern;
   const attackRule = patternSet.entityAssembly.attach.find((r) => patternSet.patterns[r.pattern]?.kind === 'sectionList' && r.pattern !== skillsPatternId);
   const skillsRule = skillsPatternId ? patternSet.entityAssembly.attach.find((r) => r.pattern === skillsPatternId) : undefined;
-  // [ZGŁOSZENIE po kroku 30] `typeLabelPattern` wylaczony z kandydatow na "ten
-  // fontRoleCandidate to nazwa" — patrz identyczny komentarz w `assembleStatblocks.ts`.
+  // [reported after step 30] `typeLabelPattern` excluded from the candidates for "this
+  // fontRoleCandidate is the name" — see the identical comment in `assembleStatblocks.ts`.
   const typeLabelPatternId = patternSet.entityAssembly.typeLabelPattern;
   const nameRule = patternSet.entityAssembly.attach.find((r) => patternSet.patterns[r.pattern]?.kind === 'fontRoleCandidate' && r.pattern !== typeLabelPatternId);
   const typeLabelRule = typeLabelPatternId ? patternSet.entityAssembly.attach.find((r) => r.pattern === typeLabelPatternId) : undefined;
 
-  // [KROK-34 Z1] `attachAndMergeLabelledPairs`, nie `attachNearestWithDiagnostics`
-  // — patrz identyczny komentarz w `assembleStatblocks.ts` i definicja w
-  // `entityAssembly.ts`: pozwala Studiu pokazac TO SAMO polaczone dopasowanie
-  // ("Pancerz" we wlasnym akapicie + reszta pochodnych), ktore realny potok
-  // teraz tez liczy — jedno zrodlo prawdy, zgodnie z naglowkiem tego pliku.
+  // [Step 34 Z1] `attachAndMergeLabelledPairs`, not `attachNearestWithDiagnostics`
+  // — see the identical comment in `assembleStatblocks.ts` and the definition in
+  // `entityAssembly.ts`: lets Studio show the SAME merged match
+  // (a stat label in its own paragraph + the rest of the derived stats) that the real pipeline
+  // now also computes — a single source of truth, per this file's header.
   let derivedDiag: { attached: (LabelledPairsMatch | null)[]; subMatches: LabelledPairsMatch[][]; nearestOutOfRange: (OutOfRangeCandidate | null)[] } = {
     attached: anchors.map(() => null),
     subMatches: anchors.map(() => []),
@@ -222,31 +222,31 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     }
   }
 
-  // [ZGŁOSZENIE po kroku 30, "Dlaczego muszę wskazywać ręcznie, skoro profil
-  // już to zawiera" — patrz identyczny komentarz w `assembleStatblocks.ts`]
-  // Surowe dopasowania wzorca zawodu/typu liczone PRZED rozwiazaniem nazwy,
-  // zeby ich `tokenIndex` mogly wejsc do `resolveEntityNames` jako
+  // [reported after step 30, "Why do I have to point it out manually when the
+  // profile already contains this" — see the identical comment in `assembleStatblocks.ts`]
+  // Raw matches of the occupation/type pattern computed BEFORE resolving the name,
+  // so their `tokenIndex` can feed into `resolveEntityNames` as
   // `knownSiblingTokenIndices`.
   let typeLabelPattern = typeLabelRule ? patternSet.patterns[typeLabelRule.pattern] : undefined;
   if (typeLabelPattern?.kind !== 'fontRoleCandidate') typeLabelPattern = undefined;
   const typeLabelMatches: FontRoleCandidateMatch[] = typeLabelPattern ? matchFontRoleCandidate(tokens, typeLabelPattern) : [];
   const typeLabelMatchTokenIndices = new Set(typeLabelMatches.map((m) => m.tokenIndex));
 
-  // [KROK-24 Z4b] Nazwa rozwiazywana PRZED sekcjami ATAKI/Umiejetnosci — patrz
-  // identyczny komentarz w `assembleStatblocksOnPage` (`assembleStatblocks.ts`),
-  // TA SAMA przyczyna (str. 56 "Głowa"/"Nogi").
+  // [Step 24 Z4b] The name is resolved BEFORE the ATTACKS/Skills sections — see
+  // the identical comment in `assembleStatblocksOnPage` (`assembleStatblocks.ts`),
+  // the SAME reason (p. 56, two field labels sitting close together).
   let names: NameResolution[] = anchors.map((_, i) => ({
     kind: 'placeholder',
     placeholder: patternSet.entityAssembly.namePlaceholder.replace('{page}', String(page)).replace('{ordinal}', String(i + 1)),
     candidates: [],
   }));
   let nameMatches: FontRoleCandidateMatch[] = [];
-  // [ZGŁOSZENIE po kroku 30, zmierzony na zywo blad — patrz identyczny
-  // komentarz w `assembleStatblocks.ts`] Token(y), ktore dopasowanie nazwy
-  // uznaloby za "najblizszy kandydat" dla KTOREJKOLWIEK kotwicy, liczone
-  // NIEZALEZNIE od progu pewnosci — placeholder z powodu niejednoznacznosci
-  // (S4) NADAL "zajmuje" ten token geometrycznie, tylko nie pewnie dosc, zeby
-  // pokazac go jako `name`. Uzyte ponizej przy `typeLabel`.
+  // [reported after step 30, bug measured live — see the identical
+  // comment in `assembleStatblocks.ts`] The token(s) that name matching
+  // would consider the "nearest candidate" for ANY anchor, computed
+  // INDEPENDENTLY of the confidence threshold — a placeholder due to ambiguity
+  // (S4) STILL "occupies" this token geometrically, just not confidently enough to
+  // show it as `name`. Used below at `typeLabel`.
   let nameClaimedTokenIndices = new Set<number>();
   if (nameRule) {
     const pattern = patternSet.patterns[nameRule.pattern];
@@ -270,14 +270,14 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     }
   }
 
-  // [KROK-20 Z2, rozszerzone w KROK-24 Z4b, KROK-34 Z2 — patrz identyczny
-  // komentarz w `assembleStatblocks.ts`] `confidentNameTokenIndices` (KROK-24
-  // Z4b, dowolna rola) DODATKOWO (nie zamiast) surowi kandydaci z rola `heading`
-  // (KROK-34 Z2 — NIE caly `nameMatches` bez filtra, `accent` bywa szumem
-  // WEWNATRZ zwyklej listy umiejetnosci, patrz `assembleStatblocks.ts`) — token,
-  // ktory wyglada jak PRAWDZIWY tytul/naglowek, jest granica nawet gdy nie ma
-  // wlasnej siatki NA TEJ stronie (np. zapowiedz kolejnego potwora na koncu
-  // strony).
+  // [Step 20 Z2, extended in Step 24 Z4b, Step 34 Z2 — see the identical
+  // comment in `assembleStatblocks.ts`] `confidentNameTokenIndices` (Step 24
+  // Z4b, any role) PLUS (not instead) raw candidates with the `heading` role
+  // (Step 34 Z2 — NOT the whole unfiltered `nameMatches`, `accent` is sometimes noise
+  // INSIDE an ordinary skills list, see `assembleStatblocks.ts`) — a token
+  // that looks like a GENUINE title/heading is a boundary even when it has no
+  // own grid ON THIS page (e.g. an announcement of the next monster at the end of the
+  // page).
   const anchorStartIndices = grids.map((g) => g.startIndex);
   const confidentNameTokenIndices = names.filter((n): n is Extract<NameResolution, { kind: 'confident' }> => n.kind === 'confident').map((n) => n.tokenIndex);
   const headingNameTokenIndices = nameMatches.filter((m) => tokens[m.tokenIndex]?.fontRole === 'heading').map((m) => m.tokenIndex);
@@ -307,15 +307,15 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     }
   }
 
-  // [ZGŁOSZENIE po kroku 30, zmierzony na zywo blad — patrz identyczny
-  // komentarz w `assembleStatblocks.ts`] KAZDY token, ktory dopasowanie nazwy
-  // uznaloby za swojego najlepszego kandydata dla KTOREJKOLWIEK kotwicy
-  // (`nameClaimedTokenIndices` — NIE tylko `confident`, bo placeholder z
-  // powodu niejednoznacznosci omijalby wykluczenie), jest wykluczony z puli
-  // kandydatow na zawod/typ — bez tego, gdy `requireFontKeys` obu wzorcow
-  // (nazwa/zawod) jeszcze nie zawezono, `typeLabel` wychodzil identyczny jak
-  // `name` (ten sam, geometrycznie najblizszy token wybrany NIEZALEZNIE przez
-  // oba wywolania).
+  // [reported after step 30, bug measured live — see the identical
+  // comment in `assembleStatblocks.ts`] EVERY token that name matching
+  // would consider its best candidate for ANY anchor
+  // (`nameClaimedTokenIndices` — NOT just `confident`, since a placeholder due
+  // to ambiguity would bypass the exclusion) is excluded from the pool of
+  // occupation/type candidates — without this, when `requireFontKeys` of both patterns
+  // (name/occupation) hasn't yet been narrowed, `typeLabel` would come out identical to
+  // `name` (the same, geometrically nearest token chosen INDEPENDENTLY by
+  // both calls).
   let typeLabelDiag = { attached: anchors.map(() => null) as (AttachCandidate | null)[], nearestOutOfRange: anchors.map(() => null) as (OutOfRangeCandidate | null)[] };
   let typeLabelMaxDist = 0;
   if (typeLabelPattern && typeLabelRule) {
@@ -326,14 +326,14 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     typeLabelMaxDist = typeLabelRule.maxDistancePt;
   }
 
-  // [KROK-34 Z2] Patrz identyczny komentarz w `assembleStatblocks.ts`.
+  // [Step 34 Z2] See the identical comment in `assembleStatblocks.ts`.
   const claimedTokenIndices = new Set<number>();
   for (const g of grids) for (let t = g.startIndex; t < g.endIndex; t++) claimedTokenIndices.add(t);
-  // [KROK-34 Z2] Patrz identyczny komentarz w `assembleStatblocks.ts` —
-  // `subMatches` (ciagle zakresy WLASNE), NIE bounding `attached[i]`.
+  // [Step 34 Z2] See the identical comment in `assembleStatblocks.ts` —
+  // `subMatches` (each entry's OWN contiguous range), NOT the bounding `attached[i]`.
   for (const subs of derivedDiag.subMatches) for (const d of subs) for (let t = d.startIndex; t < d.endIndex; t++) claimedTokenIndices.add(t);
-  // [KROK-34 Z2] Patrz identyczny komentarz w `assembleStatblocks.ts` — tylko
-  // `items` (WLACZNIE), NIE cala `[headerTokenIndex, endIndex)`.
+  // [Step 34 Z2] See the identical comment in `assembleStatblocks.ts` — only
+  // `items` (INCLUSIVE), NOT the whole `[headerTokenIndex, endIndex)`.
   for (const a of attackMatches) {
     claimedTokenIndices.add(a.headerTokenIndex);
     for (const item of a.items) for (let t = item.startTokenIndex; t <= item.endTokenIndex; t++) claimedTokenIndices.add(t);
@@ -344,8 +344,8 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     for (const item of s.items) for (let t = item.startTokenIndex; t <= item.endTokenIndex; t++) claimedTokenIndices.add(t);
   }
   for (const n of names) if (n.kind === 'confident') claimedTokenIndices.add(n.tokenIndex);
-  // [KROK-34 Z2] Patrz identyczny komentarz w `assembleStatblocks.ts` — tylko
-  // FAKTYCZNIE dolaczone (`typeLabelDiag.attached`), nie cala surowa pula.
+  // [Step 34 Z2] See the identical comment in `assembleStatblocks.ts` — only
+  // ACTUALLY attached (`typeLabelDiag.attached`), not the whole raw pool.
   for (const c of typeLabelDiag.attached) if (c) claimedTokenIndices.add(c.tokenIndex);
   const notesPatternIds = patternSet.entityAssembly.notesPatterns ?? [];
   const notesPatterns = notesPatternIds.map((id) => patternSet.patterns[id]).filter((p): p is Extract<typeof p, { kind: 'proseBlock' }> => p?.kind === 'proseBlock');
@@ -379,11 +379,11 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
     const noteRegionBboxes: Rect[] = [];
     const referenceTokenIndex = notesPatterns.length > 0 ? lastClaimedTokenIndex(tokens, { grid, derived: derivedMatch, attacks: attackMatch, skills: skillsMatch }, hardStopTokenIndices) : null;
     const referenceBbox = referenceTokenIndex !== null ? tokens[referenceTokenIndex]!.bbox : grid.bbox;
-    // [KROK-34 Z2, zmierzony na zywo blad — patrz identyczny komentarz w
-    // `assembleStatblocks.ts`] Wlasna kopia na KAZDA encje, rozszerzana o
-    // zakres KAZDEGO trafienia PRZED proba kolejnego wzorca w tej samej
-    // liscie — bez tego dwa bliskie sobie wzorce notatek (np. "Zaklęcia"/
-    // "Utrata Poczytalności") moga zwrocic IDENTYCZNA tresc.
+    // [Step 34 Z2, bug measured live — see the identical comment in
+    // `assembleStatblocks.ts`] A private copy per entity, extended by the
+    // range of EVERY match BEFORE trying the next pattern in the same
+    // list — without this, two note-section labels sitting close together on the
+    // page (e.g. two distinct prose sections back-to-back) can return IDENTICAL content.
     const claimedForNotes = new Set(claimedTokenIndices);
     const ownNameText = name.kind === 'confident' ? name.text : undefined;
     for (const notePattern of notesPatterns) {
@@ -414,10 +414,10 @@ export function analyzeProfilePage(tokens: readonly ProfileToken[], profile: Pro
   const patternMatchCounts: PatternMatchCount[] = Object.entries(patternSet.patterns).map(([patternId, pattern]) => {
     if (pattern.kind === 'labelledPairs') return { patternId, matchCount: matchLabelledPairs(tokens, pattern).length };
     if (pattern.kind === 'sectionList') return { patternId, matchCount: matchSectionList(tokens, pattern).length };
-    // [KROK-34 Z2] `proseBlock` nie skanuje strony tekstowo (dopasowanie jest
-    // WZGLEDEM kotwicy, nie regexem) — "0 trafien na cala ksiazke = literowka w
-    // regexie" (sens tej diagnostyki, patrz `PatternMatchCount`) nie ma tu
-    // zastosowania; entities[].notes ponizej juz pokazuje realny wynik per encja.
+    // [Step 34 Z2] `proseBlock` doesn't scan the page textually (the match is
+    // RELATIVE TO an anchor, not a regex) — "0 hits across the whole book = a typo in
+    // the regex" (this diagnostic's purpose, see `PatternMatchCount`) doesn't
+    // apply here; entities[].notes below already shows the real result per entity.
     if (pattern.kind === 'proseBlock') return { patternId, matchCount: 0 };
     return { patternId, matchCount: matchFontRoleCandidate(tokens, pattern).length };
   });
@@ -440,7 +440,7 @@ function toOutOfRange(entry: OutOfRangeCandidate | null, maxDistancePt: number):
 
 export interface DocumentPageSummary {
   page: number;
-  /** [KROK-39 Z1] Patrz `PageAnalysis.route`/`.routeSupported` — zastepuje dawne `isPregen: boolean`. */
+  /** [Step 39 Z1] See `PageAnalysis.route`/`.routeSupported` — replaces the former `isPregen: boolean`. */
   route: PageRoute;
   routeSupported: boolean;
   entityCount: number;
@@ -452,7 +452,7 @@ export interface DocumentPageSummary {
 export interface DocumentAnalysis {
   pageCount: number;
   pages: PageAnalysis[];
-  /** Rozklad trafien per wzorzec, ZSUMOWANY po calym dokumencie — wzorzec z `matchCount: 0` to zazwyczaj literowka w regexie (brief kroku 22). */
+  /** Match-count breakdown per pattern, SUMMED across the whole document — a pattern with `matchCount: 0` usually means a typo in the regex (step-22 brief). */
   patternMatchTotals: PatternMatchCount[];
   totalEntities: number;
   totalWarnings: number;
@@ -460,7 +460,7 @@ export interface DocumentAnalysis {
   pageSummaries: DocumentPageSummary[];
 }
 
-/** [KROK-22 Z4] Agreguje `PageAnalysis[]` (juz policzone przez `analyzeProfileDocument`) w podsumowanie catego dokumentu — CZYSTA funkcja, zero pdf.js, testowalna wprost na syntetycznych `PageAnalysis`. */
+/** [Step 22 Z4] Aggregates `PageAnalysis[]` (already computed by `analyzeProfileDocument`) into a whole-document summary — a PURE function, zero pdf.js, directly testable on synthetic `PageAnalysis`. */
 export function aggregateDocumentAnalysis(pages: readonly PageAnalysis[]): DocumentAnalysis {
   const patternTotals = new Map<string, number>();
   let totalEntities = 0;
@@ -492,8 +492,8 @@ export function aggregateDocumentAnalysis(pages: readonly PageAnalysis[]): Docum
   };
 }
 
-/** [KROK-22 Z5] Ksztalt eksportu diagnostyki — CZYTELNY dla czlowieka (brief: "nie zrzut wewnetrznych struktur"), nie 1:1 z `DocumentAnalysis`. Wyklucza pola wewnetrzne (surowe `SectionListMatch`/tokeny), zostaje TYLKO to, co autor profilu faktycznie potrzebuje przeczytac/dolaczyc do zgloszenia. */
-/** [KROK-29] `'poza-zasiegiem'` = kandydat faktycznie dalej niz `limit`; `'zajety'` = kandydat byl w zasiegu, ale przypadl innej encji w globalnym dopasowaniu (patrz `OutOfRangeCandidate`, `entityAssembly.ts`) — dwa rozne stany, ktore poprzednia wersja eksportu myliła pod jednym "poza-zasiegiem". */
+/** [Step 22 Z5] The shape of the diagnostics export — READABLE for a human (brief: "not a dump of internal structures"), not 1:1 with `DocumentAnalysis`. Excludes internal fields (raw `SectionListMatch`/tokens), keeping ONLY what a profile author actually needs to read/attach to a bug report. */
+/** [Step 29] `'poza-zasiegiem'` [out-of-range] = the candidate is genuinely farther than `limit`; `'zajety'` [claimed] = the candidate was in range, but went to a different entity in the global match (see `OutOfRangeCandidate`, `entityAssembly.ts`) — two different states that the previous export version conflated under one "out of range". */
 export interface DiagnosticsExportEntity {
   ordinal: number;
   name: string;
@@ -502,7 +502,7 @@ export interface DiagnosticsExportEntity {
   derived: 'ok' | 'brak' | { status: 'poza-zasiegiem' | 'zajety'; dystans: number; limit: number };
   attacks: 'ok' | 'brak' | { status: 'poza-zasiegiem' | 'zajety'; dystans: number; limit: number };
   skills: 'ok' | 'brak' | { status: 'poza-zasiegiem' | 'zajety'; dystans: number; limit: number };
-  /** [ZGŁOSZENIE po kroku 30] `'brak'`, gdy profil nie wskazal `typeLabelPattern` LUB gdy nic nie dopasowano — ta sama konwencja co `derived`/`attacks`/`skills` powyzej (zadne z nich tez nie rozroznia "wzorzec nieskonfigurowany" od "skonfigurowany, ale bez trafienia"). */
+  /** [reported after step 30] `'brak'` [none] when the profile didn't specify `typeLabelPattern` OR nothing matched — the same convention as `derived`/`attacks`/`skills` above (none of them distinguish "pattern not configured" from "configured, but no match" either). */
   typeLabel: 'ok' | 'brak' | { status: 'poza-zasiegiem' | 'zajety'; dystans: number; limit: number };
 }
 
@@ -515,9 +515,9 @@ export interface DiagnosticsExportOverlap {
 
 export interface DiagnosticsExportPage {
   strona: number;
-  /** [KROK-39 Z1] Trasa tej strony (`PageAnalysis.route`) — `'npc'` lub `'playerCharacter'`. */
+  /** [Step 39 Z1] This page's route (`PageAnalysis.route`) — `'npc'` or `'playerCharacter'`. */
   trasa: PageRoute;
-  /** [KROK-39 Z1] Zastepuje dawne `pominietaJakoPregen` — `false` = strona pominieta, bo profil nie ma wzorcow dla `trasa` (`PageAnalysis.routeSupported`). */
+  /** [Step 39 Z1] Replaces the former `pominietaJakoPregen`  — `false` = page skipped because the profile has no patterns for `trasa` (`PageAnalysis.routeSupported`). */
   trasaObslugiwana: boolean;
   encje: DiagnosticsExportEntity[];
   zachodzenia: DiagnosticsExportOverlap[];
@@ -541,7 +541,7 @@ function attachResultToExport<TMatch>(result: AttachDiagnosticResult<TMatch>): D
   return 'brak';
 }
 
-/** [KROK-22 Z5] `DocumentAnalysis` (JUZ policzone) -> ksztalt do zapisu jako plik JSON. CZYSTA funkcja (zero `Date.now()`/losowosci — determinizm, `check:size`-siostrzana zasada projektu), wolajacy (`ProfileStudio.ts`) dodaje ewentualna date/nazwe pliku PO stronie modulu. */
+/** [Step 22 Z5] `DocumentAnalysis` (ALREADY computed) -> a shape to save as a JSON file. A PURE function (zero `Date.now()`/randomness — determinism, a sibling principle to the project's `check:size`), the caller (`ProfileStudio.ts`) adds any date/filename on the module side. */
 export function buildDiagnosticsExport(analysis: DocumentAnalysis): DiagnosticsExport {
   return {
     liczbaStron: analysis.pageCount,

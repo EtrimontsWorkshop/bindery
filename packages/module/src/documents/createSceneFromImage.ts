@@ -1,31 +1,34 @@
 /**
- * Mapy -> sceny (KROK-8 Z5, faza 7 MDD). Wymiary sceny WPROST z bitmapy
- * (`packages/core` juz zdekodowalo obraz i zna `width`/`height`) — zero
- * automatycznego wykrywania siatki (poza MVP, brief).
+ * Maps -> scenes (Step 8 Z5, MDD phase 7). Scene dimensions come DIRECTLY
+ * from the bitmap (`packages/core` has already decoded the image and knows
+ * `width`/`height`) — zero automatic grid detection (out of MVP scope, per
+ * the brief).
  *
- * [KROK-8, odkrycie #1] Foundry v14 przebudowal tlo sceny na model
- * wielopoziomowy (`Level` — embedded document, kazdy ze swoim `background.src`)
- * — STARE, plaskie pole `Scene#background.src` (v10-v13) jest dzis WYLACZNIE
- * getterem kompatybilnosci wstecznej (`BaseScene.shimData`, `scene.mjs`),
- * rekonstruowanym z PIERWSZEGO Levelu, BEZ odpowiadajacego mu settera —
- * `Scene.create({background: {src}})` NIE dziala w v14 (cicho ignorowane, tlo
- * zostaje puste). Zweryfikowane wprost w zrodle
- * (`resources/app/common/documents/{scene,level}.mjs`), nie zgadywane —
- * CLAUDE.md: "zawsze weryfikuj wzgledem faktycznie zainstalowanej wersji".
+ * [Step 8, discovery #1] Foundry v14 rebuilt scene backgrounds around a
+ * multi-level model (`Level` — an embedded document, each with its own
+ * `background.src`) — the OLD, flat `Scene#background.src` field (v10-v13)
+ * is today ONLY a backward-compatibility getter (`BaseScene.shimData`,
+ * `scene.mjs`), reconstructed from the FIRST Level, WITHOUT a matching
+ * setter — `Scene.create({background: {src}})` does NOT work in v14
+ * (silently ignored, the background stays empty). Verified directly in the
+ * source (`resources/app/common/documents/{scene,level}.mjs`), not guessed
+ * — per CLAUDE.md: "always verify against the actually installed version".
  *
- * [KROK-8, odkrycie #2 — zlapane empirycznie na prawdziwym Foundry, nie w
- * kodzie zrodlowym] `Scene.create()` ZAWSZE tworzy jeden DOMYSLNY, PUSTY
- * Level o stalym ID `defaultLevel0000` (`BaseScene.metadata.defaultLevelId`,
- * `scene.mjs`) i ustawia `initialLevel` na ten wlasnie poziom. Pierwsza wersja
- * tego kodu wolala `scene.createEmbeddedDocuments('Level', [...])`, co
- * DODAWALO DRUGI, NOWY Level z prawdziwym tlem — scena powstawala poprawnie,
- * ale WCIAZ pokazywala pusty domyslny poziom (bo `initialLevel` nigdy nie
- * zostal zmieniony), a nowy poziom z obrazem byl "ukryty" w tle. Objaw:
- * "scena sie tworzy, ale bez obrazka" — potwierdzone bezposrednim odczytem
- * bazy LevelDB swiata (`worlds/<world>/data/scenes/*.log`): obie encje
- * `Level` istnialy, ale `initialLevel` wskazywal na ta PUSTA. Naprawa:
- * UAKTUALNIJ (nie twórz nowy) domyslny Level pod jego stalym ID — jeden
- * poziom, poprawne tlo, `initialLevel` juz na niego wskazuje z automatu.
+ * [Step 8, discovery #2 — caught empirically on a real Foundry instance,
+ * not in the source code] `Scene.create()` ALWAYS creates one DEFAULT,
+ * EMPTY Level with the fixed ID `defaultLevel0000`
+ * (`BaseScene.metadata.defaultLevelId`, `scene.mjs`) and sets `initialLevel`
+ * to that very level. The first version of this code called
+ * `scene.createEmbeddedDocuments('Level', [...])`, which ADDED A SECOND,
+ * NEW Level with the real background — the scene was created correctly,
+ * but STILL showed the empty default level (because `initialLevel` was
+ * never changed), and the new level with the image was "hidden" in the
+ * background. Symptom: "the scene gets created, but without the image" —
+ * confirmed by directly reading the world's LevelDB database
+ * (`worlds/<world>/data/scenes/*.log`): both `Level` entities existed, but
+ * `initialLevel` pointed at the EMPTY one. Fix: UPDATE (don't create a new)
+ * default Level under its fixed ID — one level, the correct background,
+ * `initialLevel` already points to it automatically.
  */
 
 const DEFAULT_LEVEL_ID = 'defaultLevel0000';
@@ -36,7 +39,7 @@ export interface CreateSceneFromImageInput {
   width: number;
   height: number;
   grid: { size: number; offsetX: number; offsetY: number };
-  /** [KROK-11 Z6] Id folderu `Scene` (patrz `ensureFolder.ts`) — `undefined` = korzen. */
+  /** [Step 11 Z6] `Scene` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 
@@ -50,39 +53,41 @@ export async function createSceneFromImage(input: CreateSceneFromImageInput): Pr
     grid: {
       size: input.grid.size,
     },
-    // [KROK-17, zgloszony na zywo blad] `grid.offsetX`/`offsetY` (wybrane
-    // recznie w GridPicker albo zasugerowane przez `detectGrid.ts`) CELOWO
-    // NIE trafiaja do `shiftX`/`shiftY` — zweryfikowane wprost na zywym
-    // Foundry (`scene.getDimensions()`): `padding:0` daje `dimensions.x=0`,
-    // wiec `sceneX = -shiftX` — KAZDA niezerowa wartosc przesuwa `sceneRect`
-    // (aktywny/interaktywny obszar sceny) wzgledem canvasu o tyle pikseli,
-    // odcinajac dokladnie tyle samo z PRZECIWNEJ krawedzi obrazu poza obszar
-    // sceny. To NIE jest kosmetyczne przesuniecie linii siatki (jak mozna by
-    // zgadnac po nazwie) — to permanentne przesuniecie calej granicy sceny.
-    // Ten sam mechanizm byl juz raz naprawiony (KROK-16, uzytkownik potwierdzil
-    // "Wygląda teraz ok" po wyzerowaniu) blednym uzyciem STAREJ, przedawnionej
-    // wartosci `lastGridConfig` — GridPicker/auto-detekcja z tego kroku
-    // wprowadzily NOWA, poprawna dla TEGO obrazu wartosc offsetu, ale
-    // podleganie DOKLADNIE TEMU SAMEMU mechanizmowi Foundry oznacza, ze
-    // regresja wrocila identycznym objawem ("scena ucieta"), niezaleznie od
-    // tego, ze offset jest teraz poprawnie policzony. `shiftX`/`shiftY`
-    // zostaja na domyslnym 0 (nie ustawiane w ogole) — dopasowanie siatki do
-    // konkretnych pikseli obrazu (poza `grid.size`) to zadanie dla wlasnego
-    // narzedzia Foundry "Configure Grid" PO utworzeniu sceny, ktore swiadomie
-    // przyjmuje ten sam kompromis (przesuniecie = utrata krawedzi) jako
-    // interaktywna decyzje GM-a, nie cichy skutek uboczny importu.
+    // [Step 17, bug reported live] `grid.offsetX`/`offsetY` (chosen manually
+    // in GridPicker or suggested by `detectGrid.ts`) are DELIBERATELY NOT
+    // passed to `shiftX`/`shiftY` — verified directly on a live Foundry
+    // instance (`scene.getDimensions()`): `padding:0` gives
+    // `dimensions.x=0`, so `sceneX = -shiftX` — ANY nonzero value shifts the
+    // `sceneRect` (the scene's active/interactive area) relative to the
+    // canvas by that many pixels, cutting off exactly that much from the
+    // OPPOSITE edge of the image, outside the scene area. This is NOT a
+    // cosmetic shift of the grid lines (as the name might suggest) — it's a
+    // permanent shift of the whole scene boundary. This same mechanism was
+    // already fixed once (Step 16, user confirmed "Looks OK now" after
+    // zeroing it out) via the incorrect use of the OLD, stale
+    // `lastGridConfig` value — GridPicker/auto-detection from this step
+    // introduced a NEW offset value, correct for THIS image, but being
+    // subject to EXACTLY THE SAME Foundry mechanism means the regression
+    // came back with an identical symptom ("scene is cut off"), regardless
+    // of the offset now being computed correctly. `shiftX`/`shiftY` stay at
+    // their default of 0 (not set at all) — aligning the grid to specific
+    // image pixels (beyond `grid.size`) is a job for Foundry's own
+    // "Configure Grid" tool AFTER scene creation, which deliberately accepts
+    // this same trade-off (shift = lost edge) as an interactive GM decision,
+    // not a silent side effect of import.
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const SceneCls = (foundry.documents as any).Scene ?? (globalThis as any).Scene;
   const scene = await SceneCls.create(sceneData);
   if (!scene) {
-    throw new Error('Bindery | nie udalo sie utworzyc sceny');
+    throw new Error('Bindery | failed to create the scene');
   }
 
-  // [odkrycie #2 powyzej] AKTUALIZUJ domyslny Level (juz istnieje, `initialLevel`
-  // juz na niego wskazuje) — NIE twórz drugiego. `updateEmbeddedDocuments`
-  // z pasujacym `_id` modyfikuje istniejacy wpis embedded collection.
+  // [discovery #2 above] UPDATE the default Level (it already exists,
+  // `initialLevel` already points to it) — do NOT create a second one.
+  // `updateEmbeddedDocuments` with a matching `_id` modifies the existing
+  // embedded collection entry.
   await scene.updateEmbeddedDocuments('Level', [
     {
       _id: DEFAULT_LEVEL_ID,

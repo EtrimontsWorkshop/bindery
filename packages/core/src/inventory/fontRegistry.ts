@@ -1,16 +1,17 @@
 /**
- * Rejestr fontow i ranking rol (MDD §5.1, F0-Q1, R-16, KROK-4 Z2).
+ * Font registry and role ranking (MDD §5.1, F0-Q1, R-16, Step 4 Z2).
  *
- * Fundament: fonty osadzone NIE MAJA flag bold/italic i sufiksy wag roznia sie
- * miedzy odlewniami w nieograniczony sposob (Autobahn, DwarvenAxeBB, -SC700...).
- * Dlatego `key` to zawsze nieprzezroczysty klucz (BaseFont po zdjeciu prefiksu
- * subsetu + rozmiar), a ROLA wynika z rankingu czestosci/rozmiaru w calym
- * dokumencie — NIGDY z parsowania sufiksu. `display` istnieje wylacznie do
- * prezentacji w UI/Profile Studio i nie moze wplywac na `key` ani `role`.
+ * Foundation: embedded fonts DO NOT HAVE bold/italic flags, and weight
+ * suffixes vary between foundries in unbounded ways (Autobahn, DwarvenAxeBB,
+ * -SC700...). That's why `key` is always an opaque key (BaseFont with the
+ * subset prefix stripped + size), and the ROLE comes from a
+ * frequency/size ranking across the whole document — NEVER from parsing the
+ * suffix. `display` exists solely for presentation in the UI/Profile Studio
+ * and must never influence `key` or `role`.
  */
 
 export interface FontEntry {
-  /** Klucz nosny: BaseFont po zdjeciu prefiksu subsetu + zaokraglony rozmiar. */
+  /** The carrier key: BaseFont with the subset prefix stripped + rounded size. */
   key: string;
   baseFont: string;
   subsetPrefix: string | null;
@@ -18,7 +19,7 @@ export interface FontEntry {
   glyphCount: number;
   itemCount: number;
   pages: Set<number>;
-  /** Wylacznie do prezentacji. Nigdy jako warunek w regule. */
+  /** For presentation only. Never used as a condition in a rule. */
   display?: { family: string; weightSuffix?: string; italic?: boolean };
 }
 
@@ -26,15 +27,15 @@ export type FontRole = 'body' | 'heading' | 'caption' | 'accent' | 'unknown';
 
 const SUBSET_PREFIX_RE = /^([A-Z]{6})\+(.+)$/;
 
-/** Zdejmuje prefiks subsetu (6 wielkich liter + "+") z /BaseFont, jesli obecny. */
+/** Strips the subset prefix (6 uppercase letters + "+") from /BaseFont, if present. */
 export function stripSubsetPrefix(baseFont: string): { prefix: string | null; name: string } {
   const m = SUBSET_PREFIX_RE.exec(baseFont);
   if (m) return { prefix: m[1]!, name: m[2]! };
   return { prefix: null, name: baseFont };
 }
 
-// Slownik sufiksow wag/stylow — WYLACZNIE kosmetyka do `display`. Nieznany sufiks
-// nie jest bledem: rodzina staje sie cala nazwa, weightSuffix/italic zostaja undefined.
+// Dictionary of weight/style suffixes — SOLELY cosmetic, for `display`. An unknown
+// suffix is not an error: the family becomes the whole name, weightSuffix/italic stay undefined.
 const STYLE_SUFFIXES: Array<{ re: RegExp; weightSuffix?: string; italic?: boolean }> = [
   { re: /-?(SemiboldItalic|SemiBoldItalic|SemiboldIt|SemiBoldIt)$/i, weightSuffix: 'SemiBold', italic: true },
   { re: /-?(ExtraBoldItalic|ExtraBoldIt)$/i, weightSuffix: 'ExtraBold', italic: true },
@@ -54,7 +55,7 @@ const STYLE_SUFFIXES: Array<{ re: RegExp; weightSuffix?: string; italic?: boolea
   { re: /-?(Regular|Roman|Normal)$/i, weightSuffix: 'Regular' },
 ];
 
-/** Parsuje sufiks wagi/stylu z nazwy fontu — WYLACZNIE do `display`, nigdy do `key`. */
+/** Parses a weight/style suffix from a font name — SOLELY for `display`, never for `key`. */
 export function parseDisplaySuffix(name: string): { family: string; weightSuffix?: string; italic?: boolean } {
   for (const { re, weightSuffix, italic } of STYLE_SUFFIXES) {
     const m = re.exec(name);
@@ -69,7 +70,7 @@ export function parseDisplaySuffix(name: string): { family: string; weightSuffix
   return { family: name };
 }
 
-/** Buduje klucz nosny: nazwa (po zdjeciu prefiksu) + rozmiar zaokraglony do 0.5pt. */
+/** Builds the carrier key: name (prefix stripped) + size rounded to 0.5pt. */
 export function buildFontKey(baseFont: string, size: number): string {
   const { name } = stripSubsetPrefix(baseFont);
   const roundedSize = Math.round(size * 2) / 2;
@@ -77,11 +78,11 @@ export function buildFontKey(baseFont: string, size: number): string {
 }
 
 /**
- * Rozwiazuje `TextItem.fontName` (id pdf.js) na klucz nosny fontu przez
- * `page.commonObjs` — ten sam mechanizm co `inventory.ts` (wypelnione juz przez
- * `getOperatorList()`/`getTextContent()`, bez renderu, F0-Q1). Wspoldzielone
- * miedzy inwentaryzacja (krok 4) a warstwa tekstu (krok 5), zeby oba modul
- * uzywaly IDENTYCZNEGO klucza dla tego samego fontu.
+ * Resolves `TextItem.fontName` (a pdf.js id) to a carrier font key via
+ * `page.commonObjs` — the same mechanism as `inventory.ts` (already
+ * populated by `getOperatorList()`/`getTextContent()`, no render needed,
+ * F0-Q1). Shared between inventory building (step 4) and the text layer
+ * (step 5), so both modules use an IDENTICAL key for the same font.
  */
 export function resolveFontKey(
   fontName: string | undefined,
@@ -96,13 +97,13 @@ export function resolveFontKey(
 }
 
 /**
- * Ranking rol per dokument z czestosci/rozmiaru — NIE z parsowania nazw (MDD F0-Q1).
- * Heurystyka wyjsciowa z KROK-4 (do kalibracji na fixture'ach, nie dogmat):
- * - `body`   — klucz o najwiekszym udziale w lacznej liczbie glifow
- * - `heading`— udzial < 5% i rozmiar > 1.2x rozmiaru body
- * - `caption`— udzial < 10% i rozmiar < 0.9x rozmiaru body
- * - `accent` — udzial < 5%, rozmiar zblizony do body (0.9x-1.2x)
- * - `unknown`— reszta
+ * Per-document role ranking from frequency/size — NOT from name parsing (MDD F0-Q1).
+ * Starting heuristic from Step 4 (to be calibrated on fixtures, not dogma):
+ * - `body`   — the key with the largest share of total glyph count
+ * - `heading`— share < 5% and size > 1.2x the body size
+ * - `caption`— share < 10% and size < 0.9x the body size
+ * - `accent` — share < 5%, size close to body (0.9x-1.2x)
+ * - `unknown`— everything else
  */
 export function rankFontRoles(entries: readonly FontEntry[]): Map<string, FontRole> {
   const roles = new Map<string, FontRole>();

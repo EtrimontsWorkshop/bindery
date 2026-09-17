@@ -1,32 +1,32 @@
 import type { Rect } from '../geometry.js';
 
 /**
- * [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] Granica sekcji
- * (przeciagana lub wyszukiwana geometrycznie po Y) nie znala kolumn — na
- * dwulamowej stronie kandydat "geometrycznie najblizszy" wybranej wysokosci
- * bywa tokenem PROZY Z SASIEDNIEJ KOLUMNY, nie naglowkiem konczacym sekcje we
- * WLASNEJ kolumnie. Zglaszajacy potwierdzil wprost, ze to NIE jest waski
- * przypadek "dwie postacie obok siebie" (odlozony jako O5 w kroku 29) — dotyczy
- * KAZDEJ strony dwulamowej, czyli normy w podrecznikach RPG.
+ * [Bug measured live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] The section boundary
+ * (dragged or found geometrically by Y) had no knowledge of columns — on a
+ * two-column page, the "geometrically closest" candidate at a chosen height
+ * could be a PROSE token FROM THE NEIGHBORING COLUMN, rather than the header
+ * ending the section in its OWN column. The reporter explicitly confirmed this is
+ * NOT the narrow "two characters side by side" case (deferred as O5 in step 29) — it applies to
+ * EVERY two-column page, i.e. the norm in RPG rulebooks.
  *
- * `findColumnBand` wyznacza pasmo X (WYLACZNIE os pozioma — kolumny w tych
- * ukladach biegna przez cala wysokosc strony, wiec Y jest nieistotny) kolumny
- * zawierajacej dany token, metoda scalania przedzialow: kazdy token to
- * przedzial `[minX, maxX]`, przedzialy stykajace sie lub nakladajace sa
- * scalane w grupy — "kolumna" to grupa zawierajaca cel. Na stronie
- * JEDNOLAMOWEJ caly tekst scala sie w JEDNA grupe (pelna szerokosc tresci) —
- * zero zmiany zachowania dla ukladow jednolamowych (oba profile referencyjne
- * tego projektu).
+ * `findColumnBand` determines the X band (ONLY the horizontal axis — columns in these
+ * layouts run the full height of the page, so Y is irrelevant) of the column
+ * containing a given token, using an interval-merging method: each token is an
+ * interval `[minX, maxX]`, intervals that touch or overlap are
+ * merged into groups — the "column" is the group containing the target. On a
+ * SINGLE-COLUMN page, all text merges into ONE group (full content width) —
+ * zero behavior change for single-column layouts (both of this project's reference
+ * profiles).
  *
- * Zalozenie, ktore czyni te heurystyke wiarygodna (potwierdzone na realnej
- * probce): w kazdej realnej kolumnie istnieje PRZYNAJMNIEJ jeden token
- * (typowo dlugi wiersz prozy — opis ataku, lista umiejetnosci, opis potwora)
- * na tyle szeroki, ze POKRYWA wieksze przerwy miedzy waskimi tokenami tej samej
- * kolumny (np. pojedyncze etykiety siatki cech "S ... KON ... BC" maja miedzy
- * soba przerwy szersze niz odstep miedzywyrazowy) — bez takiego "mostu" ta
- * sama kolumna moglaby sie blednie rozpasc na kilka grup. Statbloki RPG niemal
- * zawsze maja przynajmniej jeden taki wiersz (opis ataku/umiejetnosci) w tej
- * samej kolumnie co siatka, wiec zalozenie trzyma sie w praktyce.
+ * The assumption that makes this heuristic reliable (confirmed on a real
+ * sample): every real column contains AT LEAST one token
+ * (typically a long line of prose — an attack description, a skills list, a monster
+ * description) wide enough to BRIDGE the larger gaps between narrow tokens in the same
+ * column (e.g. single attribute-grid labels like "STR ... CON ... LUCK" have
+ * gaps between them wider than normal word spacing) — without such a "bridge" that
+ * same column could incorrectly split into several groups. RPG statblocks almost
+ * always have at least one such line (attack/skills description) in the same
+ * column as the grid, so the assumption holds in practice.
  */
 export interface ColumnBandToken {
   bbox: Rect;
@@ -55,7 +55,7 @@ export function findColumnBand(tokens: readonly ColumnBandToken[], targetBbox: R
   return groups.find((g) => targetCenter >= g.minX && targetCenter <= g.maxX) ?? null;
 }
 
-/** Czy `bbox` lezy (srodkiem) wewnatrz pasma `band` — `null` band (np. brak tokenow na stronie) NIGDY nie odrzuca, bezpieczny brak dzialania zamiast falszywego odrzucenia. */
+/** Whether `bbox` lies (by its center) inside the `band` — a `null` band (e.g. no tokens on the page) NEVER rejects; a safe no-op instead of a false rejection. */
 export function isWithinColumnBand(bbox: Rect, band: ColumnBand | null): boolean {
   if (!band) return true;
   const center = (bbox.minX + bbox.maxX) / 2;

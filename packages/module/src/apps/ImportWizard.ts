@@ -4,7 +4,7 @@ import { STATBLOCKS_ENABLED } from '../features.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
-/** [KROK-21 Z1] Skrocone dane profilu do wyswietlenia — NIGDY tresc (R2: profil to instrukcje parsowania, nie interesuje nas jego "wyglad", tylko to, ze dziala). */
+/** [Step 21 Z1] Abbreviated profile data to display — NEVER content (R2: a profile is parsing instructions, we don't care about its "look", only that it works). */
 interface ActorProfileSummary {
   title: string;
   publication: string;
@@ -22,26 +22,27 @@ interface WizardState {
   reviewProgress: { done: number; total: number } | null;
   reviewBuildError: string | null;
   lastImportSummary: string | null;
-  /** [KROK-21 Z1] `null` = brak wczytanego pliku profilu jeszcze w tej sesji okna. */
+  /** [Step 21 Z1] `null` = no profile file loaded yet in this window session. */
   actorProfileFileName: string | null;
   actorProfileSummary: ActorProfileSummary | null;
   actorProfileIssues: readonly string[] | null;
 }
 
 /**
- * Ryzyko I3: pdf.js NIE jest importowany na poziomie modulu — dopiero wewnatrz
- * #onAnalyze, gdy uzytkownik faktycznie otworzy okno i kliknie analizuj.
- * Weryfikacja w Z7: swiat bez otwarcia tego okna nie powinien pobierac pdf.mjs
- * ani @bindery/core (ktory reeksportuje typy, ale kod inspectDocument tez
- * dynamicznie importuje pdfjs-dist wewnatrz — samo @bindery/core jest male).
+ * Risk I3: pdf.js is NOT imported at the module level — only inside
+ * #onAnalyze, when the user actually opens the window and clicks analyze.
+ * Verified in Z7: a world that never opens this window should not download
+ * pdf.mjs or @bindery/core (which re-exports types, but the inspectDocument
+ * code inside it also dynamically imports pdfjs-dist — @bindery/core itself
+ * is small).
  *
- * [KROK-11] `ReviewScreen` jest DYNAMICZNIE importowany dopiero w
- * `#onOpenReview` (ten sam powod I3 — nie obciazac budzetu <40KB startu
- * swiata skladem calego ekranu przegladu, wirtualizacji itd., ktore sa
- * potrzebne WYLACZNIE po faktycznym kliknieciu). Ten plik NIE tworzy juz
- * zadnych dokumentow Foundry samodzielnie — wylacznie buduje `CIFDocument` i
- * oddaje kontrole `ReviewScreen`, ktory jest JEDYNYM miejscem tworzacym
- * Scene/JournalEntry (A5: czlowiek zawsze przeglada przed zapisem).
+ * [Step 11] `ReviewScreen` is DYNAMICALLY imported only in `#onOpenReview`
+ * (the same I3 reason — not loading the <40KB world-startup budget with the
+ * whole review screen's code, virtualization etc., which are needed ONLY
+ * after the button is actually clicked). This file no longer creates any
+ * Foundry documents by itself — it ONLY builds a `CIFDocument` and hands
+ * control to `ReviewScreen`, which is the ONLY place that creates
+ * Scene/JournalEntry documents (A5: a human always reviews before saving).
  */
 export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
@@ -53,14 +54,15 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       icon: 'fa-solid fa-file-import',
     },
     position: {
-      // [redesign 2a] 480 -> 560: strefa zrzutu pliku + karta profilu
-      // potrzebuja wiecej oddechu niz dawny, ciasny uklad tabelaryczny.
+      // [redesign 2a] 480 -> 560: the drop zone + profile card need more
+      // breathing room than the old, cramped tabular layout.
       width: 560,
-      // [KROK-8, odkrycie] `height: 'auto'` nie daje przeskrolowania, gdy tresc
-      // (siatka wyekstrahowanych obrazow) urosnie ponad widoczny obszar — okno
-      // po prostu obcina reszte bez paska przewijania. Stala wysokosc + CSS
-      // `overflow-y` na `.window-content` (domyslne Foundry) daje przewijanie;
-      // `resizable: true` (juz ustawione) pozwala uzytkownikowi powiekszyc okno.
+      // [Step 8, discovery] `height: 'auto'` doesn't allow scrolling when
+      // the content (the extracted-images grid) grows beyond the visible
+      // area — the window simply clips the rest with no scrollbar. A fixed
+      // height + CSS `overflow-y` on `.window-content` (Foundry's default)
+      // gives scrolling; `resizable: true` (already set) lets the user
+      // enlarge the window.
       height: 600,
     },
     actions: {
@@ -73,20 +75,20 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   static override PARTS = {
     main: {
       template: 'modules/bindery/templates/wizard.hbs',
-      // [zgloszenie uzytkownika, "przewijanie na dol wraca na gore"] Postep
-      // budowania przegladu (`onProgress` nizej) wola `this.render()` RAZ NA
-      // STRONE — ApplicationV2 (`HandlebarsApplicationMixin`) podmienia CALY
-      // korzen tej czesci (`.bindery-wizard-root`) na nowy element przy
-      // kazdym renderze (`_replaceHTML`, `element.replaceWith(...)`, bo ta
-      // czesc nie ma `root: true`), wiec przewijana tresc WEWNATRZ niej
-      // (`.bindery-wizard-body`, `overflow-y: auto` w `bindery.css`) dostaje
-      // SWIEZY element ze `scrollTop` zerowanym z definicji — uzytkownik
-      // przewija w dol, zeby zobaczyc licznik stron, a kolejny tik postepu
-      // natychmiast to cofa. `scrollable` to udokumentowany mechanizm samego
-      // Foundry (`handlebars-application.mjs`, `_preSyncPartState`/
-      // `_syncPartState`) na dokladnie ten przypadek: zapamietuje
-      // `scrollTop`/`scrollLeft` wskazanego selektora PRZED podmiana i
-      // przywraca PO niej — zaden wlasny mechanizm nie jest potrzebny.
+      // [user report, "scrolling down jumps back to the top"] The review
+      // build progress (`onProgress` below) calls `this.render()` ONCE PER
+      // PAGE — ApplicationV2 (`HandlebarsApplicationMixin`) replaces the
+      // ENTIRE root of this part (`.bindery-wizard-root`) with a new
+      // element on EVERY render (`_replaceHTML`, `element.replaceWith(...)`,
+      // because this part doesn't have `root: true`), so the scrollable
+      // content INSIDE it (`.bindery-wizard-body`, `overflow-y: auto` in
+      // `bindery.css`) gets a FRESH element with `scrollTop` reset by
+      // definition — the user scrolls down to see the page counter, and the
+      // next progress tick immediately reverts it. `scrollable` is Foundry's
+      // own documented mechanism (`handlebars-application.mjs`,
+      // `_preSyncPartState`/`_syncPartState`) for exactly this case: it
+      // remembers the `scrollTop`/`scrollLeft` of the given selector BEFORE
+      // the swap and restores it AFTER — no custom mechanism is needed.
       scrollable: ['.bindery-wizard-body'],
     },
   };
@@ -109,27 +111,28 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   #fileBuffer: ArrayBuffer | null = null;
   #buildController: AbortController | null = null;
   /**
-   * [naprawa zgloszonego bledu — recenzja calego designu] `#buildController`
-   * jest zerowany zaraz PO fazie budowy CIF (`finally` w `#onOpenReview`),
-   * WCZESNIEJ niz `openPreviewForReview`/`ReviewScreen.open()` (te dwa kroki
-   * nie maja wlasnego `AbortSignal` — `openPreviewDocument` w core go nie
-   * przyjmuje). Zamkniecie okna W TYM oknie czasowym robilo z `close()`'s
-   * `abort()` cichy no-op i `ReviewScreen` otwieral sie mimo wszystko, mimo
-   * jawnego zamkniecia przez uzytkownika. Ta flaga jest sprawdzana PO obu
-   * tych krokach, niezaleznie od `#buildController`.
+   * [bug fix — full design review] `#buildController` is nulled right AFTER
+   * the CIF build phase (`finally` in `#onOpenReview`), EARLIER than
+   * `openPreviewForReview`/`ReviewScreen.open()` (these two steps don't have
+   * their own `AbortSignal` — `openPreviewDocument` in core doesn't accept
+   * one). Closing the window during THIS time window made `close()`'s
+   * `abort()` a silent no-op, and `ReviewScreen` would open anyway, despite
+   * the user's explicit close. This flag is checked AFTER both of these
+   * steps, independent of `#buildController`.
    */
   #closed = false;
-  /** [KROK-21 Z1] Profil zwalidowany, gotowy do przekazania do `buildJournalsForReview` — `null` = brak (import bez rozpoznawania postaci, jak dzis dla PDF-ow bez profilu). */
+  /** [Step 21 Z1] The validated profile, ready to pass to `buildJournalsForReview` — `null` = none (import without character recognition, as it works today for PDFs without a profile). */
   #actorProfile: import('@bindery/core').ProfileV2 | null = null;
-  /** Przywracanie zapamietanego profilu ze `game.settings` uruchamiane WYLACZNIE raz na instancje okna (nie przy kazdym renderze). */
+  /** Restoring the remembered profile from `game.settings` runs ONLY once per window instance (not on every render). */
   #actorProfileRestoreAttempted = false;
 
   override async _prepareContext(): Promise<Record<string, unknown>> {
-    // [KROK-44 Z1] Statbloki ukryte za flaga (patrz `features.ts`) — pomija
-    // NAWET przywrocenie zapamietanego profilu z `game.settings`, zeby swiat z
-    // profilem zapisanym PRZED tym wydaniem nie wznowil po cichu parsowania
-    // aktorow mimo ukrytego UI (`#actorProfile` musi zostac `null`, nie tylko
-    // sekcja wczytywania musi zniknac z widoku).
+    // [Step 44 Z1] Statblocks are hidden behind a flag (see `features.ts`) —
+    // this skips EVEN restoring a remembered profile from `game.settings`,
+    // so that a world with a profile saved BEFORE this release doesn't
+    // silently resume parsing actors despite the hidden UI (`#actorProfile`
+    // must stay `null`, not just have its loading section disappear from
+    // view).
     if (STATBLOCKS_ENABLED) void this.#ensureActorProfileRestored();
     return {
       statblocksEnabled: STATBLOCKS_ENABLED,
@@ -153,21 +156,20 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-21 Z1] Wywolywane z `_prepareContext` (jedyne miejsce pewnie
-   * wywolywane PRZED kazdym renderem), ale robi robote WYLACZNIE raz na
-   * instancje okna — kolejne wywolania to no-op. Laduje `@bindery/core`
-   * (ryzyko I3) dopiero TERAZ, czyli gdy uzytkownik faktycznie otworzyl okno
-   * importu — "otwarcie kreatora" jest jednym z dwoch dozwolonych wyzwalaczy
-   * w CLAUDE.md (obok klikniecia Analizuj), wiec to NIE jest ladowanie na
-   * starcie swiata.
+   * [Step 21 Z1] Called from `_prepareContext` (the only place reliably
+   * called BEFORE every render), but does its work ONLY once per window
+   * instance — subsequent calls are a no-op. Loads `@bindery/core` (risk I3)
+   * only NOW, i.e. once the user has actually opened the import window —
+   * "opening the wizard" is one of the two allowed triggers in CLAUDE.md
+   * (alongside clicking Analyze), so this is NOT loading at world startup.
    */
   async #ensureActorProfileRestored(): Promise<void> {
     if (this.#actorProfileRestoreAttempted) return;
     this.#actorProfileRestoreAttempted = true;
     const saved = game.settings!.get(MODULE_ID, 'lastActorProfile');
-    if (!saved.fileName) return; // fileName === '' (default) = brak zapamietanego profilu
+    if (!saved.fileName) return; // fileName === '' (default) = no remembered profile
     const result = await validateActorProfileFile(saved.profile);
-    if (!result.ok) return; // profil zapamietany wczesniej przestal byc poprawny (np. edytowany recznie w bazie) — cichy powrot do "brak profilu", nie blad przy otwarciu okna
+    if (!result.ok) return; // a previously remembered profile is no longer valid (e.g. hand-edited in the database) — silently fall back to "no profile", not an error on window open
     this.#actorProfile = result.profile;
     this.#state.actorProfileFileName = saved.fileName;
     this.#state.actorProfileSummary = {
@@ -181,9 +183,9 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  // Typy generyczne bazowej klasy sa parametryzowane instancja; w podklasie bez
-  // wlasnych parametrow generycznych prostsze i rownie bezpieczne w praktyce jest
-  // przekazanie bez zmian dalej do super.
+  // The base class's generic types are parameterized by the instance; in a
+  // subclass with no generic parameters of its own, it's simpler and just
+  // as safe in practice to pass through unchanged to super.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
@@ -192,12 +194,12 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#onPdfFileSelected(input.files?.[0] ?? null);
     });
 
-    // [redesign 2a, "zaimplementuj obsluge drop, albo nie obiecuj jej
-    // wizualnie"] Strefa zrzutu wolala TA SAMA sciezke co zmiana pliku przez
-    // input (`#onPdfFileSelected`) — jedno zrodlo prawdy, zero powielonej
-    // logiki wyboru pliku. `dragover` musi wywolywac `preventDefault()`,
-    // inaczej przegladarka domyslnie OTWIERA upuszczony plik jako nawigacje
-    // zamiast wywolac `drop`.
+    // [redesign 2a, "implement drop handling, or don't visually promise it"]
+    // The drop zone calls the SAME path as the file input's change event
+    // (`#onPdfFileSelected`) — one source of truth, zero duplicated file
+    // selection logic. `dragover` must call `preventDefault()`, otherwise
+    // the browser's default behavior OPENS the dropped file as navigation
+    // instead of firing `drop`.
     const dropzone = this.element.querySelector<HTMLElement>('[data-role="dropzone"]');
     dropzone?.addEventListener('dragover', (ev) => {
       ev.preventDefault();
@@ -239,12 +241,13 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-21 Z1] Jedyna droga do wczytania profilu aktorow — plik wybrany
-   * przez uzytkownika, walidowany przez ISTNIEJACE `validateProfile` (ten sam
-   * kontrakt co profile docelowo ladowane przez rejestr D2/D3, wciaz
-   * niezbudowany). Zly plik -> czytelny blad w oknie, NIGDY wyjatek w konsoli
-   * (DoD kroku 21). Sukces -> profil zapamietany per swiat (`game.settings`),
-   * zeby nie trzeba bylo wskazywac go przy kazdym imporcie.
+   * [Step 21 Z1] The only way to load an actor profile — a file chosen by
+   * the user, validated by the EXISTING `validateProfile` (the same
+   * contract as profiles eventually loaded through the D2/D3 registry,
+   * still unbuilt). A bad file -> a readable error in the window, NEVER an
+   * exception in the console (step 21 DoD). Success -> the profile is
+   * remembered per world (`game.settings`), so it doesn't need to be
+   * selected again on every import.
    */
   async #onActorProfileFileSelected(file: File): Promise<void> {
     this.#state.actorProfileFileName = file.name;
@@ -300,8 +303,8 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
 
     try {
       this.#fileBuffer = await this.#selectedFile.arrayBuffer();
-      // Dynamiczny import — dopiero teraz pdf.js (i @bindery/core, ktore go uzywa)
-      // faktycznie sie laduje. Ryzyko I3.
+      // Dynamic import — only now does pdf.js (and @bindery/core, which uses
+      // it) actually get loaded. Risk I3.
       const { inspectDocument } = await import('@bindery/core');
       const summary = await inspectDocument(this.#fileBuffer, { assetBaseUrl: ASSET_BASE_URL });
       this.#state.status = 'done';
@@ -309,8 +312,8 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     } catch (err: unknown) {
       this.#state.status = 'error';
       const name = (err as { name?: string } | null)?.name;
-      // R4: PDF zaszyfrowany -> czytelny komunikat, zero prob obejscia zabezpieczen,
-      // zero nieobslugiwanego wyjatku w konsoli.
+      // R4: an encrypted PDF -> a readable message, zero attempts to bypass
+      // protections, zero unhandled exception in the console.
       this.#state.errorMessage =
         name === 'PasswordException'
           ? game.i18n!.localize('BINDERY.wizard.errorEncrypted')
@@ -322,11 +325,11 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-11] Zastepuje dawny lancuch extractImages->buildJournals->createJournals
-   * (kazdy krok tworzacy dokumenty NATYCHMIAST, bez przegladu) — teraz buduje
-   * caly `CIFDocument` (obrazy+sceny+journale+diagnostyka), otwiera podglad
-   * strony i oddaje WSZYSTKO ekranowi przegladu. Zero dokumentow Foundry
-   * powstaje w TEJ funkcji.
+   * [Step 11] Replaces the old extractImages->buildJournals->createJournals
+   * chain (each step creating documents IMMEDIATELY, with no review) — it
+   * now builds the whole `CIFDocument` (images+scenes+journals+diagnostics),
+   * opens a page preview, and hands EVERYTHING to the review screen. Zero
+   * Foundry documents are created in THIS function.
    */
   static async #onOpenReview(this: ImportWizard): Promise<void> {
     if (!this.#fileBuffer || !this.#state.fileName) return;
@@ -362,11 +365,11 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
 
     try {
       const previewDocument = await openPreviewForReview(this.#fileBuffer);
-      // [naprawa zgloszonego bledu — recenzja calego designu] `#buildController`
-      // jest juz `null` w tym miejscu (patrz komentarz przy polu `#closed`) —
-      // bez tej sprawdzajacej flagi, zamkniecie okna DOKLADNIE w tym oknie
-      // czasowym (miedzy koncem budowy CIF a otwarciem podgladu) nie mialo
-      // jak zatrzymac ponizszego `ReviewScreen.open()`.
+      // [bug fix — full design review] `#buildController` is already `null`
+      // at this point (see the comment near the `#closed` field) — without
+      // this checked flag, closing the window EXACTLY within this time
+      // window (between the end of the CIF build and opening the preview)
+      // had no way to stop the `ReviewScreen.open()` call below.
       if (this.#closed) {
         await previewDocument.destroy();
         return;
@@ -391,7 +394,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     } catch (err) {
       this.#state.isBuildingReview = false;
       this.#state.reviewBuildError = game.i18n!.localize('BINDERY.wizard.journalBuildErrorGeneric');
-      console.warn('Bindery | otwarcie ekranu przegladu nieudane:', err);
+      console.warn('Bindery | opening the review screen failed:', err);
       await this.render();
     }
   }

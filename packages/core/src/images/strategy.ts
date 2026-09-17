@@ -1,21 +1,22 @@
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 
 /**
- * Strategia ekstrakcji (KROK-7 Z2, MDD faza 3). Nie kazdy obraz sklasyfikowany
- * jako `content` wolno wyciagnac bezposrednio — decyzja zawsze z jawnym
- * uzasadnieniem (`reason`), nigdy samo `boolean` (brief: potrzebne w raporcie
- * i na ekranie przegladu, faza 9).
+ * Extraction strategy (Step 7 Z2, MDD phase 3). Not every image classified
+ * as `content` may be extracted directly — the decision always comes with
+ * an explicit justification (`reason`), never a plain `boolean` (per the
+ * brief: needed in the report and on the review screen, phase 9).
  *
- * Tabela z briefu ma piec wierszy, ale tylko DWIE strategie koncowe:
- * - `direct` — tylko "pojedynczy obraz, brak maski, brak klastra".
- * - `region-render` — wszystko inne (maska, klaster, brak obrazu/wektor, przezroczystosc nad tlem).
+ * The brief's table has five rows, but only TWO final strategies:
+ * - `direct` — only "a single image, no mask, no cluster".
+ * - `region-render` — everything else (mask, cluster, no image/vector, transparency over background).
  *
- * Uwaga: "obraz z przezroczystoscia nad tlem" (ostatni wiersz tabeli) NIE ma
- * dzis niezaleznego sygnalu wykrywalnego bez decodowania kanalu alfa — celowo
- * NIE budujemy pod to osobnego mechanizmu (brief: nie inwestuj w luki U5-podobne).
- * Traktowany jako podzbior "obraz z maska" (`isMasked`): oba wymagaja renderu
- * kompozycji zamiast surowego zasobu, a `maskEvidence` juz to wykrywa dla
- * przypadkow z jawna maska SMask/Luminosity lub opcode maski.
+ * Note: "an image with transparency over background" (the table's last row)
+ * has no independent signal today that's detectable without decoding the
+ * alpha channel — we DELIBERATELY do NOT build a separate mechanism for this
+ * (per the brief: don't invest in U5-like gaps). Treated as a subset of "an
+ * image with a mask" (`isMasked`): both require rendering the composition
+ * instead of the raw resource, and `maskEvidence` already detects this for
+ * cases with an explicit SMask/Luminosity mask or a mask opcode.
  */
 
 export type ExtractionStrategy = 'direct' | 'region-render';
@@ -26,11 +27,11 @@ export interface StrategyDecision {
 }
 
 export interface StrategyInput {
-  /** `null` = region czysto wektorowy (mapa rysowana), brak obrazu do wyciagniecia. */
+  /** `null` = a purely vector region (a drawn map), no image to extract. */
   entry: ImageEntry | null;
-  /** Czy TEN zasob jest maskowany przez inny wpis (jego objId to `masksImageObjId` jakiegos wpisu z twardym dowodem maski). */
+  /** Whether THIS resource is masked by another entry (its objId is the `masksImageObjId` of some entry with hard mask evidence). */
   isMasked: boolean;
-  /** Liczba ODREBNYCH zasobow (ImageEntry) dzielacych ten sam klaster nakladajacych sie wystapien na tej samej stronie, WLICZAJAC ten wpis. */
+  /** Number of DISTINCT resources (ImageEntry) sharing the same cluster of overlapping occurrences on the same page, INCLUDING this entry. */
   clusterMemberCount: number;
 }
 
@@ -48,8 +49,8 @@ export function decideExtractionStrategy(input: StrategyInput): StrategyDecision
 }
 
 /**
- * Zbiór `objId` zasobow ZAMASKOWANYCH przez KTORYKOLWIEK wpis z twardym
- * dowodem maski (`maskEvidence` group/opcode) wskazujacy je przez `masksImageObjId`.
+ * Set of resource `objId`s MASKED by ANY entry with hard mask evidence
+ * (`maskEvidence` group/opcode) pointing to them via `masksImageObjId`.
  */
 export function computeMaskedObjIds(entries: readonly ImageEntry[]): ReadonlySet<string> {
   const masked = new Set<string>();
@@ -62,22 +63,24 @@ export function computeMaskedObjIds(entries: readonly ImageEntry[]): ReadonlySet
 }
 
 /**
- * Liczba ODREBNYCH wpisow dzielacych ten sam `clusterId` (patrz `ImageEntry.clusterId`,
- * przypisywany w kroku 4 per pierwsze wystapienie) — wpisy bez `clusterId` licza sie jako samotne (1).
+ * Number of DISTINCT entries sharing the same `clusterId` (see
+ * `ImageEntry.clusterId`, assigned in step 4 per first occurrence) — entries
+ * with no `clusterId` count as solitary (1).
  *
- * [wyjasnienie po recenzji calego designu — NIE mylic z prawdziwa decyzja
- * pipeline'u] To jest UPROSZCZONA, jednoprzebiegowa miara po `clusterId`
- * (wczesny sygnal z inwentaryzacji, liczony PRZED filtrowaniem do
- * content/undecided). Prawdziwy `clusterMemberCount` uzywany przez
- * `buildImageExtraction.ts` do faktycznej decyzji `direct` vs `region-render`
- * pochodzi z ZUPELNIE NIEZALEZNEGO, dwuetapowego algorytmu tamtego pliku
- * (`groupIntoUnits`/`partitionCandidatesIntoGroups`, oparty o kotwice i
- * wspolczynnik nakladania, naprawiony w KROK-16 wlasnie dlatego, ze
- * `clusterId`-owe grupowanie dawalo zle wyniki na `img_p13_*`/`img_p15_*`).
- * Te dwie liczby MOGA sie roznic dla tego samego obrazu. Ta funkcja istnieje
- * wylacznie do przyblizonego raportowania (`tools/calibrate-images.ts`) i
- * jest przetestowana jako WLASNA, izolowana jednostka — NIE uzywaj jej, zeby
- * przewidziec/zweryfikowac faktyczna strategie ekstrakcji konkretnego obrazu.
+ * [clarification after a full design review — DO NOT confuse with the
+ * pipeline's real decision] This is a SIMPLIFIED, single-pass measure over
+ * `clusterId` (an early signal from the inventory pass, computed BEFORE
+ * filtering to content/undecided). The real `clusterMemberCount` used by
+ * `buildImageExtraction.ts` for the actual `direct` vs `region-render`
+ * decision comes from that file's COMPLETELY INDEPENDENT, two-stage
+ * algorithm (`groupIntoUnits`/`partitionCandidatesIntoGroups`, based on
+ * anchors and an overlap ratio, fixed in Step 16 precisely because
+ * `clusterId`-based grouping gave wrong results on
+ * `img_p13_*`/`img_p15_*`). These two numbers CAN differ for the same
+ * image. This function exists exclusively for approximate reporting
+ * (`tools/calibrate-images.ts`) and is tested as its OWN, isolated unit —
+ * do NOT use it to predict/verify the actual extraction strategy of a
+ * specific image.
  */
 export function computeClusterMemberCounts(entries: readonly ImageEntry[]): ReadonlyMap<ImageEntry, number> {
   const countByClusterId = new Map<string, number>();

@@ -3,49 +3,49 @@ import type { Diagnostic } from '../text/types.js';
 import type { TextLine } from './lineCluster.js';
 
 /**
- * Detekcja kolumn (KROK-6 Z3) — histogram gestosci na osi X, TYLKO strumien 0°,
- * TYLKO linie KOLUMNOWE (Z2 musi byc wywolane pierwsze — inaczej naglowek
- * rozpinajacy niszczy dolina rynny). Rzutuje bboksy LINII, nie itemow (U1:
- * itemy sa fragmentaryczne, linie nie).
+ * Column detection (Step 6 Z3) — density histogram on the X axis, ONLY the 0°
+ * stream, ONLY COLUMNAR lines (Z2 must run first — otherwise a spanning
+ * header destroys the gutter valley). Projects LINE bboxes, not item bboxes
+ * (U1: items are fragmentary, lines are not).
  *
- * Brak wyraznych dolin -> jedna kolumna, z confidence=1. To POPRAWNA odpowiedz
- * (brief), nie awaria detekcji.
+ * No clear valleys -> a single column, with confidence=1. That is the CORRECT
+ * answer (per the brief), not a detection failure.
  */
 
 export interface ColumnRegion {
-  /** Kolejnosc czytania (0-based), lewo->prawo dla strumienia 0°. */
+  /** Reading order (0-based), left->right for the 0° stream. */
   index: number;
   bbox: Rect;
 }
 
 export interface ColumnDetectionResult {
   columns: ColumnRegion[];
-  /** 0-1, dla CALEGO wyniku (nie per-kolumna) — jakosc najslabszej potwierdzonej rynny; 1 gdy brak rynien (jedna kolumna). */
+  /** 0-1, for the WHOLE result (not per column) — quality of the weakest confirmed gutter; 1 when there are no gutters (single column). */
   confidence: number;
   diagnostics: Diagnostic[];
 }
 
 const HISTOGRAM_BIN_WIDTH_PT = 2;
-/** Rynna musi miec przynajmniej tyle punktow szerokosci, zeby liczyc sie jako kandydat (kalibrowane na samples/, patrz RAPORT-KROK-6.md). */
+/** A gutter must be at least this many points wide to count as a candidate (calibrated on samples/, see RAPORT-KROK-6.md). */
 const MIN_VALLEY_WIDTH_PT = 10;
-/** Gestosc w dolinie ponizej tego udzialu maksimum histogramu liczy sie jako "pusta". */
+/** Density in a valley below this fraction of the histogram maximum counts as "empty". */
 const MAX_VALLEY_DENSITY_RATIO = 0.05;
 /**
- * Walidacja pionowa (brief): prawdziwa rynna jest pusta na WIEKSZOSCI wysokosci
- * bloku tekstu. Dolina widoczna tylko w gornej cwiartce strony (krotki akapit
- * konczacy sie wczesnie) to przypadek geometryczny, nie prawdziwa kolumnowa rynna.
+ * Vertical validation (per the brief): a true gutter is empty across MOST of the
+ * height of the text block. A valley visible only in the top quarter of the page
+ * (a short paragraph ending early) is a geometric coincidence, not a true column gutter.
  */
 const MIN_VERTICAL_EMPTY_RATIO = 0.7;
 /**
- * [KROK-6, odkrycie] Rynna moze byc realna (pusta na wiekszosci wysokosci) a
- * mimo to NIE oddzielac dwoch prawdziwych kolumn czytania — sidebar (ramka
- * wektorowa z krotkim tekstem obok kolumny) tworzy dokladnie taka sytuacje:
- * waska "kolumna" po jego stronie rynny istnieje tylko na malym WYCINKU
- * wysokosci bloku (empirycznie: fixture layout-2col-sidebar, sidebar zajmuje
- * ~33% wysokosci bloku). Brief (DoD): sidebar ma byc osobnym BLOKIEM (Z6,
- * sygnal regionu wektorowego), NIE trzecia kolumna. Kandydat na kolumne, ktorej
- * WLASNA tresc pokrywa mniej niz ten odsetek wysokosci bloku, jest scalany z
- * sasiadem zamiast liczony jako osobna kolumna czytania.
+ * [Step 6, discovery] A gutter can be real (empty across most of the height) and
+ * still NOT separate two true reading columns — a sidebar (a vector frame with
+ * short text next to a column) creates exactly this situation: the narrow
+ * "column" on its side of the gutter exists only over a small SLICE of the
+ * block height (empirically: fixture layout-2col-sidebar, the sidebar covers
+ * ~33% of the block height). Per the brief (DoD): a sidebar should be its own
+ * BLOCK (Z6, vector-region signal), NOT a third column. A column candidate whose
+ * OWN content covers less than this fraction of the block height gets merged
+ * with its neighbor instead of counted as a separate reading column.
  */
 const MIN_COLUMN_VERTICAL_SPAN_RATIO = 0.5;
 
@@ -78,8 +78,8 @@ function singleColumn(textBlock: Rect): ColumnDetectionResult {
 }
 
 /**
- * Wykrywa kolumny na JEDNEJ stronie z juz-wydzielonych linii kolumnowych (Z2).
- * `pageNumber` wylacznie do `Diagnostic.pageNumber`.
+ * Detects columns on ONE page from already-separated columnar lines (Z2).
+ * `pageNumber` is used solely for `Diagnostic.pageNumber`.
  */
 export function detectColumns(columnarLines: readonly TextLine[], pageNumber: number): ColumnDetectionResult {
   if (columnarLines.length === 0) {
@@ -103,7 +103,7 @@ export function detectColumns(columnarLines: readonly TextLine[], pageNumber: nu
 
   const valleyThreshold = maxDensity * MAX_VALLEY_DENSITY_RATIO;
   const minValleyBins = Math.ceil(MIN_VALLEY_WIDTH_PT / HISTOGRAM_BIN_WIDTH_PT);
-  // Rynny na samych brzegach (przed pierwsza/po ostatniej kolumnie) to margines strony, nie rynna miedzykolumnowa.
+  // Gutters right at the edges (before the first/after the last column) are page margin, not an inter-column gutter.
   const candidates = findLowDensityRuns(histogram, valleyThreshold).filter(
     (run) => run.startBin > 0 && run.endBin < binCount - 1 && run.endBin - run.startBin + 1 >= minValleyBins,
   );
@@ -153,7 +153,7 @@ export function detectColumns(columnarLines: readonly TextLine[], pageNumber: nu
   return { columns, confidence, diagnostics: mergeDiagnostics };
 }
 
-/** Linie z `lines` przypisane do kolumny o NAJWIEKSZYM pokryciu X (jak `assignColumnIndex` w readingOrder.ts). */
+/** Lines from `lines` assigned to the column with the LARGEST X overlap (like `assignColumnIndex` in readingOrder.ts). */
 function assignLinesToColumns(lines: readonly TextLine[], columns: readonly ColumnRegion[]): TextLine[][] {
   const byColumn: TextLine[][] = columns.map(() => []);
   for (const line of lines) {
@@ -172,7 +172,7 @@ function assignLinesToColumns(lines: readonly TextLine[], columns: readonly Colu
   return byColumn;
 }
 
-/** Odsetek wysokosci bloku pokryty WLASNYM zakresem Y (min-max) linii tej kolumny. */
+/** Fraction of the block height covered by this column's OWN Y range (min-max) of lines. */
 function verticalSpanRatio(lines: readonly TextLine[], blockHeight: number): number {
   if (lines.length === 0 || blockHeight <= 0) return 0;
   const minY = Math.min(...lines.map((l) => l.bbox.minY));
@@ -181,13 +181,14 @@ function verticalSpanRatio(lines: readonly TextLine[], blockHeight: number): num
 }
 
 /**
- * Usuwa z listy kolumn te, ktorych WLASNA tresc pokrywa zbyt maly wycinek
- * wysokosci bloku (patrz MIN_COLUMN_VERTICAL_SPAN_RATIO) — NIE laczy ich bboxa
- * z sasiadem (celowo, KROK-6 odkrycie na plikach z `samples/`): poszerzenie
- * bboxa sasiada o obszar sidebaru zatrze wlasnie ten sygnal geometryczny, po
- * ktorym Z6 (blockBuilder) rozpoznaje "na uboczu ukladu kolumnowego" — sidebar
- * musi pozostac POZA bboxem kazdej prawdziwej kolumny, inaczej reguła
- * `sidebar` w Z6 nigdy nie odrozni go od zwyklego body tekstu wewnatrz kolumny.
+ * Removes columns from the list whose OWN content covers too small a slice of
+ * the block height (see MIN_COLUMN_VERTICAL_SPAN_RATIO) — does NOT merge their
+ * bbox into the neighbor's (deliberately, Step 6 discovery on files from
+ * `samples/`): widening the neighbor's bbox with the sidebar area would erase
+ * exactly the geometric signal that Z6 (blockBuilder) uses to recognize
+ * "outside the column layout" — a sidebar must stay OUTSIDE the bbox of every
+ * true column, otherwise the `sidebar` rule in Z6 could never tell it apart
+ * from ordinary body text inside a column.
  */
 function mergeSparseColumns(
   columns: readonly ColumnRegion[],
@@ -219,10 +220,10 @@ function mergeSparseColumns(
 }
 
 /**
- * [KROK-6 Z3] Walidacja MIEDZYSTRONICOWA: liczba kolumn zwykle stabilna w
- * obrebie rozdzialu. Strona odstajaca od SASIADOW (poprzednia/nastepna) to
- * sygnal ostrzegawczy — zapisuje `Diagnostic`, NIGDY nie wymusza zgodnosci ani
- * nie zmienia wyniku detekcji tej strony.
+ * [Step 6 Z3] CROSS-PAGE validation: column count is usually stable within a
+ * chapter. A page that deviates from its NEIGHBORS (previous/next) is a
+ * warning signal — it records a `Diagnostic`, but NEVER forces agreement or
+ * changes that page's detection result.
  */
 export function validateColumnStabilityAcrossPages(
   perPageColumnCounts: readonly { pageNumber: number; columnCount: number }[],

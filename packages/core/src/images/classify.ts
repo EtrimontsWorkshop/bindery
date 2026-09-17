@@ -2,17 +2,19 @@ import type { Rect } from '../geometry.js';
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 
 /**
- * Klasyfikacja tresc/dekoracja/maska (KROK-7 Z1, MDD faza 3 "Decyzja"). Wejscie:
- * `ImageEntry[]` z inwentaryzacji (krok 4, zero decode). Dzialaj WYLACZNIE na
- * faktach juz zebranych — nie decoduj tutaj (przebieg 2 to Z4, osobny krok).
+ * Content/decoration/mask classification (Step 7 Z1, MDD phase 3
+ * "Decision"). Input: `ImageEntry[]` from the inventory pass (step 4, zero
+ * decode). Operate EXCLUSIVELY on facts already gathered — do not decode
+ * here (pass 2 is Z4, a separate step).
  *
- * Sygnaly w kolejnosci sily z briefu, z JEDNYM udokumentowanym odstepstwem:
- * "rozmiar bezwzgledny" (krok 4 briefu) wymaga intrinsicWidth/Height, ktore
- * pdf.js ujawnia dopiero przy rozwiazywaniu obiektu (`page.objs.get()`/
- * `commonObjs.get()`) — operator list (inwentaryzacja) nie niesie tej
- * informacji, tylko bbox w przestrzeni urzadzenia (po CTM). Odrzucenie po
- * rozmiarze bezwzglednym jest wiec zastosowane PO decode, w `finalize.ts`
- * (Z5) — udokumentowane tam wprost, nie pominiete milczaco.
+ * Signals in order of strength from the brief, with ONE documented
+ * exception: "absolute size" (step 4 of the brief) needs
+ * intrinsicWidth/Height, which pdf.js only reveals when resolving the object
+ * (`page.objs.get()`/`commonObjs.get()`) — the operator list (inventory
+ * pass) doesn't carry this information, only the bbox in device space
+ * (after the CTM). Rejection by absolute size is therefore applied AFTER
+ * decode, in `finalize.ts` (Z5) — documented explicitly there, not silently
+ * skipped.
  */
 
 export type ImageClassification = 'content' | 'decoration' | 'mask' | 'undecided';
@@ -20,30 +22,31 @@ export type ImageClassification = 'content' | 'decoration' | 'mask' | 'undecided
 export interface ClassifiedImage {
   entry: ImageEntry;
   classification: ImageClassification;
-  /** Ktora regula zdecydowala — debugowalnosc, ten sam wzorzec co `matchedRuleId` w Z6 kroku 6. */
+  /** Which rule decided — debuggability, the same pattern as `matchedRuleId` in Z6 of step 6. */
   reason: string;
   /**
-   * [KROK-11 Z4] Pewnosc decyzji (0-1), WYPROWADZONA z sily sygnalu regulwy
-   * ktora zdecydowala (`reason`) — NIE nowy, niezalezny model. Ekran
-   * przegladu (faza 9, `packages/module`) uzywa jej do domyslnego
-   * zaznaczenia: `content` z `confidence < 0.6` (jedyny taki przypadek:
-   * `Z2-moderate-area-no-mask-evidence`, patrz komentarz przy tej regule —
-   * "umiarkowana powierzchnia + zero dowodu" to NAJSLABSZY z sygnalow
-   * pozytywnych) startuje odznaczone mimo klasyfikacji `content`, tak samo
-   * jak `undecided`. Wartosci skalibrowane wprost na hierarchii sily
-   * sygnalow juz udokumentowanej w naglowku tego pliku ("Sygnaly w
-   * kolejnosci sily z briefu") — NIE osobny, nowy model.
+   * [Step 11 Z4] Decision confidence (0-1), DERIVED from the strength of the
+   * signal for the rule that decided (`reason`) — NOT a new, independent
+   * model. The review screen (phase 9, `packages/module`) uses it for the
+   * default checkbox state: `content` with `confidence < 0.6` (the only such
+   * case: `Z2-moderate-area-no-mask-evidence`, see the comment on that rule
+   * — "moderate area + zero evidence" is the WEAKEST of the positive
+   * signals) starts unchecked despite being classified `content`, same as
+   * `undecided`. Values calibrated directly against the signal-strength
+   * hierarchy already documented in this file's header ("Signals in order
+   * of strength from the brief") — NOT a separate, new model.
    */
   confidence: number;
 }
 
 /**
- * [KROK-11 Z4] Mapowanie `reason` (identyfikator reguly z `classifyImages`)
- * na pewnosc (0-1) — patrz komentarz przy `ClassifiedImage.confidence`.
- * Twardy dowod (maska grupa/opcode, spad drukarski) = wysoka pewnosc;
- * `undecided` z definicji ponizej 0.5 (sprzeczne lub zerowe dowody);
- * `Z2-moderate-area-no-mask-evidence` to jedyny przypadek `content` PONIZEJ
- * progu 0.6 z Z4 — celowo, to najslabszy pozytywny sygnal w calym pliku.
+ * [Step 11 Z4] Mapping from `reason` (a rule identifier from
+ * `classifyImages`) to confidence (0-1) — see the comment on
+ * `ClassifiedImage.confidence`. Hard evidence (group/opcode mask, print
+ * bleed) = high confidence; `undecided` is by definition below 0.5
+ * (conflicting or zero evidence); `Z2-moderate-area-no-mask-evidence` is the
+ * only `content` case BELOW the 0.6 threshold from Z4 — deliberately, it's
+ * the weakest positive signal in the whole file.
  */
 const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z1-mask-evidence-group': 0.95,
@@ -55,29 +58,30 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z9-high-body-text-coverage': 0.8,
   'Z2-moderate-area-no-mask-evidence': 0.5,
   'Z10-high-center-text-coverage': 0.35,
-  // [KROK-15 Z3, A10] Wersje "miekkie" dwoch dawnych twardych regul — JEDEN
-  // sygnal (powtarzalnosc albo spad drukarski) bez drugiego, niezaleznego
-  // potwierdzenia. Ten sam poziom pewnosci co inne pojedyncze, sprzeczne
-  // sygnaly (`Z1-conflicting-geometry-mask-vs-large-area`).
+  // [Step 15 Z3, A10] "Soft" versions of two former hard rules — ONE signal
+  // (repetition or print bleed) without the other, independent
+  // confirmation. Same confidence level as other single, conflicting
+  // signals (`Z1-conflicting-geometry-mask-vs-large-area`).
   'Z11-repeated-no-bleed-evidence': 0.4,
   'Z12-bleeding-no-center-text-evidence': 0.4,
   'Z1-conflicting-geometry-mask-vs-large-area': 0.4,
   'Z1-weak-geometry-mask-evidence': 0.3,
   'Z1-no-strong-signal': 0.2,
-  // [KROK-43 Z1, naprawa "cicha utrata"] Pojedynczy sygnal proporcji SAM W
-  // SOBIE — juz NIE hard `decoration` (patrz komentarz przy
-  // `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`), tylko `undecided`. Ta sama
-  // pewnosc co inne pojedyncze, niepotwierdzone-drugim-sygnalem przypadki
-  // `undecided` ponizej (`Z12`/`Z1-conflicting`) — nie `Z1-no-strong-signal`
-  // (0.2), bo proporcje SA realnym, tylko niepotwierdzonym sygnalem.
+  // [Step 43 Z1, fix for "silent loss"] A single aspect-ratio signal ON ITS
+  // OWN — no longer hard `decoration` (see the comment on
+  // `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`), just `undecided`. Same
+  // confidence as other single, not-confirmed-by-a-second-signal `undecided`
+  // cases below (`Z12`/`Z1-conflicting`) — not `Z1-no-strong-signal` (0.2),
+  // because the aspect ratio IS a real, just unconfirmed, signal.
   'Z13-extreme-aspect-ratio-undecided': 0.4,
-  // [zgloszenie uzytkownika, "Archiwa Imperium"] Dwa NIEZALEZNE sygnaly razem
-  // (powtarzalnosc NA WIELU stronach + skrajne proporcje bboksa) — ta sama
-  // pewnosc co `Z1-multi-page-correlated` (powtarzalnosc + spad drukarski),
-  // bo to KONCEPCYJNIE ten sam wzorzec, tylko drugi sygnal jest inny.
+  // [user report, "Archiwa Imperium"] Two INDEPENDENT signals together
+  // (repetition ACROSS MULTIPLE pages + extreme bbox aspect ratio) — same
+  // confidence as `Z1-multi-page-correlated` (repetition + print bleed),
+  // because it's CONCEPTUALLY the same pattern, just with a different second
+  // signal.
   'Z14-repeated-extreme-aspect-ratio': 0.85,
 };
-/** Domyslna pewnosc dla nierozpoznanego `reason` (np. przyszla regula bez wpisu) — bezpieczny srodek, poniewaz `< 0.6` i tak trafia do przegladu. */
+/** Default confidence for an unrecognized `reason` (e.g. a future rule with no entry) — a safe middle ground, since `< 0.6` ends up in the review screen anyway. */
 const DEFAULT_CONFIDENCE = 0.5;
 
 export function confidenceForReason(reason: string): number {
@@ -85,154 +89,161 @@ export function confidenceForReason(reason: string): number {
 }
 
 /**
- * Zasob obecny na >= tylu SKORELOWANYCH stronach (patrz `correlatedPageCount`)
- * jest KANDYDATEM na dekoracje (od kroku 15 — patrz A10 przy miejscu uzycia,
- * juz NIE twardym rozstrzygnieciem samym w sobie) — MDD: "ozdobnik na 40
- * stronach", ale bez korelacji pierwsze wystapienie kazdego takiego zasobu
- * wyglada jak unikalna tresc (U1).
+ * A resource present on >= this many CORRELATED pages (see
+ * `correlatedPageCount`) is a CANDIDATE for decoration (since step 15 — see
+ * A10 at the call site, no longer a hard decision on its own) — MDD: "a
+ * decoration on 40 pages", but without correlation the first occurrence of
+ * such a resource looks like unique content (U1).
  *
- * [KROK-15 Z3, kalibracja na zestawie referencyjnym z kroku 14 — 556 recznie
- * oznaczonych obrazow] Wartosc startowa z briefu/MDD (=2) zmierzona wprost:
- * `useful` z correlatedPages>=2: 22/133 (falszywie zlapane — mapa regionu
- * odwolywana w kilku rozdzialach, powtarzajacy sie symbol frakcji).
- * `decoration` z correlatedPages>=2: 21/200 (prawidlowo zlapane). Podniesienie
- * do >=5 daje 12/133 falszywych (-45%) kosztem tylko 19/200 prawdziwych
- * (-10%) — wyraznie lepszy bilans. Powyzej 5 dalszy zysk znikomy (>=10 daje
- * te same 12/133). `tools/analyze-correlation-threshold.ts` (jednorazowy
- * skrypt diagnostyczny, nie do utrzymania) ma pelne dane.
+ * [Step 15 Z3, calibrated against the step-14 reference set — 556 manually
+ * labeled images] The starting value from the brief/MDD (=2) measured
+ * directly: `useful` with correlatedPages>=2: 22/133 (falsely caught — a
+ * region map referenced across several chapters, a repeated faction symbol).
+ * `decoration` with correlatedPages>=2: 21/200 (correctly caught). Raising
+ * to >=5 gives 12/133 false positives (-45%) at the cost of only 19/200 true
+ * positives (-10%) — a clearly better trade-off. Beyond 5 further gains are
+ * negligible (>=10 gives the same 12/133). `tools/analyze-correlation-threshold.ts`
+ * (a one-off diagnostic script, not meant to be maintained) has the full data.
  */
 const MULTI_PAGE_DECORATION_THRESHOLD = 5;
 
 /**
- * Udzial powierzchni strony powyzej ktorego obraz jest kandydatem na tresc —
- * wartosc wprost z MDD §Faza 3 ("obraz zajmujacy > 40% strony to kandydat na
- * tresc"). Do weryfikacji w kalibracji.
+ * Share of the page area above which an image is a content candidate —
+ * value taken directly from MDD §Phase 3 ("an image covering > 40% of the
+ * page is a content candidate"). To be verified during calibration.
  */
 const LARGE_AREA_CONTENT_THRESHOLD = 0.4;
 
 /**
- * Margines tolerancji (w jednostkach bbox/MediaBox, zwykle pt) przy sprawdzaniu
- * czy bbox "wychodzi" poza MediaBox — male, nieuniknione zaokraglenia CTM nie
- * powinny falszywie oznaczac obrazu jako spadu drukarskiego. Male w porownaniu
- * do typowego spadu drukarskiego (zwykle >=9pt/3mm).
+ * Tolerance margin (in bbox/MediaBox units, usually pt) when checking
+ * whether a bbox "extends" past the MediaBox — small, unavoidable CTM
+ * rounding shouldn't falsely mark an image as print bleed. Small compared
+ * to typical print bleed (usually >=9pt/3mm).
  */
 const BLEED_TOLERANCE_PT = 1;
 
 /**
- * [KROK-8 Z2] Dlugosc dluzszej krawedzi bboksa (w pt strony, NIE w pikselach
- * zrodlowych — to jest dostepne juz na etapie inwentaryzacji, bez decode'u,
- * w odroznieniu od `MIN_ABSOLUTE_PX` w `finalize.ts`) powyzej ktorej obraz
- * uznajemy za "obiektywnie duzy", niezaleznie od udzialu procentowego strony.
- * Odroznia pelnostronicowa ilustracje (typowo 400-700pt na dluzszej krawedzi
- * dla stron Letter/A4) od malej ikony, ktora przypadkiem trafila na mala
- * strone. Wartosc do kalibracji na `samples/` — startowa, wyraznie ponizej
- * typowej ilustracji, zeby nie odrzucac prawdziwej tresci.
+ * [Step 8 Z2] Length of the bbox's longer edge (in page pt, NOT source
+ * pixels — this is already available at the inventory stage, without
+ * decoding, unlike `MIN_ABSOLUTE_PX` in `finalize.ts`) above which we
+ * consider an image "objectively large", regardless of its percentage share
+ * of the page. Distinguishes a full-page illustration (typically 400-700pt
+ * on the longer edge for Letter/A4 pages) from a small icon that happened to
+ * land on a small page. Value to be calibrated against `samples/` — a
+ * starting point, clearly below a typical illustration, so as not to reject
+ * real content.
  */
 const LARGE_ABSOLUTE_SIZE_PT = 300;
 
 /**
- * [KROK-8 Z2, odkrycie] Kontrola reczna kroku 7 zidentyfikowala rzeczywista
- * tresc (reklamy/ilustracje w swiecie gry z CP-RED) sklasyfikowana `undecided`
- * z powodem `Z1-no-strong-signal` — NIE `geometry` (empirycznie zweryfikowane:
- * przeszukanie WSZYSTKICH 9 plikow z `samples/` nie znalazlo ANI JEDNEGO wpisu
- * `undecided` z `maskEvidence==='geometry'` — diagnoza briefu KROK-8 o
- * "slabej przeslance geometry" jako przyczynie nie potwierdza sie na tych
- * danych). Prawdziwa przyczyna: `maxRelativeArea` ponizej `LARGE_AREA_CONTENT_THRESHOLD`
- * (0,4) przy KOMPLETNYM BRAKU jakiegokolwiek dowodu (nie tylko slabego) w
- * ZADNA strone. Brak dowodu ≠ dowod przeciwny — obraz o umiarkowanej (nie
- * ogromnej) powierzchni i zerowej przeslance maskowania to WCIAZ silniejszy
- * sygnal tresci niz brak jakiejkolwiek informacji. Prog skalibrowany wprost na
- * dwoch zidentyfikowanych w kroku 7 przypadkach (`img_p64_1`: 25,7% strony,
- * `img_p9_3`: 11,6% strony — oba prawdziwa tresc) I na dwoch przypadkach,
- * ktore CELOWO zostaja `undecided` (`img_p18_1`/`img_p26_1`: 2,6% strony,
- * genuinie male na stronie mimo renderu w duzej rozdzielczosci docelowej —
- * male dekoracyjne/portretowe elementy nie powinny automatycznie stac sie
- * `content` tylko dlatego, ze SA maskowane/klastrowane).
+ * [Step 8 Z2, discovery] A manual review in step 7 identified genuine
+ * content (in-world ads/illustrations from CP-RED) classified `undecided`
+ * with reason `Z1-no-strong-signal` — NOT `geometry` (empirically verified:
+ * searching ALL 9 files in `samples/` found NOT A SINGLE `undecided` entry
+ * with `maskEvidence==='geometry'` — the Step 8 brief's diagnosis of "weak
+ * geometry evidence" as the cause does not hold up against this data). The
+ * real cause: `maxRelativeArea` below `LARGE_AREA_CONTENT_THRESHOLD` (0.4)
+ * combined with a COMPLETE ABSENCE of any evidence (not just weak evidence)
+ * either way. Absence of evidence ≠ evidence against — an image with a
+ * moderate (not huge) area and zero masking evidence is STILL a stronger
+ * content signal than no information at all. The threshold is calibrated
+ * directly on two cases identified in step 7 (`img_p64_1`: 25.7% of the
+ * page, `img_p9_3`: 11.6% of the page — both genuine content) AND on two
+ * cases that DELIBERATELY remain `undecided` (`img_p18_1`/`img_p26_1`: 2.6%
+ * of the page, genuinely small on the page despite rendering at a large
+ * target resolution — small decorative/portrait elements shouldn't
+ * automatically become `content` just because they ARE masked/clustered).
  */
 const MEDIUM_AREA_NO_EVIDENCE_THRESHOLD = 0.1;
 
 /**
- * [KROK-17, zgloszony na zywo blad; KROK-43 Z1, naprawa po audycie stalych —
- * A10 "cicha utrata"] Stosunek dluzszej do krotszej krawedzi bboksa, powyzej
- * ktorego obraz jest PODEJRZANY o bycie waskim paskiem-rozdzielaczem sekcji
- * (linia z motywem graficznym pod naglowkiem/ramka) — zaobserwowane wprost na
- * `CHA23131 Call of Cthulhu 7th Edition Quick-Start Rules.pdf`, str. 7: trzy
- * warianty tego samego motywu macek (962x84px ~11,5:1, 962x86px ~11,3:1,
- * 478x79px ~6,1:1).
+ * [Step 17, a live-reported bug; Step 43 Z1, fix after a constants audit —
+ * A10 "silent loss"] The ratio of the bbox's longer to shorter edge above
+ * which an image is SUSPECTED of being a narrow section-divider strip (a
+ * line with a graphic motif under a heading/border) — observed directly on
+ * `CHA23131 Call of Cthulhu 7th Edition Quick-Start Rules.pdf`, p. 7: three
+ * variants of the same tentacle motif (962x84px ~11.5:1, 962x86px ~11.3:1,
+ * 478x79px ~6.1:1).
  *
- * [KROK-43, audyt Z2 zgloszenia] TA STALA SAMA W SOBIE nigdy nie byla
- * kalibrowana wprost na przypadkach negatywnych (panoramiczna mapa 3000x500,
- * pionowa ilustracja na cala kolumne — oba typowe w podrecznikach RPG, oba
- * majaby proporcje POWYZEJ progu=6). Gdy ten JEDYNY sygnal (`Z13`, ponizej)
- * decydowal wprost o `decoration`, blad progu byl NIEODWRACALNY: obraz byl
- * kasowany Z POMINIECIEM ekranu przegladu (naruszenie A5 — czlowiek nigdy go
- * nie widzial — i A10, ktore juz raz naprawilo dokladnie ten sam wzorzec przy
- * `MULTI_PAGE_DECORATION_THRESHOLD` w krokach 14-15, ale nie zostalo tu
- * zastosowane). Naprawa NIE wymaga kalibrowania samej stalej — usuwa
- * KONSEKWENCJE bledu progu: `Z13` (pojedyncze wystapienie, TEN sygnal SAM)
- * ladowanie teraz w `undecided` (widoczne w przegladzie, z `Diagnostic`
- * `IMAGE_EXTREME_ASPECT_RATIO_UNDECIDED` w `buildImageExtraction.ts`), nie w
- * `decoration`. `Z14` (ponizej, `correlatedPages>=5` RAZEM z proporcjami)
- * zostaje TWARDYM `decoration` — DWA niezalezne sygnaly zbiegajace sie razem
- * (powtarzalnosc na wielu stronach + proporcje) to inny, silniejszy przypadek
- * niz JEDEN sygnal sam w sobie, ten sam wzorzec co `Z1-multi-page-correlated`
- * (powtarzalnosc + spad drukarski) tuz obok — realna tresc niemal nigdy nie
- * ma OBU tych cech naraz, wiec regresja z "Archiwa Imperium" (dekoracyjne
- * paski powtorzone na 6-23 stronach) pozostaje odsiana jako `decoration`
- * WLASNIE przez `Z14`, mimo zmiany `Z13`.
+ * [Step 43, Z2 audit of the report] THIS CONSTANT ON ITS OWN was never
+ * calibrated directly against negative cases (a panoramic map 3000x500, a
+ * vertical full-column illustration — both typical in RPG rulebooks, both
+ * would have aspect ratios ABOVE the threshold=6). When this SOLE signal
+ * (`Z13`, below) decided `decoration` outright, a threshold error was
+ * IRREVERSIBLE: the image was discarded BYPASSING the review screen
+ * (violating A5 — a human never saw it — and A10, which already fixed this
+ * exact same pattern for `MULTI_PAGE_DECORATION_THRESHOLD` in steps 14-15,
+ * but wasn't applied here). The fix does NOT require calibrating the
+ * constant itself — it removes the CONSEQUENCES of a threshold error: `Z13`
+ * (a single occurrence, THIS signal ALONE) now lands in `undecided`
+ * (visible in the review screen, with a `Diagnostic`
+ * `IMAGE_EXTREME_ASPECT_RATIO_UNDECIDED` in `buildImageExtraction.ts`),
+ * instead of `decoration`. `Z14` (below, `correlatedPages>=5` TOGETHER with
+ * the aspect ratio) remains HARD `decoration` — TWO independent signals
+ * converging together (repetition across multiple pages + aspect ratio) is
+ * a different, stronger case than ONE signal alone, the same pattern as
+ * `Z1-multi-page-correlated` (repetition + print bleed) right next to it —
+ * genuine content almost never has BOTH these traits at once, so the
+ * "Archiwa Imperium" regression (decorative strips repeated across 6-23
+ * pages) still gets filtered out as `decoration` PRECISELY via `Z14`,
+ * despite the `Z13` change.
  */
 export const EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD = 6;
 
 /**
- * [KROK-9 Z2] Udzial bboksa obrazu pokryty PLYNACYM TEKSTEM NARRACYJNYM z
- * potoku tekstu (`semantic/blockBuilder.ts`) powyzej ktorego obraz jest
- * tlem/dekoracja, nie trescia — sygnal ORTOGONALNY do statystyki pikseli
- * (KROK-8 pozostawil nierozwiazany `img_p14_5`, teksturowane tlo pergaminowe
- * nieodrozniale przez stddev luminancji/chrome/gradient). Realna ilustracja ma
- * pod soba co najwyzej podpis (waski pasek), tlo ma na sobie CALE akapity.
+ * [Step 9 Z2] Share of an image's bbox covered by FLOWING NARRATIVE TEXT
+ * from the text flow (`semantic/blockBuilder.ts`) above which the image is
+ * background/decoration, not content — a signal ORTHOGONAL to pixel
+ * statistics (Step 8 left `img_p14_5` unresolved, a textured parchment
+ * background indistinguishable via luminance stddev/chroma/gradient). A
+ * genuine illustration has at most a caption underneath it (a narrow strip),
+ * a background has WHOLE paragraphs on top of it.
  *
- * [odkrycie, kalibracja na `samples/`] Brief mowi wprost o blokach `body`, ale
- * `img_p14_5` (docelowy przypadek) ma na sobie tekst zaklasyfikowany jako
- * `caption`, nie `body` — to ten sam akapit flavor-textu z ozdobnym
- * dekoracyjnym fontem, ktory regula Z9-caption-near-image (Z1a, ten sam krok)
- * poprawnie zlapala jako `caption` (blisko obrazu), NIE jako blad. Prawdziwe
- * body-tekst-na-obrazie i caption-tekst-na-obrazie to STRUKTURALNIE ten sam
- * sygnal ("tu jest realny plynacy tekst, nie tylko podpis pod obrazem") —
- * dlatego wywolujacy przekazuje bboxy blokow `body` ORAZ `caption` razem
- * (patrz `extractImagesFromDocument.ts`), nie tylko `body`. `sidebar`/`heading`/
- * `table`/`marginalia` swiadomie WYLACZONE: sa albo zbyt krotkie, zeby
- * kiedykolwiek dac wysokie pokrycie, albo (sidebar) legalnie wystepuja WEWNATRZ
- * ramek z prawdziwymi ilustracjami bez oznaczania ich jako tlo.
+ * [discovery, calibration against `samples/`] The brief speaks explicitly of
+ * `body` blocks, but `img_p14_5` (the target case) has text on it classified
+ * as `caption`, not `body` — this is the same flavor-text paragraph in a
+ * decorative font that rule Z9-caption-near-image (Z1a, same step) correctly
+ * caught as `caption` (near the image), NOT as a bug. Genuine
+ * body-text-on-image and caption-text-on-image are STRUCTURALLY the same
+ * signal ("there is real flowing text here, not just a caption under the
+ * image") — which is why the caller passes bboxes of `body` AND `caption`
+ * blocks together (see `extractImagesFromDocument.ts`), not just `body`.
+ * `sidebar`/`heading`/`table`/`marginalia` are deliberately EXCLUDED: they're
+ * either too short to ever produce high coverage, or (sidebar) legitimately
+ * occur INSIDE frames alongside genuine illustrations without marking them
+ * as background.
  *
- * [odkrycie, kontrola reczna wizualna] Prawdziwa ilustracja (portret orka,
- * `Wrath_&_Glory` str. 16) w ukladzie "tekst oplywa ilustracje w tej samej
- * kolumnie" dala DOKLADNIE tak wysokie pokrycie bboksem (~77%) jak faktyczne
- * tlo (`img_p10_1`, ~72%) — sam bbox NIE ROZROZNIA "tekst NAD obrazem" od
- * "tekst W TEJ SAMEJ kolumnie co obraz o hojnym/przezroczystym marginesie
- * bboksa" bez dekodowania pikseli (poza architektura tego pliku — zero decode,
- * patrz naglowek). Zabezpieczenie: sygnal NIE dziala dla obrazow z DUZYM
- * rozmiarem bezwzglednym (`hasLargeAbsoluteOccurrence`, ten sam prog co
- * `Z2-strong-content-overrides-weak-geometry-evidence` powyzej) — prawdziwe
- * ilustracje-portrety sa z reguly duze, teksturowane tla-karty tez bywaja
- * duze, ale skoro nie da sie ich odroznic bezpiecznie, priorytet ma NIE
- * degradowanie prawdziwej tresci (MDD A5 — czlowiek i tak przejrzy w fazie 9).
- * Kosztem: kilka faktycznych teł >=300pt (np. `img_p10_1`) zostaje `content`
- * — TA SAMA (nie nowa) luka co KROK-8, nie regresja.
+ * [discovery, manual visual review] A genuine illustration (an orc portrait,
+ * `Wrath_&_Glory` p. 16) in a "text flows around the illustration in the
+ * same column" layout produced EXACTLY as high a bbox coverage (~77%) as an
+ * actual background (`img_p10_1`, ~72%) — the bbox alone does NOT
+ * distinguish "text OVER the image" from "text IN THE SAME column as an
+ * image with a generous/transparent bbox margin" without decoding pixels
+ * (outside this file's architecture — zero decode, see the header). Guard:
+ * the signal does NOT apply to images with a LARGE absolute size
+ * (`hasLargeAbsoluteOccurrence`, the same threshold as
+ * `Z2-strong-content-overrides-weak-geometry-evidence` above) — genuine
+ * portrait illustrations tend to be large, and textured card backgrounds can
+ * also be large, but since they can't be safely told apart, priority goes to
+ * NOT degrading genuine content (MDD A5 — a human reviews it anyway in phase
+ * 9). Cost: a handful of actual backgrounds >=300pt (e.g. `img_p10_1`)
+ * remain `content` — the SAME (not a new) gap as Step 8, not a regression.
  */
 const TEXT_COVERAGE_DECORATION_THRESHOLD = 0.15;
 
 /**
- * Grupuje wpisy po KANONICZNYM objId (wlasny objId, chyba ze `correlatedWith`
- * wskazuje inny — patrz `correlateImagesByBBox` w kroku 5/6) i zwraca dla
- * kazdego wpisu LICZBE UNIKALNYCH STRON calej grupy korelacyjnej — to jest
- * wlasciwy sygnal do klasyfikacji "wielostronicowy ozdobnik" (U1), nie samo
- * `entry.pageRefs.length`, ktore po rozbiciu objId widzi tylko fragment.
+ * Groups entries by CANONICAL objId (its own objId, unless `correlatedWith`
+ * points to another — see `correlateImagesByBBox` in step 5/6) and returns,
+ * for each entry, the NUMBER OF UNIQUE PAGES across the whole correlation
+ * group — this is the right signal for classifying "a multi-page decoration"
+ * (U1), not plain `entry.pageRefs.length`, which after objId splitting only
+ * sees a fragment.
  */
 function computeCorrelatedPageCounts(entries: readonly ImageEntry[]): Map<ImageEntry, number> {
   const canonicalKey = (e: ImageEntry): string => e.correlatedWith ?? e.objId ?? '';
   const pagesByCanonical = new Map<string, Set<number>>();
   for (const e of entries) {
-    if (e.objId === null) continue; // wpisy inline nie maja objId do korelacji — traktowane osobno, patrz ponizej
+    if (e.objId === null) continue; // inline entries have no objId to correlate on — handled separately, see below
     const key = canonicalKey(e);
     const pages = pagesByCanonical.get(key) ?? new Set<number>();
     for (const p of e.pageRefs) pages.add(p);
@@ -249,7 +260,7 @@ function computeCorrelatedPageCounts(entries: readonly ImageEntry[]): Map<ImageE
   return result;
 }
 
-/** Czy KTOREKOLWIEK wystapienie wychodzi poza MediaBox swojej strony — sygnal spadu drukarskiego/tla (F0). */
+/** Whether ANY occurrence extends past its page's MediaBox — a print-bleed/background signal (F0). */
 function hasBleedingOccurrence(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Rect>): boolean {
   return entry.occurrences.some((occ) => {
     const pageBox = pageBoxByPage.get(occ.page);
@@ -263,12 +274,12 @@ function hasBleedingOccurrence(entry: ImageEntry, pageBoxByPage: ReadonlyMap<num
   });
 }
 
-/** Czy KTOREKOLWIEK wystapienie ma dluzsza krawedz bboksa >= progu — patrz `LARGE_ABSOLUTE_SIZE_PT`. */
+/** Whether ANY occurrence has a bbox longer edge >= the threshold — see `LARGE_ABSOLUTE_SIZE_PT`. */
 function hasLargeAbsoluteOccurrence(entry: ImageEntry): boolean {
   return entry.occurrences.some((occ) => Math.max(occ.bbox.maxX - occ.bbox.minX, occ.bbox.maxY - occ.bbox.minY) >= LARGE_ABSOLUTE_SIZE_PT);
 }
 
-/** Czy KTOREKOLWIEK wystapienie ma proporcje bboksa >= progu — patrz `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`. */
+/** Whether ANY occurrence has a bbox aspect ratio >= the threshold — see `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`. */
 function hasExtremeAspectRatioOccurrence(entry: ImageEntry): boolean {
   return entry.occurrences.some((occ) => {
     const w = occ.bbox.maxX - occ.bbox.minX;
@@ -279,10 +290,11 @@ function hasExtremeAspectRatioOccurrence(entry: ImageEntry): boolean {
 }
 
 /**
- * [KROK-9 Z2] Udzial powierzchni `bbox` pokryty suma (bez odejmowania nakladania
- * MIEDZY blokami — bloki `body` na tej samej stronie praktycznie nigdy sie nie
- * nakladaja, wiec to bezpieczne przyblizenie, nie prawdziwa unia geometryczna)
- * przeciec z blokami `body` TEJ SAMEJ strony. Zero blokow na stronie = 0.
+ * [Step 9 Z2] Share of the `bbox` area covered by the sum (without
+ * subtracting overlap BETWEEN blocks — `body` blocks on the same page
+ * practically never overlap, so this is a safe approximation, not a true
+ * geometric union) of intersections with `body` blocks on THE SAME page.
+ * Zero blocks on the page = 0.
  */
 function computeTextCoverageRatio(bbox: Rect, page: number, bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]>): number {
   const boxes = bodyBoxesByPage.get(page);
@@ -298,7 +310,7 @@ function computeTextCoverageRatio(bbox: Rect, page: number, bodyBoxesByPage: Rea
   return Math.min(1, covered / area);
 }
 
-/** Maksimum pokrycia tekstem PO WSZYSTKICH wystapieniach — ten sam wzorzec "any occurrence" co `hasBleedingOccurrence`/`hasLargeAbsoluteOccurrence`. */
+/** Maximum text coverage ACROSS ALL occurrences — the same "any occurrence" pattern as `hasBleedingOccurrence`/`hasLargeAbsoluteOccurrence`. */
 function maxTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]>): number {
   let max = 0;
   for (const occ of entry.occurrences) {
@@ -309,8 +321,8 @@ function maxTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: ReadonlyMap<nu
 }
 
 /**
- * [KROK-14 H1] Zweza bbox do centralnych ok. 50% powierzchni (skala liniowa
- * 1/sqrt(2) wokol srodka) — patrz `maxCenterTextCoverageRatio`.
+ * [Step 14 H1] Shrinks the bbox to the central ~50% of its area (linear
+ * scale 1/sqrt(2) around the center) — see `maxCenterTextCoverageRatio`.
  */
 function shrinkToCenter(bbox: Rect): Rect {
   const w = bbox.maxX - bbox.minX;
@@ -325,18 +337,19 @@ function shrinkToCenter(bbox: Rect): Rect {
 }
 
 /**
- * [KROK-14 H1] Pokrycie tekstem `body`/`caption` liczone WYLACZNIE dla
- * centralnych ~50% powierzchni bboksa, nie calego bboksa jak
- * `maxTextCoverageRatio`. Rozwiazuje luke odkryta w KROK-9 (patrz komentarz
- * przy `TEXT_COVERAGE_DECORATION_THRESHOLD`): prawdziwe tlo z akapitem NA
- * SRODKU i prawdziwa ilustracja oplywana tekstem PRZY KRAWEDZI daja PRAWIE
- * IDENTYCZNE pokrycie CALEGO bboksa (~72-77% w obu przypadkach, zmierzone
- * recznie w KROK-9) — te dwa przypadki rozroznia ROZKLAD PRZESTRZENNY, nie
- * ilosc: tlo ma tekst POSRODKU, ilustracja ma srodek CZYSTY.
+ * [Step 14 H1] Text coverage of `body`/`caption` computed EXCLUSIVELY for
+ * the central ~50% of the bbox area, not the whole bbox like
+ * `maxTextCoverageRatio`. Resolves the gap discovered in Step 9 (see the
+ * comment on `TEXT_COVERAGE_DECORATION_THRESHOLD`): a genuine background
+ * with a paragraph IN THE CENTER and a genuine illustration flowed around by
+ * text AT THE EDGE produce NEARLY IDENTICAL coverage of the WHOLE bbox
+ * (~72-77% in both cases, measured manually in Step 9) — these two cases are
+ * distinguished by SPATIAL DISTRIBUTION, not amount: a background has text
+ * IN THE MIDDLE, an illustration has a CLEAN center.
  *
- * Zmierzone na zestawie referencyjnym (600 recznie oznaczonych obrazow z 3
- * podrecznikow, nie w tym repo): podniosło precyzje klasyfikacji `content`
- * z 36% do 95% na tej probce.
+ * Measured against a reference set (600 manually labeled images from 3
+ * rulebooks, not in this repo): raised `content` classification precision
+ * from 36% to 95% on that sample.
  */
 function maxCenterTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]>): number {
   let max = 0;
@@ -348,92 +361,97 @@ function maxCenterTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: Readonly
 }
 
 /**
- * Klasyfikuje wszystkie wpisy rejestru obrazow. `'undecided'` jest DOZWOLONY i
- * POZADANY przy sprzecznych sygnalach (brief) — ekran przegladu (faza 9) pokaze
- * je uzytkownikowi domyslnie odznaczone, zamiast zgadywac za niego.
+ * Classifies all image registry entries. `'undecided'` is ALLOWED and
+ * DESIRED for conflicting signals (per the brief) — the review screen
+ * (phase 9) shows these to the user unchecked by default, instead of
+ * guessing on their behalf.
  */
 export function classifyImages(
   entries: readonly ImageEntry[],
   pageBoxByPage: ReadonlyMap<number, Rect>,
-  // [KROK-9 Z2] Bboxy blokow plynacego tekstu (`body`+`caption`, patrz komentarz
-  // przy `TEXT_COVERAGE_DECORATION_THRESHOLD`) grupowane po numerze strony —
-  // POLACZENIE JAWNE (parametr), nie przez stan globalny, zgodnie z briefem
-  // KROK-9. Domyslnie pusta mapa: wywolujacy bez potoku tekstu (np. istniejace
-  // testy jednostkowe) dostaja dokladnie zachowanie sprzed Z2.
+  // [Step 9 Z2] Bboxes of flowing-text blocks (`body`+`caption`, see the
+  // comment on `TEXT_COVERAGE_DECORATION_THRESHOLD`) grouped by page number
+  // — an EXPLICIT connection (a parameter), not global state, per the Step 9
+  // brief. Defaults to an empty map: callers with no text flow (e.g.
+  // existing unit tests) get exactly the pre-Z2 behavior.
   bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]> = new Map(),
-  // [na zyczenie uzytkownika, ksiazka z bespoke tlem na kazdej stronie] Patrz
-  // komentarz przy `treatFullBleedAsContent` w `schema.ts`. Domyslnie `{}`
-  // (wylaczone) — zachowanie identyczne jak przed dodaniem tej flagi.
+  // [at the user's request, a book with a bespoke background on every page]
+  // See the comment on `treatFullBleedAsContent` in `schema.ts`. Defaults to
+  // `{}` (off) — behavior identical to before this flag was added.
   options: { treatFullBleedAsContent?: boolean } = {},
 ): ClassifiedImage[] {
   const treatFullBleedAsContent = options.treatFullBleedAsContent ?? false;
   const correlatedPageCounts = computeCorrelatedPageCounts(entries);
 
   return entries.map((entry): ClassifiedImage => {
-    // 1. Twardy dowod maski — koniec decyzji, niezaleznie od czegokolwiek innego.
+    // 1. Hard mask evidence — decision final, regardless of anything else.
     if (entry.maskEvidence === 'group' || entry.maskEvidence === 'opcode') {
       return { entry, classification: 'mask', reason: `Z1-mask-evidence-${entry.maskEvidence}`, confidence: confidenceForReason(`Z1-mask-evidence-${entry.maskEvidence}`) };
     }
 
-    // [KROK-15 Z3, A10] Obliczone WCZESNIE, bo teraz uzywane przez DWIE
-    // niezalezne reguly ponizej (wielostronicowa korelacja I spad drukarski),
-    // nie tylko przez pozniejszy sygnal H1 (Z10). Ten sam wzorzec co
-    // `maxCenterTextCoverageRatio` z kroku 14 — patrz jej wlasny komentarz.
+    // [Step 15 Z3, A10] Computed EARLY, because it's now used by TWO
+    // independent rules below (multi-page correlation AND print bleed), not
+    // just by the later H1 signal (Z10). The same pattern as
+    // `maxCenterTextCoverageRatio` from step 14 — see its own comment.
     const centerTextCoverage = maxCenterTextCoverageRatio(entry, bodyBoxesByPage);
 
-    // 2. Liczba stron PO korelacji (U1) — wielostronicowy zasob to KANDYDAT na
-    // dekoracje, ale JUZ NIE twardo. [KROK-15 Z3, odkrycie na zestawie
-    // referencyjnym kroku 14] Prog=2 zaklasyfikowal falszywie 22/133 `useful`
-    // (mapa regionu odwolywana w kilku rozdzialach, powtarzajacy sie symbol
-    // frakcji) — realny rozklad pokazal, ze podniesienie do 5 obnizyloby to do
-    // 12/133, tracac tylko 2/21 prawidlowo zlapanych `decoration` (z 21 do 19).
-    // Zgodnie z A10: powyzej progu to JUZ NIE `decoration` wprost, tylko
-    // `undecided`, CHYBA ZE towarzyszy DRUGI, niezalezny sygnal — spad
-    // drukarski (`hasBleedingOccurrence`). Prawdziwa mapa/symbol odwolywany
-    // wielokrotnie prawie NIGDY nie wychodzi poza MediaBox (celowo
-    // umieszczona ilustracja, nie tlo strony) — dwa zgodne sygnaly razem
-    // dajа taka sama pewnosc jak dawna twarda regula.
+    // 2. Page count AFTER correlation (U1) — a multi-page resource is a
+    // CANDIDATE for decoration, but no longer a hard decision. [Step 15 Z3,
+    // discovery on the step-14 reference set] Threshold=2 falsely classified
+    // 22/133 `useful` (a region map referenced across several chapters, a
+    // repeated faction symbol) — the real distribution showed that raising
+    // it to 5 would lower this to 12/133, losing only 2/21 correctly caught
+    // `decoration` (from 21 to 19). Per A10: above the threshold this is NO
+    // LONGER `decoration` outright, just `undecided`, UNLESS accompanied by
+    // a SECOND, independent signal — print bleed (`hasBleedingOccurrence`).
+    // A genuine map/symbol referenced repeatedly almost NEVER extends past
+    // the MediaBox (a deliberately placed illustration, not page background)
+    // — two agreeing signals together give the same confidence as the
+    // former hard rule.
     const correlatedPages = correlatedPageCounts.get(entry) ?? entry.pageRefs.length;
     if (correlatedPages >= MULTI_PAGE_DECORATION_THRESHOLD) {
       if (hasBleedingOccurrence(entry, pageBoxByPage)) {
         return { entry, classification: 'decoration', reason: 'Z1-multi-page-correlated', confidence: confidenceForReason('Z1-multi-page-correlated') };
       }
-      // [zgloszenie uzytkownika, "Archiwa Imperium", waskie paski-rozdzielacze
-      // powtorzone na 6-23 stronach] DRUGI niezalezny sygnal rownowazny
-      // spadowi drukarskiemu powyzej — proporcje bboksa (`Z13-extreme-aspect-ratio-divider`
-      // nizej w tej funkcji uzywa TEJ SAMEJ `hasExtremeAspectRatioOccurrence`,
-      // ale jest sprawdzana DOPIERO PO tym bloku, wiec nigdy nie dostawala
-      // szansy dla wpisow, ktore najpierw trafialy tutaj). Zmierzone wprost:
-      // dekoracyjny pasek-rozdzielacz uzyty w calej ksiazce (kazde uzycie
-      // to <1% powierzchni strony, BEZ spadu drukarskiego — lezy W SRODKU
-      // strony, nie na jej krawedzi) trafial w `undecided` na KAZDYM z 6-23
-      // wystapien, mimo skrajnie wydluzonych proporcji (>16:1) — sygnal rownie
-      // jednoznaczny jak spad, tylko nigdy nie sprawdzany w tym miejscu.
-      // Prawdziwa, powtarzana TRESC (np. mapa regionu, symbol frakcji z
-      // KROK-15 Z3) niemal nigdy nie ma takich proporcji, wiec to bezpieczne
-      // rozszerzenie — nie zawezy pelnosci `content`/`undecided` dla realnej
-      // tresci, tylko zamyka luke dla tego jednego, wąskiego ksztaltu.
+      // [user report, "Archiwa Imperium", narrow divider strips repeated
+      // across 6-23 pages] A SECOND independent signal equivalent to print
+      // bleed above — bbox aspect ratio (`Z13-extreme-aspect-ratio-divider`
+      // further down in this function uses the SAME
+      // `hasExtremeAspectRatioOccurrence`, but is only checked AFTER this
+      // block, so it never got a chance for entries that landed here first).
+      // Measured directly: a decorative divider strip used throughout the
+      // book (each use is <1% of the page area, WITH NO print bleed — it
+      // sits IN THE MIDDLE of the page, not at its edge) landed in
+      // `undecided` on EVERY ONE of 6-23 occurrences, despite an extremely
+      // elongated aspect ratio (>16:1) — a signal just as unambiguous as
+      // bleed, just never checked at this point. Genuine, repeated CONTENT
+      // (e.g. a region map, a faction symbol from Step 15 Z3) almost never
+      // has such an aspect ratio, so this is a safe extension — it doesn't
+      // narrow the completeness of `content`/`undecided` for real content,
+      // it only closes the gap for this one, narrow shape.
       if (hasExtremeAspectRatioOccurrence(entry)) {
         return { entry, classification: 'decoration', reason: 'Z14-repeated-extreme-aspect-ratio', confidence: confidenceForReason('Z14-repeated-extreme-aspect-ratio') };
       }
       return { entry, classification: 'undecided', reason: 'Z11-repeated-no-bleed-evidence', confidence: confidenceForReason('Z11-repeated-no-bleed-evidence') };
     }
 
-    // 6. Pozycja pelnospadowa — sprawdzona wczesnie (twardy sygnal geometryczny,
-    // niezalezny od niepewnosci sygnalow 3-5), zanim jakikolwiek "duzy bbox"
-    // zostanie mylnie policzony jako tresc. [KROK-15 Z3, A10] Rowniez JUZ NIE
-    // twardo — krok 14 policzyl, ze 25/49 utraconych `useful` w probce
-    // referencyjnej ginelo WLASNIE tutaj (pelnostronicowa mapa/ilustracja
-    // rozkladowkowa legalnie wychodzi poza spad tak samo jak teksturowane
-    // tlo). Drugi, niezalezny sygnal: pokrycie tekstem NA SRODKU (ten sam
-    // `centerTextCoverage` co Z10 nizej) — prawdziwe tlo ma akapit na sobie,
-    // celowa ilustracja pod pelny spad zwykle nie.
+    // 6. Full-bleed position — checked early (a hard geometric signal,
+    // independent of the uncertainty of signals 3-5), before any "large
+    // bbox" gets mistakenly counted as content. [Step 15 Z3, A10] Also NO
+    // LONGER hard — step 14 found that 25/49 lost `useful` items in the
+    // reference sample were lost PRECISELY here (a full-page map/spread
+    // illustration legitimately extends past the bleed just like a textured
+    // background). Second, independent signal: text coverage AT THE CENTER
+    // (the same `centerTextCoverage` as Z10 below) — a genuine background
+    // has a paragraph on it, a deliberate full-bleed illustration usually
+    // doesn't.
     if (hasBleedingOccurrence(entry, pageBoxByPage)) {
       if (centerTextCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD) {
-        // [na zyczenie uzytkownika] `treatFullBleedAsContent` omija zalozenie
-        // "pelny spad + tekst na wierzchu = powtarzalne tlo" dokladnie tutaj —
-        // patrz komentarz przy fladze w `schema.ts`. Publikacje z bespoke
-        // ilustracja pod kazda strona trafiaja WLASNIE w ta galaz.
+        // [at the user's request] `treatFullBleedAsContent` bypasses the
+        // assumption "full bleed + text on top = repeating background"
+        // right here — see the comment on the flag in `schema.ts`.
+        // Publications with a bespoke illustration under every page land
+        // PRECISELY in this branch.
         if (treatFullBleedAsContent) {
           return { entry, classification: 'content', reason: 'Z1-full-bleed-forced-content', confidence: confidenceForReason('Z1-full-bleed-background') };
         }
@@ -442,21 +460,21 @@ export function classifyImages(
       return { entry, classification: 'undecided', reason: 'Z12-bleeding-no-center-text-evidence', confidence: confidenceForReason('Z12-bleeding-no-center-text-evidence') };
     }
 
-    // 3. Duza powierzchnia strony — kandydat na tresc.
+    // 3. Large page area — a content candidate.
     const isLargeArea = entry.maxRelativeArea >= LARGE_AREA_CONTENT_THRESHOLD;
 
-    // 5. maskEvidence==='geometry' — slaby dowod, sam z siebie NIGDY nie przesadza.
+    // 5. maskEvidence==='geometry' — weak evidence, NEVER decisive on its own.
     //
-    // [KROK-8 Z2, odkrycie] Kontrola reczna kroku 7 (RAPORT-KROK-7.md) ujawnila
-    // pelnostronicowe ilustracje sklasyfikowane `undecided` mimo bycia
-    // "genuinie dobra trescia" — slaby dowod `geometry` (czesto fikcyjny:
-    // obraz narysowany tuz PRZED/PO innym o podobnym bboksie, bez zadnego
-    // faktycznego maskowania) przygniatal silne, zgodne ze soba sygnaly tresci.
-    // Regula nadrzedna: koniunkcja DUZEJ powierzchni WZGLEDNEJ, POJEDYNCZEGO
-    // wystapienia po korelacji (juz zagwarantowane — inaczej zwrocilibysmy
-    // 'decoration' wyzej) i DUZEGO rozmiaru BEZWZGLEDNEGO przebija slaby dowod
-    // geometryczny -> `content`. `group`/`opcode` (twardy dowod, sprawdzony na
-    // samej gorze funkcji) NIGDY nie podlegaja tej regule.
+    // [Step 8 Z2, discovery] A manual review in step 7 (RAPORT-KROK-7.md)
+    // revealed full-page illustrations classified `undecided` despite being
+    // "genuinely good content" — weak `geometry` evidence (often fictitious:
+    // an image drawn right BEFORE/AFTER another with a similar bbox, with no
+    // actual masking) overrode strong, mutually consistent content signals.
+    // The overriding rule: a conjunction of a LARGE relative area, a SINGLE
+    // occurrence after correlation (already guaranteed — otherwise we'd have
+    // returned 'decoration' above), and a large ABSOLUTE size beats weak
+    // geometric evidence -> `content`. `group`/`opcode` (hard evidence,
+    // checked at the very top of the function) are NEVER subject to this rule.
     if (entry.maskEvidence === 'geometry') {
       if (isLargeArea && hasLargeAbsoluteOccurrence(entry)) {
         return { entry, classification: 'content', reason: 'Z2-strong-content-overrides-weak-geometry-evidence', confidence: confidenceForReason('Z2-strong-content-overrides-weak-geometry-evidence') };
@@ -467,27 +485,28 @@ export function classifyImages(
       return { entry, classification: 'undecided', reason: 'Z1-weak-geometry-mask-evidence', confidence: confidenceForReason('Z1-weak-geometry-mask-evidence') };
     }
 
-    // [KROK-9 Z2] Pokrycie tekstem `body` — sprawdzone PO nuansowej obsludze
-    // `geometry` powyzej (nie zmienia jej), ale PRZED regulami "duza
-    // powierzchnia -> tresc": teksturowane tlo z akapitami na sobie ma czesto
-    // TEZ duza powierzchnie wzgledna, a to WLASNIE przypadek, ktory ten sygnal
-    // ma zlapac (patrz komentarz przy `TEXT_COVERAGE_DECORATION_THRESHOLD`).
+    // [Step 9 Z2] `body` text coverage — checked AFTER the nuanced handling
+    // of `geometry` above (doesn't change it), but BEFORE the "large area ->
+    // content" rules: a textured background with paragraphs on it often ALSO
+    // has a large relative area, and that's EXACTLY the case this signal is
+    // meant to catch (see the comment on `TEXT_COVERAGE_DECORATION_THRESHOLD`).
     const textCoverage = maxTextCoverageRatio(entry, bodyBoxesByPage);
     if (textCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD && !hasLargeAbsoluteOccurrence(entry)) {
       return { entry, classification: 'decoration', reason: 'Z9-high-body-text-coverage', confidence: confidenceForReason('Z9-high-body-text-coverage') };
     }
 
-    // [KROK-14 H1] Sygnal Z9 powyzej jest WYLACZONY dla duzych obrazow
-    // (`hasLargeAbsoluteOccurrence`) od kroku 9 wlasnie z powodu opisanego przy
-    // `maxCenterTextCoverageRatio`. Tutaj wraca — ale liczony na SRODKU, nie na
-    // calym bboksie, wiec nie cierpi na ten sam problem, i laduje w `undecided`
-    // (NIE `decoration`): zmierzone na tym samym zestawie referencyjnym, ze
-    // ladowanie bezposrednio w `decoration` zmniejszalo "osiagalna" pelnosc
-    // (content+undecided, czyli cokolwiek widoczne w ekranie przegladu) z 63%
-    // do 45% — czesc prawdziwie przydatnych obrazow stawala sie CALKOWICIE
-    // niewidoczna zamiast wymagac jednego kliknięcia w `undecided`. [KROK-15
-    // Z3] `centerTextCoverage` juz policzone wyzej — Z1-multi-page-correlated
-    // i Z1-full-bleed-background teraz tez z niego korzystaja.
+    // [Step 14 H1] The Z9 signal above has been DISABLED for large images
+    // (`hasLargeAbsoluteOccurrence`) since step 9, precisely for the reason
+    // described at `maxCenterTextCoverageRatio`. It comes back here — but
+    // computed on the CENTER, not the whole bbox, so it doesn't suffer from
+    // the same problem, and lands in `undecided` (NOT `decoration`):
+    // measured on the same reference set that landing directly in
+    // `decoration` reduced "reachable" completeness (content+undecided,
+    // i.e. anything visible on the review screen) from 63% to 45% — some
+    // genuinely useful images became COMPLETELY invisible instead of needing
+    // a single click in `undecided`. [Step 15 Z3] `centerTextCoverage`
+    // already computed above — Z1-multi-page-correlated and
+    // Z1-full-bleed-background now use it too.
     if (centerTextCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD) {
       return { entry, classification: 'undecided', reason: 'Z10-high-center-text-coverage', confidence: confidenceForReason('Z10-high-center-text-coverage') };
     }
@@ -496,27 +515,27 @@ export function classifyImages(
       return { entry, classification: 'content', reason: 'Z1-large-relative-area', confidence: confidenceForReason('Z1-large-relative-area') };
     }
 
-    // [KROK-8 Z2] Zero dowodu maskowania (nie tylko slabego) + umiarkowana
-    // powierzchnia — patrz komentarz przy `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD`.
+    // [Step 8 Z2] Zero masking evidence (not just weak) + moderate area —
+    // see the comment on `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD`.
     if (entry.maskEvidence === null && entry.maxRelativeArea >= MEDIUM_AREA_NO_EVIDENCE_THRESHOLD) {
       return { entry, classification: 'content', reason: 'Z2-moderate-area-no-mask-evidence', confidence: confidenceForReason('Z2-moderate-area-no-mask-evidence') };
     }
 
-    // [KROK-17, naprawione w KROK-43 Z1 — patrz komentarz przy
-    // `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`] Waski pasek-rozdzielacz —
-    // JEDEN sygnal (proporcje) SAM W SOBIE juz NIE decyduje `decoration`
-    // wprost (A5/A10: obraz musi przejsc przez ekran przegladu, gdzie
-    // uzytkownik go zobaczy i zdecyduje) — laduje w `undecided`, z
-    // `Diagnostic` dodawanym w `buildImageExtraction.ts`. Sprawdzone PO
-    // wszystkich regulach "duza powierzchnia -> tresc" (nie nadpisuje ich),
-    // ale PRZED finalnym `undecided`/`Z1-no-strong-signal` — inaczej ten
-    // przypadek dostalby najnizsza mozliwa pewnosc, mimo ze proporcje SA
-    // realnym (tylko niepotwierdzonym) sygnalem.
+    // [Step 17, fixed in Step 43 Z1 — see the comment on
+    // `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD`] A narrow divider strip —
+    // ONE signal (aspect ratio) ALONE no longer decides `decoration`
+    // outright (A5/A10: the image must go through the review screen, where
+    // the user sees it and decides) — it lands in `undecided`, with a
+    // `Diagnostic` added in `buildImageExtraction.ts`. Checked AFTER all the
+    // "large area -> content" rules (doesn't override them), but BEFORE the
+    // final `undecided`/`Z1-no-strong-signal` — otherwise this case would
+    // get the lowest possible confidence, even though the aspect ratio IS a
+    // real (just unconfirmed) signal.
     if (!isLargeArea && hasExtremeAspectRatioOccurrence(entry)) {
       return { entry, classification: 'undecided', reason: 'Z13-extreme-aspect-ratio-undecided', confidence: confidenceForReason('Z13-extreme-aspect-ratio-undecided') };
     }
 
-    // Brak jakiegokolwiek mocnego sygnalu w zadna strone — nie zgaduj.
+    // No strong signal in either direction — don't guess.
     return { entry, classification: 'undecided', reason: 'Z1-no-strong-signal', confidence: confidenceForReason('Z1-no-strong-signal') };
   });
 }

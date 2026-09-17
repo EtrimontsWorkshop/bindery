@@ -2,13 +2,13 @@ import type { StreamAngle } from '../text/types.js';
 export type { StreamAngle } from '../text/types.js';
 
 /**
- * Geometria wspolna dla statystyki odstepow (Z2), strumieni katowych (Z3) i
- * klastrowania w linie (Z5) — MDD §5.1: kat z transform[1]/transform[2],
- * zaokraglony do 90°; pozycja "cross-axis" to os PROSTOPADLA do kierunku
- * tekstu, nie zawsze Y.
+ * Geometry shared by gap statistics (Z2), angular streams (Z3), and line
+ * clustering (Z5) — MDD §5.1: angle from transform[1]/transform[2], rounded
+ * to 90°; the "cross-axis" position is the axis PERPENDICULAR to the text
+ * direction, not always Y.
  */
 
-/** Kat kierunku tekstu z transform [a,b,c,d,e,f], zaokraglony do najblizszego kubelka 90°. */
+/** Text direction angle from transform [a,b,c,d,e,f], rounded to the nearest 90° bucket. */
 export function computeStreamAngle(transform: readonly number[]): StreamAngle {
   const b = transform[1] ?? 0;
   const a = transform[0] ?? 0;
@@ -19,18 +19,17 @@ export function computeStreamAngle(transform: readonly number[]): StreamAngle {
 }
 
 export interface AxisPositions {
-  /** Pozycja wzdluz kierunku CZYTANIA (rosnie w kierunku plyniecia tekstu). */
+  /** Position along the READING direction (increases in the direction text flows). */
   along: number;
-  /** Pozycja PROSTOPADLA do kierunku tekstu — os klastrowania w linie (Z5). */
+  /** Position PERPENDICULAR to the text direction — the axis used for line clustering (Z5). */
   cross: number;
 }
 
 /**
- * Tolerancja "ta sama linia bazowa" jako uamek rozmiaru fontu — NIE stala
- * sztywna (brief KROK-5: "tolerancja pochodna od rozmiaru fontu, nie stala").
- * Wspoldzielona miedzy Z2 (statystyka odstepow), Z4 (scalanie wyrazow) i Z5
- * (klastrowanie w linie), zeby wszystkie trzy zgadzaly sie co do tego, co
- * liczy sie jako "ta sama linia".
+ * The "same baseline" tolerance as a fraction of font size — NOT a rigid
+ * constant (per the Step 5 brief: "a tolerance derived from font size, not a
+ * constant"). Shared between Z2 (gap statistics), Z4 (word merging), and Z5
+ * (line clustering), so all three agree on what counts as "the same line".
  */
 const BASELINE_TOLERANCE_RATIO = 0.3;
 
@@ -43,9 +42,10 @@ export function fontSizeFromTransform(transform: readonly number[]): number {
 }
 
 /**
- * Rzutuje poczatek itemu (e,f) na osie wzdluz/w poprzek kierunku tekstu.
- * Dla 0°/180°: along=X, cross=Y. Dla 90°/270°: along=Y, cross=X (os obrocona).
- * Znak `along` odwrocony dla 180°/270°, zeby rosl w kierunku czytania.
+ * Projects an item's origin (e,f) onto the along/across axes of the text
+ * direction. For 0°/180°: along=X, cross=Y. For 90°/270°: along=Y, cross=X
+ * (rotated axis). The sign of `along` is flipped for 180°/270°, so it
+ * increases in the reading direction.
  */
 export function axisPositions(transform: readonly number[], angle: StreamAngle): AxisPositions {
   const x = transform[4] ?? 0;

@@ -1,14 +1,14 @@
 import type { LocalizableMessage } from '@bindery/core';
 
 /**
- * [KROK-27 Z1] Jedyne miejsce, ktore doklada namespace `BINDERY.<ns>.` do
- * `LocalizableMessage.code` z `@bindery/core` przed wywolaniem
- * `game.i18n.format`. `code` sam w sobie jest krotkim, plaskim
- * identyfikatorem (np. `UNICODE_LOW_CONFIDENCE`) — rdzen nie wie nic o tym,
- * ze konsumuje go akurat modul Foundry o nazwie "Bindery" (A1: `packages/core`
- * nie odwoluje sie do niczego specyficznego dla Foundry, nawet posrednio przez
- * wlasna nazwe w stringu). Doklejanie namespace'u to WYLACZNIE zadanie tej
- * jednej funkcji w warstwie modulu.
+ * [Step 27 Z1] The only place that prepends the `BINDERY.<ns>.` namespace to
+ * `LocalizableMessage.code` from `@bindery/core` before calling
+ * `game.i18n.format`. `code` itself is a short, flat identifier (e.g.
+ * `UNICODE_LOW_CONFIDENCE`) — the core knows nothing about the fact that it
+ * happens to be consumed by a Foundry module named "Bindery" (A1:
+ * `packages/core` doesn't reference anything Foundry-specific, not even
+ * indirectly via its own name in a string). Prepending the namespace is
+ * EXCLUSIVELY this one function's job, in the module layer.
  */
 export function localizeMessage(namespace: string, message: LocalizableMessage): string {
   return game.i18n!.format(`BINDERY.${namespace}.${message.code}` as never, (message.params ?? {}) as never);

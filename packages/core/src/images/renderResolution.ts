@@ -1,58 +1,59 @@
 /**
- * Polityka rozdzielczosci renderu regionu (KROK-8 Z3). Kalibracja kroku 7
- * (RAPORT-KROK-7.md) pokazala, ze 92,7% obrazow-kandydatow wymaga renderu
- * regionu (nie ekstrakcji bezposredniej), a stala domyslna 2048px byla
- * niewystarczajaca dla scen/map (dluzsza krawedz zrodlowego zasobu czesto
- * przekracza 2048px, wiec render W DOL skaluje ostrzejsze od zrodla obrazy).
+ * Region-render resolution policy (Step 8 Z3). Step 7's calibration
+ * (RAPORT-KROK-7.md) showed that 92.7% of candidate images require a region
+ * render (not direct extraction), and the default constant of 2048px was
+ * insufficient for scenes/maps (the source resource's longer edge often
+ * exceeds 2048px, so the render scales DOWN images sharper than the source).
  *
- * [KROK-8, ograniczenie architektoniczne] Prawdziwy `targetKind` (`scene`/
- * `handout`/`portrait`, `finalize.ts`) wymaga JUZ zdekodowanych wymiarow
- * wynikowych — nie jest dostepny PRZED renderem (obliczamy TU wlasnie
- * rozdzielczosc TEGO renderu). Zamiast probowac przewidziec `targetKind`
- * z wyprzedzeniem (ryzyko rozjazdu z prawdziwa, pozniejsza klasyfikacja),
- * uzywamy `maxRelativeArea` reprezentanta regionu — DOKLADNIE TEGO SAMEGO
- * sygnalu, ktorego `classify.ts` juz uzywa do klasyfikacji tresc/dekoracja —
- * jako PROXY wielkosci kategorii (duzy obraz "scene-like" -> najwyzsze
- * minimum, sredni "handout-like" -> srednie, maly "portrait-like" -> najnizsze).
- * To swiadome przyblizenie, udokumentowane tutaj, nie pomylka.
+ * [Step 8, architectural constraint] The real `targetKind` (`scene`/
+ * `handout`/`portrait`, `finalize.ts`) needs the ALREADY-decoded output
+ * dimensions — it isn't available BEFORE the render (we're computing HERE
+ * the resolution of THIS render). Instead of trying to predict `targetKind`
+ * ahead of time (risking a mismatch with the real, later classification), we
+ * use the region representative's `maxRelativeArea` — EXACTLY THE SAME
+ * signal `classify.ts` already uses for content/decoration classification —
+ * as a PROXY for the size category (a large "scene-like" image -> the
+ * highest minimum, a medium "handout-like" one -> medium, a small
+ * "portrait-like" one -> the lowest). This is a deliberate approximation,
+ * documented here, not a mistake.
  */
 
-/** Ten sam prog co `LARGE_AREA_CONTENT_THRESHOLD` w `classify.ts` (>=40% strony = "scene-like"). */
+/** Same threshold as `LARGE_AREA_CONTENT_THRESHOLD` in `classify.ts` (>=40% of the page = "scene-like"). */
 const SCENE_LIKE_AREA_THRESHOLD = 0.4;
-/** Ten sam prog co `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` w `classify.ts` (>=10% strony = "handout-like"). */
+/** Same threshold as `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` in `classify.ts` (>=10% of the page = "handout-like"). */
 const HANDOUT_LIKE_AREA_THRESHOLD = 0.1;
 
-/** Minima z briefu KROK-8 Z3 — do kalibracji na `samples/`. */
+/** Minimums from the Step 8 Z3 brief — to be calibrated against `samples/`. */
 const MIN_SCENE_LONG_EDGE_PX = 2048;
 const MIN_HANDOUT_LONG_EDGE_PX = 1024;
 const MIN_PORTRAIT_LONG_EDGE_PX = 512;
 
 /**
- * Mnoznik bezpieczenstwa nad natywna rozdzielczoscia zrodla — render regionu
- * nie jest 1:1 z zasobem (obejmuje tez okoliczne piksele bboksa, ewentualne
- * skalowanie CTM), wiec lekka nadwyzka nad "goly" rozmiar zrodla chroni przed
- * delikatnym niedoswietleniem przy przyblizeniu w Foundry. Wartosc startowa,
- * do kalibracji.
+ * Safety multiplier above the source's native resolution — a region render
+ * isn't 1:1 with the resource (it also covers the bbox's surrounding
+ * pixels, possible CTM scaling), so a slight margin over the "bare" source
+ * size guards against slight softness when zooming in Foundry. A starting
+ * value, to be calibrated.
  */
 const SAFETY_MARGIN = 1.15;
 
 export interface RenderResolutionInput {
   /**
-   * Natywne (zrodlowe) dlugosci dluzszych krawedzi (px) WSZYSTKICH obrazow w
-   * regionie, ktorych rozdzielczosc udalo sie ustalic (patrz
-   * `probeIntrinsicLongEdgePx` w `extract.ts`) — PUSTE dla regionu czysto
-   * wektorowego (brak obrazu) lub gdy zaden czlonek nie dal sie rozwiazac.
+   * Native (source) longer-edge lengths (px) of ALL images in the region
+   * whose resolution could be determined (see `probeIntrinsicLongEdgePx` in
+   * `extract.ts`) — EMPTY for a purely vector region (no image) or when no
+   * member could be resolved.
    */
   intrinsicLongEdgesPx: readonly number[];
-  /** `maxRelativeArea` reprezentanta jednostki — patrz komentarz na gorze pliku. `null` dla regionu czysto wektorowego. */
+  /** The region representative's `maxRelativeArea` — see the comment at the top of the file. `null` for a purely vector region. */
   representativeMaxRelativeArea: number | null;
-  /** Domyslna dlugosc krawedzi uzywana WYLACZNIE, gdy nie ma zadnego obrazu w regionie (brief: "wartosc z ustawien"). */
+  /** Default edge length used EXCLUSIVELY when there's no image at all in the region (brief: "value from settings"). */
   defaultLongEdgePx: number;
-  /** Twardy sufit — chroni przed wyprodukowaniem pliku o absurdalnym rozmiarze z rozkladowki. */
+  /** Hard ceiling — guards against producing a file of absurd size from a spread. */
   maxLongEdgePx: number;
 }
 
-/** Minimum wg kategorii wielkosci (proxy dla `targetKind`, patrz komentarz na gorze pliku) — `null` gdy region czysto wektorowy (brief: bez minimum kategorii, tylko wartosc z ustawien). */
+/** Minimum by size category (a proxy for `targetKind`, see the comment at the top of the file) — `null` when the region is purely vector (brief: no category minimum, just the value from settings). */
 function minimumForCategory(representativeMaxRelativeArea: number | null): number | null {
   if (representativeMaxRelativeArea === null) return null;
   if (representativeMaxRelativeArea >= SCENE_LIKE_AREA_THRESHOLD) return MIN_SCENE_LONG_EDGE_PX;
@@ -61,11 +62,11 @@ function minimumForCategory(representativeMaxRelativeArea: number | null): numbe
 }
 
 /**
- * `targetLongEdge = clamp(max(intrinsicLongEdge) * marginBezpieczenstwa, minimum wg kategorii, maksimum z ustawien)`
- * (brief KROK-8 Z3). Region czysto wektorowy (`intrinsicLongEdgesPx` puste I
- * `representativeMaxRelativeArea===null`) pomija minimum kategorii calkowicie
- * — nie ma czego odwzorowywac, wiec sama `defaultLongEdgePx` z ustawien
- * (przyciete do sufitu) wystarcza (brief: "wartosc z ustawien").
+ * `targetLongEdge = clamp(max(intrinsicLongEdge) * safetyMargin, category minimum, settings maximum)`
+ * (Step 8 Z3 brief). A purely vector region (`intrinsicLongEdgesPx` empty
+ * AND `representativeMaxRelativeArea===null`) skips the category minimum
+ * entirely — there's nothing to map it to, so plain `defaultLongEdgePx` from
+ * settings (clamped to the ceiling) is enough (brief: "value from settings").
  */
 export function computeTargetLongEdgePx(input: RenderResolutionInput): number {
   if (input.intrinsicLongEdgesPx.length === 0) {

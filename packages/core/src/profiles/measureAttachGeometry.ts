@@ -5,42 +5,42 @@ import { matchFontRoleCandidate, type FontRoleCandidateMatch } from './entityNam
 import { attachNearest, classifyRelativeDirection, directionalDistance, type AttachCandidate, type AttachStrategy, type GeometricAnchor } from './entityAssembly.js';
 
 /**
- * [KROK-24 Z2] Mierzy WZAJEMNE POLOZENIE kotwicy (siatka cech) i drugiego
- * wzorca (pochodne/ataki/umiejetnosci) na WSZYSTKICH stronach dokumentu, gdzie
- * oba wystepuja — zamiast kazac autorowi profilu ZGADYWAC strategie
- * (`nearestBelow`/`nearestAbove`/`nearest`) i limit (`maxDistancePt`), tak jak
- * w kroku 19 (`nearestBelow` dawalo 5/15 dolaczonych blokow pochodnych, bo w
- * tej ksiazce siatka i pochodne stoja OBOK SIEBIE — autor odkryl to dopiero
- * pomiarem recznym po fakcie, patrz `write-coc7-niczas-profile.ts`).
+ * [Step 24 Z2] Measures the MUTUAL POSITION of the anchor (attribute grid) and a second
+ * pattern (derived stats/attacks/skills) across ALL pages of the document where
+ * both occur — instead of making the profile author GUESS the strategy
+ * (`nearestBelow`/`nearestAbove`/`nearest`) and the limit (`maxDistancePt`), as
+ * happened in step 19 (`nearestBelow` only attached 5/15 derived-stat blocks, because in
+ * this book the grid and the derived stats sit SIDE BY SIDE — the author only discovered this
+ * via manual measurement after the fact, see `write-coc7-niczas-profile.ts`).
  *
- * Parowanie per strona uzywa `attachNearest` ze strategia `'nearest'` i BEZ
- * limitu odleglosci (`Infinity`) — TO SAMO globalne zachlanne dopasowanie o
- * minimalnym dystansie co prawdziwy potok (KROK-21, `attachNearestInternal`),
- * tylko bez progu, zeby zmierzyc PRAWDZIWE odleglosci, nie tylko te juz
- * mieszczace sie w jakims domysle. Wynik tego parowania (ktora siatka
- * "nalezy" do ktorego kandydata) jest wejsciem do klasyfikacji kierunku
- * (`classifyRelativeDirection`) — NIE odwrotnie: kierunek nie wplywa na to,
- * ktore pary sa mierzone.
+ * Per-page pairing uses `attachNearest` with the `'nearest'` strategy and NO
+ * distance limit (`Infinity`) — the SAME global greedy minimum-distance matching as
+ * the real pipeline (Step 21, `attachNearestInternal`), just without a
+ * threshold, in order to measure the TRUE distances, not just the ones that already
+ * fit some guess. The result of this pairing (which grid
+ * "belongs" to which candidate) is the input to direction classification
+ * (`classifyRelativeDirection`) — NOT the other way around: direction does not affect
+ * which pairs get measured.
  */
 
 export interface AttachGeometryMeasurement {
-  /** Liczba stron, na ktorych OBA wzorce (kotwica i kandydat) w ogole wystapily — male wartosci = ostrzezenie "za malo danych do pomiaru". */
+  /** Number of pages on which BOTH patterns (anchor and candidate) occurred at all — small values = a "too little data to measure" warning. */
   pagesWithBoth: number;
-  /** Liczba faktycznie sparowanych (kotwica, kandydat) par na tych stronach. */
+  /** Number of actually paired (anchor, candidate) pairs across those pages. */
   measuredPairCount: number;
   belowCount: number;
   aboveCount: number;
-  /** Kandydat ani ponizej, ani powyzej kotwicy (np. obok, w sasiedniej kolumnie) — sygnal dla `'nearest'`. */
+  /** Candidate neither below nor above the anchor (e.g. beside it, in a neighboring column) — a signal for `'nearest'`. */
   besideCount: number;
   suggestedStrategy: AttachStrategy;
   /**
-   * Zmierzone dystanse (w metryce `suggestedStrategy`) dla par NALEZACYCH do
-   * wiekszosciowego kierunku — POSORTOWANE rosnaco. Brief kroku 24 wprost:
-   * "Pokaz rozklad, nie sama liczbe" — autor profilu ma widziec, czy
-   * przypadki sa zwarte, czy rozstrzelone, nie tylko jedna zagregowana liczbe.
+   * Measured distances (in the `suggestedStrategy` metric) for pairs BELONGING to the
+   * majority direction — SORTED ascending. The step-24 brief is explicit:
+   * "Show the distribution, not just a single number" — the profile author should see whether
+   * cases are tightly clustered or spread out, not just one aggregated number.
    */
   distances: number[];
-  /** `Math.max(distances) + margines`, zaokraglone w gore — punkt startowy do wpisania w `maxDistancePt`, NIE ostateczna decyzja (autor moze zawsze zmienic). `null`, gdy `distances` jest puste (brak zmierzonych par). */
+  /** `Math.max(distances) + margin`, rounded up — a starting point to enter into `maxDistancePt`, NOT a final decision (the author can always change it). `null` when `distances` is empty (no measured pairs). */
   suggestedMaxDistancePt: number | null;
 }
 
@@ -87,7 +87,7 @@ export function measureAttachGeometry(
     attached.forEach((cand, i) => {
       if (!cand) return;
       const anchorBbox = anchors[i]!.bbox;
-      const nearestDist = directionalDistance(anchorBbox, cand.bbox, 'nearest')!; // 'nearest' nigdy nie zwraca null
+      const nearestDist = directionalDistance(anchorBbox, cand.bbox, 'nearest')!; // 'nearest' never returns null
       distancesNearest.push(nearestDist);
       const direction = classifyRelativeDirection(anchorBbox, cand.bbox);
       if (direction === 'below') {
@@ -102,7 +102,7 @@ export function measureAttachGeometry(
     });
   }
 
-  // [tabela z briefu kroku 24] "Konsekwentnie" = KAZDA zmierzona para (nie tylko wiekszosc) dzieli ten sam kierunek — jeden wyjatek juz dyskwalifikuje kierunkowa strategie, bo `nearestBelow`/`nearestAbove` odrzucalyby ten wyjatek CALKOWICIE (null, nie "daleko"), nie tylko robily go gorszym kandydatem.
+  // [table from the step-24 brief] "Consistently" = EVERY measured pair (not just the majority) shares the same direction — a single exception already disqualifies a directional strategy, because `nearestBelow`/`nearestAbove` would reject that exception ENTIRELY (null, not "far away"), not merely make it a worse candidate.
   let suggestedStrategy: AttachStrategy;
   let distances: number[];
   if (belowCount > 0 && aboveCount === 0 && besideCount === 0) {

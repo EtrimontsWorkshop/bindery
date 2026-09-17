@@ -7,13 +7,13 @@ import type { ProfileToken } from './profiles/types.js';
 import type { ProfileV2 } from './profiles/schema.js';
 
 /**
- * [KROK-22 Z1/Z4] Entry point Profile Studio — analogiczny do
- * `buildCIFFromDocument.ts`/`inspectDocument.ts`: WYLACZNIE tutaj otwieramy
- * pdf.js (`check:imports`, ta sama przyczyna architektoniczna co wszedzie
- * indziej w tym pliku katalogu — `pdfjs-dist` jest zewnetrzny we WSZYSTKICH
- * konfiguracjach Vite). `packages/module` (`ProfileStudio.ts`) NIE liczy
- * niczego samodzielnie — wylacznie okno i rysowanie (DoD kroku 22,
- * `check:boundary`).
+ * [Step 22 Z1/Z4] Entry point for Profile Studio — analogous to
+ * `buildCIFFromDocument.ts`/`inspectDocument.ts`: pdf.js is opened ONLY
+ * here (`check:imports`, the same architectural reason as everywhere else
+ * in this directory's files — `pdfjs-dist` is external in ALL Vite
+ * configurations). `packages/module` (`ProfileStudio.ts`) does NOT compute
+ * anything on its own — it only handles the window and rendering (Step 22
+ * DoD, `check:boundary`).
  */
 
 export interface AnalyzeProfileDocumentOptions {
@@ -39,7 +39,7 @@ export async function analyzeProfileDocument(data: ArrayBuffer, profile: Profile
   const textDoc = await openDocument(data, opts.assetBaseUrl);
   const pages: PageAnalysis[] = [];
   for (let pageNumber = 1; pageNumber <= textDoc.numPages; pageNumber++) {
-    if (opts.signal?.aborted) throw new DOMException('analyzeProfileDocument przerwane przez AbortSignal', 'AbortError');
+    if (opts.signal?.aborted) throw new DOMException('analyzeProfileDocument aborted by AbortSignal', 'AbortError');
 
     const page = await textDoc.getPage(pageNumber);
     await page.getOperatorList();
@@ -60,24 +60,25 @@ export interface GetFontRoleAwareTokensOptions {
 }
 
 /**
- * [KROK-34 Z2, zmierzony na zywo blad] `getPageTextTokens.ts` (Krok 23 Z6)
- * CELOWO nie liczy `fontRole` (wymaga `buildInventory`, kosztowne na kazde
- * klikniecie) — wystarczalo to Krok 23 Z6 (klikniecie "wklej tekst do pola",
- * etykiety/naglowki dopasowuja sie po LITERALNYM tekscie). `proseBlock`
- * (Notatki, ten krok) i Krok-33 Z4 (opisy pod atakami) WYMAGAJA jednak
- * `fontRole === 'accent'`, zeby rozpoznac podnaglowki — bez prawdziwej roli
- * fontu (liczonej z CALEGO dokumentu, NIE jednej strony — rola to ranking
- * czestosci/rozmiaru PER DOKUMENT, patrz `inventory.ts`) obie funkcje milcza
- * mimo poprawnych danych, mierzone wprost: Profile Studio "Notatki" na
- * `Wrak.pdf` zwracalo "brak dopasowania" dla Sciapoda, mimo ze DOKLADNIE TEN
- * SAM profil+strona przez `analyzeProfileDocument` (pelny przebieg) i node'owy
- * skrypt weryfikacyjny znajdowaly notatke poprawnie.
+ * [Step 34 Z2, bug measured live] `getPageTextTokens.ts` (Step 23 Z6)
+ * DELIBERATELY does not compute `fontRole` (requires `buildInventory`,
+ * expensive on every click) — that was sufficient for Step 23 Z6 (clicking
+ * "paste text into field", labels/headings are matched by LITERAL text).
+ * `proseBlock` (Notes, this step) and Step 33 Z4 (descriptions below
+ * attacks) DO require `fontRole === 'accent'`, however, to recognize
+ * sub-headings — without the real font role (computed from the WHOLE
+ * document, NOT a single page — role is a frequency/size ranking PER
+ * DOCUMENT, see `inventory.ts`) both functions silently fail despite
+ * correct data, measured directly: Profile Studio "Notes" on `Wrak.pdf`
+ * returned "no match" for Sciapod, even though the EXACT SAME profile+page
+ * via `analyzeProfileDocument` (full run) and the Node verification script
+ * found the note correctly.
  *
- * Placi TEN SAM koszt co pelny przebieg (`buildInventory` na calym
- * dokumencie), ale zwraca tokeny WYLACZNIE dla jednej, zadanej strony — do
- * uzycia z WYRAZNEJ akcji autora (klikniecie "Wskaż przykład"/"Odśwież
- * podgląd" w zakladce Notatki), NIE do rysowania klikalnych prostokatow przy
- * kazdym przejsciu miedzy stronami (tam nadal wystarcza `getPageTextTokens`).
+ * Pays the SAME cost as a full run (`buildInventory` over the entire
+ * document), but returns tokens ONLY for a single requested page — to be
+ * used from an EXPLICIT author action (clicking "Point to example"/"Refresh
+ * preview" in the Notes tab), NOT for drawing clickable rectangles on every
+ * transition between pages (there `getPageTextTokens` is still sufficient).
  */
 export async function getFontRoleAwareTokensForPage(data: ArrayBuffer, pageNumber: number, opts: GetFontRoleAwareTokensOptions): Promise<ProfileToken[]> {
   const invDoc = await openDocument(data, opts.assetBaseUrl);

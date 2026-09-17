@@ -1,20 +1,21 @@
 /**
- * Domkniecie luki opisanej w RAPORT-FAZA-1.md: `page.objs.get()` zwraca RoZNE
- * ksztalty zaleznie od srodowiska — `{ bitmap: ImageBitmap }` w przegladarce
- * (Foundry), `{ kind, data: Uint8ClampedArray }` w Node (fazy 0 spike). Bez tej
- * normalizacji golden testy dzialalyby w Node, a produkcja w przegladarce — czyli
- * nie sprawdzalyby tego, co sie naprawde wykonuje.
+ * Closes the gap described in RAPORT-FAZA-1.md: `page.objs.get()` returns
+ * DIFFERENT shapes depending on the environment — `{ bitmap: ImageBitmap }`
+ * in the browser (Foundry), `{ kind, data: Uint8ClampedArray }` in Node
+ * (phase-0 spike). Without this normalization, golden tests would pass in
+ * Node while production ran in the browser — meaning they wouldn't actually
+ * be testing what really executes.
  */
 
-/** Kanoniczna reprezentacja zdekodowanego obrazu, niezalezna od srodowiska. */
+/** Canonical representation of a decoded image, independent of the environment. */
 export interface DecodedImage {
   width: number;
   height: number;
-  /** RGBA, 4 bajty na piksel. */
+  /** RGBA, 4 bytes per pixel. */
   rgba: Uint8ClampedArray;
 }
 
-// Stale zweryfikowane empirycznie w fazie 0 (KROK-1 spike, pdfjs-dist 6.1.200).
+// Constants verified empirically in phase 0 (Step 1 spike, pdfjs-dist 6.1.200).
 const IMAGE_KIND_GRAYSCALE_1BPP = 1;
 const IMAGE_KIND_RGB_24BPP = 2;
 const IMAGE_KIND_RGBA_32BPP = 3;
@@ -78,14 +79,15 @@ function normalizeFromKindData(img: KindDataShape): DecodedImage {
     return { width, height, rgba };
   }
 
-  throw new Error(`normalizeDecodedImage: nieobslugiwany kind=${kind}`);
+  throw new Error(`normalizeDecodedImage: unsupported kind=${kind}`);
 }
 
 function normalizeFromBitmap(img: BitmapShape): DecodedImage {
-  // OffscreenCanvas jest standardem platformy webowej (nie API Foundry) — jego
-  // uzycie tutaj nie lamie zalozenia A1. Ale jest dostepny tylko w przegladarce;
-  // w Node (testy jednostkowe) rzuca czytelny blad zamiast cichego zawieszenia —
-  // rzeczywiste rysowanie na canvasie zostaje faza 3 (patrz KROK-3-fixtures.md, Z6).
+  // OffscreenCanvas is a web-platform standard (not a Foundry API) — using it
+  // here doesn't break assumption A1. But it's only available in the
+  // browser; in Node (unit tests) it throws a readable error instead of
+  // silently hanging — actual canvas drawing stays phase 3 scope (see
+  // KROK-3-fixtures.md, Z6).
   const OffscreenCanvasCtor = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas as
     | (new (w: number, h: number) => {
         getContext(id: '2d'): {
@@ -97,15 +99,15 @@ function normalizeFromBitmap(img: BitmapShape): DecodedImage {
 
   if (!OffscreenCanvasCtor) {
     throw new Error(
-      'normalizeDecodedImage: OffscreenCanvas niedostepny w tym srodowisku (prawdopodobnie Node) — ' +
-        'rysowanie ImageBitmap na canvasie to zakres fazy 3, nie fazy 1.',
+      'normalizeDecodedImage: OffscreenCanvas is not available in this environment (probably Node) — ' +
+        'drawing an ImageBitmap onto a canvas is phase-3 scope, not phase 1.',
     );
   }
 
   const canvas = new OffscreenCanvasCtor(img.width, img.height);
   const ctx = canvas.getContext('2d');
   if (!ctx) {
-    throw new Error('normalizeDecodedImage: nie udalo sie utworzyc kontekstu 2D dla OffscreenCanvas');
+    throw new Error('normalizeDecodedImage: failed to create a 2D context for OffscreenCanvas');
   }
   ctx.drawImage(img.bitmap, 0, 0);
   const imageData = ctx.getImageData(0, 0, img.width, img.height);
@@ -113,17 +115,17 @@ function normalizeFromBitmap(img: BitmapShape): DecodedImage {
 }
 
 /**
- * Normalizuje wynik `page.objs.get()`/`page.commonObjs.get()` (dowolny z dwoch
- * ksztaltow obserwowanych empirycznie — patrz komentarz na gorze pliku) do
- * jednej kanonicznej reprezentacji RGBA.
+ * Normalizes the result of `page.objs.get()`/`page.commonObjs.get()`
+ * (either of the two shapes observed empirically — see the comment at the
+ * top of the file) into a single canonical RGBA representation.
  */
 export function normalizeDecodedImage(raw: unknown): DecodedImage {
   if (raw === null || typeof raw !== 'object') {
-    throw new Error('normalizeDecodedImage: oczekiwano obiektu, otrzymano ' + typeof raw);
+    throw new Error('normalizeDecodedImage: expected an object, got ' + typeof raw);
   }
   const img = raw as Record<string, unknown>;
   if (typeof img['width'] !== 'number' || typeof img['height'] !== 'number') {
-    throw new Error('normalizeDecodedImage: brak liczbowych width/height w wejsciu');
+    throw new Error('normalizeDecodedImage: input is missing numeric width/height');
   }
 
   if (isKindDataShape(img)) {
@@ -133,5 +135,5 @@ export function normalizeDecodedImage(raw: unknown): DecodedImage {
     return normalizeFromBitmap(img);
   }
 
-  throw new Error('normalizeDecodedImage: nierozpoznany ksztalt wejscia (brak "data" i brak "bitmap")');
+  throw new Error('normalizeDecodedImage: unrecognized input shape (no "data" and no "bitmap")');
 }

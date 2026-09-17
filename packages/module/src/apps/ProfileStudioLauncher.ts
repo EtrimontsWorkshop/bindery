@@ -1,34 +1,34 @@
 const { ApplicationV2 } = foundry.applications.api;
 
 /**
- * [KROK-22 Z1, I3] `game.settings.registerMenu` wymaga wartosci `type`
- * SYNCHRONICZNIE dostepnej juz przy `registerSettings()` (hook `init`,
- * start swiata) — zaimportowanie prawdziwego `ProfileStudio` tam wprost
- * (tak jak `ImportWizard`) zmusilby Rollupa do wciagniecia calego jego kodu
- * (i wszystkiego, co on statycznie importuje z `../api.js`) do chunka
- * ladowanego EAGERLY przy KAZDYM starcie swiata — dokladnie ryzyko I3, ktore
- * brief kroku 22 wprost zakazuje ("Studio nie moze tego ruszyc [budzetu
- * <40KB]. Ladowane dynamicznym import(), dokladnie jak pdf.js.").
+ * [Step 22 Z1, I3] `game.settings.registerMenu` requires the `type` value to
+ * be SYNCHRONOUSLY available already at `registerSettings()` (the `init`
+ * hook, world startup) — importing the real `ProfileStudio` there directly
+ * (the way `ImportWizard` is) would force Rollup to pull its entire code
+ * (and everything it statically imports from `../api.js`) into a chunk
+ * loaded EAGERLY on EVERY world startup — exactly the risk I3 that the step
+ * 22 brief explicitly forbids ("The Studio must not touch that [the <40KB
+ * budget]. Load it via dynamic import(), exactly like pdf.js.").
  *
- * Zweryfikowane wprost w zainstalowanej wersji Foundry
- * (`client/applications/settings/config.mjs`, `#onOpenSubmenu`): przycisk
- * menu robi WYLACZNIE `const app = new menu.type(); await app.render(true);`
- * — klasa jest KONSTRUOWANA i RENDEROWANA dopiero PO kliknieciu, nigdy
- * wczesniej. Ten cienki "launcher" jest wiec jedyna klasa faktycznie
- * zaladowana statycznie (tania — zero importu `@bindery/core`/`api.js`) —
- * jego WLASNY `render()` PODMIENIA sie na dynamiczny `import()` prawdziwego
- * `ProfileStudio` dopiero w tym momencie, nigdy wczesniej. Ten obiekt sam w
- * sobie nigdy nie renderuje wlasnego okna.
+ * Verified directly against the installed Foundry version
+ * (`client/applications/settings/config.mjs`, `#onOpenSubmenu`): the menu
+ * button does ONLY `const app = new menu.type(); await app.render(true);`
+ * — the class is CONSTRUCTED and RENDERED only AFTER the click, never
+ * before. This thin "launcher" is therefore the only class actually loaded
+ * statically (cheap — zero import of `@bindery/core`/`api.js`) — its OWN
+ * `render()` is REPLACED by a dynamic `import()` of the real `ProfileStudio`
+ * only at that point, never before. This object itself never renders its
+ * own window.
  */
 export class ProfileStudioLauncher extends ApplicationV2 {
   static override DEFAULT_OPTIONS = {
     id: 'bindery-profile-studio-launcher',
   };
 
-  // Nadpisanie sygnatury bazowej `render` (generyki parametryzowane
-  // instancja klasy bazowej, patrz analogiczny komentarz przy `_onRender` w
-  // ImportWizard.ts/ReviewScreen.ts) — ten obiekt NIGDY nie wywoluje
-  // prawdziwego cyklu renderowania ApplicationV2, wylacznie przekazuje dalej.
+  // Override of the base `render` signature (generics parameterized by the
+  // base class instance, see the analogous comment near `_onRender` in
+  // ImportWizard.ts/ReviewScreen.ts) — this object NEVER invokes the real
+  // ApplicationV2 render cycle, it only forwards the call.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async render(..._args: any[]): Promise<this> {
     const { ProfileStudio } = await import('./ProfileStudio.js');

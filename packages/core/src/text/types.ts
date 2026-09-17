@@ -1,44 +1,44 @@
 /**
- * Typy wspolne dla higieny tekstu i warstwy ukladu (KROK-5, MDD §5.1).
- * Zero zaleznosci od Foundry ani od pdf.js — `PdfTextItemLike` to ksztalt
- * DUCK-TYPED odpowiadajacy prawdziwemu `TextItem` z pdf.js, zweryfikowany
- * empirycznie (patrz RAPORT-KROK-5.md): { str, dir, width, height, transform,
- * fontName, hasEOL }. Testowalne na recznie napisanych tablicach bez otwierania PDF-a.
+ * Types shared by text hygiene and the layout layer (Step 5, MDD §5.1).
+ * Zero dependency on Foundry or on pdf.js — `PdfTextItemLike` is a
+ * DUCK-TYPED shape matching the real `TextItem` from pdf.js, verified
+ * empirically (see RAPORT-KROK-5.md): { str, dir, width, height, transform,
+ * fontName, hasEOL }. Testable with hand-written arrays without opening a PDF.
  */
 
 import type { LocalizableMessage } from '../localizableMessage.js';
 
-/** Duck-typed podzbior pdf.js TextItem faktycznie uzywany tutaj. */
+/** Duck-typed subset of pdf.js's TextItem actually used here. */
 export interface PdfTextItemLike {
   str: string;
   dir: string;
-  /** Szerokosc w jednostkach PDF (juz przeskalowana przez transform), 0 dla itemow syntetycznych. */
+  /** Width in PDF units (already scaled by the transform), 0 for synthetic items. */
   width: number;
   height: number;
-  /** [a, b, c, d, e, f] — macierz tekstu*CTM w momencie rysowania. */
+  /** [a, b, c, d, e, f] — the text*CTM matrix at the moment of drawing. */
   transform: readonly number[];
   fontName: string;
   hasEOL: boolean;
 }
 
 /**
- * [KROK-27 Z1] `message: string` USUNIETE — dublowalo `code` gotowym
- * polskim zdaniem, ktorego nie dalo sie zlokalizowac (rdzen nie ma i18n, A1).
- * Renderujacy (`packages/module`) formatuje `code`+`params` przez
- * `game.i18n.format` — patrz `LocalizableMessage`.
+ * [Step 27 Z1] `message: string` REMOVED — it duplicated `code` with a
+ * ready-made Polish sentence that couldn't be localized (the core has no
+ * i18n, A1). The renderer (`packages/module`) formats `code`+`params` via
+ * `game.i18n.format` — see `LocalizableMessage`.
  */
 export interface Diagnostic extends LocalizableMessage {
   severity: 'info' | 'warning' | 'error';
   pageNumber?: number;
-  /** [KROK-9] Blok semantyczny, ktorego dotyczy diagnostyka — MDD §5.3 (CIF Diagnostic). */
+  /** [Step 9] The semantic block this diagnostic concerns — MDD §5.3 (CIF Diagnostic). */
   blockId?: string;
 }
 
 /**
- * [U2] Pozycja odfiltrowanego itemu bialoznakowego — TWARDA granica scalania
- * wyrazow (KROK-5 P1). `afterItemIndex` to oryginalny indeks (w surowej
- * tablicy wejsciowej PRZED filtrowaniem) ostatniego zachowanego itemu przed
- * granica; -1 gdy granica wypada przed pierwszym zachowanym itemem.
+ * [U2] The position of a filtered-out whitespace item — a HARD boundary for
+ * word merging (Step 5 P1). `afterItemIndex` is the original index (in the
+ * raw input array BEFORE filtering) of the last kept item before the
+ * boundary; -1 when the boundary falls before the first kept item.
  */
 export interface WordBoundary {
   afterItemIndex: number;
@@ -46,21 +46,21 @@ export interface WordBoundary {
   gapEnd: number;
 }
 
-/** Item po higienie (Z1) — oryginalny `index` zachowany do sprawdzania granic. */
+/** An item after hygiene (Z1) — the original `index` is kept for boundary checks. */
 export interface CleanItem {
-  /** Indeks w oryginalnej (przed-filtrowanej) tablicy wejsciowej. Po scaleniu duplikatow: indeks PIERWSZEGO wystapienia. */
+  /** Index in the original (pre-filter) input array. After duplicate merging: the index of the FIRST occurrence. */
   index: number;
   str: string;
   transform: readonly number[];
   width: number;
   height: number;
   fontName: string;
-  /** [F0] Duplikat pozycyjny przesuniety < 0.5pt — scalony w jeden item z ta flaga. */
+  /** [F0] A positional duplicate shifted < 0.5pt — merged into one item with this flag. */
   syntheticBold: boolean;
 }
 
 export interface HygieneMetrics {
-  /** Po odfiltrowaniu bialych znakow i scaleniu duplikatow — inaczej niz surowa metryka fazy 0. */
+  /** After filtering whitespace and merging duplicates — different from the raw phase-0 metric. */
   fragmentationRatio: number;
   unicodeConfidence: number;
   puaCharCount: number;
@@ -77,7 +77,7 @@ export interface HygieneResult {
 
 export type StreamAngle = 0 | 90 | 180 | 270;
 
-/** [F0] MDD §5.1: fingerprint fontu, WYLACZNIE `key` jest nosny dla regul. */
+/** [F0] MDD §5.1: font fingerprint — ONLY `key` carries meaning for rules. */
 export interface FontFingerprint {
   key: string;
   size: number;

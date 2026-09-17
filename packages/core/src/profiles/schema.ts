@@ -1,20 +1,21 @@
 import { z } from 'zod';
 
 /**
- * [KROK-18 Z2] Schemat profilu v2 — implementacja `Bindery-MDD-v2.1.md` §5.5
- * DOSLOWNIE (ksztalt JSON z brifu, pole za polem). Profile pochodza od
- * nieznanych autorow (spoza tego repo, MDD §10 `registerProfile`/
- * `loadProfileFromURL`) — walidacja przy ladowaniu jest OBOWIAZKOWA, nigdy
- * `as`/zaufanie strukturze bez sprawdzenia.
+ * [Step 18 Z2] Profile v2 schema — an implementation of `Bindery-MDD-v2.1.md` §5.5
+ * LITERALLY (the JSON shape from the brief, field by field). Profiles come from
+ * unknown authors (outside this repo, MDD §10 `registerProfile`/
+ * `loadProfileFromURL`) — validation on load is MANDATORY, never
+ * `as`/trusting the structure without checking.
  *
- * [R2, status blokujacy] Profil to WYLACZNIE instrukcje parsowania (etykiety
- * pol, regexy, progi odleglosci, naglowki sekcji jako wzorzec) — NIGDY
- * wartosci tresci (nazwy postaci, opisy, listy zaklec). Ten schemat wymusza
- * to WYLACZNIE strukturalnie (typy pol) — nie umie odroznic "S" (etykieta,
- * dozwolone) od "Cthulhu" (tresc, niedozwolone) wpisanych w to samo pole
- * `labels`, bo oba sa poprawnymi stringami. Audyt tresci pozostaje
- * odpowiedzialnoscia recenzenta profilu (analogicznie do R1 w tym repo —
- * wymuszanego brakiem commitowania probek, nie automatycznym skanerem).
+ * [R2, status-blocking] A profile is EXCLUSIVELY parsing instructions (field
+ * labels, regexes, distance thresholds, section headers as patterns) — NEVER
+ * content values (character names, descriptions, spell lists). This schema
+ * enforces that ONLY structurally (field types) — it cannot distinguish a short
+ * attribute-abbreviation label (allowed) from a character or place name
+ * (content, disallowed) entered into the same
+ * `labels` field, since both are valid strings. Content auditing remains
+ * the responsibility of the profile reviewer (analogous to R1 in this repo —
+ * enforced by not committing samples, not by an automated scanner).
  */
 
 const pageRangeSchema = z.tuple([z.number().int(), z.number().int()]);
@@ -37,10 +38,10 @@ const fingerprintSchema = z.object({
   minScore: z.number().min(0).max(1),
 });
 
-/** `labelledPairs` — siatka cech / blok pochodnych (zbior etykiet, DOWOLNA kolejnosc i liczba — S2). */
+/** `labelledPairs` — attribute grid / derived-stats block (a set of labels, in ANY order and count — S2). */
 const labelledPairsPatternSchema = z.object({
   kind: z.literal('labelledPairs'),
-  /** Etykieta (klucz PDF) -> klucz kanoniczny wyniku. Same etykiety, NIE wartosci (R2). */
+  /** Label (PDF key) -> the result's canonical key. Labels only, NOT values (R2). */
   labels: z.record(z.string(), z.string()).refine((v) => Object.keys(v).length > 0, 'labels must not be empty'),
   valuePattern: z.string(),
   minPairs: z.number().int().min(1),
@@ -52,106 +53,106 @@ const labelledPairsPatternSchema = z.object({
     })
     .optional()
     .default({}),
-  /** [S1] Wartosc bywa rozbita dywizacja/spacja na kilka tokenow (np. "12/12" + "latając") — sklej przed dopasowaniem. */
+  /** [S1] A value is sometimes split by hyphenation/spacing into several tokens (e.g. a fraction like "12/12" followed by a separate descriptive status word) — join before matching. */
   allowTrailingWords: z.boolean().optional().default(false),
   unit: z.string().optional(),
   /**
-   * [KROK-19 Z4, zmierzony na realnej ksiazce blad] `allowTrailingWords`
-   * sprawdza TYLKO etykiety WLASNEGO wzorca (`looksLikeLabel`), zeby wiedziec
-   * kiedy przestac chlonac slowa opisowe — ale nie ma pojecia o naglowkach
-   * INNYCH wzorcow (np. sekcji `ATAKI`). Zmierzone wprost: ostatnia para
-   * `derivedBlock` ("Punkty Magii") bez kolejnej etykiety WLASNEGO wzorca po
-   * sobie wchlonela literalny token "ATAKI" NASTEPNEJ sekcji (plus jej
-   * preambule "Ataki w rundzie:") jako "slowa opisowe". Jesli podany, kazdy
-   * token pasujacy do tego wzorca natychmiast przerywa chlanianie (token NIE
-   * jest konsumowany).
+   * [Step 19 Z4, bug measured on a real book] `allowTrailingWords`
+   * checks ONLY its OWN pattern's labels (`looksLikeLabel`), to know
+   * when to stop absorbing descriptive words — but it has no notion of the headers
+   * of OTHER patterns (e.g. a following attacks-list section). Measured directly: the last pair
+   * of `derivedBlock` (a derived-stat label near the end of that block), with no further label of its OWN pattern
+   * after it, absorbed the literal header token of the NEXT section
+   * (plus its introductory line) as "descriptive words". If supplied,
+   * any token matching this pattern immediately stops the absorption (the token is NOT
+   * consumed).
    *
-   * [KROK-27 Z2, zmiana nazwy] Dawne `stopBeforeToken` — ta sama nazwa co w
-   * `sectionList` ponizej sugerowala TEN SAM zasieg (mylila mnie samego przy
-   * pisaniu briefu kroku 26, patrz RAPORT-KROK-26.md odkrycie #4), a to
-   * DWA ROZNE mechanizmy: to pole ogranicza chlanianie slow opisowych DLA
-   * JEDNEJ PARY (patrz `allowTrailingWords` obok), `terminateSectionBefore`
-   * w `sectionList` konczy CALA SEKCJE. Nowa nazwa czyta sie razem z
-   * `allowTrailingWords` jako jedna spojna cecha, zamiast dwoch niepowiazanych
-   * pol o identycznej nazwie i innym znaczeniu.
+   * [Step 27 Z2, renamed] Formerly `stopBeforeToken` — the same name as in
+   * `sectionList` below suggested the SAME scope (it confused me myself while
+   * writing the step-26 brief, see RAPORT-KROK-26.md discovery #4), but these are
+   * TWO DIFFERENT mechanisms: this field limits absorbing descriptive words FOR
+   * ONE PAIR (see `allowTrailingWords` next to it), while `terminateSectionBefore`
+   * in `sectionList` ends the WHOLE SECTION. The new name reads together with
+   * `allowTrailingWords` as one coherent feature, instead of two unrelated
+   * fields with an identical name and different meaning.
    */
   trailingWordsStopBefore: z.string().optional(),
 });
 
-/** `sectionList` — naglowek sekcji (regex) + lista pozycji dopasowanych `itemPattern`. */
+/** `sectionList` — a section header (regex) + a list of entries matched by `itemPattern`. */
 const sectionListPatternSchema = z.object({
   kind: z.literal('sectionList'),
   sectionHeader: z.string(),
-  // [KROK-34, zmierzony na zywo blad, "Wrak.pdf"] Pusty `itemPattern` kompiluje
-  // sie do `new RegExp('', 'gu')` — dopasowuje PUSTY string na KAZDEJ pozycji
-  // bufora, wiec `matchSectionList` zwraca setki pozycji bez ZADNEJ grupy
-  // (`groups: {}`), a `name` kazdej z nich to pusta wartosc, ktora Foundry
-  // (`StringField`, `blank:false`) zamienia na `undefined` przy walidacji —
-  // "name: may not be undefined" przy tworzeniu Item-u, ZAMIAST czytelnego
-  // bledu profilu w momencie wczytania. Wymaganie niepustego wzorca tutaj
-  // (A7 — degraduj przy wczytaniu profilu, nie awaryjnie glęboko w Foundry)
-  // przenosi ten sam blad w miejsce, gdzie autor moze go naprawic.
+  // [Step 34, bug measured live, "Wrak.pdf"] An empty `itemPattern` compiles
+  // to `new RegExp('', 'gu')` — it matches an EMPTY string at EVERY position of the
+  // buffer, so `matchSectionList` returns hundreds of entries with NO group
+  // (`groups: {}`), and each one's `name` is an empty value, which Foundry
+  // (`StringField`, `blank:false`) turns into `undefined` during validation —
+  // "name: may not be undefined" when creating an Item, INSTEAD OF a readable
+  // profile error at load time. Requiring a non-empty pattern here
+  // (A7 — degrade when the profile loads, not deep inside Foundry in an emergency)
+  // moves this same bug to a place where the author can fix it.
   itemPattern: z.string().min(1, 'itemPattern must not be empty'),
-  /** [S1] Opis bywa rozbity dywizacja na kilka tokenow — sklej przed dopasowaniem. */
+  /** [S1] A description is sometimes split by hyphenation into several tokens — join before matching. */
   rejoinHyphenated: z.boolean().optional().default(false),
   /**
-   * [KROK-19 Z1, naprawiony blad] Naglowek KOLUMNY tabeli (np. polskie "%
-   * obrażenia" w ksiazkach CoC7-PL) bezposrednio PO naglowku sekcji, PRZED
-   * pierwsza prawdziwa pozycja — zmierzone wprost: bez pominiecia tego
-   * naglowka, lapczywa grupa nazwy w `itemPattern` polykala go razem z
-   * pierwsza prawdziwa nazwa ("obrażenia Przyssanie" zamiast "Przyssanie").
-   * Wykluczanie tego z samego `itemPattern` (negatywny lookahead) okazalo sie
-   * kruche — dziala tylko na POCZATKU dopasowania, nie wewnatrz rozrastajacej
-   * sie lapczywej grupy. Zamiast tego: jesli tekst BEZPOSREDNIO po naglowku
-   * sekcji pasuje do tego wzorca, pomin go calkowicie PRZED zbudowaniem
-   * bufora pozycji.
+   * [Step 19 Z1, fixed bug] A table COLUMN header (e.g. a percentage-damage
+   * column label used in some translated CoC7 books) directly AFTER the section header, BEFORE
+   * the first genuine entry — measured directly: without skipping this
+   * header, the greedy name group in `itemPattern` swallowed it together with
+   * the first real name (the column label plus the entry's actual name, instead of the name alone).
+   * Excluding this from `itemPattern` itself (a negative lookahead) turned out to be
+   * fragile — it only works at the START of a match, not inside a growing
+   * greedy group. Instead: if the text DIRECTLY after the section header
+   * matches this pattern, skip it entirely BEFORE building the
+   * item buffer.
    */
   skipAfterHeader: z.string().optional(),
   /**
-   * [KROK-19 Z4, zmierzony na realnej ksiazce blad] Bufor pozycji sekcji
-   * (miedzy jej naglowkiem a NASTEPNYM wystapieniem `sectionHeader` albo
-   * koncem strumienia tokenow) nie mial ZADNEGO ograniczenia dla OSTATNIEJ
-   * sekcji na stronie — gdy po niej nie ma juz kolejnego "ATAKI", bufor lecial
-   * az do konca strony, lapiac tresc zupelnie innej postaci (np. liste
-   * umiejetnosci "Historia 75%, Okultyzm 60%..." nastepujaca PO opisie ataku,
-   * fałszywie rozpoznana jako kolejne pozycje ataku). Jesli podany, kazdy
-   * token dopasowany do tego wzorca PRZERYWA budowanie bufora (token NIE jest
-   * juz konsumowany) — profilowy odpowiednik "tu konczy sie ta sekcja",
-   * niezalezny od obecnosci kolejnego naglowka `sectionHeader`. W tej ksiazce
-   * dziala jako "dowolny samodzielny token wygladajacy jak Naglowek:"
-   * (`^\p{Lu}[\p{L} ]*:$`, np. "Umiejętności:", "Utrata Poczytalności:").
+   * [Step 19 Z4, bug measured on a real book] The section item buffer
+   * (between its header and the NEXT occurrence of `sectionHeader` or the
+   * end of the token stream) had NO limit at all for the LAST
+   * section on the page — when there is no next section header after it, the buffer would run
+   * all the way to the end of the page, catching content belonging to a completely different
+   * character (e.g. a skills list with percentage values
+   * following an attack description, falsely recognized as further attack entries). If supplied, any
+   * token matching this pattern STOPS the buffer from growing further (the token is NOT
+   * consumed anymore) — the profile's equivalent of "this section ends here",
+   * independent of whether a next `sectionHeader` is present. In this book it
+   * works as "any standalone token that looks like a Heading:"
+   * (`^\p{Lu}[\p{L} ]*:$`, e.g. a colon-terminated category heading such as a skills-list or a sanity-loss heading).
    *
-   * [KROK-27 Z2, zmiana nazwy] Dawne `stopBeforeToken` — nazwa nie mowila nic
-   * o ZASIEGU (konczy CALA SEKCJE, nie pojedyncza pozycje), co mylilo kolejne
-   * sesje (brief kroku 26, jego wlasny raport, posrednio tez analiza w kroku
-   * 20 — patrz RAPORT-KROK-27.md). Odpowiedz na "jak ograniczyc POJEDYNCZA
-   * pozycje" jest w `itemPattern`, przez lookahead rozpoznajacy granice
-   * kolejnej pozycji (naprawa str. 56 z kroku 26) — INNY mechanizm niz to
-   * pole, celowo, patrz `docs/writing-profiles.md`.
+   * [Step 27 Z2, renamed] Formerly `stopBeforeToken` — the name said nothing
+   * about SCOPE (it ends the WHOLE SECTION, not a single entry), which confused
+   * later sessions (the step-26 brief, its own report, and indirectly the
+   * step-20 analysis too — see RAPORT-KROK-27.md). The answer to "how to limit a SINGLE
+   * entry" lies in `itemPattern`, via a lookahead recognizing the boundary of
+   * the next entry (the p. 56 fix from step 26) — a DIFFERENT mechanism from this
+   * field, deliberately — see `docs/writing-profiles.md`.
    */
   terminateSectionBefore: z.string().optional(),
   /**
-   * [KROK-40, zgloszenie na zywo] Slowa/frazy (dowolny jezyk ksiazki), po
-   * ktorych rozpoznajemy, ze pozycja listy jest broni DYSTANSOWA (np. polskie
-   * "Broń Palna") — case-insensitive dopasowanie jako PODCIAG grupy `name`
-   * dopasowanej pozycji. Adapter systemowy (np. CoC7) interpretuje obecnosc
-   * takiego dopasowania jako flage `ranged` w `CIFAttack.properties`, NIGDY
-   * odwrotnie zaszyte w silniku/adapterze (R2 — jezykowy slownik to tresc
-   * profilu, nie logika silnika). Celowo ODDZIELONE od `itemPattern`: gdyby
-   * to byla dodatkowa grupa regexu wewnatrz `itemPattern`, kazde ponowne
-   * "Zacznij od nowa" + klikniecie przykladow w Profile Studio (patrz
-   * `inferItemPatternFromExamples.ts`) nadpisywaloby ja bez sladu — to samo
-   * ryzyko trwalosci, ktore juz raz doprowadzilo do bledu "pistolet .22
-   * znika" (patrz `NAME_CLASS` w `inferItemPatternFromExamples.ts`). To pole
-   * NIE jest wywnioskowywane z klikania przykladow — autor wpisuje je wprost
-   * (Profile Studio, "Zaawansowane") i przetrwa kazda regeneracje
-   * `itemPattern`. Puste domyslnie — wstecznie zgodne, wszystkie pozycje
-   * traktowane jak dotad (nigdy `ranged`).
+   * [Step 40, reported live] Words/phrases (in any language the book uses), by
+   * which we recognize that a list entry is a RANGED weapon (e.g. a
+   * language-specific word meaning "firearm") — case-insensitive matching as a SUBSTRING of the matched
+   * entry's `name` group. The system adapter (e.g. CoC7) interprets the presence of
+   * such a match as the `ranged` flag in `CIFAttack.properties`, NEVER
+   * hardcoded the other way around in the engine/adapter (R2 — a language dictionary is
+   * profile content, not engine logic). Deliberately SEPARATED from `itemPattern`:
+   * if this were an extra regex group inside `itemPattern`, every re-run of
+   * "Start over" + clicking examples in Profile Studio (see
+   * `inferItemPatternFromExamples.ts`) would silently overwrite it — the same
+   * persistence risk that already once caused the ".22 pistol
+   * disappears" bug (see `NAME_CLASS` in `inferItemPatternFromExamples.ts`). This field
+   * is NOT inferred from clicking examples — the author enters it directly
+   * (Profile Studio, "Advanced") and it survives every regeneration of
+   * `itemPattern`. Empty by default — backward compatible, all entries
+   * treated as before (never `ranged`).
    */
   rangedKeywords: z.array(z.string()).optional().default([]),
 });
 
-/** `fontRoleCandidate` — kandydat na nazwe encji: krotki tekst o roli fontu != wykluczonych (S3, filtr WEJSCIOWY do parowania geometrycznego, nie samodzielne rozstrzygniecie). */
+/** `fontRoleCandidate` — a candidate for an entity name: short text with a font role != the excluded ones (S3, an INPUT filter to geometric pairing, not a standalone decision). */
 const fontRoleCandidatePatternSchema = z.object({
   kind: z.literal('fontRoleCandidate'),
   excludeRoles: z.array(z.string()).optional().default(['body']),
@@ -159,103 +160,103 @@ const fontRoleCandidatePatternSchema = z.object({
   excludeRepeatedAcrossPages: z.boolean().optional().default(true),
   excludeHyphenContinuations: z.boolean().optional().default(true),
   /**
-   * [KROK-29 Z3] Klucz(e) fontu (`ProfileToken.fontKey`, patrz `types.ts`)
-   * wyuczone z klikniecia w Profile Studio, zakladka "Nazwa" — DODATKOWY
-   * warunek DO (nie zamiast) `excludeRoles`: gdy niepuste, token musi miec
-   * `fontKey` NALEZACY do tego zbioru, zeby zostac kandydatem. Zawezenie
-   * O RZAD WIELKOSCI dla precyzji samej roli fontu (H2 kroku 12: sama rola
-   * "!= body" daje 2401 kandydatow na 15 encji w polskiej ksiazce — rola to
-   * RANKING czestosci/rozmiaru per DOKUMENT, obejmujacy WIELE roznych
-   * krojow, nie identyfikator KONKRETNEGO kroju uzywanego akurat na nazwy).
-   * Opcjonalne i puste domyslnie — WSTECZNIE ZGODNE: brak = zachowanie
-   * identyczne jak przed KROK-29 (oba istniejace profile CoC7 dzialaja dalej
-   * bez zmian, brief kroku wprost tego wymaga).
+   * [Step 29 Z3] Font key(s) (`ProfileToken.fontKey`, see `types.ts`)
+   * learned from a click in Profile Studio, "Name" tab — an ADDITIONAL
+   * condition ON TOP OF (not instead of) `excludeRoles`: when non-empty, a token must have
+   * a `fontKey` BELONGING to this set to become a candidate. A
+   * ORDER-OF-MAGNITUDE narrowing of the font role's precision alone (step 12's H2: role
+   * alone "!= body" gives 2401 candidates for 15 entities in the Polish book — a role is a
+   * RANKING of frequency/size per DOCUMENT, spanning MANY different
+   * typefaces, not an identifier of the SPECIFIC typeface used just for names).
+   * Optional and empty by default — BACKWARD COMPATIBLE: absent = behavior
+   * identical to before Step 29 (both existing CoC7 profiles keep working
+   * unchanged, the step's brief explicitly requires this).
    */
   requireFontKeys: z.array(z.string()).optional().default([]),
 });
 
 /**
- * [KROK-34 Z2] "Notatki wskazywane w PDF-ie" — blok prozy dolaczany
- * GEOMETRYCZNIE do kotwicy encji, nie przez dopasowanie tekstu (opisy
- * stworow/taktyka lezace w prozie kolo statbloku nie maja zadnego wspolnego
- * naglowka/regexu do zlapania — w odroznieniu od `labelledPairs`/`sectionList`,
- * ktore ZAWSZE maja jakis tekstowy marker). Zgodnie z R2 ("profil niesie
- * instrukcje parsowania, nigdy tresc") — `offset` to WYLACZNIE polozenie
- * WZGLEDEM KONCA WLASNEJ TRESCI TEJ ENCJI (ostatni token siatki/pochodnych/
- * atakow/umiejetnosci — `proseBlock.ts`'s `lastClaimedTokenBbox`, NIE
- * poczatku kotwicy — zmierzony na zywo blad pokazal, ze stala odleglosc OD
- * KOTWICY zalamuje sie, gdy rozne encje maja rozne dlugosci wlasnej tresci),
- * zmierzone RAZ przez autora profilu (Studio, "Zmierz") na jednym przykladzie,
- * NIGDY literalny tekst PDF-a. Rzeczywisty ZASIEG bloku (jak daleko w dol siega) NIE
- * jest przechowywany jako stala wysokosc — liczony w locie przy dopasowaniu, a
- * zatrzymywany na granicy encji/kolumny (`hardStopTokenIndices`/`columnBand`,
- * kroki 29-31, patrz `proseBlock.ts`), zgodnie z "Zabezpieczenia" briefu.
+ * [Step 34 Z2] "Notes located within the PDF" — a prose block attached
+ * GEOMETRICALLY to an entity's anchor, not by text matching (descriptions of
+ * creatures/tactics lying in prose next to a statblock have no common
+ * header/regex to latch onto — unlike `labelledPairs`/`sectionList`,
+ * which ALWAYS have some textual marker). Per R2 ("a profile carries
+ * parsing instructions, never content") — `offset` is EXCLUSIVELY a position
+ * RELATIVE TO THE END OF THIS ENTITY'S OWN CONTENT (the last token of the grid/derived
+ * stats/attacks/skills — `proseBlock.ts`'s `lastClaimedTokenBbox`, NOT
+ * the start of the anchor — a bug measured live showed that a fixed distance FROM
+ * THE ANCHOR breaks down when different entities have different lengths of their own content),
+ * measured ONCE by the profile author (Studio, "Measure") on one example,
+ * NEVER literal PDF text. The block's actual EXTENT (how far down it reaches) is NOT
+ * stored as a fixed height — it's computed on the fly during matching, and
+ * stopped at the entity/column boundary (`hardStopTokenIndices`/`columnBand`,
+ * steps 29-31, see `proseBlock.ts`), per the brief's "Safeguards".
  */
 const proseBlockPatternSchema = z.object({
   kind: z.literal('proseBlock'),
-  /** Etykieta W WYNIKOWEJ notatce (np. "Opis", "Taktyka") — tekst jezyka swiata dopisywany przy skladaniu notatki, NIE szukany w PDF-ie. */
+  /** The label IN THE RESULTING note (e.g. "Description", "Tactics") — in-world-language text appended when assembling the note, NOT searched for in the PDF. */
   label: z.string().min(1),
   offset: z.object({
-    /** Przesuniecie X od `anchor.bbox.minX` do lewej krawedzi przykladu. */
+    /** X offset from `anchor.bbox.minX` to the left edge of the example. */
     dxPt: z.number(),
-    /** Przesuniecie Y od `anchor.bbox.minY` do GORNEJ krawedzi przykladu (PDF: wieksze Y = wyzej na stronie). */
+    /** Y offset from `anchor.bbox.minY` to the TOP edge of the example (PDF: larger Y = higher on the page). */
     dyPt: z.number(),
   }),
-  /** [Zaawansowane] Twardy limit dlugosci pojedynczego bloku — degradacja (przyciecie) zamiast bez ograniczen, gdyby granica encji/kolumny zawiodla na nietypowym ukladzie. */
+  /** [Advanced] A hard limit on a single block's length — degrading (truncating) instead of being unbounded, in case the entity/column boundary fails on an unusual layout. */
   maxLengthChars: z.number().int().positive().optional().default(2000),
-  /** Promien tolerancji (pt) wokol wyliczonego punktu startowego, w ktorym szukany jest najblizszy token — jak `maxDistancePt` reszty silnika. */
+  /** Tolerance radius (pt) around the computed starting point, within which the nearest token is searched for — like `maxDistancePt` in the rest of the engine. */
   searchRadiusPt: z.number().positive().optional().default(60),
   /**
-   * [ZGŁOSZENIE na zywo po Kroku 39, "Wrak.pdf" Badacze] Domyslnie (`false`/
-   * brak) `offset` liczy sie WZGLEDEM TEGO SAMEGO stalego punktu co reszta
-   * pol (koniec siatki cech/pochodnych/atakow/umiejetnosci) — dziala
-   * doskonale, gdy pola notatek maja STALA pozycje (typowy uklad: siatka,
-   * potem zawsze te same pola w tych samych miejscach). Zawodzi jednak, gdy
-   * pola notatek sa UKLADANE JEDNO POD DRUGIM ZE ZMIENNA DLUGOSCIA miedzy
-   * nimi (np. dluzsza biografia jednej postaci przesuwa WSZYSTKIE kolejne
-   * pola nizej niz u innej postaci o krotszej biografii) — zmierzone wprost:
-   * na 6 stronach Badaczy tej ksiazki pozycja "Wygląd" wzgledem stalego
-   * punktu wahala sie o ponad 70pt, znacznie ponad `searchRadiusPt`. `true`
-   * liczy `offset` zamiast tego WZGLEDEM KONCA POPRZEDNIEJ notatki na liscie
-   * `notesPatterns` (pierwsza notatka na liscie zawsze uzywa stalego punktu,
-   * bo nie ma poprzedniczki) — stabilne niezaleznie od dlugosci tekstu
-   * powyzej, pod warunkiem ze `notesPatterns` sa w tej samej kolejnosci, w
-   * jakiej pola faktycznie wystepuja na stronie. Domyslnie wylaczone —
-   * dodatkowe, wsteczna-zgodne pole (istniejace profile, ktore juz dzialaja
-   * ze stalym punktem, nie zmieniaja zachowania).
+   * [reported live after step 39, "Wrak.pdf" Investigators] By default (`false`/
+   * absent) `offset` is computed RELATIVE TO THE SAME fixed point as the rest
+   * of the fields (the end of the attribute grid/derived stats/attacks/skills) — this works
+   * perfectly when the note fields have a FIXED position (a typical layout: grid,
+   * then always the same fields in the same places). It fails, however, when
+   * the note fields are STACKED ONE BELOW ANOTHER WITH VARIABLE LENGTH between
+   * them (e.g. one character's longer biography shifts ALL subsequent
+   * fields lower than for another character with a shorter biography) — measured
+   * directly: across 6 Investigator pages of this book, the position of a given note's heading
+   * relative to the fixed point varied by more than 70pt, well beyond `searchRadiusPt`. `true`
+   * instead computes `offset` RELATIVE TO THE END OF THE PREVIOUS note in the
+   * `notesPatterns` list (the first note in the list always uses the fixed point,
+   * since it has no predecessor) — stable regardless of the length of the text
+   * above it, provided `notesPatterns` are in the same order in
+   * which the fields actually appear on the page. Disabled by default —
+   * an additional, backward-compatible field (existing profiles, which already work
+   * with the fixed point, keep their behavior unchanged).
    */
   chainFromPrevious: z.boolean().optional().default(false),
   /**
-   * [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze — "zaznaczam tylko te dwa, a do
-   * nich wpisywane są wszystkie informacje z tych akapitów"] Domyslnie
-   * (`false`) zbieranie zatrzymuje sie na PIERWSZYM kolejnym tokenie roli
-   * `accent` zakonczonym dwukropkiem — dziala dobrze, gdy notatka ma lapac
-   * WYLACZNIE tresc do najblizszego PODnaglowka. Ale gdy autor chce, zeby
-   * JEDEN klik (np. "Historia Badacza", zawsze uzywajacy WIEKSZEGO stylu
-   * `heading`, 11pt w tej ksiazce, w odroznieniu od mniejszych `accent`
-   * podnaglowkow typu "Wygląd:"/"Przymioty:") zlapal WSZYSTKO az do
-   * NASTEPNEGO naglowka TEGO SAMEGO stylu (tu: "Twoi przyjaciele:", tez
-   * `heading`) — pomijajac PO DRODZE dowolna liczbe mniejszych podnaglowkow
-   * — `true` porownuje rolem fontu STOPUJACEGO tokenu do roli WLASNEGO
-   * tokenu startowego (klikniętego przykladu), zamiast na sztywno do
-   * `accent`. Dwukropek na koncu wciaz wymagany (ten sam sygnal co domyslnie
-   * — realne podnaglowki w tej ksiazce ZAWSZE go maja, patrz komentarz przy
-   * silniku w `proseBlock.ts`).
+   * [reported live, "Wrak.pdf" Investigators — "I only select these two, and
+   * everything from those paragraphs gets filled into them"] By default
+   * (`false`) collection stops at the FIRST next token of role
+   * `accent` ending in a colon — this works well when a note should catch
+   * ONLY the content up to the nearest SUBheading. But when the author wants
+   * ONE click (e.g. on a top-level biography heading, which always uses the LARGER
+   * `heading` style, 11pt in this book, unlike the smaller `accent`
+   * subheadings used for fields such as appearance or personality traits) to catch EVERYTHING up to the
+   * NEXT heading of THE SAME style (here: a heading introducing a list of social contacts, also
+   * `heading`) — skipping OVER any number of smaller subheadings
+   * along the way — `true` compares the STOPPING token's font role to the role
+   * of the START token ITSELF (the clicked example), instead of a hardcoded
+   * `accent`. A trailing colon is still required (the same signal as by default
+   * — genuine subheadings in this book ALWAYS have one, see the comment at
+   * the engine in `proseBlock.ts`).
    */
   stopAtSameFontRole: z.boolean().optional().default(false),
   /**
-   * [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze, "Twoi przyjaciele" w prawej
-   * kolumnie] Domyslnie (`false`) `offset` (gdy `chainFromPrevious` jest
-   * wylaczone) liczy sie wzgledem konca CALEJ WLASNEJ tresci encji (siatka +
-   * pochodne + ATAKI + Umiejetnosci) — poprawne zalozenie, gdy notatka lezy
-   * PONIZEJ tej tresci w TEJ SAMEJ kolumnie. Zawodzi jednak dla notatki w
-   * OSOBNEJ kolumnie, niezaleznej od dlugosci listy Umiejetnosci — zmierzone
-   * wprost: pozycja "Twoi przyjaciele:" wzgledem stalego punktu wlacznie z
-   * Umiejetnosciami wahala sie o >70pt miedzy 6 postaciami (rozna liczba
-   * umiejetnosci = inna dlugosc listy = inny koniec), ale wzgledem SAMEJ
-   * siatki cech (bez atakow/umiejetnosci) jest stabilna (+/-12pt). `true`
-   * liczy `offset` wylacznie wzgledem konca siatki-kotwicy, ignorujac
-   * ataki/umiejetnosci przy wyznaczaniu punktu odniesienia.
+   * [reported live, "Wrak.pdf" Investigators, a social-contacts note in the right
+   * column] By default (`false`) `offset` (when `chainFromPrevious` is
+   * disabled) is computed relative to the end of the entity's ENTIRE OWN content (grid +
+   * derived stats + ATTACKS + Skills) — a correct assumption when the note lies
+   * BELOW that content in THE SAME column. It fails, however, for a note in a
+   * SEPARATE column, independent of the length of the Skills list — measured
+   * directly: the position of that note's heading relative to the fixed point including
+   * Skills varied by >70pt across 6 characters (a different number of
+   * skills = a different list length = a different end), but relative to the
+   * attribute grid ALONE (without attacks/skills) it is stable (+/-12pt). `true`
+   * computes `offset` solely relative to the end of the anchor grid, ignoring
+   * attacks/skills when determining the reference point.
    */
   anchorGridOnly: z.boolean().optional().default(false),
 });
@@ -263,23 +264,23 @@ const proseBlockPatternSchema = z.object({
 const patternSchema = z.discriminatedUnion('kind', [labelledPairsPatternSchema, sectionListPatternSchema, fontRoleCandidatePatternSchema, proseBlockPatternSchema]);
 
 const attachRuleSchema = z.object({
-  /** Id wzorca z `patterns` (nie literal — dowolny klucz zdefiniowany przez autora profilu). */
+  /** Pattern id from `patterns` (not a literal — any key defined by the profile author). */
   pattern: z.string(),
   /**
-   * [KROK-18 Z7, `nearest` dopisane po pomiarze na calej ksiazce] MDD §5.5
-   * definiuje tylko `nearestBelow`/`nearestAbove` (uklad pionowy: nazwa nad
-   * siatka, pochodne pod siatka). Zmierzone wprost na `Zew_Cthulhu_Nie_czas_
-   * na_krzyk_v1_0.pdf`: strony z wieloma postaciami ("Kawalki" i inne) ukladaja
-   * siatke i jej blok pochodnych OBOK SIEBIE w tej samej linii (kolumny), nie
-   * jedna pod druga — `nearestBelow` nigdy nie znajduje kandydata, niezaleznie
-   * od `maxDistancePt`, bo warunek kierunkowy nigdy nie jest spelniony. `nearest`
-   * to ten sam mechanizm bez wymogu kierunku — sam dystans euklidesowy miedzy
-   * bboksami. Autor profilu wybiera strategie per wzorzec/publikacje, silnik
-   * nie zgaduje sam ukladu strony.
+   * [Step 18 Z7, `nearest` added after measuring across the whole book] MDD §5.5
+   * only defines `nearestBelow`/`nearestAbove` (a vertical layout: name above
+   * the grid, derived stats below the grid). Measured directly on `Zew_Cthulhu_Nie_czas_
+   * na_krzyk_v1_0.pdf`: pages with multiple characters lay
+   * out the grid and its derived-stats block SIDE BY SIDE on the same line (columns), not
+   * one below the other — `nearestBelow` never finds a candidate, regardless
+   * of `maxDistancePt`, because the directional condition is never satisfied. `nearest`
+   * is the same mechanism without the directional requirement — plain Euclidean distance between
+   * bboxes. The profile author chooses the strategy per pattern/publication, the engine
+   * never guesses the page layout on its own.
    */
   strategy: z.enum(['nearestBelow', 'nearestAbove', 'nearest']),
   maxDistancePt: z.number().positive(),
-  /** [S3] Nazwa i podtytul stoja blisko w tym samym kroju — preferuj WCZESNIEJSZEGO (nad/przed) sasiada w bliskiej odleglosci pionowej. */
+  /** [S3] Name and subtitle stand close together in the same typeface — prefer the EARLIER (above/before) sibling at a close vertical distance. */
   preferEarlierSibling: z
     .object({
       maxDeltaYPt: z.number().positive(),
@@ -290,45 +291,45 @@ const attachRuleSchema = z.object({
 const entityAssemblySchema = z.object({
   anchor: z.string(),
   attach: z.array(attachRuleSchema).optional().default([]),
-  /** [S4] Ponizej progu NIE zgaduj nazwy — placeholder + kandydaci w przegladzie. Bledna nazwa gorsza niz jej brak. */
+  /** [S4] Below the threshold, do NOT guess a name — a placeholder + candidates in the review. A wrong name is worse than none. */
   nameConfidenceThreshold: z.number().min(0).max(1),
   namePlaceholder: z.string(),
-  /** [S1] Statblock potrafi przechodzic przez granice stron. */
+  /** [S1] A statblock can span across page boundaries. */
   allowCrossPage: z.boolean().optional().default(false),
   /**
-   * [KROK-20 Z2b] Id wzorca (klucz `patterns`, musi byc `sectionList`, musi
-   * miec odpowiadajacy wpis w `attach`) do wypelnienia `CIFActor.skills` —
-   * lista umiejetnosci ogolnych statbloku ("Umiejętności: Historia 75%,
-   * Okultyzm 60%..."), oddzielna od sekcji ATAKI. Opcjonalne i JAWNE
-   * (nie zgadywane po `kind`), bo profil moze miec WIECEJ NIZ JEDEN wzorzec
-   * `sectionList` (ATAKI + Umiejetnosci) — bez jawnego wskazania silnik nie
-   * ma jak odroznic, ktory jest ktorym (`kind` sam w sobie nie wystarcza,
-   * gdy jest ich dwa). Brak tego pola = zachowanie identyczne jak przed
-   * KROK-20 Z2b (jedyny `sectionList` w `attach` to zawsze ataki).
+   * [Step 20 Z2b] Pattern id (a key of `patterns`, must be `sectionList`, must
+   * have a corresponding entry in `attach`) to fill `CIFActor.skills` —
+   * the statblock's list of general skills (a "Skills:" heading followed by
+   * comma-separated skill-percentage entries), separate from the ATTACKS section. Optional and EXPLICIT
+   * (not guessed from `kind`), because a profile can have MORE THAN ONE
+   * `sectionList` pattern (ATTACKS + Skills) — without an explicit pointer the engine has
+   * no way to tell which is which (`kind` alone isn't enough
+   * when there are two of them). Absence of this field = behavior identical to before
+   * Step 20 Z2b (the only `sectionList` in `attach` is always attacks).
    */
   skillsPattern: z.string().optional(),
   /**
-   * [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Id wzorca
-   * (klucz `patterns`, musi byc `fontRoleCandidate`, musi miec odpowiadajacy
-   * wpis w `attach`) do wypelnienia `CIFActor.typeLabel` — swobodna etykieta
-   * zawodu/typu z podrecznika ("kapitan jachtu", "Cultist", "Ghoul"), ODDZIELNA
-   * od nazwy encji. Ten sam powod istnienia co `skillsPattern` wyzej: profil
-   * moze miec DWA wzorce `fontRoleCandidate` (nazwa + zawod/typ) — bez jawnego
-   * wskazania silnik nie ma jak odroznic, ktory jest ktorym. Brak tego pola =
-   * zachowanie identyczne jak przed tym zgloszeniem (jedyny `fontRoleCandidate`
-   * w `attach` to zawsze nazwa, `typeLabel` nigdy nie jest wypelniane).
+   * [reported after step 30, "Splitting the name from the type/occupation"] Pattern id
+   * (a key of `patterns`, must be `fontRoleCandidate`, must have a corresponding
+   * entry in `attach`) to fill `CIFActor.typeLabel` — a free-form
+   * occupation/type label from the rulebook (e.g. a job title or a monster-type name), SEPARATE
+   * from the entity name. The same reason for existing as `skillsPattern` above: a profile
+   * can have TWO `fontRoleCandidate` patterns (name + occupation/type) — without an explicit
+   * pointer the engine has no way to tell which is which. Absence of this field =
+   * behavior identical to before this report (the only `fontRoleCandidate`
+   * in `attach` is always the name, `typeLabel` is never filled).
    */
   typeLabelPattern: z.string().optional(),
   /**
-   * [KROK-34 Z2] Id-ki wzorcow `proseBlock` ("Notatki wskazywane w PDF-ie") do
-   * wypelnienia `CIFActor.notes` — kazdy dolaczany do kotwicy NIEZALEZNIE,
-   * WLASNYM `offset`-em (nie przez `attach`, w odroznieniu od reszty pol: sam
-   * `offset` JEST kompletna instrukcja geometrycznego dopasowania, nie ma
-   * osobnej listy "kandydatow" do parowania strategia/maxDistancePt jak przy
-   * labelledPairs/sectionList/fontRoleCandidate). Kilka id-kow = kilka
-   * niezaleznie oznakowanych blokow w notatce koncowej (np. "Opis"/"Taktyka"),
-   * rozdzielonych, nie sklejonych. Puste domyslnie — brak = zachowanie
-   * identyczne jak przed tym krokiem (`CIFActor.notes` zawsze `[]`).
+   * [Step 34 Z2] Ids of `proseBlock` patterns ("Notes located within the PDF") to
+   * fill `CIFActor.notes` — each attached to the anchor INDEPENDENTLY,
+   * with its OWN `offset` (not via `attach`, unlike the rest of the fields: the
+   * `offset` alone IS a complete geometric-matching instruction, there is no
+   * separate list of "candidates" to pair by strategy/maxDistancePt as with
+   * labelledPairs/sectionList/fontRoleCandidate). Several ids = several
+   * independently labeled blocks in the final note (e.g. "Description"/"Tactics"),
+   * kept separate, not merged together. Empty by default — absent = behavior
+   * identical to before this step (`CIFActor.notes` always `[]`).
    */
   notesPatterns: z.array(z.string()).optional().default([]),
 });
@@ -343,58 +344,58 @@ const imageAssociationSchema = z.object({
     })
     .optional(),
   /**
-   * [na zyczenie uzytkownika, ksiazka z bespoke tlem na kazdej stronie]
-   * Domyslnie `Z1-full-bleed-background`/`Z9-high-body-text-coverage`
-   * (`classify.ts`) traktuja obraz pod spadem drukarskim z gestym tekstem NA
-   * WIERZCHU jako dekoracje — kalibrowane na 95.7% precyzji na zestawie
-   * referencyjnym (nie w tym repo), gdzie taki uklad
-   * niemal zawsze oznacza powtarzalna teksture tla. Niektore publikacje (np.
-   * Wrak, kazda strona z unikalna ilustracja pod spadem) lamia to zalozenie —
-   * ta flaga pozwala per-profil ZREZYGNOWAC z obu regul dekoracji dla
-   * obrazow pod pelnym spadem, bez zmiany globalnie skalibrowanej heurystyki
-   * dla innych ksiazek. Domyslnie wylaczone (zachowanie bez zmian).
+   * [at user request, a book with a bespoke background on every page]
+   * By default, `Z1-full-bleed-background`/`Z9-high-body-text-coverage`
+   * (`classify.ts`) treat a full-bleed image with dense text ON
+   * TOP as decoration — calibrated to 95.7% precision on a
+   * reference set (not in this repo), where such a layout
+   * almost always means a repeating background texture. Some publications (e.g.
+   * Wrak, every page with a unique full-bleed illustration) break this assumption —
+   * this flag lets a profile OPT OUT of both decoration rules for
+   * full-bleed images, without changing the globally calibrated heuristic
+   * for other books. Disabled by default (no change in behavior).
    */
   treatFullBleedAsContent: z.boolean().optional().default(false),
   /**
-   * [na zyczenie uzytkownika, EKSPERYMENTALNE] Dla obrazow ujawnionych przez
-   * `treatFullBleedAsContent` (`Z1-full-bleed-forced-content` w classify.ts),
-   * probuje wykryc i przyciac PUSTY, jednolity margines wokol faktycznej
-   * ilustracji analizujac PIKSELE juz zdekodowanego obrazu — patrz
-   * `images/cropUniformMargins.ts` po pelne uzasadnienie i znane ograniczenia
-   * (to heurystyka, nie parsowanie struktury PDF-a; strony wypelnione trescia
-   * niemal do krawedzi celowo NIE zostana przyciete). Bez znaczenia, gdy
-   * `treatFullBleedAsContent` jest wylaczone. Domyslnie wylaczone.
+   * [at user request, EXPERIMENTAL] For images revealed by
+   * `treatFullBleedAsContent` (`Z1-full-bleed-forced-content` in classify.ts),
+   * attempts to detect and crop an EMPTY, uniform margin around the actual
+   * illustration by analyzing the PIXELS of the already-decoded image — see
+   * `images/cropUniformMargins.ts` for the full rationale and known limitations
+   * (this is a heuristic, not parsing of PDF structure; pages filled with content
+   * nearly to the edge deliberately will NOT be cropped). Has no effect when
+   * `treatFullBleedAsContent` is disabled. Disabled by default.
    */
   autoCropUniformMargins: z.boolean().optional().default(false),
   /**
-   * [na zyczenie uzytkownika, po naprawie przyciecia "Wrak"] Przyciete
-   * obrazy (`autoCropUniformMargins`) tracą sąsiedztwo jasnego marginesu
-   * strony, ktory w PDF-ie optycznie je rozjasnial (efekt kontrastu, nie
-   * blad dekodowania — pixel-w-piksel zgodnosc ze zrodlem zmierzona wprost,
-   * patrz `brightenImage.ts`). Ta flaga to SWIADOME, kosmetyczne odejscie od
-   * wiernosci pikseli — stad osobny, jawny przelacznik zamiast domyslnego
-   * zachowania. Bez znaczenia, gdy `autoCropUniformMargins` jest wylaczone
-   * albo dany obraz nie zostal faktycznie przyciety. Domyslnie wylaczone.
+   * [at user request, after fixing the "Wrak" crop] Cropped
+   * images (`autoCropUniformMargins`) lose the adjacency of the page's bright
+   * margin, which in the PDF optically brightened them (a contrast effect, not a
+   * decoding bug — pixel-for-pixel agreement with the source measured directly,
+   * see `brightenImage.ts`). This flag is a DELIBERATE, cosmetic departure from
+   * pixel fidelity — hence a separate, explicit toggle instead of default
+   * behavior. Has no effect when `autoCropUniformMargins` is disabled
+   * or a given image wasn't actually cropped. Disabled by default.
    */
   brightenAutoCroppedImages: z.boolean().optional().default(false),
   /**
-   * [KROK-42 Z1] Wartosc startowa przelacznika "usun tlo" w panelu
-   * przygotowania tokenu (`TokenPrepApp`, `packages/module`) dla obrazow z
-   * TEGO profilu — WYLACZNIE ustawia poczatkowy stan kontrolki w panelu,
-   * uzytkownik moze go zmienic per-obraz przed zatwierdzeniem. Nie wplywa na
-   * `buildImageExtraction.ts` (ekstrakcja/klasyfikacja obrazow bez zmian) —
-   * usuwanie tla dzieje sie WYLACZNIE w panelu, w momencie recznego
-   * przygotowania tokenu, nigdy automatycznie/w tle. Domyslnie wylaczone.
+   * [Step 42 Z1] The starting value of the "remove background" toggle in the
+   * token-prep panel (`TokenPrepApp`, `packages/module`) for images from
+   * THIS profile — ONLY sets the control's initial state in the panel,
+   * the user can change it per-image before confirming. Does not affect
+   * `buildImageExtraction.ts` (image extraction/classification unchanged) —
+   * background removal happens ONLY in the panel, at the moment of manual
+   * token preparation, never automatically/in the background. Disabled by default.
    */
   removeTokenBackgroundDefault: z.boolean().optional().default(false),
 });
 
 /**
- * [KROK-39 Z2] Zestaw wzorcow + reguly skladania encji dla JEDNEJ trasy
- * importu (`PageRoute`, `pageRoute.ts`) — dokladnie to, co profil mial na
- * poziomie root od kroku 18 (`patterns`/`entityAssembly`), teraz wydzielone,
- * zeby ta SAMA struktura mogla wystapic DRUGI RAZ dla trasy `playerCharacter`
- * (patrz `playerCharacter` na `profileV2Schema` nizej).
+ * [Step 39 Z2] A set of patterns + entity-assembly rules for ONE import
+ * route (`PageRoute`, `pageRoute.ts`) — exactly what a profile has had at the
+ * root level since step 18 (`patterns`/`entityAssembly`), now factored out
+ * so that THIS SAME structure can occur A SECOND TIME for the `playerCharacter`
+ * route (see `playerCharacter` on `profileV2Schema` below).
  */
 const patternSetSchema = z.object({
   patterns: z.record(z.string(), patternSchema).refine((v) => Object.keys(v).length > 0, 'patterns must not be empty'),
@@ -404,35 +405,35 @@ const patternSetSchema = z.object({
 export const profileV2Schema = z.object({
   schemaVersion: z.literal(2),
   id: z.string().min(1),
-  /** Edycja OBOWIAZKOWO w identyfikatorze linii wydawniczej (np. "coc7"). */
+  /** Edition REQUIRED in the game-line identifier (e.g. "coc7"). */
   gameLine: z.string().min(1),
   language: z.string().min(2),
   title: z.string().min(1),
-  /** [S2] Profil celuje w KONKRETNA publikacje, nie cala linie wydawnicza. */
+  /** [S2] A profile targets a SPECIFIC publication, not the whole game line. */
   publication: z.string().min(1),
   author: z.string().optional(),
   license: z.string().optional(),
   provides: z.array(z.enum(['actors', 'scenes', 'images', 'journals'])).min(1),
   fingerprint: fingerprintSchema,
   pages: pagesSchema,
-  /** Wzorce dla trasy `npc` (`pageRoute.ts`) — nazwa pol bez zmian od kroku 18, wsteczna zgodnosc z KAZDYM istniejacym profilem. */
+  /** Patterns for the `npc` route (`pageRoute.ts`) — field name unchanged since step 18, backward compatible with EVERY existing profile. */
   patterns: patternSetSchema.shape.patterns,
   entityAssembly: patternSetSchema.shape.entityAssembly,
   images: imageAssociationSchema.optional(),
   /**
-   * [KROK-39 Z2] Druga, OPCJONALNA sekcja wzorcow — trasa `playerCharacter`
-   * (gotowi do gry Badacze, `pageRoute.ts`). Struktura identyczna jak
-   * `patterns`/`entityAssembly` powyzej — te same rodzaje wzorcow, ten sam
-   * ksztalt `entityAssembly` — CELOWO NIE aliasy/wspolne etykiety z trasa
-   * `npc`: ta sama ksiazka moze uzywac `WG` u NPC-ow i `WYG` u Badaczy (krok
-   * 38, odkrycie #1), a uklad kart (siatka+pochodne osobno vs. siatka+
-   * Poczytalnosc+PW w jednym wierszu, lista umiejetnosci po przecinku vs.
-   * jeden skill na wiersz) rozni sie bardziej niz jedna etykieta — jeden
-   * wzorzec z aliasami ryzykowalby zlapanie etykiety NPC-a przez kartę gracza
-   * i odwrotnie. Brak tej sekcji = trasa `playerCharacter` nieobslugiwana =
-   * strony tej trasy pomijane (z `Diagnostic`, `buildActorsForDocument.ts`) —
-   * KAZDY istniejacy profil (bez tego pola) zachowuje sie DOKLADNIE jak przed
-   * tym krokiem, bez zadnej flagi.
+   * [Step 39 Z2] A second, OPTIONAL section of patterns — the `playerCharacter`
+   * route (pregen, ready-to-play Investigators, `pageRoute.ts`). Structure identical to
+   * `patterns`/`entityAssembly` above — the same kinds of patterns, the same
+   * shape of `entityAssembly` — DELIBERATELY NOT aliased/shared labels with the `npc`
+   * route: the same book may use `APP` [WG] for NPCs and `APP` [WYG] for Investigators (step
+   * 38, discovery #1), and the sheet layout (grid+derived stats separate vs. grid+
+   * Sanity+HP on one line, comma-separated skills list vs.
+   * one skill per line) differs more than just one label — a single
+   * pattern with aliases would risk catching an NPC's label via the player sheet
+   * and vice versa. Absence of this section = the `playerCharacter` route unsupported =
+   * pages of that route skipped (with a `Diagnostic`, `buildActorsForDocument.ts`) —
+   * EVERY existing profile (without this field) behaves EXACTLY as before
+   * this step, with no flag at all.
    */
   playerCharacter: patternSetSchema.optional(),
 });
@@ -451,11 +452,11 @@ export interface ProfileValidationOk {
 }
 export interface ProfileValidationFailed {
   ok: false;
-  /** Czytelne bledy walidacji (sciezka pola + komunikat) — NIGDY wyjatek (DoD kroku 18 Z2). */
+  /** Readable validation errors (field path + message) — NEVER an exception (step 18 Z2's DoD). */
   issues: string[];
 }
 
-/** Waliduje niezaufany JSON jako profil v2. Nigdy nie rzuca — zly profil = `ok: false` + czytelne bledy. */
+/** Validates untrusted JSON as a v2 profile. Never throws — a bad profile = `ok: false` + readable errors. */
 export function validateProfile(input: unknown): ProfileValidationOk | ProfileValidationFailed {
   const result = profileV2Schema.safeParse(input);
   if (result.success) return { ok: true, profile: result.data };

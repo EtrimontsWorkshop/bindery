@@ -6,97 +6,102 @@ import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { Diagnostic } from '../text/types.js';
 
 /**
- * Deduplikacja i klasyfikacja docelowa (KROK-7 Z5, MDD faza 3). Dopiero PO
- * decodowaniu jest dostepny `contentHash` — uzywamy go do (1) domkniecia
- * korelacji z U1 poza to, co zlapala korelacja pozycyjna (krok 5/6), (2)
- * deduplikacji finalnej listy, (3) heurystyk `scene`/`handout`/`portrait`
- * (domyslne — profile fazy 4 je nadpisza).
+ * Deduplication and target classification (Step 7 Z5, MDD phase 3). Only
+ * AFTER decoding is `contentHash` available — we use it to (1) close
+ * correlation for U1 beyond what positional correlation caught (step 5/6),
+ * (2) deduplicate the final list, (3) the `scene`/`handout`/`portrait`
+ * heuristics (defaults — phase-4 profiles override them).
  *
- * `crypto.subtle` (Web Crypto) uzyty celowo zamiast `node:crypto` — standard
- * platformy webowej dostepny RowNIEZ w Node (>=20), wiec dziala identycznie w
- * przegladarce i w testach (ten sam wzorzec co `OffscreenCanvas`, A1).
+ * `crypto.subtle` (Web Crypto) is used deliberately instead of
+ * `node:crypto` — a web-platform standard ALSO available in Node (>=20), so
+ * it works identically in the browser and in tests (the same pattern as
+ * `OffscreenCanvas`, A1).
  *
- * [KROK-7 Z6, budzet pamieci] Ta funkcja CELOWO nie przyjmuje surowego
- * `DecodedImage` (48MB dla obrazu 4000x3000) — tylko juz policzony `contentHash`
- * + wymiary + dowolny "payload" (np. juz zakodowane bajty WebP/PNG, o wiele
- * mniejsze). Orkiestrator liczy hash i koduje KAZDY obraz osobno, natychmiast
- * po decode, i zwalnia surowe piksele PRZED przejsciem do nastepnego — dopiero
- * WTEDY (gdy wszystkie surowe bufory juz nie istnieja) wywoluje `finalizeImages`
- * na lekkiej liscie metadanych. Bez tego rozdzielenia (obliczanie hashu
- * WEWNATRZ finalize, na calej liscie na raz) trzeba by trzymac WSZYSTKIE
- * zdekodowane obrazy dokumentu w pamieci jednoczesnie — dokladnie to, czego
- * brief zabrania (budzet RAM 1,2 GB, "Dwadziescia takich naraz to 1 GB").
+ * [Step 7 Z6, memory budget] This function DELIBERATELY does not accept a
+ * raw `DecodedImage` (48MB for a 4000x3000 image) — only an already-computed
+ * `contentHash` + dimensions + an arbitrary "payload" (typically already-
+ * encoded WebP/PNG bytes, far smaller). The orchestrator computes the hash
+ * and encodes EVERY image separately, immediately after decode, and frees
+ * the raw pixels BEFORE moving to the next one — only THEN (once all raw
+ * buffers no longer exist) does it call `finalizeImages` on the lightweight
+ * metadata list. Without this separation (computing the hash INSIDE
+ * finalize, on the whole list at once) ALL of the document's decoded images
+ * would have to be kept in memory simultaneously — exactly what the brief
+ * forbids (a 1.2 GB RAM budget, "Twenty of these at once is 1 GB").
  */
 
 export type ImageTargetKind = 'scene' | 'handout' | 'portrait' | 'unknown';
 
 /**
- * Rozmiar bezwzgledny ponizej ktorego obraz jest PODEJRZANY o bycie zbyt malym,
- * zeby byc uzyteczna trescia — wartosc WPROST z MDD §Faza 3 ("odrzuc
- * intrinsicWidth < 100 || intrinsicHeight < 100"), NIGDY nie zweryfikowana na
- * realnym materiale. Sprawdzany TUTAJ (po decode), nie w `classify.ts` — patrz
- * komentarz tam, dlaczego (pdf.js nie ujawnia intrinsicWidth/Height przed
- * rozwiazaniem obiektu).
+ * Absolute size below which an image is SUSPECTED of being too small to be
+ * useful content — a value taken DIRECTLY from MDD §Phase 3 ("reject
+ * intrinsicWidth < 100 || intrinsicHeight < 100"), NEVER verified against
+ * real material. Checked HERE (after decode), not in `classify.ts` — see the
+ * comment there for why (pdf.js doesn't reveal intrinsicWidth/Height before
+ * resolving the object).
  *
- * [KROK-43 Z1, naprawa "cicha utrata" po audycie stalych — A10] Reklasyfikacja
- * ponizej dawniej ladowala WPROST w `decoration`, NADPISUJAC nawet
- * NAJSILNIEJSZY sygnal `content` (np. `Z1-large-relative-area`, pewnosc 0,9) —
- * bez zadnego dowodu kalibracyjnego ani szansy na przeglad. Prawdziwy, maly
- * portret/ikona (np. 95x95px) trafialby w decoration po cichu, dokladnie ten
- * sam wzorzec bledu co `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD` (patrz
- * `classify.ts`) — w odroznieniu od reklasyfikacji "plaskiej tekstury" ponizej
- * (`FLAT_TEXTURE_STDDEV_THRESHOLD`), ktora dziala WYLACZNIE na juz-slabym
- * sygnale `content` (`confidence < FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`),
- * ta regula nie mala ZADNEGO takiego zabezpieczenia. Naprawa: laduje teraz w
- * `undecided` (widoczne w przegladzie, z `Diagnostic`
- * `IMAGE_TOO_SMALL_UNDECIDED` w `buildImageExtraction.ts`), nie w `decoration`.
+ * [Step 43 Z1, fix for "silent loss" found in a constants audit — A10] The
+ * reclassification below used to land DIRECTLY in `decoration`, OVERRIDING
+ * even the STRONGEST `content` signal (e.g. `Z1-large-relative-area`,
+ * confidence 0.9) — with no calibration evidence and no chance for review.
+ * A genuine small portrait/icon (e.g. 95x95px) would silently end up in
+ * decoration, exactly the same bug pattern as
+ * `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD` (see `classify.ts`) — unlike
+ * the "flat texture" reclassification below (`FLAT_TEXTURE_STDDEV_THRESHOLD`),
+ * which operates EXCLUSIVELY on an already-weak `content` signal
+ * (`confidence < FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`), this rule had NO
+ * such safeguard at all. Fix: it now lands in `undecided` (visible in the
+ * review screen, with a `Diagnostic` `IMAGE_TOO_SMALL_UNDECIDED` in
+ * `buildImageExtraction.ts`), not `decoration`.
  */
 const MIN_ABSOLUTE_PX = 100;
-/** [KROK-43 Z1] Pewnosc dla reklasyfikacji "za male" -> `undecided` — ten sam poziom co inne pojedyncze, niepotwierdzone-drugim-sygnalem sygnaly (patrz `Z13-extreme-aspect-ratio-undecided` w `classify.ts`), NIE `RECLASSIFIED_CONFIDENCE` (0,9) uzywane przez faktyczne twarde reklasyfikacje ponizej. */
+/** [Step 43 Z1] Confidence for the "too small" -> `undecided` reclassification — the same level as other single, not-confirmed-by-a-second-signal signals (see `Z13-extreme-aspect-ratio-undecided` in `classify.ts`), NOT `RECLASSIFIED_CONFIDENCE` (0.9) used by the actual hard reclassifications below. */
 const TOO_SMALL_UNDECIDED_CONFIDENCE = 0.4;
 
 /**
- * [KROK-8 Z2, odkrycie] Powierzchnia wzgledna (i nawet proporcje bboksa) NIE
- * odrozniaja niezawodnie prawdziwej ilustracji od PLASKIEJ TEKSTURY TLA
- * (np. jednolity "papier"/"pergamin" uzywany jako dekoracyjne tlo strony) —
- * zaobserwowane wprost na `CP-RED-InterfaceVol1_v1.pdf` PO wdrozeniu
- * `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` w `classify.ts`: dwie plaskie tekstury
- * tla (powierzchnia 0,193 i 0,279 strony — W ZAKRESIE prawdziwej tresci
- * 0,116-0,257) zostaly falszywie sklasyfikowane jako `content`. Odchylenie
- * standardowe luminancji pikseli PO decode odrozniA je jednoznacznie:
- * zmierzone teksturki = 2,33 i 13,16, prawdziwa tresc (6 obrazow) = 40,75-81,20
- * — czysta przerwa. Ten sygnal wymaga JUZ zdekodowanych pikseli (jak
- * `MIN_ABSOLUTE_PX` wyzej), wiec jest liczony przez WOLAJACEGO (orkiestrator,
- * `buildImageExtraction.ts`) i przekazany jako gotowa liczba — `finalize.ts`
- * nie trzyma surowego `DecodedImage` (patrz komentarz o budzecie pamieci).
+ * [Step 8 Z2, discovery] Relative area (and even bbox aspect ratio) do NOT
+ * reliably distinguish a genuine illustration from a FLAT BACKGROUND TEXTURE
+ * (e.g. a uniform "paper"/"parchment" used as decorative page background) —
+ * observed directly on `CP-RED-InterfaceVol1_v1.pdf` AFTER deploying
+ * `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` in `classify.ts`: two flat background
+ * textures (area 0.193 and 0.279 of the page — WITHIN the genuine-content
+ * range of 0.116-0.257) were falsely classified as `content`. The standard
+ * deviation of pixel luminance AFTER decode distinguishes them
+ * unambiguously: measured textures = 2.33 and 13.16, genuine content (6
+ * images) = 40.75-81.20 — a clean gap. This signal needs ALREADY-decoded
+ * pixels (like `MIN_ABSOLUTE_PX` above), so it's computed by the CALLER
+ * (the orchestrator, `buildImageExtraction.ts`) and passed in as a ready
+ * number — `finalize.ts` doesn't hold a raw `DecodedImage` (see the comment
+ * about the memory budget).
  */
 const FLAT_TEXTURE_STDDEV_THRESHOLD = 20;
 
 /**
- * [KROK-17, zgloszony na zywo blad] Reklasyfikacja "plaskiej tekstury" ponizej
- * dziala TYLKO na wpisach ze SLABYM sygnalem `content` — dokladnie tak, jak
- * zostala skalibrowana (oba przypadki z komentarza `FLAT_TEXTURE_STDDEV_THRESHOLD`
- * to `Z2-moderate-area-no-mask-evidence`, pewnosc 0,5). Zaobserwowane wprost
- * na `CHA23131 Call of Cthulhu 7th Edition Quick-Start Rules.pdf`: mapa
- * rysowana czarna kreska na bialym tle ("Corbitt House Investigator Map",
- * `Z1-large-relative-area`, pewnosc 0,9 — MOCNY, jednoznaczny sygnal
- * geometryczny) ma niskie odchylenie standardowe luminancji z DOKLADNIE TEGO
- * SAMEGO powodu co plaska tekstura pergaminu (dominujace jasne tlo, rzadka
- * ciemna kreska) — reklasyfikacja bezwarunkowo nadpisywala mocny sygnal
- * slabym, jednosygnalowym heurystykiem pikselowym, gubiac faktyczny handout.
- * Prog = ten sam co gdzie indziej w tym pliku uzywana granica "content ponizej
- * tego progu startuje odznaczone w przegladzie" (patrz `ClassifiedImage.confidence`
- * w `classify.ts`) — nie nowa, niezalezna wartosc.
+ * [Step 17, a live-reported bug] The "flat texture" reclassification below
+ * only applies to entries with a WEAK `content` signal — exactly as it was
+ * calibrated (both cases in the `FLAT_TEXTURE_STDDEV_THRESHOLD` comment are
+ * `Z2-moderate-area-no-mask-evidence`, confidence 0.5). Observed directly on
+ * `CHA23131 Call of Cthulhu 7th Edition Quick-Start Rules.pdf`: a
+ * black-line-on-white-background drawn map ("Corbitt House Investigator
+ * Map", `Z1-large-relative-area`, confidence 0.9 — a STRONG, unambiguous
+ * geometric signal) has a low luminance standard deviation for EXACTLY THE
+ * SAME reason as a flat parchment texture (a dominant light background, a
+ * sparse dark line) — the reclassification unconditionally overrode a
+ * strong signal with a weak, single-signal pixel heuristic, losing an
+ * actual handout. Threshold = the same "content below this threshold starts
+ * unchecked in the review screen" boundary used elsewhere in this file (see
+ * `ClassifiedImage.confidence` in `classify.ts`) — not a new, independent
+ * value.
  */
 const FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE = 0.6;
 
-/** "Duza rozdzielczosc" (brief, `scene`) — dluzsza krawedz. Do weryfikacji w kalibracji na `samples/`. */
+/** "High resolution" (brief, `scene`) — the longer edge. To be verified during calibration against `samples/`. */
 const SCENE_MIN_LONG_EDGE_PX = 1200;
-/** "Srednia rozdzielczosc" (brief, `handout`). */
+/** "Medium resolution" (brief, `handout`). */
 const HANDOUT_MIN_LONG_EDGE_PX = 400;
 const SCENE_ASPECT_MIN = 0.5;
 const SCENE_ASPECT_MAX = 2.2;
-/** "Mala" (brief, `portrait`) — gorna granica dluzszej krawedzi. */
+/** "Small" (brief, `portrait`) — upper bound on the longer edge. */
 const PORTRAIT_MAX_LONG_EDGE_PX = 400;
 const PORTRAIT_ASPECT_MIN = 0.6;
 const PORTRAIT_ASPECT_MAX = 1.1;
@@ -108,9 +113,10 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
- * Hash tresci obrazu (wymiary + piksele RGBA) — NIE hash pliku PDF ani objId,
- * tylko faktyczna zdekodowana tresc. Wywolywany PRZEZ WOLAJACEGO (orkiestrator)
- * na KAZDYM obrazie osobno, natychmiast po decode — patrz komentarz na gorze pliku.
+ * A hash of the image's content (dimensions + RGBA pixels) — NOT a hash of
+ * the PDF file or the objId, just the actual decoded content. Called BY THE
+ * CALLER (the orchestrator) on EACH image separately, immediately after
+ * decode — see the comment at the top of the file.
  */
 export async function computeContentHash(image: DecodedImage): Promise<string> {
   const header = new Uint8Array(8);
@@ -125,10 +131,11 @@ export async function computeContentHash(image: DecodedImage): Promise<string> {
 }
 
 /**
- * Odchylenie standardowe luminancji pikseli (0-255) — sygnal "plaska tekstura"
- * vs "prawdziwa ilustracja", patrz `FLAT_TEXTURE_STDDEV_THRESHOLD`. Jeden
- * przebieg, bez alokacji tablicy posrednich probek (wazne dla obrazow do
- * 4096x4096 = ~16M pikseli). Wywolywane PRZEZ WOLAJACEGO, tak jak `computeContentHash`.
+ * Standard deviation of pixel luminance (0-255) — the "flat texture" vs
+ * "genuine illustration" signal, see `FLAT_TEXTURE_STDDEV_THRESHOLD`. One
+ * pass, no allocation of an intermediate samples array (important for images
+ * up to 4096x4096 = ~16M pixels). Called BY THE CALLER, same as
+ * `computeContentHash`.
  */
 export function computeLuminanceStdDev(image: DecodedImage): number {
   const { rgba, width, height } = image;
@@ -148,26 +155,26 @@ export function computeLuminanceStdDev(image: DecodedImage): number {
 }
 
 export interface CorrelationClosureResult {
-  /** Wpisy juz powiazane przez korelacje pozycyjna (`correlatedWith`, krok 5/6). */
+  /** Entries already linked by positional correlation (`correlatedWith`, step 5/6). */
   closedByBBox: number;
   /**
-   * Wpisy DODATKOWO powiazane WYLACZNIE przez identyczny `contentHash` — tego
-   * korelacja pozycyjna NIE zlapala (np. ten sam zasob osadzony na stronie w
-   * innej pozycji/przycieciu niz jego "kanoniczne" wystapienie). MUSI byc
-   * ISTOTNIE mniejsze niz `closedByBBox`, inaczej mechanizm z U1 nie dziala
-   * (DoD kroku 7).
+   * Entries ADDITIONALLY linked EXCLUSIVELY by an identical `contentHash` —
+   * positional correlation did NOT catch this (e.g. the same resource
+   * embedded on the page at a different position/crop than its "canonical"
+   * occurrence). MUST be SIGNIFICANTLY smaller than `closedByBBox`, otherwise
+   * the U1 mechanism isn't working (step 7's DoD).
    */
   closedByHash: number;
-  /** `objId` -> kanoniczny `objId` PO uwzglednieniu OBU sygnalow (bbox + hash). */
+  /** `objId` -> canonical `objId` after accounting for BOTH signals (bbox + hash). */
   canonicalObjIdByObjId: ReadonlyMap<string, string>;
 }
 
 /**
- * Domyka korelacje przez `contentHash` tam, gdzie korelacja pozycyjna (bbox)
- * jej nie zlapala — dwa wpisy o tym samym hashu tresci to ten sam zasob,
- * niezaleznie od pozycji. Zwraca TAKZE licznik juz domknietych przez bbox, do
- * porownania skutecznosci obu mechanizmow (brief: "zaraportuj, ile takich
- * przypadkow zostalo").
+ * Closes correlation via `contentHash` where positional (bbox) correlation
+ * missed it — two entries with the same content hash are the same resource,
+ * regardless of position. ALSO returns a count of what was already closed by
+ * bbox, to compare the effectiveness of both mechanisms (brief: "report how
+ * many such cases were found").
  */
 export function closeCorrelationByHash(entries: readonly { entry: ImageEntry; contentHash: string }[]): CorrelationClosureResult {
   const bboxCanonicalOf = (e: ImageEntry): string => e.correlatedWith ?? e.objId ?? '';
@@ -176,7 +183,7 @@ export function closeCorrelationByHash(entries: readonly { entry: ImageEntry; co
   const entriesByBBoxCanonical = new Map<string, ImageEntry[]>();
   const byHash = new Map<string, Set<string>>();
   for (const { entry, contentHash } of entries) {
-    if (entry.objId === null) continue; // inline: brak objId, nie ma czego korelowac
+    if (entry.objId === null) continue; // inline: no objId, nothing to correlate
     const bboxCanonical = bboxCanonicalOf(entry);
     const arr = entriesByBBoxCanonical.get(bboxCanonical) ?? [];
     arr.push(entry);
@@ -190,13 +197,13 @@ export function closeCorrelationByHash(entries: readonly { entry: ImageEntry; co
   const totalOccurrences = (bboxCanonical: string): number =>
     (entriesByBBoxCanonical.get(bboxCanonical) ?? []).reduce((sum, e) => sum + e.occurrences.length, 0);
 
-  // bboxCanonical -> nowy kanon PO domknieciu przez hash.
+  // bboxCanonical -> new canonical AFTER closing via hash.
   const canonicalRemap = new Map<string, string>();
   let closedByHash = 0;
   for (const bboxCanonicalSet of byHash.values()) {
-    if (bboxCanonicalSet.size <= 1) continue; // bbox juz to domknal (albo tylko jeden kanon w tej grupie hashu)
+    if (bboxCanonicalSet.size <= 1) continue; // bbox already closed this (or only one canonical in this hash group)
     const keys = [...bboxCanonicalSet];
-    // Kanoniczny = najwiecej LACZNYCH wystapien; remis po kluczu (determinizm, brak zaleznosci od kolejnosci wejscia).
+    // Canonical = the most TOTAL occurrences; ties broken by key (determinism, independent of input order).
     const canonical = keys.sort((a, b) => totalOccurrences(b) - totalOccurrences(a) || a.localeCompare(b))[0]!;
     for (const key of keys) {
       if (key === canonical) continue;
@@ -220,16 +227,16 @@ export interface TargetKindInput {
   width: number;
   height: number;
   classification: ImageClassification;
-  /** Czy w sasiedztwie (ta sama strona) jest blok semantyczny `statblock` lub `heading` (krok 6). */
+  /** Whether there's a `statblock` or `heading` semantic block nearby (same page, step 6). */
   nearStatblockOrHeading: boolean;
 }
 
 /**
- * Heurystyki DOMYSLNE (brief) — profile fazy 4 je nadpisza. Kolejnosc
- * sprawdzania ma znaczenie: `portrait` (mala + sasiedztwo) jest bardziej
- * specyficzny niz `scene`/`handout` (tylko rozdzielczosc), wiec sprawdzany
- * pierwszy, zeby maly portret w poblizu statbloku nie zostal zlapany przez
- * ogolniejsza regule `handout`.
+ * DEFAULT heuristics (per the brief) — phase-4 profiles override them. Check
+ * order matters: `portrait` (small + proximity) is more specific than
+ * `scene`/`handout` (resolution only), so it's checked first, so that a
+ * small portrait near a statblock isn't caught by the more general
+ * `handout` rule.
  */
 export function classifyTargetKind(input: TargetKindInput): ImageTargetKind {
   if (input.classification !== 'content') return 'unknown';
@@ -249,24 +256,24 @@ export function classifyTargetKind(input: TargetKindInput): ImageTargetKind {
 }
 
 /**
- * Wpis gotowy do finalizacji — BEZ surowego `DecodedImage` (patrz komentarz na
- * gorze pliku o budzecie pamieci). `payload` to cokolwiek wolajacy chce
- * przeniesc do wyniku koncowego (typowo `EncodedImage` z `encodeImage.ts`, juz
- * skompresowane bajty WebP/PNG) — `finalizeImages` samo w sobie nie wie ani
- * nie musi wiedziec, czym jest `payload`.
+ * An entry ready for finalization — WITHOUT the raw `DecodedImage` (see the
+ * comment at the top of the file about the memory budget). `payload` is
+ * whatever the caller wants to carry through to the final result (typically
+ * `EncodedImage` from `encodeImage.ts`, already-compressed WebP/PNG bytes) —
+ * `finalizeImages` itself doesn't know or need to know what `payload` is.
  */
 export interface PreparedEntryForFinalize<TPayload> {
   entry: ImageEntry;
   classification: ImageClassification;
-  /** [KROK-11 Z4] Patrz `ClassifiedImage.confidence` w `classify.ts`. */
+  /** [Step 11 Z4] See `ClassifiedImage.confidence` in `classify.ts`. */
   confidence: number;
   extractSource: ExtractSource;
   contentHash: string;
   width: number;
   height: number;
-  /** Patrz `computeLuminanceStdDev`/`FLAT_TEXTURE_STDDEV_THRESHOLD`. Opcjonalne — brak wartosci pomija reklasyfikacje "plaskiej tekstury" (np. w testach jednostkowych bez prawdziwych pikseli). */
+  /** See `computeLuminanceStdDev`/`FLAT_TEXTURE_STDDEV_THRESHOLD`. Optional — no value skips the "flat texture" reclassification (e.g. in unit tests with no real pixels). */
   luminanceStdDev?: number;
-  /** [KROK-17] Patrz `detectGrid.ts` — sugestia auto-detekcji siatki, `undefined` gdy nie liczona (np. testy) lub gdy `detectGrid` nie znalazlo zadnej okresowosci. */
+  /** [Step 17] See `detectGrid.ts` — a grid auto-detection suggestion, `undefined` when not computed (e.g. tests) or when `detectGrid` found no periodicity. */
   suggestedGrid?: GridDetectionResult;
   payload: TPayload;
 }
@@ -274,7 +281,7 @@ export interface PreparedEntryForFinalize<TPayload> {
 export interface FinalizedImage<TPayload> {
   entry: ImageEntry;
   classification: ImageClassification;
-  /** [KROK-11 Z4] Patrz `ClassifiedImage.confidence` w `classify.ts`. */
+  /** [Step 11 Z4] See `ClassifiedImage.confidence` in `classify.ts`. */
   confidence: number;
   extractSource: ExtractSource;
   contentHash: string;
@@ -294,26 +301,27 @@ export interface FinalizeResult<TPayload> {
 }
 
 /**
- * Krok koncowy: reklasyfikacja po rozmiarze bezwzglednym (odlozona z Z1, patrz
- * `MIN_ABSOLUTE_PX`), domkniecie korelacji przez hash, deduplikacja,
- * klasyfikacja docelowa. `prepared` MUSI byc juz w deterministycznej kolejnosci
- * (np. posortowane po `objId` jak w `imageRegistry.ts`) — reprezentant kazdej
- * grupy duplikatow to PIERWSZY wpis w tej kolejnosci. Czysta funkcja
- * (synchroniczna) — cale kosztowne I/O (decode/hash/encode) juz sie odbylo
- * u wolajacego.
+ * Final step: reclassification by absolute size (deferred from Z1, see
+ * `MIN_ABSOLUTE_PX`), closing correlation via hash, deduplication, target
+ * classification. `prepared` MUST already be in deterministic order (e.g.
+ * sorted by `objId` as in `imageRegistry.ts`) — the representative of each
+ * duplicate group is the FIRST entry in that order. A pure (synchronous)
+ * function — all the costly I/O (decode/hash/encode) has already happened
+ * at the caller.
  */
 export function finalizeImages<TPayload>(
   prepared: readonly PreparedEntryForFinalize<TPayload>[],
   nearStatblockOrHeadingByObjId: ReadonlySet<string>,
-  // [KROK-43 Z1] Opcjonalny — wolajacy bez potrzeby diagnostyk (np. istniejace
-  // testy jednostkowe) dostaje dokladnie zachowanie sprzed tej flagi.
+  // [Step 43 Z1] Optional — a caller with no need for diagnostics (e.g.
+  // existing unit tests) gets exactly the behavior from before this flag.
   diagnostics: Diagnostic[] = [],
 ): FinalizeResult<TPayload> {
-  // [KROK-11 Z4] Reklasyfikacja "plaskiej tekstury" ponizej jest TWARDYM,
-  // jednoznacznym sygnalem (zmierzone stddev luminancji, dziala WYLACZNIE na
-  // juz-slabym `content` — patrz `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`) —
-  // dostaje wysoka pewnosc, NIE dziedziczy starej pewnosci `content` sprzed
-  // reklasyfikacji (juz nieaktualnej, bo klasyfikacja sie zmienila).
+  // [Step 11 Z4] The "flat texture" reclassification below is a HARD,
+  // unambiguous signal (a measured luminance stddev, applying EXCLUSIVELY to
+  // already-weak `content` — see `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`) —
+  // it gets high confidence, it does NOT inherit the old `content` confidence
+  // from before the reclassification (already stale, since the
+  // classification changed).
   const RECLASSIFIED_CONFIDENCE = 0.9;
   const reclassified = prepared.map((d) => {
     if (d.classification === 'content' && (d.width < MIN_ABSOLUTE_PX || d.height < MIN_ABSOLUTE_PX)) {
@@ -325,10 +333,10 @@ export function finalizeImages<TPayload>(
       });
       return { ...d, classification: 'undecided' as ImageClassification, confidence: TOO_SMALL_UNDECIDED_CONFIDENCE };
     }
-    // [KROK-8 Z2] Plaska tekstura (np. tlo z papieru) — powierzchnia/proporcje same
-    // w sobie NIE odrozniaja jej od prawdziwej ilustracji, patrz komentarz przy
-    // `FLAT_TEXTURE_STDDEV_THRESHOLD`. [KROK-17] WYLACZNIE dla SLABEGO sygnalu
-    // `content` — patrz `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`.
+    // [Step 8 Z2] A flat texture (e.g. a paper background) — area/aspect
+    // ratio alone do NOT distinguish it from a genuine illustration, see the
+    // comment on `FLAT_TEXTURE_STDDEV_THRESHOLD`. [Step 17] EXCLUSIVELY for a
+    // WEAK `content` signal — see `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`.
     if (
       d.classification === 'content' &&
       d.confidence < FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE &&

@@ -2,20 +2,20 @@ import type { AdapterResult } from '@bindery/core';
 import { escapeHtmlBasic, type Coc7ActorPayload, type Coc7EmbeddedItemSpec } from '../adapters/coc7.js';
 
 /**
- * [KROK-19 Z3] `Actor.createDocuments()` batchem (nigdy w petli) + embedded
- * `Item` (skill/weapon) na kazdego utworzonego aktora, z poprawnym
- * powiazaniem `weapon -> skill` przez `system.skill.main.id`. Konsument
- * `AdapterResult<Coc7ActorPayload>[]` z `coc7Adapter.fromActor` (Z1) —
- * adapter WYLACZNIE zwraca dane, TA funkcja jest jedynym miejscem, ktore
- * faktycznie tworzy dokumenty (A5-zgodny podzial: decyzje "co" zapadaja
- * wczesniej/gdzie indziej, "zapisz to do bazy" jest tutaj, mechanicznie).
+ * [Step 19 Z3] `Actor.createDocuments()` as a batch (never in a loop) +
+ * embedded `Item`s (skill/weapon) for each created actor, with the correct
+ * `weapon -> skill` link via `system.skill.main.id`. Consumes
+ * `AdapterResult<Coc7ActorPayload>[]` from `coc7Adapter.fromActor` (Z1) —
+ * the adapter ONLY returns data, THIS function is the only place that
+ * actually creates documents (A5-compliant split: "what" decisions are made
+ * earlier/elsewhere, "save this to the database" happens here, mechanically).
  */
 
 const NON_WEAPON_ATTACK_NAMES = new Set(['unik', 'dodge', 'uniknięcie']);
 
 export interface CreateActorsInput {
   results: readonly AdapterResult<Coc7ActorPayload>[];
-  /** [KROK-11 Z6 wzorzec] Id folderu `Actor` (patrz `ensureFolder.ts`) — `undefined` = korzen. */
+  /** [Step 11 Z6 pattern] `Actor` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
   signal?: AbortSignal;
 }
@@ -26,112 +26,117 @@ export interface CreatedActorEntry {
   issues: AdapterResult<Coc7ActorPayload>['issues'];
 }
 
-/** `weapon` pomijany dla pozycji ATAKI, ktore sa w rzeczywistosci reakcja obronna (Unik/Dodge), nie broniom — decyzja opisana (i swiadomie odlozona) w komentarzu `Coc7EmbeddedItemSpec` w `adapters/coc7.ts`. */
+/** `weapon` is skipped for ATTACKS entries that are actually a defensive reaction (Dodge), not weapons — the decision is described (and deliberately deferred) in the `Coc7EmbeddedItemSpec` comment in `adapters/coc7.ts`. */
 function isDodgeLikeAttackName(name: string): boolean {
   return NON_WEAPON_ATTACK_NAMES.has(name.trim().toLowerCase());
 }
 
 function buildSkillItemData(spec: Coc7EmbeddedItemSpec & { kind: 'skill' }): object {
-  // [Pulapka H4, potwierdzona ponownie w Z1] `system.value` to GETTER — pisac
-  // TYLKO przez `system.adjustments.base`.
+  // [H4 trap, reconfirmed in Z1] `system.value` is a GETTER — write ONLY
+  // through `system.adjustments.base`.
   return { name: spec.name, type: 'skill', system: { skillName: spec.name, adjustments: { base: spec.basePercent ?? 0 } } };
 }
 
 function buildWeaponItemData(spec: Coc7EmbeddedItemSpec & { kind: 'weapon' }, skillIdByName: ReadonlyMap<string, string>): object {
   const linkedName = spec.linkedSkillName ?? spec.name;
-  // [KROK-33 Z4, POPRAWKA po zgloszeniu "Additional atack description does
-  // not appear in Notes"] `system.description` na karcie broni CoC7 to
-  // TRZY OSOBNE pola: `value` (opis, ten sam co `spec.description` ponizej —
-  // dziala od kroku 20), `special` i `keeper` ("Notatki Strażnika" — WŁASNA
-  // zakładka na karcie, oddzielna od "Opis"). Pierwsza wersja tej naprawy
-  // dopisywala `belowText` do `value` — TECHNICZNIE widoczne, ale nie tam,
-  // gdzie uzytkownik naturalnie szuka "notatki" (potwierdzone bezposrednio:
-  // `Item.create({type:'weapon'})` w zywym Foundry zwraca
-  // `system.description = {value, special, keeper}` — `keeper` to
-  // WLASCIWE miejsce na informacje DLA STRAZNIKA znalezione POZA sama
-  // pozycja ataku, nie domieszka do jej opisu). Etykieta ("Z tekstu
-  // poniżej...") wciaz dopisywana — sama zakladka "Notatki Strażnika" nie
-  // tlumaczy, SKAD ten tekst pochodzi (mogloby wygladac jak wlasna notatka
-  // Strażnika, nie zrodlowy fragment ksiazki).
+  // [Step 33 Z4, FIX after the report "Additional attack description does
+  // not appear in Notes"] `system.description` on a CoC7 weapon sheet is
+  // THREE SEPARATE fields: `value` (description, the same as
+  // `spec.description` below — has worked since step 20), `special` and
+  // `keeper` ("Keeper's Notes" — its OWN tab on the sheet, separate from
+  // "Description"). The first version of this fix appended `belowText` to
+  // `value` — TECHNICALLY visible, but not where the user naturally looks
+  // for "notes" (confirmed directly: `Item.create({type:'weapon'})` on a
+  // live Foundry instance returns `system.description =
+  // {value, special, keeper}` — `keeper` is the RIGHT place for information
+  // FOR THE KEEPER found OUTSIDE the attack entry itself, not a mixin to
+  // its description). The label ("From the text below...") is still
+  // appended — the "Keeper's Notes" tab alone doesn't explain WHERE this
+  // text comes from (it could look like the Keeper's own note, not a
+  // source excerpt from the book).
   const keeperNotes = spec.belowText ? `<p><em>${game.i18n!.localize('BINDERY.coc7.attackBelowTextLabel')}</em> ${spec.belowText}</p>` : undefined;
   return {
     name: spec.name,
     type: 'weapon',
-    // [KROK-41, zgloszenie na zywo] CoC7's own `defaultImg` dla typu "weapon"
-    // to zawsze `icons/svg/sword.svg` — TEN SAM dla walki wrecz i dystansowej
-    // (potwierdzone w zrodle systemu), wiec bez tego kazda zaimportowana
-    // bron dostawala identyczna, mieczowa ikone, nawet pistolet/karabin.
-    // Dla broni dystansowej nadpisujemy jawnie realna ikona broni palnej z
-    // wbudowanych zasobow Foundry (ta sama, ktora nosza gotowe pozycje
-    // kompendium CoC7 dla broni palnej) — dla walki wrecz NIC nie ustawiamy,
-    // zeby zachowac dotychczasowy (poprawny) domyslny miecz systemu.
+    // [Step 41, reported live] CoC7's own `defaultImg` for the "weapon" type
+    // is always `icons/svg/sword.svg` — THE SAME for melee and ranged
+    // (confirmed in the system source), so without this every imported
+    // weapon got an identical sword icon, even a pistol/rifle. For ranged
+    // weapons we explicitly override it with a real firearm icon from
+    // Foundry's built-in assets (the same one carried by CoC7's ready-made
+    // compendium entries for firearms) — for melee we set NOTHING, to
+    // preserve the system's existing (correct) default sword.
     ...(spec.ranged ? { img: 'icons/weapons/guns/gun-wood.webp' } : {}),
     system: {
       skill: { main: { name: linkedName, id: skillIdByName.get(linkedName) ?? null } },
       range: { normal: { value: '', damage: spec.damage ?? '' } },
-      // [KROK-40, zgloszenie na zywo] CoC7 domyslnie tworzy KAZDA bron jako
-      // walke wrecz (`properties.rngd` init `false`, brak osobnego pola
-      // "melee") — bez tego kazdy zaimportowany pistolet/karabin ladowal sie
-      // na karcie postaci jako walka wrecz. `spec.ranged` pochodzi z profilu
-      // (`SectionListPattern.rangedKeywords`), nie z zadanej tu logiki.
+      // [Step 40, reported live] CoC7 creates EVERY weapon as melee by
+      // default (`properties.rngd` initializes to `false`, no separate
+      // "melee" field) — without this, every imported pistol/rifle landed
+      // on the character sheet as melee. `spec.ranged` comes from the
+      // profile (`SectionListPattern.rangedKeywords`), not from logic
+      // invented here.
       properties: { rngd: spec.ranged ?? false },
-      // [KROK-20 Z2, zmierzony na zywo brak] Bez tego zakladka "Opis" karty
-      // broni jest pusta — `spec.description` niesie surowy tekst dopasowania
-      // z ksiazki (adapters/coc7.ts), jedyne miejsce, gdzie po imporcie widac
-      // ZRODLOWY zapis tego konkretnego ataku (np. przypisy w nawiasach).
+      // [Step 20 Z2, gap measured live] Without this, the weapon sheet's
+      // "Description" tab is empty — `spec.description` carries the raw
+      // matched text from the book (adapters/coc7.ts), the only place where
+      // the SOURCE text of this particular attack (e.g. parenthetical
+      // footnotes) is visible after import.
       description: { value: spec.description ?? '', ...(keeperNotes ? { keeper: keeperNotes } : {}) },
     },
   };
 }
 
 /**
- * [zgloszenie uzytkownika po KROK-33 Z4, "nie widze zadnego opisu w
- * notatkach"] `belowText` (opis znaleziony w prozie PONIZEJ sekcji ATAKI)
- * trafial WYLACZNIE do wlasnej zakladki "Notatki Strażnika" KAZDEJ broni z
- * osobna (`buildWeaponItemData` powyzej) — uzytkownik sprawdzal GLOWNA
- * zakladke "Notatki" calej postaci (`biography.personalDescription`,
- * celowo puste od KROK-20 Z2) i nie znajdowal tam nic. Kopiuje TE SAME opisy
- * (nie caly surowy statblok — KROK-20 Z2 pozostaje w mocy, cechy/ataki/
- * umiejetnosci sa juz widoczne gdzie indziej na karcie, wiec dublowanie ICH
- * byloby szumem) TAKZE do notatek postaci, jedno podpisane nazwa ataku
- * zdanie na kazdy znaleziony opis. Pusty string, gdy zaden atak nie ma
- * `belowText` (A7 — brak czegokolwiek do skopiowania to poprawny wynik).
+ * [user report after Step 33 Z4, "I don't see any description in the
+ * notes"] `belowText` (the description found in prose BELOW the ATTACKS
+ * section) was only going into EACH weapon's own "Keeper's Notes" tab
+ * separately (`buildWeaponItemData` above) — the user was checking the
+ * character's MAIN "Notes" tab (`biography.personalDescription`,
+ * deliberately empty since Step 20 Z2) and found nothing there. This copies
+ * THE SAME descriptions (not the whole raw statblock — Step 20 Z2 still
+ * stands, characteristics/attacks/skills are already visible elsewhere on
+ * the sheet, so duplicating THEM would be noise) ALSO into the character's
+ * notes, one sentence per found description, labeled with the attack name.
+ * An empty string when no attack has `belowText` (A7 — nothing to copy is a
+ * valid result).
  *
- * [KROK-34 Z2] `entityNotes` (bloki prozy dolaczone geometrycznie,
- * `Coc7ActorPayload.entityNotes`) DOKLADANE do TEJ SAMEJ notatki, kazdy
- * podpisany WLASNA etykieta wzorca (np. "Opis"), NIE sklejone w jeden ciag
- * (brief kroku 34: "W notatce aktora bloki rozdzielone naglowkami z etykiet").
+ * [Step 34 Z2] `entityNotes` (prose blocks attached geometrically,
+ * `Coc7ActorPayload.entityNotes`) is APPENDED to THIS SAME note, each one
+ * labeled with its OWN pattern label (e.g. "Description"), NOT concatenated
+ * into one string (step 34 brief: "In the actor note, blocks are separated
+ * by headings from the labels").
  *
- * [zgloszenie uzytkownika, "Niewidzialność Niewidzialność: zdolność..."]
- * Etykieta bloku (wpisana przez autora profilu w Studio) czesto powiela
- * WLASNY podnaglowek ksiazki, ktory i tak jest PIERWSZYM slowem dopasowanej
- * tresci (bo notatka geometrycznie zaczyna sie OD tego podnaglowka — patrz
- * `proseBlock.ts`) — pokazanie OBU daje "Niewidzialność Niewidzialność: ...".
- * Gdy tresc juz zaczyna sie (bez wzgledu na wielkosc liter) od etykiety, ten
- * WLASNY fragment (z dwukropkiem) jest POGRUBIANY zamiast dopisywac drugi,
- * oddzielny naglowek. Etykiety GENUINE niepowiazane z tekstem (autor nadal
- * moze wpisac cokolwiek) nadal pokazywane jak dotychczas (wlasny pogrubiony
- * naglowek + spacja + cala tresc).
+ * [user report, "Invisibility Invisibility: ability..."] The block's label
+ * (entered by the profile author in the Studio) often duplicates the book's
+ * OWN sub-heading, which is already the FIRST word of the matched content
+ * (because the note geometrically starts FROM that sub-heading — see
+ * `proseBlock.ts`) — showing BOTH produces "Invisibility Invisibility: ...".
+ * When the content already starts (case-insensitively) with the label, that
+ * OWN fragment (with the colon) is BOLDED instead of prepending a second,
+ * separate heading. GENUINELY unrelated labels (the author can still type
+ * anything) are still shown as before (its own bolded heading + space +
+ * full content).
  *
- * [zgloszenie uzytkownika, "Niewidzialność, Zaklęcia i Utrata Poczytalności
- * powinno być pogrubione"] Poprzednia wersja przy trafieniu (tresc juz
- * zaczyna sie od etykiety) rezygnowala z pogrubienia CALKOWICIE, zeby
- * uniknac duplikatu — ale notatka wygladala wtedy jak zwykly akapit bez
- * zadnego naglowka. `splitLeadingLabel` zamiast tego wydziela DOKLADNIE ten
- * fragment tekstu (z oryginalna wielkoscia liter i dwukropkiem), zeby mozna
- * go bylo pogrubic zamiast pomijac.
+ * [user report, "Invisibility, Spells and Sanity Loss should be bold"] The
+ * previous version, on a match (content already starts with the label),
+ * dropped the bolding ENTIRELY to avoid a duplicate — but the note then
+ * looked like a plain paragraph with no heading at all. `splitLeadingLabel`
+ * instead extracts EXACTLY that text fragment (with its original
+ * capitalization and colon), so it can be bolded instead of omitted.
  *
- * [ZGŁOSZENIE na zywo po Kroku 39, "Historia badacza Historia badacza: ..."]
- * Dwukropek byl WYMAGANY zaraz po etykiecie — dzialalo dla ksiazek, gdzie
- * podnaglowek notatki ma postac "Etykieta:" (np. "Niewidzialność:"), ale NIE
- * dla "Wrak.pdf" Badaczy: "Historia Badacza" to GLOWNY naglowek sekcji (rola
- * `heading`, bez dwukropka) — dwukropek pojawia sie WYLACZNIE na
- * PODetykietach WEWNATRZ tej sekcji ("Wygląd:", "Przymioty:"), nie na niej
- * samej. Bez dwukropka `splitLeadingLabel` zawsze zwracalo `null` dla tego
- * bloku, wiec zduplikowany fragment nigdy nie byl wydzielany. Dwukropek
- * teraz OPCJONALNY (`:?`) — nadal wymaga DOKLADNEGO dopasowania tekstu
- * etykiety na samym poczatku (male ryzyko falszywego trafienia), ale juz nie
- * wymaga konkretnej interpunkcji po niej.
+ * [Live report after Step 39, "Investigator's history Investigator's
+ * history: ..."] A colon was REQUIRED right after the label — this worked
+ * for books where the note's sub-heading has the form "Label:" (e.g.
+ * "Invisibility:"), but NOT for the Investigators in "Wrak.pdf":
+ * "Investigator's History" is the section's MAIN heading (the `heading`
+ * role, no colon) — a colon appears ONLY on SUB-labels WITHIN this section
+ * ("Appearance:", "Traits:"), not on the section heading itself. Without a
+ * colon, `splitLeadingLabel` always returned `null` for this block, so the
+ * duplicated fragment was never extracted. The colon is now OPTIONAL
+ * (`:?`) — it still requires an EXACT text match of the label at the very
+ * start (a small risk of a false match), but no longer requires specific
+ * punctuation after it.
  */
 function splitLeadingLabel(label: string, text: string): { prefix: string; rest: string } | null {
   const normalizedLabel = label.trim().replace(/:$/, '');
@@ -143,15 +148,16 @@ function splitLeadingLabel(label: string, text: string): { prefix: string; rest:
 }
 
 /**
- * [ZGŁOSZENIE na zywo, "wszystko jest jedno za drugim, powinno byc jak w
- * PDF, jedno pod drugim zaczynajace sie od nowej linii"] `stopAtSameFontRole`
- * (silnik, `proseBlock.ts`) wstawia `"\n\n"` tam, gdzie zbieranie PRZELECIALO
- * przez podnaglowek zamiast sie na nim zatrzymac (np. "Wygląd:" wewnatrz
- * "Historia Badacza") — jeden `<p>` z surowym `"\n\n"` w srodku renderowalby
- * sie jako JEDEN akapit (HTML zwija biale znaki), gubiac dokladnie ten
- * podzial. Dzieli wiec na osobne `<p>` — jeden na akapit/pozycje, tak jak
- * wyglada wizualnie w PDF-ie. Dla tekstu bez `"\n\n"` (kazdy dotychczasowy
- * profil) zachowanie identyczne jak wczesniej — pojedynczy `<p>`.
+ * [Live report, "everything is one after another, it should be like in the
+ * PDF, one below the other starting on a new line"] `stopAtSameFontRole`
+ * (the engine, `proseBlock.ts`) inserts `"\n\n"` wherever the collection
+ * FLEW PAST a sub-heading instead of stopping at it (e.g. "Appearance:"
+ * inside "Investigator's History") — a single `<p>` with a raw `"\n\n"`
+ * inside it would render as ONE paragraph (HTML collapses whitespace),
+ * losing exactly that split. So this splits into separate `<p>` elements —
+ * one per paragraph/entry, matching how it visually appears in the PDF. For
+ * text without `"\n\n"` (every existing profile so far), behavior is
+ * identical to before — a single `<p>`.
  */
 function paragraphsToHtml(text: string): string {
   return text
@@ -183,16 +189,17 @@ function buildActorNotesValue(items: readonly Coc7EmbeddedItemSpec[], entityNote
 }
 
 /**
- * [KROK-39 Z4] `character`'s `biography` to `ArrayField` obiektow `{title,
- * value}` (Krok 38, zmierzone wprost ze zrodla systemu — patrz
- * `adapters/coc7.ts`), NIE jedno pole tekstowe jak u `npc`
- * (`buildActorNotesValue` powyzej). Kazdy blok notatki (`entityNotes`, np.
- * "Historia Badacza"/"Wygląd") staje sie WLASNYM wpisem tablicy — pasuje 1:1
- * do zmierzonej struktury, bez sklejania w jeden akapit (co dla postaci
- * gracza gubiloby czytelny podzial na sekcje karty). Opisy atakow spod ATAKI
- * (`belowText`) dostaja WLASNY wpis, podpisany nazwa ataku — ten sam powod co
- * `buildActorNotesValue` (rzadkie u gotowych Badaczy, ale mozliwe, gdyby
- * profil skonfigurowal `attackDescriptionCrossReference` na tej trasie).
+ * [Step 39 Z4] `character`'s `biography` is an `ArrayField` of `{title,
+ * value}` objects (Step 38, measured directly from the system source — see
+ * `adapters/coc7.ts`), NOT a single text field like `npc`'s
+ * (`buildActorNotesValue` above). Each note block (`entityNotes`, e.g.
+ * "Investigator's History"/"Appearance") becomes its OWN array entry —
+ * matches the measured structure 1:1, without concatenating into one
+ * paragraph (which for a player character would lose the sheet's readable
+ * section breakdown). Attack descriptions from ATTACKS (`belowText`) get
+ * their OWN entry, labeled with the attack name — the same reasoning as
+ * `buildActorNotesValue` (rare for pre-generated Investigators, but possible
+ * if a profile configures `attackDescriptionCrossReference` on this route).
  */
 function buildCharacterBiographyArray(
   items: readonly Coc7EmbeddedItemSpec[],
@@ -202,15 +209,15 @@ function buildCharacterBiographyArray(
   const attackEntries = items
     .filter((it): it is Coc7EmbeddedItemSpec & { kind: 'weapon' } => it.kind === 'weapon' && !!it.belowText)
     .map((it) => ({ title: it.name, value: `<p><em>${label}</em> ${it.belowText}</p>` }));
-  // [ZGŁOSZENIE na zywo po Kroku 39, "Historia badacza Historia badacza: ..."]
-  // W odroznieniu od `buildActorNotesValue` (NPC, JEDNO pole tekstowe, wiec
-  // pogrubiony prefiks to JEDYNE miejsce, gdzie etykieta w ogole jest
-  // widoczna) — tutaj `title` JUZ NIESIE etykiete jako WLASNE, ODDZIELNE pole
-  // `ArrayField` (naglowek sekcji na karcie CoC7, Krok 38). Pogrubianie
-  // wydzielonego prefiksu WEWNATRZ `value` pokazywaloby etykiete PONOWNIE,
-  // tuz pod jej wlasnym naglowkiem — dokladnie ten sam duplikat, tylko
-  // pogrubiony zamiast zwykly. Gdy `split` sie powiedzie, prefiks jest wiec
-  // PO PROSTU POMIJANY (nie pogrubiony) — `title` juz go pokazuje.
+  // [Live report after Step 39, "Investigator's history Investigator's
+  // history: ..."] Unlike `buildActorNotesValue` (NPC, a SINGLE text field,
+  // so the bolded prefix is the ONLY place the label is ever visible) —
+  // here `title` ALREADY CARRIES the label as its OWN, SEPARATE
+  // `ArrayField` field (a section heading on the CoC7 sheet, Step 38).
+  // Bolding the extracted prefix INSIDE `value` would show the label AGAIN,
+  // right below its own heading — the exact same duplicate, just bolded
+  // instead of plain. So when `split` succeeds, the prefix is simply
+  // OMITTED (not bolded) — `title` already shows it.
   const noteEntries = entityNotes.map((n) => {
     const split = splitLeadingLabel(n.label, n.text);
     const value = paragraphsToHtml((split ? split.rest : n.text).trimStart());
@@ -220,9 +227,9 @@ function buildCharacterBiographyArray(
 }
 
 /**
- * Bezposredni odczyt klasy dokumentu Foundry — ten sam wzorzec co
- * `createSceneFromImage.ts`/`ensureFolder.ts` (`foundry.documents.X` w
- * nowszych wersjach, `globalThis.X` jako fallback wstecznej zgodnosci).
+ * Direct read of the Foundry document class — the same pattern as
+ * `createSceneFromImage.ts`/`ensureFolder.ts` (`foundry.documents.X` in
+ * newer versions, `globalThis.X` as a backward-compatibility fallback).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getDocumentClass(name: 'Actor' | 'Item'): any {
@@ -237,10 +244,10 @@ export async function createActorsFromAdapterResults(input: CreateActorsInput): 
   const ActorCls = getDocumentClass('Actor');
   const ItemCls = getDocumentClass('Item');
 
-  // [KROK-39 Z4] Ksztalt `biography` rozgalezia sie po `actorData.type`
-  // (`'character'` vs `'npc'`, ustawionym przez adapter na podstawie
-  // `CIFActor.route` — patrz `adapters/coc7.ts`), NIE po jakims osobnym
-  // parametrze tutaj — jedno zrodlo prawdy o typie aktora.
+  // [Step 39 Z4] The shape of `biography` branches on `actorData.type`
+  // (`'character'` vs `'npc'`, set by the adapter based on
+  // `CIFActor.route` — see `adapters/coc7.ts`), NOT on some separate
+  // parameter here — one source of truth for the actor type.
   const actorDataArray = input.results.map((r) => {
     const actorData = r.data.actorData as { type?: string; system?: Record<string, unknown> } & Record<string, unknown>;
     if (actorData.type === 'character') {
@@ -257,25 +264,24 @@ export async function createActorsFromAdapterResults(input: CreateActorsInput): 
     };
   });
 
-  // [DoD Z3] Actor.createDocuments() BATCHEM — jedno wywolanie dla WSZYSTKICH
-  // aktorow z tej ksiazki, nigdy petla `for (...) Actor.create(...)`.
+  // [DoD Z3] Actor.createDocuments() as a BATCH — one call for ALL actors
+  // from this book, never a `for (...) Actor.create(...)` loop.
   const createdActors: { id: string; name: string }[] = await ActorCls.createDocuments(actorDataArray);
   if (!createdActors || createdActors.length !== input.results.length) {
-    throw new Error(`Bindery | Actor.createDocuments zwrocil ${createdActors?.length ?? 0} dokumentow, oczekiwano ${input.results.length}`);
+    throw new Error(`Bindery | Actor.createDocuments returned ${createdActors?.length ?? 0} documents, expected ${input.results.length}`);
   }
 
-  // [KROK-19 Z4, zmierzony na zywo problem] NIE zakladaj, ze `createdActors`
-  // wraca w TEJ SAMEJ kolejnosci co `actorDataArray` — zmierzone na zywo w
-  // Foundry (uzytkownik: "NPC ze str 55 #3 to tak naprawde Pasożytnicza...")
-  // dane jednego aktora ladowaly sie pod IMIENIEM innego. Kod Foundry
-  // (`client-backend.mjs`) nie daje TWARDEJ, udokumentowanej gwarancji
-  // kolejnosci przez cala petle preCreate/hook/socket-response, wiec zamiast
-  // polegac na pozycji w tablicy, kazdy utworzony dokument jest kojarzony ze
-  // swoim wynikiem adaptera PO NAZWIE (unikalna w tym batchu z konstrukcji —
-  // kazdy placeholder niesie wlasny numer strony+porzadkowy). Duplikaty nazw
-  // (nie powinny sie zdarzyc, ale bez zgadywania) dostaja PIERWSZY jeszcze
-  // niewykorzystany wpis z kolejki, stabilnie wg oryginalnej kolejnosci
-  // wejsciowej — nie losowo.
+  // [Step 19 Z4, problem measured live] DO NOT assume `createdActors` comes
+  // back in the SAME order as `actorDataArray` — measured live in Foundry
+  // (user: "NPC from p. 55 #3 is actually the Parasitic..."), one actor's
+  // data was loaded under a DIFFERENT one's name. Foundry's code
+  // (`client-backend.mjs`) gives no HARD, documented ordering guarantee
+  // through the whole preCreate/hook/socket-response chain, so instead of
+  // relying on array position, each created document is matched to its
+  // adapter result BY NAME (unique within this batch by construction — each
+  // placeholder carries its own page number+ordinal). Duplicate names
+  // (shouldn't happen, but no guessing) get the FIRST still-unused entry
+  // from the queue, stably in original input order — not randomly.
   const resultQueueByName = new Map<string, number[]>();
   input.results.forEach((r, idx) => {
     const name = (r.data.actorData as { name: string }).name;
@@ -293,7 +299,7 @@ export async function createActorsFromAdapterResults(input: CreateActorsInput): 
       const resultIndex = queue?.shift();
       if (resultIndex === undefined) {
         throw new Error(
-          `Bindery | nie udalo sie skojarzyc utworzonego aktora "${actorDoc.name}" z zadnym wynikiem adaptera (niespojnosc nazw miedzy zadaniem a odpowiedzia Foundry) — przerwano, zeby nie przypisac Item-ow niewlasciwemu aktorowi`,
+          `Bindery | could not match the created actor "${actorDoc.name}" to any adapter result (name mismatch between the request and Foundry's response) — aborted to avoid assigning Items to the wrong actor`,
         );
       }
       const result = input.results[resultIndex]!;
@@ -314,9 +320,8 @@ export async function createActorsFromAdapterResults(input: CreateActorsInput): 
 
       input.signal?.throwIfAborted();
 
-      // Bron wymaga `system.skill.main.id` z JUZ utworzonego Item-u
-      // umiejetnosci (powyzej) — stad DWA sekwencyjne wywolania na aktora,
-      // nie jedno.
+      // A weapon requires `system.skill.main.id` from the ALREADY created
+      // skill Item (above) — hence TWO sequential calls per actor, not one.
       if (weaponSpecs.length > 0) {
         await ItemCls.createDocuments(
           weaponSpecs.map((spec) => buildWeaponItemData(spec, skillIdByName)),
@@ -327,10 +332,10 @@ export async function createActorsFromAdapterResults(input: CreateActorsInput): 
       entries.push({ actor: actorDoc as unknown as foundry.documents.BaseActor, notes: result.notes, issues: result.issues });
     }
   } catch (err) {
-    // [DoD Z3] AbortSignal (albo jakikolwiek inny blad w trakcie tworzenia
-    // Item-ow) przerywa BEZ pozostawiania smieci — kasujemy WSZYSTKICH juz
-    // utworzonych aktorow (embedded Item kasuje sie kaskadowo z rodzicem w
-    // Foundry), nie tylko tych, ktore zdazyly dostac swoje Item-y.
+    // [DoD Z3] An AbortSignal (or any other error during Item creation)
+    // aborts WITHOUT leaving garbage behind — we delete ALL already-created
+    // actors (embedded Items cascade-delete with their parent in Foundry),
+    // not just the ones that had already gotten their Items.
     const ids = createdActors.map((a) => a.id);
     await ActorCls.deleteDocuments(ids).catch(() => {});
     throw err;

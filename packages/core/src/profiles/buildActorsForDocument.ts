@@ -8,18 +8,18 @@ import { tokenizePage, type TextContentItemLike } from './tokenizePage.js';
 import type { ProfileV2 } from './schema.js';
 
 /**
- * [KROK-20 Z2] Orkiestracja statblokow nad CALYM dokumentem — uogolnia
- * tokenizacje + petle po stronach, ktora do tej pory byla POWIELONA trzy
- * razy jako ad-hoc kod w `tools/measure-statblocks.ts`,
+ * [Step 20 Z2] Statblock orchestration over the WHOLE document — generalizes the
+ * tokenization + page loop that had until now been DUPLICATED three
+ * times as ad-hoc code in `tools/measure-statblocks.ts`,
  * `tools/verify-coc7-adapter.ts`, `tools/build-z4-measurement-macro.ts`
- * (KROK-18/19). Ten plik to JEDYNA wersja uzywana przez produkt
- * (`buildCIFFromDocument.ts`) — narzedzia mierzace nadal maja WLASNA kopie
- * (przewidywalne dane wejsciowe do pomiaru), ale nowy kod produkcyjny
- * powinien wolac to, nie kopiowac petli po raz czwarty.
+ * (Step 18/19). This file is the ONLY version used by the product
+ * (`buildCIFFromDocument.ts`) — the measurement tools still have THEIR OWN copy
+ * (predictable input data for measurement), but new production code
+ * should call this instead of copying the loop a fourth time.
  *
- * Duck-typed `PdfDocumentLike`/`PdfPageLike` — ten sam wzorzec co
- * `inventory/inventory.ts`/`text/buildTextLayout.ts` (testowalne bez
- * prawdziwego pdf.js).
+ * Duck-typed `PdfDocumentLike`/`PdfPageLike` — the same pattern as
+ * `inventory/inventory.ts`/`text/buildTextLayout.ts` (testable without
+ * real pdf.js).
  */
 
 export interface PdfPageLike {
@@ -46,27 +46,27 @@ export interface BuildActorsForDocumentResult {
 }
 
 /**
- * `fontRoles` przychodzi z GOTOWEJ inwentaryzacji (`buildInventory`, juz
- * policzonej wczesniej w tym samym przebiegu przez wywolujacego) — ten plik
- * NIE otwiera wlasnego, DRUGIEGO `getDocument()` po fonty; przyjmuje
- * wynik jako dane, zgodnie z tym samym wzorcem co reszta
- * `buildCIFFromDocument.ts` (jedna inwentaryzacja, wiele nastepnych przebiegow).
+ * `fontRoles` comes from an ALREADY-COMPLETED inventory pass (`buildInventory`, already
+ * computed earlier in the same run by the caller) — this file does
+ * NOT open its own, SECOND `getDocument()` for fonts; it accepts the
+ * result as data, following the same pattern as the rest of
+ * `buildCIFFromDocument.ts` (one inventory pass, many subsequent passes).
  *
- * [KROK-39 Z1] KAZDA strona jest KLASYFIKOWANA (`classifyPageRoute`), nie juz
- * filtrowana binarnie: trasa `npc` buduje encje z wzorcow root profilu
- * (zachowanie identyczne jak przed tym krokiem), trasa `playerCharacter`
- * buduje z opcjonalnej sekcji `profile.playerCharacter`, JESLI profil ja ma.
- * Gdy jej nie ma — strona jest pomijana (jak dawne `isPregenPage`), ale z
- * jawnym `Diagnostic` wyjasniajacym powod (A10 — nie zgaduj, powiedz), zamiast
- * cichego pominiecia. KAZDY profil bez sekcji `playerCharacter` zachowuje sie
- * WIEC dokladnie jak dzis: strony Badaczy pomijane, strony NPC/potworow
- * budowane — bez zadnej flagi.
+ * [Step 39 Z1] EVERY page is now CLASSIFIED (`classifyPageRoute`), no longer
+ * filtered binarily: the `npc` route builds entities from the root profile's patterns
+ * (behavior identical to before this step), the `playerCharacter` route
+ * builds from the optional `profile.playerCharacter` section, IF the profile has one.
+ * When it doesn't — the page is skipped (like the former `isPregenPage`), but with
+ * an explicit `Diagnostic` explaining why (A10 — don't guess, say so), instead of a
+ * silent skip. EVERY profile without a `playerCharacter` section therefore
+ * behaves EXACTLY as it does today: Investigator pages skipped, NPC/monster
+ * pages built — without any flag.
  */
 export async function buildActorsForDocument(doc: PdfDocumentLike, opts: BuildActorsForDocumentOptions): Promise<BuildActorsForDocumentResult> {
   const actors: CIFActor[] = [];
   const diagnostics: Diagnostic[] = [];
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-    if (opts.signal?.aborted) throw new DOMException('buildActorsForDocument przerwane przez AbortSignal', 'AbortError');
+    if (opts.signal?.aborted) throw new DOMException('buildActorsForDocument aborted by AbortSignal', 'AbortError');
 
     const page = await doc.getPage(pageNumber);
     await page.getOperatorList();

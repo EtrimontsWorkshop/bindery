@@ -1,12 +1,12 @@
 /**
- * [KROK-23 Z1-Z5] Kształt szkicu profilu w edytorze Profile Studio — CZYSTA
- * wygoda UI (listy zamiast rekordów, żeby dało się bezpiecznie edytować
- * wiersz-po-wierszu bez gubienia kolejności/tożsamości), NIE walidacja.
- * Walidacja/decyzja "czy to jest poprawny profil" zostaje WYŁĄCZNIE w
- * `@bindery/core`'s `validateProfile` (Zod) — ten plik tylko przekształca
- * tam i z powrotem. Zero importu `@bindery/core` tutaj (typy trzymane jako
- * plain object shape), żeby ten plik dało się swobodnie importować statycznie
- * bez wpływu na I3/`check:size` (patrz `ProfileStudioLauncher.ts`).
+ * [Step 23 Z1-Z5] The shape of a profile draft in the Profile Studio editor —
+ * PURE UI convenience (lists instead of records, so it can be safely edited
+ * row-by-row without losing order/identity), NOT validation. The validation/
+ * decision of "is this a valid profile" stays EXCLUSIVELY in
+ * `@bindery/core`'s `validateProfile` (Zod) — this file only converts to and
+ * from that shape. Zero import of `@bindery/core` here (types are kept as a
+ * plain object shape), so this file can be freely imported statically
+ * without affecting I3/`check:size` (see `ProfileStudioLauncher.ts`).
  */
 
 export interface LabelEntryDraft {
@@ -34,7 +34,7 @@ export interface SectionListPatternDraft {
   rejoinHyphenated: boolean;
   skipAfterHeader?: string;
   terminateSectionBefore?: string;
-  /** [KROK-40] Slowa/frazy oznaczajace bron dystansowa — patrz `SectionListPattern.rangedKeywords` w `@bindery/core`. */
+  /** [Step 40] Words/phrases denoting a ranged weapon — see `SectionListPattern.rangedKeywords` in `@bindery/core`. */
   rangedKeywords: string[];
 }
 
@@ -44,17 +44,18 @@ export interface FontRoleCandidatePatternDraft {
   maxLength: number;
   excludeRepeatedAcrossPages: boolean;
   excludeHyphenContinuations: boolean;
-  /** [KROK-29 Z3] Klucze fontu wyuczone klikniecim w zakladce "Nazwa" — puste = zachowanie bez zmian. */
+  /** [Step 29 Z3] Font keys learned by clicking in the "Name" tab — empty = unchanged behavior. */
   requireFontKeys: string[];
 }
 
 /**
- * [KROK-34 Z2] "Notatki wskazywane w PDF-ie" — `offsetDxPt`/`offsetDyPt` sa
- * ZAWSZE liczbowe (schemat `@bindery/core` tego wymaga, zero pola opcjonalne),
- * domyslnie `{0,0}` (jeszcze nie zmierzone -> punkt startowy = koniec wlasnej
- * tresci encji, patrz `lastClaimedTokenBbox`) — UI odroznia "jeszcze nie
- * zmierzone" polem `measured` OBOK, nie samą wartością `{0,0}` (ktora tez
- * moglaby byc prawdziwym wynikiem pomiaru).
+ * [Step 34 Z2] "Notes pointed out in the PDF" — `offsetDxPt`/`offsetDyPt`
+ * are ALWAYS numeric (the `@bindery/core` schema requires this, no optional
+ * field), defaulting to `{0,0}` (not yet measured -> starting point = the
+ * end of the entity's own content, see `lastClaimedTokenBbox`) — the UI
+ * distinguishes "not yet measured" with the separate `measured` field, not
+ * by the `{0,0}` value itself (which could also be a genuine measurement
+ * result).
  */
 export interface ProseBlockPatternDraft {
   kind: 'proseBlock';
@@ -65,17 +66,18 @@ export interface ProseBlockPatternDraft {
   maxLengthChars: number;
   searchRadiusPt: number;
   /**
-   * [ZGŁOSZENIE na zywo po Kroku 39, "Wrak.pdf" Badacze] Patrz komentarz przy
-   * `chainFromPrevious` w `schema.ts` — `false` (domyslnie) liczy offset
-   * wzgledem stalego punktu (koniec siatki/pochodnych/atakow/umiejetnosci),
-   * `true` wzgledem konca POPRZEDNIEJ notatki na liscie `notesPatterns`
-   * (stabilne, gdy pola notatek ukladaja sie jedno pod drugim ze zmienna
-   * dlugoscia miedzy nimi, np. rozne dlugosci biografii u roznych postaci).
+   * [Live report after Step 39, "Wrak.pdf" Investigators] See the comment
+   * near `chainFromPrevious` in `schema.ts` — `false` (default) computes the
+   * offset relative to a fixed point (the end of the grid/derived
+   * stats/attacks/skills), `true` relative to the end of the PREVIOUS note in
+   * the `notesPatterns` list (stable when note fields stack one below the
+   * other with variable length between them, e.g. different biography
+   * lengths for different characters).
    */
   chainFromPrevious: boolean;
-  /** [ZGŁOSZENIE na zywo, "zaznaczam tylko te dwa, a do nich wpisywane sa wszystkie informacje z tych akapitow"] Patrz komentarz przy `stopAtSameFontRole` w `schema.ts` — zbieranie zatrzymuje sie na kolejnym naglowku TEGO SAMEGO stylu co klikniety przyklad, zamiast zawsze na `accent`. */
+  /** [Live report, "I only select these two, and all the information from those paragraphs gets written into them"] See the comment near `stopAtSameFontRole` in `schema.ts` — the collection stops at the next heading of THE SAME style as the clicked example, instead of always stopping at `accent`. */
   stopAtSameFontRole: boolean;
-  /** [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze, "Twoi przyjaciele" w osobnej kolumnie] Patrz komentarz przy `anchorGridOnly` w `schema.ts` — offset liczony wylacznie wzgledem konca siatki-kotwicy, bez atakow/umiejetnosci. */
+  /** [Live report, "Wrak.pdf" Investigators, "Your friends" in a separate column] See the comment near `anchorGridOnly` in `schema.ts` — the offset is computed exclusively relative to the end of the anchor grid, without attacks/skills. */
   anchorGridOnly: boolean;
 }
 
@@ -111,61 +113,63 @@ export interface ProfileDraft {
   nameConfidenceThreshold: number;
   namePlaceholder: string;
   skillsPattern: string;
-  /** [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Id wzorca `fontRoleCandidate` wskazanego jako zawod/typ ("kapitan jachtu"), ODDZIELNY od `anchor`'s parujacej sie nazwy. Pusty string = nie wskazano (wsteczna zgodnosc). */
+  /** [Report after step 30, "Separating name from type/occupation"] The id of the `fontRoleCandidate` pattern pointed to as the occupation/type ("yacht captain"), SEPARATE from `anchor`'s paired name. An empty string = not set (backward compatibility). */
   typeLabelPattern: string;
-  /** [KROK-34 Z2] Id-ki wzorcow `proseBlock` — patrz `entityAssembly.notesPatterns` w `schema.ts`. Kolejnosc = kolejnosc blokow w finalnej notatce. */
+  /** [Step 34 Z2] Ids of `proseBlock` patterns — see `entityAssembly.notesPatterns` in `schema.ts`. Order = the order of blocks in the final note. */
   notesPatterns: string[];
   /**
-   * [ZGŁOSZENIE po kroku 30, "Wrak" — obrazy pod pelnym spadem z tekstem na
-   * wierzchu na kazdej stronie] Wlasne, typowane pole (NIE przez extraJson),
-   * bo wymaganie surowego trybu JSON dla pojedynczego checkboxa okazalo sie
-   * zla UX — patrz `images.treatFullBleedAsContent` w `schema.ts` (`@bindery/core`).
+   * [Report after step 30, "Wrak" — images with a full bleed and text
+   * overlaid on every page] Its own, typed field (NOT via extraJson),
+   * because requiring raw JSON mode for a single checkbox turned out to be
+   * bad UX — see `images.treatFullBleedAsContent` in `schema.ts`
+   * (`@bindery/core`).
    */
   treatFullBleedAsContent: boolean;
   /**
-   * [na zyczenie uzytkownika, EKSPERYMENTALNE, po naprawie "Wrak"] Patrz
-   * `images.autoCropUniformMargins` w `schema.ts`. Bez znaczenia, gdy
-   * `treatFullBleedAsContent` jest wylaczone.
+   * [at user request, EXPERIMENTAL, after fixing "Wrak"] See
+   * `images.autoCropUniformMargins` in `schema.ts`. Has no effect when
+   * `treatFullBleedAsContent` is disabled.
    */
   autoCropUniformMargins: boolean;
   /**
-   * [na zyczenie uzytkownika, po naprawie przyciecia "Wrak"] Patrz
-   * `images.brightenAutoCroppedImages` w `schema.ts`. Bez znaczenia, gdy
-   * `autoCropUniformMargins` jest wylaczone.
+   * [at user request, after fixing "Wrak" cropping] See
+   * `images.brightenAutoCroppedImages` in `schema.ts`. Has no effect when
+   * `autoCropUniformMargins` is disabled.
    */
   brightenAutoCroppedImages: boolean;
   /**
-   * [KROK-42 Z1] Patrz `images.removeTokenBackgroundDefault` w `schema.ts` —
-   * wylacznie wartosc startowa przelacznika w panelu przygotowania tokenu.
+   * [Step 42 Z1] See `images.removeTokenBackgroundDefault` in `schema.ts` —
+   * only the starting value of the toggle in the token-preparation panel.
    */
   removeTokenBackgroundDefault: boolean;
   /**
-   * [Z5, ucieczka do surowego JSON] Pola spoza formularza (Z2-Z4) — dowolne
-   * dodatkowe JSON, scalane WPROST do wyniku `draftToProfileInput` bez
-   * interpretacji (np. `fingerprint.keywords`, `pages.excludeZones`, `images`).
-   * `undefined`, dopóki uzytkownik nie skorzysta z trybu surowego JSON.
+   * [Z5, escape hatch to raw JSON] Fields outside the form (Z2-Z4) — any
+   * extra JSON, merged DIRECTLY into `draftToProfileInput`'s result without
+   * interpretation (e.g. `fingerprint.keywords`, `pages.excludeZones`,
+   * `images`). `undefined` until the user uses the raw-JSON mode.
    */
   extraJson?: Record<string, unknown>;
 }
 
 /**
- * [KROK-34 Z2, zmierzony na zywo blad] Ten licznik jest MODULOWY (przetrwa
- * caly czas zycia karty przegladarki), ale wczytanie ISTNIEJACEGO profilu
- * (`profileToDraft`) zachowuje ORYGINALNE id-ki z pliku ("draft-1".."draft-6")
- * WPROST jako klucze — NIGDY nie woła `nextDraftId()` — wiec ten licznik
- * zostaje na `0` nawet po wczytaniu profilu z szescioma wzorcami. Pierwsze
- * `createPatternDraft()` wywolane PO wczytaniu takiego profilu (np. "+ Dodaj
- * blok notatki" w zakladce Notatki — jedyne miejsce, ktore woła ja
- * WIELOKROTNIE na TYM SAMYM, JUZ zaludnionym szkicu) generuje wiec
- * "draft-1" — id JUZ zajete przez wczytany wzorzec! Dwa wpisy `draft.patterns`
- * z tym samym `id` psuje kazde `.find(e => e.id === id)` w calym pliku
- * (zawsze trafia w PIERWSZY, starszy wpis) — zmierzone wprost: nowy blok
- * notatki znikal calkowicie, bo `#buildNotesTabContent` znajdowal zamiast
- * niego oryginalna siatke cech i pomijal go (`kind !== 'proseBlock'`).
- * Naprawa: `existingIds` (aktualne `draft.patterns` w momencie wywolania)
- * pomijane przy szukaniu kolejnej wolnej liczby — gwarantowanie unikalne id
- * niezaleznie od tego, ile razy i w jakiej kolejnosci profil byl
- * wczytywany/edytowany w tej samej karcie.
+ * [Step 34 Z2, bug measured live] This counter is MODULE-SCOPED (survives
+ * the whole lifetime of the browser tab), but loading an EXISTING profile
+ * (`profileToDraft`) keeps the ORIGINAL ids from the file ("draft-1"
+ * .."draft-6") DIRECTLY as keys — it NEVER calls `nextDraftId()` — so this
+ * counter stays at `0` even after loading a profile with six patterns. The
+ * first `createPatternDraft()` call AFTER loading such a profile (e.g. "+
+ * Add note block" in the Notes tab — the only place that calls it
+ * REPEATEDLY on the SAME, ALREADY populated draft) therefore generates
+ * "draft-1" — an id ALREADY taken by the loaded pattern! Two
+ * `draft.patterns` entries with the same `id` break every
+ * `.find(e => e.id === id)` throughout the file (always hits the FIRST,
+ * older entry) — measured directly: the new note block disappeared
+ * entirely, because `#buildNotesTabContent` found the original
+ * characteristics grid instead of it and skipped it
+ * (`kind !== 'proseBlock'`). Fix: `existingIds` (the current
+ * `draft.patterns` at call time) is excluded when searching for the next
+ * free number — guaranteeing a unique id regardless of how many times, and
+ * in what order, a profile was loaded/edited in the same tab.
  */
 let draftIdCounter = 0;
 function nextDraftId(existingIds: ReadonlySet<string>): string {
@@ -192,7 +196,7 @@ export function createEmptyProfileDraft(): ProfileDraft {
     anchor: '',
     attach: [],
     nameConfidenceThreshold: 0.7,
-    namePlaceholder: 'NPC #{ordinal} (str. {page})',
+    namePlaceholder: 'NPC #{ordinal} (p. {page})',
     skillsPattern: '',
     typeLabelPattern: '',
     notesPatterns: [],
@@ -216,7 +220,7 @@ function labelsDraftToRecord(labels: readonly LabelEntryDraft[]): Record<string,
   return out;
 }
 
-/** [Z1] Konwertuje JUŻ zwalidowany `ProfileV2` (z `@bindery/core`) na szkic do edycji — wywołujące (`ProfileStudio.ts`) przekazuje strukturalnie zgodny obiekt, ten plik nie importuje typu wprost (patrz nagłówek). */
+/** [Z1] Converts an ALREADY validated `ProfileV2` (from `@bindery/core`) into an editable draft — the caller (`ProfileStudio.ts`) passes a structurally compatible object; this file doesn't import the type directly (see the header). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function profileToDraft(profile: any): ProfileDraft {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -254,9 +258,10 @@ export function profileToDraft(profile: any): ProfileDraft {
         label: p.label ?? '',
         offsetDxPt: p.offset?.dxPt ?? 0,
         offsetDyPt: p.offset?.dyPt ?? 0,
-        // Wczytany z pliku profil ma juz "prawdziwy" pomiar (ktokolwiek go
-        // zapisal) -- odroznienie "jeszcze nie kliknieto" dotyczy WYLACZNIE
-        // nowo utworzonych w tej sesji wzorcow (`createPatternDraft`).
+        // A profile loaded from a file already has a "real" measurement
+        // (whoever saved it made one) -- distinguishing "not yet clicked"
+        // applies ONLY to patterns newly created in this session
+        // (`createPatternDraft`).
         measured: true,
         maxLengthChars: p.maxLengthChars ?? 2000,
         searchRadiusPt: p.searchRadiusPt ?? 60,
@@ -285,8 +290,8 @@ export function profileToDraft(profile: any): ProfileDraft {
     preferEarlierSiblingMaxDeltaYPt: r.preferEarlierSibling?.maxDeltaYPt,
   }));
 
-  // Pola nieobjete formularzem (Z2-Z4) -- zachowane WPROST w extraJson, zeby
-  // "Edytuj wczytany profil" nigdy nie gubilo tresci milczaco (A3-podobna zasada).
+  // Fields not covered by the form (Z2-Z4) -- preserved DIRECTLY in extraJson,
+  // so that "Edit loaded profile" never silently loses content (an A3-like rule).
   const { schemaVersion, id, gameLine, language, title, publication, author, license, provides, fingerprint, pages, patterns: _p, entityAssembly, images, ...restTop } = profile;
   void schemaVersion;
   void _p;
@@ -322,7 +327,7 @@ export function profileToDraft(profile: any): ProfileDraft {
     anchor: entityAssembly?.anchor ?? '',
     attach,
     nameConfidenceThreshold: entityAssembly?.nameConfidenceThreshold ?? 0.7,
-    namePlaceholder: entityAssembly?.namePlaceholder ?? 'NPC #{ordinal} (str. {page})',
+    namePlaceholder: entityAssembly?.namePlaceholder ?? 'NPC #{ordinal} (p. {page})',
     skillsPattern: entityAssembly?.skillsPattern ?? '',
     typeLabelPattern: entityAssembly?.typeLabelPattern ?? '',
     notesPatterns: entityAssembly?.notesPatterns ?? [],
@@ -334,7 +339,7 @@ export function profileToDraft(profile: any): ProfileDraft {
   };
 }
 
-/** [Z5] Szkic -> surowy JSON gotowy do `validateProfile`. Nie waliduje niczego samo — pusty string zostaje pustym stringiem, Zod go odrzuci z czytelnym błędem. */
+/** [Z5] Draft -> raw JSON ready for `validateProfile`. Doesn't validate anything itself — an empty string stays an empty string, Zod will reject it with a readable error. */
 export function draftToProfileInput(draft: ProfileDraft): unknown {
   const patterns: Record<string, unknown> = {};
   for (const entry of draft.patterns) {
@@ -432,8 +437,8 @@ export function draftToProfileInput(draft: ProfileDraft): unknown {
   };
 }
 
-/** [Z6] Nowy pusty wpis wzorca danego rodzaju, z rozsądnymi domyślnymi wartościami — do przycisku "Dodaj wzorzec". */
-/** [KROK-34 Z2] `existingIds` — zwykle `draft.patterns.map(e => e.id)` wolajacego — patrz komentarz przy `nextDraftId`, dlaczego jest to konieczne dla poprawnosci, nie tylko kosmetyczne. */
+/** [Z6] A new, empty entry of a given pattern kind, with sensible default values — for the "Add pattern" button. */
+/** [Step 34 Z2] `existingIds` — usually the caller's `draft.patterns.map(e => e.id)` — see the comment near `nextDraftId` for why this is necessary for correctness, not just cosmetic. */
 export function createPatternDraft(kind: PatternDraft['kind'], existingIds: readonly string[] = []): PatternEntryDraft {
   const id = nextDraftId(new Set(existingIds));
   if (kind === 'labelledPairs') {
@@ -451,7 +456,7 @@ export function createPatternDraft(kind: PatternDraft['kind'], existingIds: read
   return { id, pattern: { kind, excludeRoles: ['body'], maxLength: 60, excludeRepeatedAcrossPages: true, excludeHyphenContinuations: true, requireFontKeys: [] } };
 }
 
-/** [Z3] Czy usuniecie wzorca `patternId` zerwie odwolanie z `anchor`/`attach`/`skillsPattern` — do ostrzezenia przed skasowaniem. */
+/** [Z3] Whether removing pattern `patternId` would break a reference from `anchor`/`attach`/`skillsPattern` — for warning before deletion. */
 export function findPatternReferences(draft: ProfileDraft, patternId: string): string[] {
   const refs: string[] = [];
   if (draft.anchor === patternId) refs.push('entityAssembly.anchor');
@@ -465,34 +470,35 @@ export function findPatternReferences(draft: ProfileDraft, patternId: string): s
 }
 
 /**
- * [Z6, KROK-29 przemianowane i naprawione] Regex-escapuje literalny tekst
- * tokenu klikniętego na stronie, do wklejenia w pole `sectionHeader`/
- * `terminateSectionBefore` — jedyne dwa pola w tym pliku, ktore kiedykolwiek
- * uzywaly regex-escapowania klikniecia (etykiety `labelledPairs` dopasowuja
- * sie po DOKLADNEJ rownosci stringow, nie regexie; `valuePattern` jest
- * wpisywany recznie) — nazwa `escapeRegexLiteral` byla wiec myląco ogolna.
+ * [Z6, Step 29 renamed and fixed] Regex-escapes the literal text of the
+ * token clicked on the page, for pasting into the `sectionHeader`/
+ * `terminateSectionBefore` fields — the only two fields in this file that
+ * have ever used regex-escaping of a click (`labelledPairs` labels are
+ * matched by EXACT string equality, not regex; `valuePattern` is typed in
+ * manually) — so the name `escapeRegexLiteral` was misleadingly generic.
  *
- * [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] Naglowek
- * sekcji/granica z KLIKNIECIA na JEDNYM wystapieniu ("Umiejętności", bez
- * dwukropka u Calhouna) nie pasowal do TEGO SAMEGO naglowka na DRUGIM
- * wystapieniu tej samej ksiazki ("Umiejętności:", dwukropek doklejony przez
- * pdf.js u Hansena) — poprzednia wersja wymagala DOKLADNIE tekstu spod
- * klikniecia, wiec regex z pierwszego wystapienia nigdy nie zamykal sekcji
- * drugiego. Skutek zmierzony wprost: sekcja "Walka" Hansena (bez wlasnej
- * dzialajacej granicy i bez trzeciej encji na stronie, ktora dalaby hardStop)
- * czytala AZ DO KONCA STRUMIENIA TEJ STRONY, wliczajac cala prawa kolumne —
- * ktorej tokeny, w kolejnosci strumienia kolumnowej, MAJA Y RESETUJACE SIE DO
- * GORY STRONY, wiec wynikowy (nadmiernie szeroki) bbox sekcji rozciagal sie
- * przez PRAWIE CALA WYSOKOSC strony i geometrycznie zachodzil na regiony
- * Calhouna (zgloszenie #2). Ten sam efekt uboczny falszywie "kradl" (globalne
- * najblizsze dopasowanie, `entityAssembly.ts`) prawidlowy kandydat
- * Umiejetnosci Calhouna, dajac mylacy komunikat "87pt > 400pt" (zgloszenie
- * #1) mimo ze 87 < 400 — bo ten kandydat wcale nie byl "poza zasiegiem",
- * zostal PRZEJETY przez inna kotwice (patrz `AttachDiagnosticResult`, `entityAssembly.ts`).
+ * [Bug measured live, p. 23 "Call of Cthulhu 7ed. Wrak.pdf"] A section
+ * heading/boundary from a CLICK on ONE occurrence ("Skills", no colon for
+ * Calhoun) didn't match THE SAME heading on a SECOND occurrence in the same
+ * book ("Skills:", a colon appended by pdf.js for Hansen) — the previous
+ * version required EXACTLY the text under the click, so the regex from the
+ * first occurrence never closed the section of the second. Effect measured
+ * directly: Hansen's "Combat" section (with no working boundary of its own
+ * and no third entity on the page that would give a hardStop) read ALL THE
+ * WAY TO THE END OF THAT PAGE'S STREAM, including the entire right column —
+ * whose tokens, in column-stream order, HAVE THEIR Y RESET TO THE TOP OF THE
+ * PAGE, so the resulting (excessively wide) section bbox stretched across
+ * ALMOST THE ENTIRE HEIGHT of the page and geometrically overlapped
+ * Calhoun's regions (report #2). This same side effect falsely "stole"
+ * (global nearest-match, `entityAssembly.ts`) Calhoun's valid Skills
+ * candidate, giving the misleading message "87pt > 400pt" (report #1) even
+ * though 87 < 400 — because that candidate wasn't "out of range" at all, it
+ * had been SEIZED by a different anchor (see `AttachDiagnosticResult`,
+ * `entityAssembly.ts`).
  *
- * Naprawa: dwukropek na koncu klikniętego tekstu staje sie OPCJONALNY w
- * wygenerowanym regexie (`:?` zamiast wymagac dokladnie tego, co bylo pod
- * tokenem) — dziala niezaleznie od tego, KTORE wystapienie autor kliknal.
+ * Fix: a trailing colon on the clicked text becomes OPTIONAL in the
+ * generated regex (`:?` instead of requiring exactly what was under the
+ * token) — works regardless of WHICH occurrence the author clicked.
  */
 export function escapeSectionBoundaryLiteral(text: string): string {
   const withoutTrailingColon = text.replace(/:+$/, '');

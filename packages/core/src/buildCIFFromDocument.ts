@@ -12,17 +12,18 @@ import { buildActorsForDocument } from './profiles/buildActorsForDocument.js';
 import type { ProfileV2 } from './profiles/schema.js';
 
 /**
- * [KROK-9 Z3/Z4/Z5] Entry point analogiczny do `extractImagesFromDocument`
- * (KROK-8) — WYLACZNIE tutaj otwieramy pdf.js i sklejamy WSZYSTKIE cztery
- * potoki (inwentaryzacja, tekst/uklad, zakladki, obrazy) w jeden `CIFDocument`.
- * Ten sam powod architektoniczny co tam: `pdfjs-dist` jest zewnetrzny we
- * WSZYSTKICH konfiguracjach Vite, przekierowanie goleg specyfikatora jest
- * skonfigurowane WYLACZNIE w `packages/core/vite.config.ts` (check:imports).
+ * [Step 9 Z3/Z4/Z5] Entry point analogous to `extractImagesFromDocument`
+ * (Step 8) — pdf.js is opened ONLY here, and ALL FOUR pipelines (inventory,
+ * text/layout, bookmarks, images) are stitched together into a single
+ * `CIFDocument`. Same architectural reason as there: `pdfjs-dist` is
+ * external in ALL Vite configurations, and the bare-specifier redirect is
+ * configured ONLY in `packages/core/vite.config.ts` (check:imports).
  *
- * CZTERY oddzielne `getDocument()` (inwentaryzacja, uklad tekstu, zakladki,
- * ekstrakcja obrazow) — kazdy z WLASNA niezalezna kopia bajtow (`data.slice(0)`),
- * ten sam powod co w `extractImagesFromDocument.ts`: prawdziwa przegladarka
- * TRANSFERUJE (odlacza) bufor do watku Workera przy KAZDYM `getDocument()`.
+ * FOUR separate `getDocument()` calls (inventory, text layout, bookmarks,
+ * image extraction) — each with its OWN independent copy of the bytes
+ * (`data.slice(0)`), same reason as in `extractImagesFromDocument.ts`: a
+ * real browser TRANSFERS (detaches) the buffer to the Worker thread on
+ * EVERY `getDocument()` call.
  */
 
 export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress'> {
@@ -31,12 +32,13 @@ export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOp
   fileHash: string;
   detectedLanguage?: string | null;
   /**
-   * [KROK-20 Z2] Gdy podany, statbloki (`CIFDocument.actors`) sa budowane dla
-   * calego dokumentu. Opcjonalny bo D2/D3 (scoring/detekcja profilu, MDD
-   * §6.3/§6.4) NIE istnieja jeszcze jako rejestr w produkcie (decyzja kroku
-   * 19) — wolajacy (warstwa modulu) na razie dostarcza profil z zewnatrz,
-   * zamiast core samo zgadujace ktory profil pasuje. Brak profilu = brak
-   * aktorow, tak jak dzis (degraduj, nie failuj — A7).
+   * [Step 20 Z2] When provided, statblocks (`CIFDocument.actors`) are built
+   * for the entire document. Optional because D2/D3 (profile
+   * scoring/detection, MDD §6.3/§6.4) do NOT yet exist as a registry in the
+   * product (Step 19 decision) — the caller (the module layer) currently
+   * supplies the profile from the outside, instead of core guessing which
+   * profile matches on its own. No profile = no actors, as is the case
+   * today (degrade, don't fail — A7).
    */
   profile?: ProfileV2;
 }
@@ -68,8 +70,9 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     perPage: inv.perPage,
   });
 
-  // KROK-9 Z2 (patrz classify.ts) — `body`+`caption`, ta sama mapa uzyta tutaj
-  // I do obrazow, bez potrzeby dodatkowego `getDocument()` (mamy juz `blocks`).
+  // Step 9 Z2 (see classify.ts) — `body`+`caption`, the same map is used here
+  // AND for images, without needing an additional `getDocument()` call (we
+  // already have `blocks`).
   const bodyBlockBoxesByPage = new Map<number, Rect[]>();
   for (const b of blocks) {
     if (b.kind !== 'body' && b.kind !== 'caption') continue;

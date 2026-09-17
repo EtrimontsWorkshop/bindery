@@ -1,79 +1,80 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [na zyczenie uzytkownika, po naprawie przyciecia "Wrak"] Obrazy ujawnione
- * przez `treatFullBleedAsContent` i przyciete przez `autoCropUniformMargins`
- * strace SASIEDZTWO jasnej, "postarzanego papieru" marginesu strony, ktory w
- * PDF-ie stal OBOK ilustracji i optycznie ja rozjasnial (efekt kontrastu
- * jednoczesnego, nie zmiana pikseli). Autor zglosil to jako "eksportowane
- * obrazy sa troche za ciemne" — to swiadome, kosmetyczne odejscie od
- * wiernosci pikseli (NIE naprawa bledu dekodowania, ktorego tu nie ma), stad
- * wlasny, jawny, domyslnie wylaczony przelacznik
- * (`images.brightenAutoCroppedImages`), ograniczony WYLACZNIE do obrazow,
- * ktore faktycznie zostaly przyciete (patrz wywolanie w `buildImageExtraction.ts`).
+ * [at the user's request, after fixing the "Wrak" crop] Images revealed by
+ * `treatFullBleedAsContent` and cropped by `autoCropUniformMargins` lose the
+ * ADJACENCY of the bright, "aged paper" page margin that, in the PDF, sat
+ * NEXT TO the illustration and optically brightened it (a simultaneous
+ * contrast effect, not a pixel change). The author reported this as
+ * "exported images are a bit too dark" — this is a deliberate, cosmetic
+ * departure from pixel fidelity (NOT a fix for a decoding bug, since there
+ * isn't one here), hence its own explicit, default-off toggle
+ * (`images.brightenAutoCroppedImages`), scoped EXCLUSIVELY to images that
+ * were actually cropped (see the call site in `buildImageExtraction.ts`).
  *
- * [Trzecia iteracja, dwa kolejne zmierzone na zywo niepowodzenia]
+ * [Third iteration, two consecutive live-measured failures]
  *
- * 1) Sama krzywa gamma (`out=255*(in/255)^gamma`) zawodzi na obrazach z
- *    prawie-czarnym tlem (str. 26 "Wrak.pdf", `img_p25_1`, portret na
- *    ciemnej winiecie) — gamma z DEFINICJI zachowuje `0` (`0^gamma==0`),
- *    wiec prawie-czarne rogi zostaja prawie-czarne NIEZALEZNIE od tego, jak
- *    agresywna gamma (zmierzone wizualnie: nawet gamma=0.6 nie ruszylo
- *    winiety). Naprawiono PIERWSZA iteracja przez dodanie stalego
- *    podniesienia punktu czerni PRZED gamma.
+ * 1) A plain gamma curve (`out=255*(in/255)^gamma`) fails on images with a
+ *    near-black background (p. 26 "Wrak.pdf", `img_p25_1`, a portrait on a
+ *    dark vignette) — gamma BY DEFINITION preserves `0` (`0^gamma==0`), so
+ *    near-black corners stay near-black REGARDLESS of how aggressive the
+ *    gamma is (measured visually: even gamma=0.6 didn't move the vignette).
+ *    Fixed in the FIRST iteration by adding a constant black-point lift
+ *    BEFORE gamma.
  *
- * 2) Stale podniesienie (np. `lift=25`) samo w sobie okazalo sie
- *    NIEWYSTARCZAJACE dla bardzo ciemnego portretu (uzytkownik: "w mojej
- *    opinii to nadal za malo"), ale podniesienie WYSTARCZAJACO duze dla
- *    portretu (np. `lift=60`) zauwazalnie "myje" str. 20 (statek), ktorej
- *    najciemniejsze tony sa juz umiarkowanie jasne (~21/255) — jeden STALY
- *    parametr nie moze byc jednoczesnie "wystarczajacy" dla obrazu z
- *    prawie-czarnym dnem i "bezpieczny" dla obrazu, ktory takiego dna nie ma.
+ * 2) A constant lift (e.g. `lift=25`) on its own turned out to be
+ *    INSUFFICIENT for the very dark portrait (user: "in my opinion this is
+ *    still too little"), but a lift LARGE ENOUGH for the portrait (e.g.
+ *    `lift=60`) noticeably "washes out" p. 20 (the ship), whose darkest
+ *    tones are already moderately bright (~21/255) — a single CONSTANT
+ *    parameter cannot be simultaneously "enough" for an image with a
+ *    near-black floor and "safe" for an image that has no such floor.
  *
- * Naprawa: ADAPTACYJNE rozciagniecie poziomow — punkt czerni WYLICZANY Z
- * WLASNEGO histogramu KAZDEGO obrazu (dolny percentyl jasnosci, odporny na
- * pojedyncze szumowe piksele w odroznieniu od zwyklego minimum), przesuwany
- * do wspolnego celu (`TARGET_FLOOR`). Obraz z prawie-czarnym dnem (portret,
- * percentyl ~5/255) dostaje DUZE rozciagniecie; obraz, ktorego dno i tak jest
- * juz umiarkowanie jasne (statek, percentyl ~21/255) dostaje MALE — dokladnie
- * tyle, ile mu POTRZEBA, nie jeden sztywny przepis dla obu.
+ * Fix: ADAPTIVE level stretching — the black point is COMPUTED FROM EACH
+ * IMAGE'S OWN histogram (the lower brightness percentile, robust to
+ * individual noisy pixels unlike a plain minimum), shifted to a shared
+ * target (`TARGET_FLOOR`). An image with a near-black floor (portrait,
+ * percentile ~5/255) gets a LARGE stretch; an image whose floor is already
+ * moderately bright (ship, percentile ~21/255) gets a SMALL one — exactly as
+ * much as it NEEDS, not one rigid recipe for both.
  *
- * [Czwarta iteracja, na wyrazna prosbe uzytkownika "sprobuje rozjasnic troche
- * wiecej" PO potwierdzeniu, ze wersja z TARGET_FLOOR=75 juz dziala] Podniesione
- * do 95 (gamma 0.95->0.9) — wyrazniej jasniejszy portret, statek WCIAZ nie
- * "myje" sie w mgle (sprawdzone wizualnie: 110 juz zauwazalnie splaszcza
- * niebo/lod statku, 95 jeszcze nie).
+ * [Fourth iteration, at the user's explicit request "let's try brightening a
+ * bit more" AFTER confirming that the TARGET_FLOOR=75 version already works]
+ * Raised to 95 (gamma 0.95->0.9) — a noticeably brighter portrait, while the
+ * ship still doesn't "wash out" into fog (checked visually: 110 already
+ * noticeably flattens the ship's sky/ice, 95 does not yet).
  *
- * [Piata iteracja, zgloszenie uzytkownika "jest teraz dosc jasno, ale straciło
- * trochę kontrastu"] Oczekiwane, nie przeoczenie: rozciagniecie [sourceFloor,
- * 255] -> [targetFloor, 255] jest z DEFINICJI kompresja tego zakresu w
- * mniejszy zakres wyjsciowy — to co rozjasnia cienie, jednoczesnie splaszcza
- * roznice miedzy nimi. Naprawa: DODATKOWY kontrast wokol pivotu (`out = pivot
- * + (in-pivot)*contrastFactor`, PO rozciagnieciu i gamma) — pivot WYZEJ niz
- * standardowe 128 (skalibrowane na 150), bo obrazy tej ksiazki sa w wiekszosci
- * jasne (papier/lod), wiec pivot blisko srodka calego zakresu przyciemnialby
- * tez juz-jasne partie. Skalibrowane wizualnie na OBU obrazach:
- * contrastFactor=1.25 przywraca wyrazna glebie cienia (twarz portretu, kadlub
- * statku) bez przepalania juz jasnych partii (niebo, lod, papier).
+ * [Fifth iteration, user report "it's bright enough now, but it lost some
+ * contrast"] Expected, not an oversight: stretching [sourceFloor, 255] ->
+ * [targetFloor, 255] is BY DEFINITION a compression of that range into a
+ * smaller output range — what brightens the shadows simultaneously flattens
+ * the differences between them. Fix: an ADDITIONAL contrast pass around a
+ * pivot (`out = pivot + (in-pivot)*contrastFactor`, AFTER stretching and
+ * gamma) — the pivot is HIGHER than the standard 128 (calibrated to 150),
+ * because this book's images are mostly bright (paper/ice), so a pivot near
+ * the middle of the whole range would also darken already-bright areas.
+ * Calibrated visually on BOTH images: contrastFactor=1.25 restores clear
+ * shadow depth (the portrait's face, the ship's hull) without blowing out
+ * already-bright areas (sky, ice, paper).
  */
 
 export interface BrightenOptions {
-  /** Docelowa jasnosc (0-255), do ktorej przesuwany jest wykryty dolny percentyl obrazu. */
+  /** Target brightness (0-255) that the image's detected lower percentile is shifted to. */
   targetFloor: number;
-  /** Dolny percentyl histogramu jasnosci (0-1) uzywany jako "punkt czerni" tego KONKRETNEGO obrazu — nie zwykle minimum, zeby pojedynczy szumowy ciemny piksel nie zdominowal calego przeliczenia. */
+  /** Lower brightness-histogram percentile (0-1) used as the "black point" of this SPECIFIC image — not a plain minimum, so a single noisy dark pixel can't dominate the whole calculation. */
   floorPercentile: number;
-  /** Krzywa gamma zastosowana PO rozciagnieciu poziomow; <1 rozjasnia dalej (mocniej w cieniach/polcieniach niz w swiatlach). */
+  /** Gamma curve applied AFTER level stretching; <1 brightens further (more strongly in shadows/midtones than in highlights). */
   gamma: number;
-  /** Wzmocnienie kontrastu wokol `contrastPivot`, zastosowane PO gamma — przywraca glebie, ktora rozciagniecie poziomow splaszcza z definicji. 1 = brak zmiany, >1 wzmacnia. */
+  /** Contrast boost around `contrastPivot`, applied AFTER gamma — restores the depth that level stretching flattens by definition. 1 = no change, >1 boosts. */
   contrastFactor: number;
-  /** Punkt (0-255), wokol ktorego dziala `contrastFactor` — wartosci powyzej rosna, ponizej maleja. Celowo WYZEJ niz standardowe 128 dla obrazow zdominowanych jasnymi tonami (papier/lod), zeby kontrast nie przyciemnial tego, co juz jest jasne. */
+  /** Point (0-255) around which `contrastFactor` operates — values above it increase, below it decrease. Deliberately HIGHER than the standard 128 for images dominated by bright tones (paper/ice), so contrast doesn't darken what's already bright. */
   contrastPivot: number;
 }
 
-/** [Skalibrowane wizualnie na `img_p19_1` i `img_p25_1`, "Wrak.pdf", po czterech kolejnych iteracjach] Patrz uzasadnienie w naglowku pliku. */
+/** [Calibrated visually on `img_p19_1` and `img_p25_1`, "Wrak.pdf", after four consecutive iterations] See the rationale in the file header. */
 export const AUTOCROP_BRIGHTEN: BrightenOptions = { targetFloor: 95, floorPercentile: 0.01, gamma: 0.9, contrastFactor: 1.25, contrastPivot: 150 };
 
-/** Jasnosc (0-255) ponizej ktorej lezy `percentile` udzial pikseli obrazu — "punkt czerni" WLASNY dla tego obrazu, nie stala globalna. */
+/** Brightness (0-255) below which `percentile` share of the image's pixels lies — the "black point" OWN to this image, not a global constant. */
 function percentileLuminance(image: DecodedImage, percentile: number): number {
   const hist = new Uint32Array(256);
   let total = 0;
@@ -92,21 +93,22 @@ function percentileLuminance(image: DecodedImage, percentile: number): number {
 }
 
 /**
- * Rozjasnia obraz adaptacyjnie: wylicza WLASNY dolny percentyl jasnosci tego
- * obrazu, rozciaga go do `targetFloor`, stosuje krzywa gamma, na koniec
- * przywraca kontrast wokol `contrastPivot` (patrz uzasadnienie w naglowku
- * pliku — rozciagniecie z definicji splaszcza roznice, ktore ten ostatni krok
- * odzyskuje). Dziala na kanalach R/G/B, alfa bez zmian. Dwa przebiegi po
- * pikselach (raz histogram, raz LUT z 256 wpisow) — nie funkcja per-piksel,
- * bezpieczne dla obrazow liczonych w milionach pikseli.
+ * Brightens an image adaptively: computes this image's OWN lower brightness
+ * percentile, stretches it to `targetFloor`, applies a gamma curve, and
+ * finally restores contrast around `contrastPivot` (see the rationale in the
+ * file header — stretching flattens differences by definition, which this
+ * last step recovers). Operates on the R/G/B channels, alpha is untouched.
+ * Two passes over the pixels (one histogram pass, one 256-entry LUT pass) —
+ * not a per-pixel function call, safe for images with millions of pixels.
  */
 export function brightenCroppedImage(image: DecodedImage, opts: BrightenOptions = AUTOCROP_BRIGHTEN): DecodedImage {
   const sourceFloor = percentileLuminance(image, opts.floorPercentile);
-  // Rozciagamy WYLACZNIE gdy obraz faktycznie ma cos ciemniejszego niz cel —
-  // w przeciwnym razie (obraz JUZ ma jasniejsze cienie niz `targetFloor`, np.
-  // scena w plenerze bez glebokich cieni) formula ponizej przyciemnialaby ten
-  // dolny percentyl W DOL do celu, dokladnie odwrotnie niz zamierzone (ta
-  // flaga ma obraz WYLACZNIE rozjasniac, nigdy przyciemniac).
+  // We stretch EXCLUSIVELY when the image actually has something darker than
+  // the target — otherwise (the image ALREADY has shadows brighter than
+  // `targetFloor`, e.g. an outdoor scene with no deep shadows) the formula
+  // below would darken that lower percentile DOWN to the target, exactly the
+  // opposite of the intent (this flag is meant to ONLY brighten an image,
+  // never darken it).
   const needsStretch = sourceFloor < opts.targetFloor;
   const scale = needsStretch ? (255 - opts.targetFloor) / Math.max(1, 255 - sourceFloor) : 1;
 

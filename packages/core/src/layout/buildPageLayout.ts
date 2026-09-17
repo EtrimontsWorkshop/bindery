@@ -13,15 +13,15 @@ import { detectRunningElements, type PageForRunningElements } from './runningEle
 import { splitSpanningLines } from './spanning.js';
 
 /**
- * Orkiestracja fazy 2, druga polowa (KROK-6) — spina Z2-Z6 w jeden przebieg
- * per dokument, na wejsciu z `buildTextLayout` (krok 5) i `buildInventory`
- * (krok 4). Zamyka faze 2 (MDD §8): wyjscie to `PageLayout[]` (kolumny +
- * strumienie w poprawnej kolejnosci czytania) i `SemanticBlock[]` calego dokumentu.
+ * Orchestration of phase 2, second half (Step 6) — wires Z2-Z6 into a single
+ * pass per document, fed by `buildTextLayout` (step 5) and `buildInventory`
+ * (step 4). Closes out phase 2 (MDD §8): output is `PageLayout[]` (columns +
+ * streams in correct reading order) and `SemanticBlock[]` for the whole document.
  *
- * `images`/`quality` z MDD §5.1 `PageLayout` NIE sa tu populowane — klasyfikacja
- * tresc/dekoracja obrazow nalezy do fazy 3, a `quality` (MDD §6.2) jest juz
- * osobnym, dokumentowym (nie per-strona) mechanizmem w `quality.ts`/`inspect.ts`.
- * Ten typ `PageLayout` jest CELOWO wezszy niz MDD — dokladnie zakres tego kroku.
+ * `images`/`quality` from MDD §5.1's `PageLayout` are NOT populated here — image
+ * content/decoration classification belongs to phase 3, and `quality` (MDD §6.2) is
+ * already a separate, document-level (not per-page) mechanism in `quality.ts`/`inspect.ts`.
+ * This `PageLayout` type is DELIBERATELY narrower than the MDD one — exactly this step's scope.
  */
 
 export interface PageLayout {
@@ -35,7 +35,7 @@ export interface PageLayout {
 
 export interface BuildPageLayoutResult {
   pages: PageLayout[];
-  /** Bloki WSZYSTKICH stron, w kolejnosci: strona po stronie, wewnatrz strony w kolejnosci czytania. */
+  /** Blocks from ALL pages, in order: page by page, and within a page in reading order. */
   blocks: SemanticBlock[];
   diagnostics: Diagnostic[];
 }
@@ -71,7 +71,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     }
   }
 
-  // Faza A (Z2+Z3, per strona): podzial rozpinajace/kolumnowe + detekcja kolumn.
+  // Phase A (Z2+Z3, per page): spanning/columnar split + column detection.
   interface PerPagePrep {
     pageNumber: number;
     primaryStream: TextStream | undefined;
@@ -88,17 +88,17 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     const pageInfo = pageBoxByNumber.get(pageNumber);
     const pageBox = pageInfo?.box ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
-    // [KROK-11 Z1] Rozbij naglowki-etykiety srodakapitowe (prefiks I/LUB
-    // sufiks linii) PRZED wszystkim innym — MUSI dzialac na SUROWYCH liniach
-    // z `lineCluster.ts` (`runs` jeszcze nienaruszone), zanim
-    // `splitSpanningLines`/`gutterRepair.ts` zdiazy je zaklasyfikowac/rozciac
-    // po WLASNYM (tokenowym) dyskryminatorze i wyzerowac `runs` na
-    // fragmentach — patrz naglowek `lineEdgeSplit.ts`. Wezsze fragmenty
-    // powstale z tego rozciecia zwykle juz nie przecinaja zadnej rynny, wiec
-    // `gutterRepair.ts` nie musi ich ponownie dotykac. Ograniczone do
-    // strumienia PODSTAWOWEGO (kat 0) — tam wystepuje kolizja z
-    // rynnami/kolumnami; strumienie boczne (marginalia pod innym katem) nie
-    // przechodza przez `splitSpanningLines`/`detectColumns` w ten sam sposob.
+    // [Step 11 Z1] Split off inline heading labels (line-start AND/OR
+    // line-end prefix) BEFORE everything else — MUST operate on the RAW
+    // lines from `lineCluster.ts` (`runs` still untouched), before
+    // `splitSpanningLines`/`gutterRepair.ts` get a chance to classify/split
+    // them using their OWN (token-based) discriminator and clear `runs` on
+    // the fragments — see the `lineEdgeSplit.ts` header comment. The narrower
+    // fragments produced by this split usually no longer cross any gutter, so
+    // `gutterRepair.ts` doesn't need to touch them again. Restricted to the
+    // PRIMARY stream (angle 0) — that's where the collision with
+    // gutters/columns happens; side streams (marginalia at another angle) don't
+    // go through `splitSpanningLines`/`detectColumns` the same way.
     const edgeSplitLines = (primaryStream?.lines ?? []).flatMap((line) => splitLineByEdgeRun(line));
     const edgeSplitCount = edgeSplitLines.length - (primaryStream?.lines.length ?? 0);
     if (edgeSplitCount > 0) {
@@ -114,12 +114,12 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     const { columns, confidence, diagnostics: colDiagnostics } = detectColumns(rawSplit.columnar, pageNumber);
     diagnostics.push(...colDiagnostics);
 
-    // [KROK-10] Przebieg naprawczy PO detekcji kolumn — rozcina linie
-    // falszywie sklejajace dwie kolumny na tej samej wysokosci (dyskryminator:
-    // brak tokenow WEWNATRZ obszaru rynny), patrz gutterRepair.ts. Dziala na
-    // kolumnach wykrytych z JUZ-poprawnie-kolumnowych linii (rawSplit.columnar,
-    // nieskazonych przez sama anomalie, ktora z definicji trafila do
-    // `spanning`) — zero cyklu detekcja->naprawa->ponowna detekcja.
+    // [Step 10] Repair pass AFTER column detection — splits lines that were
+    // falsely merged across two columns at the same height (discriminator:
+    // no tokens INSIDE the gutter area), see gutterRepair.ts. Operates on
+    // columns detected from lines that were ALREADY correctly columnar
+    // (rawSplit.columnar, unaffected by the very anomaly that by definition
+    // ended up in `spanning`) — zero detect->repair->re-detect cycle.
     const { split, splitCount } = repairGutterCrossingLines(rawSplit, columns, confidence);
     if (splitCount > 0) {
       diagnostics.push({
@@ -141,7 +141,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     };
   });
 
-  // Faza B (Z5, DOKUMENT calosciowo — wzorzec A8): naglowki/stopki biegnace.
+  // Phase B (Z5, WHOLE DOCUMENT — A8 pattern): running headers/footers.
   const runningElementInput: PageForRunningElements[] = prep.map((p) => ({
     pageNumber: p.pageNumber,
     pageHeight: p.pageBox.maxY - p.pageBox.minY,
@@ -155,12 +155,12 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     runningKindByPage.set(m.pageNumber, map);
   }
 
-  // Diagnostyka miedzystronicowa stabilnosci liczby kolumn (Z3) — informacyjna, nigdy nie wymusza zgodnosci.
+  // Cross-page diagnostics on column-count stability (Z3) — informational only, never enforces agreement.
   diagnostics.push(
     ...validateColumnStabilityAcrossPages(prep.map((p) => ({ pageNumber: p.pageNumber, columnCount: p.columns.length }))),
   );
 
-  // Faza C (Z4+Z6, per strona): kolejnosc czytania + bloki semantyczne.
+  // Phase C (Z4+Z6, per page): reading order + semantic blocks.
   const pages: PageLayout[] = [];
   const allBlocks: SemanticBlock[] = [];
 

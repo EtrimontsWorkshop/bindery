@@ -4,38 +4,40 @@ import { normalizeDecodedImage, type DecodedImage } from './normalizeDecodedImag
 import type { PdfPageForRender, RegionRenderer, RenderRegionOptions } from './regionRenderer.js';
 
 /**
- * Ekstrakcja bezposrednia (KROK-7 Z4, MDD faza 3 "Przebieg 2"). Sciezka
- * trzystopniowa w ustalonej kolejnosci: `page.objs` -> `page.commonObjs` ->
- * fallback renderu regionu (Z3). Kazdy wynik przez `normalizeDecodedImage()`
- * (U2). Nieudane dekodowanie -> `Diagnostic` (warning), NIGDY ciche pominiecie
- * (U6 — JPX bez `wasmUrl` cicho zwraca `undefined`, nie rzuca).
+ * Direct extraction (Step 7 Z4, MDD phase 3 "Pass 2"). A three-stage path in
+ * a fixed order: `page.objs` -> `page.commonObjs` -> region-render fallback
+ * (Z3). Every result goes through `normalizeDecodedImage()` (U2). Failed
+ * decoding -> a `Diagnostic` (warning), NEVER a silent skip (U6 — JPX
+ * without `wasmUrl` silently returns `undefined`, doesn't throw).
  *
- * [KROK-7, odkrycie] `objId` zasobow, ktore pdf.js z gory uznaje za
- * "wspoldzielone miedzy stronami" (np. ozdobnik z tego samego obiektu PDF w
- * Resources kilku stron), nosi prefiks `"g_"` (np. `"g_d0_img_p1_1"`) — pdf.js
- * SAM tak je rozroznia (`pdf.mjs`: `data.startsWith("g_") ? commonObjs.get(data)
- * : objs.get(data)`). Zmierzone empirycznie: PRAWO PO `getOperatorList()`
- * jednej strony `commonObjs` jest CALKOWICIE PUSTE dla takiego zasobu — obietnica
- * "promocji" (patrz U1/RAPORT-KROK-4.md) jeszcze sie nie ziscila (wymaga
- * dalszego przetwarzania — innych stron i/lub renderu). Dla takich zasobow
- * OBIE sciezki (`objs`/`commonObjs`) legalnie zawodza na tym etapie, i kod
- * poprawnie spada do renderu regionu — TO NIE JEST BLAD, to spodziewane
- * zachowanie udokumentowane tutaj, zeby przyszly czytelnik kalibracji (wysoki
- * udzial strategii `region-render` dla zasobow wielostronicowych) nie szukal
- * nieistniejacego buga.
+ * [Step 7, discovery] The `objId` of resources that pdf.js decides upfront
+ * are "shared across pages" (e.g. a decoration from the same PDF object in
+ * the Resources of several pages) carries a `"g_"` prefix (e.g.
+ * `"g_d0_img_p1_1"`) — pdf.js ITSELF distinguishes them this way (`pdf.mjs`:
+ * `data.startsWith("g_") ? commonObjs.get(data) : objs.get(data)`). Measured
+ * empirically: RIGHT AFTER a single page's `getOperatorList()`,
+ * `commonObjs` is COMPLETELY EMPTY for such a resource — the promise of
+ * "promotion" (see U1/RAPORT-KROK-4.md) hasn't been fulfilled yet (it needs
+ * further processing — other pages and/or a render). For such resources,
+ * BOTH paths (`objs`/`commonObjs`) legitimately fail at this stage, and the
+ * code correctly falls back to a region render — THIS IS NOT A BUG, it's
+ * expected behavior documented here so a future reader of the calibration
+ * data (a high share of `region-render` strategy for multi-page resources)
+ * doesn't go looking for a nonexistent bug.
  */
 
 /**
- * Podzbior `PDFObjects` (pdf.js `page.objs`/`page.commonObjs`) faktycznie
- * uzywany tutaj. [U3] `get(objId, callback)` z callbackiem to JEDYNY bezpieczny
- * wariant — bez callbacku i bez uprzedniego rozwiazania rzuca
- * `"Requesting object that isn't resolved yet"`. Co WAZNIEJSZE, empirycznie
- * zweryfikowane wprost w zrodle (`PDFObjects.get` w pdf.mjs): wywolanie
- * `get(objId, callback)` dla objId, ktory NIGDY sie nie rozwiaze, WSTAWIA
- * pusty placeholder i CZEKA W NIESKONCZONOSC — `callback` nigdy nie zostanie
- * wywolany. Dlatego `has(objId)` MUSI byc sprawdzone PRZED wywolaniem `get`
- * z callbackiem; bez tego kazda probka na obiekt, ktorego nie ma w tym
- * rejestrze (bo jest w drugim), zawiesza cala ekstrakcje bezterminowo.
+ * Subset of `PDFObjects` (pdf.js `page.objs`/`page.commonObjs`) actually
+ * used here. [U3] `get(objId, callback)` with a callback is the ONLY safe
+ * variant — without a callback and without prior resolution it throws
+ * `"Requesting object that isn't resolved yet"`. More IMPORTANTLY,
+ * empirically verified directly in the source (`PDFObjects.get` in
+ * pdf.mjs): calling `get(objId, callback)` for an objId that will NEVER
+ * resolve INSERTS an empty placeholder and WAITS FOREVER — `callback` will
+ * never be called. That's why `has(objId)` MUST be checked BEFORE calling
+ * `get` with a callback; without this, any attempt at an object that isn't
+ * in this registry (because it's in the other one) hangs the whole
+ * extraction indefinitely.
  */
 export interface PdfObjectsLike {
   has(objId: string): boolean;
@@ -45,7 +47,7 @@ export interface PdfObjectsLike {
 export interface PdfPageForExtract extends PdfPageForRender {
   objs: PdfObjectsLike;
   commonObjs: PdfObjectsLike;
-  /** MUSI byc wywolane PRZED probami `objs.get()`/`commonObjs.get()` — wypelnia oba rejestry (patrz komentarz przy `PdfObjectsLike`). */
+  /** MUST be called BEFORE attempting `objs.get()`/`commonObjs.get()` — populates both registries (see the comment on `PdfObjectsLike`). */
   getOperatorList(): Promise<unknown>;
 }
 
@@ -57,22 +59,23 @@ export interface ExtractDirectResult {
   diagnostics: Diagnostic[];
 }
 
-/** `null` gdy `objId` nie jest (jeszcze) obecny w tym rejestrze — wolajacy probuje nastepna sciezke, NIGDY nie czeka na `get()` bez tego sprawdzenia (patrz komentarz na gorze pliku). */
+/** `null` when `objId` is not (yet) present in this registry — the caller tries the next path, NEVER waits on `get()` without this check (see the comment at the top of the file). */
 function resolveIfReady(objs: PdfObjectsLike, objId: string): Promise<unknown> | null {
   if (!objs.has(objId)) return null;
   return new Promise((resolve) => objs.get(objId, resolve));
 }
 
 interface ResolveAttemptResult {
-  /** Sukces (piksele gotowe) LUB `null` — a jesli `null`, `attempted` odrozna
-   * "probowalismy, dekodowanie zawiodlo" (retry po rozgrzewce bez sensu — te
-   * same bajty daja ten sam wynik) od "zaden rejestr go jeszcze nie mial"
-   * (retry po rozgrzewce MA sens — `has()` mogl sie zmienic po `page.render()`). */
+  /** Success (pixels ready) OR `null` — and if `null`, `attempted` tells
+   * apart "we tried, decoding failed" (a retry after warmup is pointless —
+   * the same bytes give the same result) from "neither registry had it yet"
+   * (a retry after warmup DOES make sense — `has()` may have changed after
+   * `page.render()`). */
   resolved: { image: DecodedImage; source: ExtractSource } | null;
   attempted: boolean;
 }
 
-/** Jedna proba przejscia `objs` -> `commonObjs` dla `objId`. */
+/** One attempt going through `objs` -> `commonObjs` for `objId`. */
 async function tryResolveFromRegistries(page: PdfPageForExtract, objId: string, pageNumber: number, diagnostics: Diagnostic[]): Promise<ResolveAttemptResult> {
   const sources: readonly [ExtractSource, PdfObjectsLike][] = [
     ['objs', page.objs],
@@ -86,7 +89,7 @@ async function tryResolveFromRegistries(page: PdfPageForExtract, objId: string, 
     try {
       const raw = await pending;
       if (raw == null) {
-        // [U6] Dekodowanie cicho zwrocilo pustke (typowe dla JPX bez skonfigurowanego wasmUrl) — zgloszone, NIGDY pominiete bez sladu.
+        // [U6] Decoding silently returned nothing (typical for JPX with no configured wasmUrl) — reported, NEVER skipped without a trace.
         diagnostics.push({
           severity: 'warning',
           code: 'IMAGE_DECODE_EMPTY',
@@ -109,38 +112,39 @@ async function tryResolveFromRegistries(page: PdfPageForExtract, objId: string, 
 }
 
 /**
- * Probuje wyciagnac obraz `objId` bezposrednio (przez `page.objs` albo
- * `page.commonObjs`), a jesli sie nie uda — renderuje `bbox` jako fallback
- * (Z3). Zawsze zwraca wynik (fallback renderu nie zawodzi z powodu braku
- * obiektu — dziala nawet dla grafiki czysto wektorowej, `objId=null`).
+ * Attempts to extract image `objId` directly (via `page.objs` or
+ * `page.commonObjs`), and if that fails — renders `bbox` as a fallback (Z3).
+ * Always returns a result (the render fallback doesn't fail for lack of an
+ * object — it works even for purely vector graphics, `objId=null`).
  *
- * [KROK-16 Z2, naprawa zgloszonego bledu na zywo] Miedzy pierwsza proba a
- * ostatecznym poddaniem sie na rzecz renderu regionu jest jeszcze JEDNA
- * proba, PO renderze rozgrzewajacym — zaobserwowane wprost na duzym
- * dokumencie (250+ stron, `Cienie_posrod_mgie.pdf`): dla zwyklych (nie-`g_`)
- * `objId`, ktore normalnie powinny rozwiazac sie przez `page.objs` od razu po
- * `getOperatorList()`, `has()` czasem zwraca `false` na obu sciezkach — pdf.js
- * "obiecuje" promocje zasobu do rejestru DOPIERO po pelnym renderze strony
- * (`page.render()`), nie po samej liscie operatorow (patrz komentarz na
- * gorze pliku, ta sama non-determinizm co udokumentowany dla zasobow `g_`
- * juz w fazie 0/MDD ryzyko R-13 — tu ujawniony rowniez dla zwyklych `objId`
- * na wystarczajaco duzych dokumentach). Zanim ten fakt byl znany, kod od razu
- * spadal na render REGIONU (fragmentu strony) jako ostateczny wynik — co
- * DZIALA (poprawny bbox), ale renderuje SKOMPONOWANA tresc strony (obraz +
- * cokolwiek jeszcze tam jest, np. sasiedni akapit tekstu), NIE izolowane
- * piksele samego zasobu obrazu. Render regionu I TAK musi sie odbyc jako
- * fallback (ten sam koszt, nie dodatkowy) — wykorzystany tu NAJPIERW jako
- * "rozgrzewka" (wymusza `page.render()`, a wiec i promocje), z PONOWNA proba
- * `objs`/`commonObjs` PO nim — ALE WYLACZNIE gdy pierwsza proba nie miala W
- * OGOLE czego probowac (`has()` false na obu rejestrach — "moze sie jeszcze
- * pojawi po renderze"). Jesli pierwsza proba COS probowala i dekodowanie
- * zawiodlo (`IMAGE_DECODE_EMPTY`/`IMAGE_DECODE_FAILED`), ponawianie jest bez
- * sensu — te same bajty po tym samym renderze dadza ten sam blad, retry
- * jedynie zdublowalby diagnostyki. Gdy sie powiedzie — zwracamy czyste
- * piksele zasobu zamiast skomponowanego zrzutu strony. Gdy nadal sie nie
- * powiedzie — uzywamy PIKSELI JUZ WYRENDEROWANYCH podczas rozgrzewki jako
- * wynik koncowy (zero dodatkowego renderu, identyczny koszt jak przed ta
- * zmiana).
+ * [Step 16 Z2, fix for a live-reported bug] Between the first attempt and
+ * finally giving up in favor of a region render there is one MORE attempt,
+ * AFTER a warmup render — observed directly on a large document (250+
+ * pages, `Cienie_posrod_mgie.pdf`): for ordinary (non-`g_`) `objId` values,
+ * which normally should resolve via `page.objs` right after
+ * `getOperatorList()`, `has()` sometimes returns `false` on both paths —
+ * pdf.js only "promises" a resource's promotion to the registry AFTER a
+ * full page render (`page.render()`), not after the operator list alone
+ * (see the comment at the top of the file, the same non-determinism already
+ * documented for `g_` resources back in phase 0/MDD risk R-13 — here
+ * revealed to also apply to ordinary `objId` values on sufficiently large
+ * documents). Before this fact was known, the code immediately fell back to
+ * rendering the REGION (a page fragment) as the final result — which WORKS
+ * (correct bbox), but renders the page's COMPOSITED content (the image +
+ * whatever else is there, e.g. an adjacent paragraph of text), NOT isolated
+ * pixels of just the image resource. A region render still has to happen as
+ * the fallback anyway (same cost, not extra) — used HERE FIRST as a
+ * "warmup" (forces `page.render()`, and thus promotion), with a RETRY of
+ * `objs`/`commonObjs` AFTER it — BUT ONLY when the first attempt had
+ * NOTHING AT ALL to try (`has()` false on both registries — "it might show
+ * up after the render"). If the first attempt DID try something and
+ * decoding failed (`IMAGE_DECODE_EMPTY`/`IMAGE_DECODE_FAILED`), retrying is
+ * pointless — the same bytes after the same render will give the same
+ * error, a retry would only duplicate the diagnostics. When it succeeds —
+ * we return the resource's clean pixels instead of a composited page
+ * snapshot. When it still doesn't succeed — we use the PIXELS ALREADY
+ * RENDERED during the warmup as the final result (zero extra render,
+ * identical cost to before this change).
  */
 export async function extractDirect(
   page: PdfPageForExtract,
@@ -170,17 +174,18 @@ export async function extractDirect(
 }
 
 /**
- * [KROK-8 Z3] Sonduje NATYWNA (zrodlowa) dlugosc dluzszej krawedzi obrazu
- * `objId` w pikselach, bez decydowania o strategii ekstrakcji — uzywane przez
- * orkiestrator do wyznaczenia rozdzielczosci docelowej renderu regionu (patrz
- * `renderResolution.ts`), NIE do samej ekstrakcji. Ta sama sciezka `objs` ->
- * `commonObjs` co `extractDirect` (U3: `has()` przed `get()` z callbackiem),
- * ale NIGDY nie spada do renderu regionu — brak wyniku (null) oznacza po
- * prostu "nieznana natywna rozdzielczosc", nie blad; wolajacy uzyje wtedy
- * samych minimow/domyslnych z ustawien. `page.objs`/`commonObjs` KESZUJE juz
- * rozwiazane obiekty (patrz `PDFObjects.resolve` w pdf.mjs), wiec to
- * NIE jest dodatkowy koszt dekodowania ponad to, co pdf.js i tak wykonal przy
- * budowie listy operatorow tej strony — tylko odczyt juz gotowych wymiarow.
+ * [Step 8 Z3] Probes the NATIVE (source) length of image `objId`'s longer
+ * edge in pixels, without deciding on an extraction strategy — used by the
+ * orchestrator to determine the target resolution of a region render (see
+ * `renderResolution.ts`), NOT for extraction itself. The same `objs` ->
+ * `commonObjs` path as `extractDirect` (U3: `has()` before `get()` with a
+ * callback), but NEVER falls back to a region render — no result (null)
+ * simply means "native resolution unknown", not an error; the caller then
+ * uses plain minimums/defaults from settings. `page.objs`/`commonObjs`
+ * CACHE already-resolved objects (see `PDFObjects.resolve` in pdf.mjs), so
+ * this is NOT extra decoding cost beyond what pdf.js already performed while
+ * building this page's operator list — just reading already-ready
+ * dimensions.
  */
 export async function probeIntrinsicLongEdgePx(page: PdfPageForExtract, objId: string): Promise<number | null> {
   const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
@@ -193,7 +198,7 @@ export async function probeIntrinsicLongEdgePx(page: PdfPageForExtract, objId: s
       const image = normalizeDecodedImage(raw);
       return Math.max(image.width, image.height);
     } catch {
-      continue; // sondaz jest "best-effort" — nieudane dekodowanie tutaj nie jest bledem, patrz komentarz funkcji.
+      continue; // probing is "best-effort" — failed decoding here is not an error, see the function comment.
     }
   }
   return null;

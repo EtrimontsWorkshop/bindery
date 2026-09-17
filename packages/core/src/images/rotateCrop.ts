@@ -1,47 +1,46 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [zgloszenie uzytkownika, "Zaznacz i wytnij" — mozliwosc obrocenia
- * zaznaczonego obszaru] Czysta, testowalna funkcja PIKSELOWA (zero canvasu —
- * dziala identycznie w Node/testach i w przegladarce, ten sam powod co
- * `normalizeDecodedImage.ts`/`brightenImage.ts`): dla kazdego piksela
- * WYJSCIOWEGO oblicza, SKAD w obrazie ZRODLOWYM go wziac (mapowanie
- * ODWROTNE — "gdzie w zrodle lezy ten piksel wyjscia", nie "gdzie w wyjsciu
- * ladowac ten piksel zrodla" — jedyny sposob, zeby KAZDY piksel wyjscia byl
- * wypelniony, bez dziur, niezaleznie od kata).
+ * [user report, "Select and Crop" — the ability to rotate the selected
+ * area] A pure, testable PIXEL function (zero canvas — works identically in
+ * Node/tests and the browser, the same reason as
+ * `normalizeDecodedImage.ts`/`brightenImage.ts`): for every OUTPUT pixel it
+ * computes WHERE in the SOURCE image to take it from (INVERSE mapping —
+ * "where in the source does this output pixel lie", not "where in the
+ * output does this source pixel land" — the only way for EVERY output pixel
+ * to be filled, with no holes, regardless of angle).
  *
- * `rotationRad` to kat WLASNEJ osi "szerokosci" zaznaczenia (lokalny +X),
- * zmierzony w przestrzeni PIKSELI OBRAZU ZRODLOWEGO (Y w dol, jak wszedzie w
- * DOM/canvas) — WOLAJACY (patrz `renderRotatedRegion.ts`) wylicza go z
- * PRAWDZIWYCH, juz przeksztalconych rogow prostokata, nigdy z osobnego,
- * recznie odwracanego znaku katu (ten sam powod co `pageOverlayGeometry.ts`:
- * "napisz JEDNA funkcje konwersji, uzywaj WYLACZNIE jej" — tu odpowiednik to
- * "wyprowadz kat z PRAWDZIWYCH punktow, nigdy nie zgaduj znaku").
+ * `rotationRad` is the angle of the selection's OWN "width" axis (local
+ * +X), measured in SOURCE IMAGE PIXEL space (Y down, as everywhere in
+ * DOM/canvas) — the CALLER (see `renderRotatedRegion.ts`) computes it from
+ * the REAL, already-transformed rectangle corners, never from a separate,
+ * manually-inverted angle sign (the same reason as `pageOverlayGeometry.ts`:
+ * "write ONE conversion function, use ONLY it" — here the equivalent is
+ * "derive the angle from REAL points, never guess the sign").
  *
- * Dwuliniowa interpolacja (nie najblizszy sasiad) — kazdy inny kat niz
- * wielokrotnosc 90° inaczej dawalby widocznie postrzepione krawedzie na
- * finalnym, uzywanym jako scena/token obrazie.
+ * Bilinear interpolation (not nearest-neighbor) — any angle other than a
+ * multiple of 90° would otherwise give visibly jagged edges on the final
+ * image used as a scene/token.
  */
 export interface RotateAndCropOptions {
-  /** Srodek wycinanego obszaru, we WSPOLRZEDNYCH PIKSELI obrazu zrodlowego. */
+  /** Center of the area being cut out, in SOURCE image PIXEL coordinates. */
   centerX: number;
   centerY: number;
-  /** Docelowe wymiary wyniku w pikselach (rozmiar zaznaczenia PO ewentualnym skalowaniu do docelowej rozdzielczosci, PRZED obrotem). */
+  /** Target result dimensions in pixels (the selection size AFTER any scaling to the target resolution, BEFORE rotation). */
   outputWidth: number;
   outputHeight: number;
-  /** Radiany — patrz komentarz przy funkcji. */
+  /** Radians — see the comment on the function. */
   rotationRad: number;
   /**
-   * [KROK-42 Z2, "kadrowanie i zoom wewnatrz maski tokenu"] Ile pikseli
-   * ZRODLA odpowiada JEDNEMU pikselowi WYJSCIA — >1 ODDALA (widac WIECEJ
-   * zrodla, mniej szczegolu na piksel wyjscia), <1 PRZYBLIZA (zoom).
-   * Domyslnie 1 (bez zmiany skali) — PELNA wsteczna zgodnosc z
-   * dotychczasowym zachowaniem (`renderRotatedRegion.ts` i wszystkie
-   * istniejace testy nigdy nie zoomuja, tylko kadruja+obracaja w skali 1:1).
-   * Jednorodne skalowanie KOMUTUJE z obrotem (ten sam wspolczynnik w obu
-   * osiach), wiec kolejnosc "przeskaluj potem obroc" i "obroc potem
-   * przeskaluj" dają identyczny wynik — stosowane PRZED obrotem ponizej,
-   * zero dodatkowej algebry na samym kacie.
+   * [Step 42 Z2, "crop and zoom inside the token mask"] How many SOURCE
+   * pixels correspond to ONE OUTPUT pixel — >1 ZOOMS OUT (more of the
+   * source is visible, less detail per output pixel), <1 ZOOMS IN. Defaults
+   * to 1 (no scale change) — FULL backward compatibility with prior
+   * behavior (`renderRotatedRegion.ts` and all existing tests never zoom,
+   * only crop+rotate at a 1:1 scale). Uniform scaling COMMUTES with
+   * rotation (the same factor on both axes), so the order "scale then
+   * rotate" and "rotate then scale" give identical results — applied BEFORE
+   * the rotation below, zero extra algebra on the angle itself.
    */
   scale?: number;
 }
@@ -82,18 +81,18 @@ export function rotateAndCropImage(source: DecodedImage, opts: RotateAndCropOpti
 
   for (let oy = 0; oy < outH; oy++) {
     for (let ox = 0; ox < outW; ox++) {
-      // [zmierzony na zywo blad pierwszej wersji] Punkt wyjsciowy wzgledem
-      // SRODKA wyjscia, we WLASNYCH ("nieobroconych") osiach zaznaczenia —
-      // BEZ dodatkowego "+0.5" (dawna wersja mylila konwencje: `sampleBilinear`
-      // (nizej) traktuje CALKOWITA wspolrzedna jako "dokladnie ten piksel,
-      // zero mieszania" — dodanie tu wlasnego "+0.5" przesuwalo KAZDE
-      // probkowanie o pol piksela, co przy `rotationRad=0` psulo nawet
-      // najprostszy przypadek "ten sam srodek i rozmiar" — zamiast czystej
-      // identycznosci dawalo systematyczne, powtarzalne przesuniecie o 0.5px,
-      // zlapane wprost testem jednostkowym (`rotateCrop.test.ts`).
+      // [a live-measured bug in the first version] The output point relative
+      // to the OUTPUT'S CENTER, in the selection's OWN ("unrotated") axes —
+      // WITHOUT an extra "+0.5" (the old version mixed up the convention:
+      // `sampleBilinear` (below) treats an INTEGER coordinate as "exactly
+      // this pixel, zero blending" — adding an own "+0.5" here shifted EVERY
+      // sample by half a pixel, which at `rotationRad=0` broke even the
+      // simplest case, "same center and size" — instead of a clean identity
+      // it produced a systematic, repeatable 0.5px offset, caught directly
+      // by a unit test (`rotateCrop.test.ts`).
       const lx = (ox - outW / 2) * scale;
       const ly = (oy - outH / 2) * scale;
-      // Odwzorowanie ODWROTNE: obroc lokalny punkt o `rotationRad`, zeby znalezc jego POZYCJE w obrazie zrodlowym (to WLASNIE ten kat, pod jakim lokalna os "szerokosci" zaznaczenia lezy w zrodle).
+      // INVERSE mapping: rotate the local point by `rotationRad` to find its POSITION in the source image (this is EXACTLY the angle at which the selection's local "width" axis lies in the source).
       const sx = opts.centerX + lx * cos - ly * sin;
       const sy = opts.centerY + lx * sin + ly * cos;
       const [r, g, b, a] = sampleBilinear(source, sx, sy);

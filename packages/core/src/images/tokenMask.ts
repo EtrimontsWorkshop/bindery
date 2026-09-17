@@ -2,17 +2,17 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { featherAlpha } from './featherAlpha.js';
 
 /**
- * [KROK-42 Z2, "maska: kolo, kwadrat, zaokraglony kwadrat, heks"] Ksztalty
- * wyznaczone jako CZYSTA geometria (test "czy punkt jest w srodku" na
- * znormalizowanych wspolrzednych `[-1,1] x [-1,1]`, srodek plotna = (0,0)),
- * NIE canvas clip-path — ta sama filozofia co reszta `packages/core`
- * ("zero-DOM", testowalne bez przegladarki/Node canvasu). `square` to
- * swiadomie "brak maskowania" (cale kwadratowe plotno) — jeden z czterech
- * rownorzednych wyborow z tabeli briefu, nie przypadek szczegolny.
+ * [Step 42 Z2, "mask: circle, square, rounded square, hex"] Shapes defined
+ * as PURE geometry (an "is the point inside" test on normalized coordinates
+ * `[-1,1] x [-1,1]`, canvas center = (0,0)), NOT a canvas clip-path — the
+ * same philosophy as the rest of `packages/core` ("zero-DOM", testable
+ * without a browser/Node canvas). `square` is deliberately "no masking" (the
+ * whole square canvas) — one of four equally valid choices from the brief's
+ * table, not a special case.
  */
 export type TokenMaskShape = 'circle' | 'square' | 'roundedSquare' | 'hex';
 
-/** Promien naroza `roundedSquare`, wzgledem polowy boku (1.0) — 22% daje wyraznie zaokraglony, ale wciaz "kwadratowy" ksztalt (nie zblizajacy sie do kola). */
+/** Corner radius of `roundedSquare`, relative to the half-side (1.0) — 22% gives a clearly rounded but still "square" shape (not approaching a circle). */
 const ROUNDED_SQUARE_CORNER_RADIUS = 0.22;
 
 function isInsideRoundedSquare(nx: number, ny: number): boolean {
@@ -23,18 +23,18 @@ function isInsideRoundedSquare(nx: number, ny: number): boolean {
 }
 
 /**
- * Szesciokat foremny "flat-top" (plaskie krawedzie gora/dol, ostre
- * wierzcholki lewo/prawo), promien opisany (do wierzcholkow) = 1 — dotyka
- * lewej/prawej krawedzi plotna, zostawia margines gora/dol (naturalne
- * proporcje szesciokata, nie da sie dotknac wszystkich 4 krawedzi kwadratu
- * naraz regularnym szesciokatem).
+ * A regular "flat-top" hexagon (flat top/bottom edges, sharp left/right
+ * vertices), circumradius (to the vertices) = 1 — touches the canvas's
+ * left/right edges, leaves a margin top/bottom (a hexagon's natural
+ * proportions — a regular hexagon can't touch all 4 edges of a square at
+ * once).
  *
- * Standardowy test polplaszczyznowy: punkt jest w szesciokacie foremnym
- * (promien opisany R, N=6 bokow) dokladnie wtedy, gdy dla KAZDEJ z 6
- * krawedzi jego rzut na kierunek normalnej tej krawedzi nie przekracza
- * apotemu (promienia wpisanego, `R*cos(pi/N)`). Z symetrii wystarcza
- * sprawdzic 3 z 6 normalnych (przeciwlegle krawedzie daja ten sam warunek
- * po `Math.abs`).
+ * Standard half-plane test: a point is inside a regular hexagon
+ * (circumradius R, N=6 sides) exactly when, for EVERY one of the 6 edges,
+ * its projection onto that edge's normal direction doesn't exceed the
+ * apothem (the inradius, `R*cos(pi/N)`). By symmetry it's enough to check 3
+ * of the 6 normals (opposite edges give the same condition after
+ * `Math.abs`).
  */
 function isInsideHexagon(nx: number, ny: number): boolean {
   const circumradius = 1;
@@ -47,7 +47,7 @@ function isInsideHexagon(nx: number, ny: number): boolean {
   return true;
 }
 
-/** Czy znormalizowany punkt `(nx, ny)` (srodek plotna = (0,0), krawedzie plotna = ±1) lezy wewnatrz `shape`. */
+/** Whether the normalized point `(nx, ny)` (canvas center = (0,0), canvas edges = ±1) lies inside `shape`. */
 export function isInsideShape(shape: TokenMaskShape, nx: number, ny: number): boolean {
   switch (shape) {
     case 'square':
@@ -62,12 +62,13 @@ export function isInsideShape(shape: TokenMaskShape, nx: number, ny: number): bo
 }
 
 /**
- * Nakłada `shape` na KWADRATOWY `image` (wolajacy odpowiada za wczesniejsze
- * przyciecie/przeskalowanie do kwadratu — `applyTokenMask` samo NIE kadruje)
- * — mnozy alfa kazdego piksela przez 0 (poza ksztaltem) albo 1 (wewnatrz),
- * potem wygladza granice `featherAlpha` (WSPOLNA funkcja z `removeBackground.ts`
- * — ten sam powod: rozmycie jednolitego obszaru nie zmienia go, wiec efekt
- * jest widoczny WYLACZNIE w waskim pasmie granicy ksztaltu).
+ * Applies `shape` to a SQUARE `image` (the caller is responsible for
+ * cropping/scaling to a square beforehand — `applyTokenMask` itself does
+ * NOT crop) — multiplies each pixel's alpha by 0 (outside the shape) or 1
+ * (inside), then smooths the boundary via `featherAlpha` (a function SHARED
+ * with `removeBackground.ts` — the same reason: blurring a uniform area
+ * doesn't change it, so the effect is visible EXCLUSIVELY in a narrow band
+ * around the shape's boundary).
  */
 export function applyTokenMask(image: DecodedImage, shape: TokenMaskShape, featherPx: number): DecodedImage {
   const { width, height, rgba } = image;
@@ -76,9 +77,9 @@ export function applyTokenMask(image: DecodedImage, shape: TokenMaskShape, feath
   const halfW = width / 2;
   const halfH = height / 2;
   for (let y = 0; y < height; y++) {
-    // Srodek PIKSELA (y+0.5), nie jego rog — spojne z konwencja "calkowita
-    // wspolrzedna = srodek piksela" uzywana wszedzie indziej w tym projekcie
-    // (`sampleBilinear` w `rotateCrop.ts`).
+    // The pixel's CENTER (y+0.5), not its corner — consistent with the
+    // "integer coordinate = pixel center" convention used everywhere else in
+    // this project (`sampleBilinear` in `rotateCrop.ts`).
     const ny = (y + 0.5 - halfH) / halfH;
     for (let x = 0; x < width; x++) {
       const nx = (x + 0.5 - halfW) / halfW;

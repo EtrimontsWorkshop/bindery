@@ -1,44 +1,43 @@
 import type { CIFDocument, CIFImage } from '@bindery/core';
 
 /**
- * [KROK-11 Z4] Model zaznaczenia ekranu przegladu. CZYSTA prezentacja nad
- * juz-zdecydowanym wynikiem `core` (`CIFDocument.images[].classification`/
- * `.confidence`) — ten plik NIE klasyfikuje niczego na nowo, tylko projektuje
- * juz gotowe pola na "czy checkbox startuje zaznaczony" (check:boundary,
- * DoD: "ekran przegladu nie zawiera logiki decyzyjnej").
+ * [Step 11 Z4] Selection model for the review screen. PURE presentation over
+ * a decision `core` has already made (`CIFDocument.images[].classification`/
+ * `.confidence`) — this file does NOT classify anything anew, it only
+ * projects already-final fields onto "does the checkbox start checked"
+ * (check:boundary, DoD: "the review screen contains no decision logic").
  *
- * [zgloszenie uzytkownika, "ustaw aby wszystkie obrazy byly domyslnie
- * odznaczone"] Domyslne zaznaczenie: WSZYSTKIE obrazy (`content` i
- * `undecided` jednakowo) startuja ODZNACZONE — uzytkownik zaznacza jawnie to,
- * co faktycznie chce zaimportowac (poprzedni brief KROK-11 Z4 automatycznie
- * zaznaczal pewne `content`; porzucone na wprost zgloszony wniosek uzytkownika).
- * Domyslny porzadek: `content` w kolejnosci stron, potem `undecided`
- * malejaco po powierzchni (`width*height`) — realne ilustracje sa duze,
- * smieci male; uzytkownik przeglada pierwsze ~20 pozycji, nie ~180.
+ * [user report, "make it so all images are unchecked by default"] Default
+ * selection: ALL images (`content` and `undecided` alike) start UNCHECKED —
+ * the user explicitly checks what they actually want to import (the
+ * previous Step 11 Z4 brief auto-checked confident `content`; dropped per an
+ * explicit user request). Default order: `content` in page order, then
+ * `undecided` sorted descending by area (`width*height`); real illustrations
+ * are large, junk is small — the user reviews the first ~20 entries, not
+ * ~180.
  */
 
 /**
- * [KROK-14 Z4] Przeznaczenie POJEDYNCZEGO obrazu, wybierane przez uzytkownika
- * w ekranie przegladu (MDD v2.1 §1.2, P1: "przeznaczenie wybierane per obraz").
- * `scene` — tworzy Scene z tlem; `journal` — trafia do JEDNOSTRONICOWEGO
- * JournalEntry jako handout; `token` — zapisany na dysk (katalog obrazow),
- * bez tworzenia jakiegokolwiek dokumentu; `unassigned` — pomijany przy
- * imporcie, dopoki uzytkownik nie wybierze cos innego (patrz
- * `defaultImageDestination` nizej — byl to dawne `skip`, zastapione na
- * wprost zgloszony wniosek uzytkownika, patrz ponizej).
+ * [Step 14 Z4] The destination of a SINGLE image, chosen by the user on the
+ * review screen (MDD v2.1 §1.2, P1: "destination chosen per image"). `scene`
+ * — creates a Scene with a background; `journal` — goes into a
+ * SINGLE-PAGE JournalEntry as a handout; `token` — saved to disk (image
+ * folder), without creating any document; `unassigned` — skipped on import,
+ * until the user chooses something else (see `defaultImageDestination`
+ * below — this used to be `skip`, replaced per an explicit user request, see
+ * below).
  */
 export type ImageDestination = 'scene' | 'journal' | 'token' | 'unassigned';
 
 /**
- * [zgloszenie uzytkownika, "znalezione obrazy nie beda automatycznie
- * przydzielane do scen/journali/tokenow — niech wszystkie trafiaja do
- * Nieprzydzielone, uzytkownik przydziela recznie"] Dawniej zgadywano
- * przeznaczenie z `CIFImage.targetKind` (scene->scene, portrait->token,
- * handout/unknown->journal) — ZAWSZE `unassigned` teraz, niezaleznie od
- * `targetKind`: automatyczne zgadywanie zbyt czesto bylo niepoprawne (np.
- * portret bez podpisu trafiajacy od razu jako token), a uzytkownik i tak
- * musial przegladac kazdy obraz recznie, wiec "domyslne zgadniecie" tylko
- * dodawalo szum do poprawienia zamiast oszczedzac prace.
+ * [user report, "found images shouldn't be automatically assigned to
+ * scenes/journals/tokens — let them all go to Unassigned, the user assigns
+ * manually"] Previously the destination was guessed from `CIFImage.targetKind`
+ * (scene->scene, portrait->token, handout/unknown->journal) — now ALWAYS
+ * `unassigned`, regardless of `targetKind`: the automatic guess was too
+ * often wrong (e.g. a portrait with no caption going straight to token), and
+ * the user had to review every image manually anyway, so the "default
+ * guess" just added noise to correct instead of saving work.
  */
 export function defaultImageDestination(): ImageDestination {
   return 'unassigned';
@@ -49,9 +48,9 @@ function imageArea(image: CIFImage): number {
 }
 
 /**
- * Porzadek domyslny listy obrazow: `content` (w tym `content` o niskiej
- * pewnosci, patrz wyzej) w kolejnosci stron rosnaco, POTEM `undecided`
- * malejaco po powierzchni.
+ * Default order of the image list: `content` (including low-confidence
+ * `content`, see above) in ascending page order, THEN `undecided` sorted
+ * descending by area.
  */
 export function sortImagesForReview(images: readonly CIFImage[]): CIFImage[] {
   const content = images.filter((i) => i.classification === 'content').sort((a, b) => a.provenance.pageNumber - b.provenance.pageNumber);
@@ -64,55 +63,56 @@ export interface ReviewSelectionSnapshot {
   sceneIds: readonly string[];
   journalIds: readonly string[];
   journalPageIds: readonly string[];
-  /** [KROK-14 Z4] Przeznaczenie KAZDEGO obrazu (nie tylko zaznaczonych) — `id -> destination`. */
+  /** [Step 14 Z4] The destination of EVERY image (not just selected ones) — `id -> destination`. */
   imageDestinations: ReadonlyMap<string, ImageDestination>;
 }
 
 /**
- * Stan zaznaczenia calego ekranu przegladu — obrazy, sceny, journale, strony
- * journali. Kazda domena to Map<id, boolean> (nie Set zaznaczonych) —
- * jawne `false` dla odznaczonych pozwala odroznic "odznaczone celowo" od
- * "jeszcze nieznane id" (np. z late-loaded strony), co upraszcza `has`/`get`
- * wywolania w UI (zawsze zdefiniowane po `initialize`).
+ * The selection state of the whole review screen — images, scenes,
+ * journals, journal pages. Each domain is a `Map<id, boolean>` (not a Set of
+ * selected ids) — an explicit `false` for unselected lets us distinguish
+ * "deliberately unselected" from "id not yet known" (e.g. from a late-loaded
+ * page), which simplifies the `has`/`get` calls in the UI (always defined
+ * after `initialize`).
  */
 export class ReviewSelection {
   #images = new Map<string, boolean>();
   #scenes = new Map<string, boolean>();
   #journals = new Map<string, boolean>();
   #journalPages = new Map<string, boolean>();
-  /** [KROK-14 Z4] Przeznaczenie per obraz — osobna mapa od zaznaczenia, bo niezaznaczony obraz TEZ ma (nieuzywane, ale zapamietane) przeznaczenie. */
+  /** [Step 14 Z4] Destination per image — a separate map from selection, because an unselected image STILL has a (unused, but remembered) destination. */
   #imageDestinations = new Map<string, ImageDestination>();
   /**
-   * [KROK-19, zgloszony na zywo brak "brakuje mi lepszej segregacji
-   * journali"] Nazwa grupy journala per obraz, WYLACZNIE dla przeznaczenia
-   * `journal` — pusty string (domyslnie) = dotychczasowe zachowanie, kazdy
-   * obraz dostaje WLASNY, pojedynczy JournalEntry. Obrazy dzielace TAKA SAMA
-   * niepusta nazwe grupy trafiaja razem do JEDNEGO JournalEntry (wiele stron)
-   * — uzytkownik decyduje o segregacji (np. rozdzialami ksiazki), `#runImport`
-   * w ReviewScreen wylacznie grupuje wedlug tej juz-podjetej decyzji.
+   * [Step 19, gap reported live: "I'm missing better journal sorting"] The
+   * journal group name per image, ONLY for the `journal` destination — an
+   * empty string (default) = the existing behavior, each image gets its OWN,
+   * single JournalEntry. Images sharing THE SAME non-empty group name go
+   * together into ONE JournalEntry (multiple pages) — the user decides the
+   * sorting (e.g. by book chapter), `#runImport` in ReviewScreen only groups
+   * by this already-made decision.
    */
   #imageJournalGroups = new Map<string, string>();
 
   static fromDocument(document: CIFDocument): ReviewSelection {
     const selection = new ReviewSelection();
     for (const image of document.images) {
-      // [zgloszenie uzytkownika, "ustaw aby wszystkie obrazy byly domyslnie
-      // odznaczone"] Zawsze `false` — patrz doc-comment na gorze pliku.
+      // [user report, "make it so all images are unchecked by default"]
+      // Always `false` — see the doc-comment at the top of the file.
       selection.#images.set(image.id, false);
       selection.#imageDestinations.set(image.id, defaultImageDestination());
       selection.#imageJournalGroups.set(image.id, '');
     }
-    // [KROK-11] Sceny to juz zdecydowana, pewna klasyfikacja core'a (CIFScene
-    // istnieje TYLKO gdy core juz uznal obraz za mape/scene) — brak wlasnego
-    // pola confidence do progowania, wiec domyslnie ZAZNACZONE (mirror Z4
-    // "content" bez sprzecznych sygnalow).
+    // [Step 11] Scenes are already a decided, confident classification from
+    // core (a CIFScene only exists when core has already deemed the image a
+    // map/scene) — no own confidence field to threshold on, so they default
+    // to SELECTED (mirroring Z4 "content" with no conflicting signals).
     for (const scene of document.scenes) selection.#scenes.set(scene.id, true);
-    // [KROK-16 Z2, naprawa zgloszonego bledu] Ekstrakcja tekstu calej ksiazki do
-    // journali jest od pivotu produktowego (KROK-11, Bindery-MDD-v2.1.md §0c)
-    // funkcja DRUGORZEDNA/opcjonalna wobec obrazow — domyslne "wszystko
-    // zaznaczone" tworzylo przy KAZDYM imporcie "mase journali z tekstem" bez
-    // pytania, nawet gdy uzytkownik chcial WYLACZNIE pojedyncze obrazy z
-    // zakladki Obrazy. Domyslnie ODZNACZONE — jawny opt-in w zakladce Journale.
+    // [Step 16 Z2, bug fix] Extracting the whole book's text into journals
+    // has been a SECONDARY/optional feature since the product pivot (Step
+    // 11, Bindery-MDD-v2.1.md §0c) — the default "everything selected"
+    // created "a mass of text journals" on EVERY import without asking, even
+    // when the user only wanted individual images from the Images tab.
+    // Default UNSELECTED — explicit opt-in via the Journals tab.
     for (const journal of document.journals) {
       selection.#journals.set(journal.id, false);
       for (const page of journal.pages) selection.#journalPages.set(page.id, false);
@@ -138,22 +138,23 @@ export class ReviewSelection {
   }
 
   /**
-   * [KROK-18, "Zaznacz i wytnij"] Rejestruje obraz dodany PO `fromDocument()`
-   * (reczne przyciecie z podgladu strony, nie z automatycznej ekstrakcji) —
-   * `setImage`/`setImageDestination` powyzej celowo NIC nie robia dla
-   * nieznanego `id` (patrz ich `if (this.#X.has(id))` — chroni przed literowkami
-   * gdzie indziej), wiec reczny obraz potrzebuje wlasnego, jawnego wpisu.
+   * [Step 18, "Select and crop"] Registers an image added AFTER
+   * `fromDocument()` (a manual crop from the page preview, not from
+   * automatic extraction) — `setImage`/`setImageDestination` above
+   * deliberately do NOTHING for an unknown `id` (see their `if
+   * (this.#X.has(id))` — a guard against typos elsewhere), so a manual crop
+   * needs its own, explicit entry.
    *
-   * [zgloszenie uzytkownika, "wszystkie obrazy trafiaja do Nieprzydzielone,
-   * uzytkownik przydziela recznie"] Zaznaczenie startowe = `destination !==
-   * 'unassigned'` — TA SAMA regula, ktorej pilnuje zmiana dropdownu w
-   * `ReviewScreen.ts` (`shouldBeSelected`), zeby checkbox i przeznaczenie NIE
-   * rozjezdzaly sie w dwa niezalezne, ciche zrodla prawdy od SAMEGO poczatku,
-   * nie dopiero po pierwszej recznej zmianie. `destination` tutaj to dzis
-   * ZAWSZE `defaultImageDestination()` = `'unassigned'`, wiec w praktyce
-   * reczny wykroj startuje ODZNACZONY, tak samo jak automatycznie wykryty —
-   * dawniej (przed tym zgloszeniem) startowal zaznaczony, bo przeznaczenie
-   * bylo od razu zgadywane z `targetKind`.
+   * [user report, "all images go to Unassigned, the user assigns manually"]
+   * Starting selection = `destination !== 'unassigned'` — THE SAME rule
+   * enforced by the dropdown change handler in `ReviewScreen.ts`
+   * (`shouldBeSelected`), so the checkbox and the destination don't diverge
+   * into two independent, silent sources of truth from the very START, not
+   * only after the first manual change. `destination` here today is ALWAYS
+   * `defaultImageDestination()` = `'unassigned'`, so in practice a manual
+   * crop starts UNSELECTED, same as an automatically detected one — before
+   * this change it used to start selected, because the destination was
+   * immediately guessed from `targetKind`.
    */
   addManualImage(id: string, destination: ImageDestination): void {
     this.#images.set(id, destination !== 'unassigned');
@@ -161,28 +162,28 @@ export class ReviewSelection {
     this.#imageJournalGroups.set(id, '');
   }
 
-  /** [KROK-14 Z4] Przeznaczenie obrazu — domyslnie z `defaultImageDestination`, nadpisywalne per obraz. */
+  /** [Step 14 Z4] The image's destination — defaults from `defaultImageDestination`, overridable per image. */
   imageDestination(id: string): ImageDestination {
     return this.#imageDestinations.get(id) ?? 'unassigned';
   }
   setImageDestination(id: string, destination: ImageDestination): void {
     if (this.#imageDestinations.has(id)) this.#imageDestinations.set(id, destination);
   }
-  /** [KROK-14 Z4] Operacja zbiorcza "ustaw wszystkim ZAZNACZONYM obrazom" — patrz brief Z4. */
+  /** [Step 14 Z4] Bulk operation "set for all SELECTED images" — see the Z4 brief. */
   setDestinationForSelected(destination: ImageDestination): void {
     for (const [id, selected] of this.#images) {
       if (selected) this.#imageDestinations.set(id, destination);
     }
   }
 
-  /** [KROK-19] Nazwa grupy journala dla obrazu — pusty string = brak grupy (wlasny JournalEntry). */
+  /** [Step 19] The journal group name for an image — an empty string = no group (its own JournalEntry). */
   imageJournalGroup(id: string): string {
     return this.#imageJournalGroups.get(id) ?? '';
   }
   setImageJournalGroup(id: string, group: string): void {
     if (this.#imageJournalGroups.has(id)) this.#imageJournalGroups.set(id, group.trim());
   }
-  /** [KROK-19] Operacja zbiorcza "ustaw grupe journala wszystkim ZAZNACZONYM obrazom" — mirror `setDestinationForSelected`. */
+  /** [Step 19] Bulk operation "set the journal group for all SELECTED images" — mirrors `setDestinationForSelected`. */
   setJournalGroupForSelected(group: string): void {
     const trimmed = group.trim();
     for (const [id, selected] of this.#images) {
@@ -199,7 +200,7 @@ export class ReviewSelection {
     if (this.#journalPages.has(id)) this.#journalPages.set(id, selected);
   }
 
-  /** Liczba obecnie zaznaczonych obrazow — do licznika "Zaznaczono N" w naglowku ekranu. */
+  /** Count of currently selected images — for the "N selected" counter in the screen header. */
   get selectedImageCount(): number {
     let n = 0;
     for (const v of this.#images.values()) if (v) n++;
@@ -222,7 +223,7 @@ export class ReviewSelection {
   selectNoImages(): void {
     for (const id of this.#images.keys()) this.#images.set(id, false);
   }
-  /** Zaznacz WYLACZNIE obrazy `content` (odznacz reszte) — operacja zbiorcza z brief Z4. */
+  /** Select ONLY `content` images (deselect the rest) — a bulk operation from the Z4 brief. */
   selectOnlyContentImages(document: CIFDocument): void {
     for (const image of document.images) this.#images.set(image.id, image.classification === 'content');
   }

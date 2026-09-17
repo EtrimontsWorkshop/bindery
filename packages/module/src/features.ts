@@ -1,24 +1,26 @@
 /**
- * [KROK-44 Z1, "wersja publiczna — pierwsze wydanie obejmuje wylacznie
- * obrazy"] Jedna flaga, nie rozsiane warunki — decyzja produktowa: statbloki,
- * Profile Studio i trasa `playerCharacter` zostaja w wersji roboczej (dzialaja,
- * ale wymagaja profilu, ktorego dla podrecznikow komercyjnych nie
- * dostarczamy — R3). Wariant B (ukrycie za flaga, NIE usuniecie kodu) — ten
- * sam wzorzec co `provides` w kroku 37: usuniecie kodu rozjechaloby galezie
- * natychmiast, a pusta zakladka Aktorzy uczy uzytkownika, ze interfejs klamie.
+ * [Step 44 Z1, "public release — the first release covers images only"] One
+ * flag, not scattered conditionals — a product decision: statblocks,
+ * Profile Studio and the `playerCharacter` route stay in a working-but-unreleased
+ * state (they work, but require a profile, which we don't ship
+ * for commercial rulebooks — R3). Option B (hide behind a flag, do NOT
+ * remove the code) — the same pattern as `provides` in step 37: removing the
+ * code would immediately cause branches to diverge, and an empty Actors tab
+ * teaches the user that the interface is lying.
  *
- * Kod/schemat/adapter/silnik wzorcow i trasy pozostaja NIETKNIETE — ta flaga
- * steruje WYLACZNIE widocznoscia w interfejsie: wejscie do Profile Studio
- * (`settings.ts`), sekcja wczytywania profilu aktorow (`ImportWizard.ts`),
- * zakladka Aktorzy w ekranie przegladu (`ReviewScreen.ts`). Wszystko inne
- * (foldery/liczniki aktorow w ekranie celu) juz samo degraduje sie do zera,
- * bo `actorCount`/`hasActorProfile` i tak zawsze wychodza puste/false, gdy
- * profilu nigdy nie da sie wczytac przez UI — zero dodatkowych warunkow tam.
+ * The code/schema/adapter/pattern engine and routes remain UNTOUCHED — this
+ * flag controls ONLY visibility in the UI: the Profile Studio entry point
+ * (`settings.ts`), the actor-profile loading section (`ImportWizard.ts`),
+ * the Actors tab in the review screen (`ReviewScreen.ts`). Everything else
+ * (folders/actor counters in the target screen) already degrades to zero on
+ * its own, because `actorCount`/`hasActorProfile` always come out
+ * empty/false anyway when a profile can never be loaded through the UI —
+ * zero extra conditionals there.
  *
- * WARUNEK PRZYWROCENIA: profile dla podrecznikow komercyjnych dostarczane
- * przez spolecznosc (R3 pozwala na to — community-hosted, nigdy linkowane z
- * tego repo) ALBO wbudowany profil dla tresci darmowej (np.
- * `coc7-quickstart-en.json`, juz istnieje). Gdy jeden z tych warunkow sie
- * spelni, przywrocenie to jedna zmiana wartosci ponizej na `true`.
+ * RESTORE CONDITION: profiles for commercial rulebooks supplied by the
+ * community (R3 allows this — community-hosted, never linked from this
+ * repo) OR a built-in profile for free content (e.g.
+ * `coc7-quickstart-en.json`, already exists). Once one of these conditions
+ * is met, restoring this is a single value change below to `true`.
  */
 export const STATBLOCKS_ENABLED = false;

@@ -6,8 +6,8 @@ Hooks.once('init', () => {
 });
 
 Hooks.once('ready', async () => {
-  // Wywolywane w hooku 'ready' — game.modules/game.settings/game.i18n sa juz
-  // zainicjalizowane na tym etapie cyklu zycia Foundry.
+  // Called in the 'ready' hook — game.modules/game.settings/game.i18n are
+  // already initialized at this point in Foundry's lifecycle.
   const mod = game.modules!.get(MODULE_ID);
   if (!mod) return;
 

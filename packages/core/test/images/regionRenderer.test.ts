@@ -40,7 +40,7 @@ describe('computeRenderPlan', () => {
 
   it('rzuca czytelny blad dla bboksa zdegenerowanego do punktu (zerowa dlugosc i szerokosc)', () => {
     const bbox: Rect = { minX: 10, minY: 10, maxX: 10, maxY: 10 };
-    expect(() => computeRenderPlan(identityViewportTransform, bbox, 1000)).toThrow(/zerowa lub ujemna/);
+    expect(() => computeRenderPlan(identityViewportTransform, bbox, 1000)).toThrow(/zero or negative/);
   });
 
   it('wynik >= 1px nawet dla bardzo malego bboksa przy niskim targetLongEdgePx', () => {

@@ -6,19 +6,19 @@ import { renderPagePreview } from './images/buildPagePreview.js';
 import { renderRotatedRegion, type RotatedPdfRegion } from './images/renderRotatedRegion.js';
 
 /**
- * [KROK-11 Z3] Otwiera dokument WYLACZNIE do celow podgladu strony w ekranie
- * przegladu (faza 9) — NIE ponownie liczy inwentaryzacji/ukladu (to juz
- * zrobil `buildCIFFromDocument`, patrz `buildCIFFromDocument.ts`). Zamierzenie:
- * lekki, osobny "uchwyt" dokumentu, ktory panel podgladu strony w
- * `packages/module` trzyma otwarty przez caly czas trwania przegladu i
- * odpytuje O DOWOLNA strone w dowolnej kolejnosci (uzytkownik przewija/klika
- * `provenance.pageNumber`), bez ponownego otwierania calego dokumentu za
- * kazdym razem.
+ * [Step 11 Z3] Opens the document ONLY for the purpose of page preview in
+ * the review screen (phase 9) — it does NOT recompute inventory/layout
+ * (that was already done by `buildCIFFromDocument`, see
+ * `buildCIFFromDocument.ts`). Intent: a lightweight, separate document
+ * "handle" that the page preview panel in `packages/module` keeps open for
+ * the entire duration of the review and queries FOR ANY page in any order
+ * (the user scrolls/clicks `provenance.pageNumber`), without reopening the
+ * whole document every time.
  *
- * Box strony (`getPageBox`) czyta WYLACZNIE `page.view` (ten sam mechanizm co
- * `inventory.ts`'s `viewToRect`) — NIGDY `getOperatorList()` (kosztowne,
- * niepotrzebne tutaj) — i cache'uje wynik per numer strony, wiec powtorna
- * nawigacja do tej samej strony nie odpytuje pdf.js ponownie.
+ * The page box (`getPageBox`) reads ONLY `page.view` (the same mechanism
+ * as `inventory.ts`'s `viewToRect`) — NEVER `getOperatorList()` (expensive,
+ * unnecessary here) — and caches the result per page number, so repeated
+ * navigation to the same page doesn't query pdf.js again.
  */
 
 export interface PreviewPageHandle {
@@ -27,7 +27,7 @@ export interface PreviewPageHandle {
   rotation: number;
 }
 
-/** [KROK-18] Jak `EncodedImage`, ale z wymiarami PIKSELOWYMI zdekodowanej bitmapy PRZED kodowaniem — potrzebne wolajacemu, zeby zbudowac `CIFImage.width/height` bez ponownego dekodowania WebP/PNG w przegladarce. */
+/** [Step 18] Like `EncodedImage`, but with the PIXEL dimensions of the decoded bitmap BEFORE encoding — needed by the caller to build `CIFImage.width/height` without re-decoding WebP/PNG in the browser. */
 export interface RegionCrop extends EncodedImage {
   width: number;
   height: number;
@@ -35,30 +35,30 @@ export interface RegionCrop extends EncodedImage {
 
 export interface PreviewDocument {
   pageCount: number;
-  /** Box strony w przestrzeni PDF (MediaBox po `page.view`) — cache'owany po pierwszym zapytaniu o dana strone. */
+  /** Page box in PDF space (MediaBox via `page.view`) — cached after the first query for a given page. */
   getPageBox(pageNumber: number): Promise<PreviewPageHandle>;
-  /** Renderuje CALA strone do zakodowanej bitmapy (WebP/PNG) — patrz `renderPagePreview`. */
+  /** Renders the ENTIRE page to an encoded bitmap (WebP/PNG) — see `renderPagePreview`. */
   renderPage(pageNumber: number, opts: { targetLongEdgePx: number; signal?: AbortSignal; format?: EncodeOptions['format']; quality?: EncodeOptions['quality'] }): Promise<EncodedImage>;
   /**
-   * [KROK-18, "Zaznacz i wytnij"] Renderuje DOWOLNY bbox (w przestrzeni PDF,
-   * niekoniecznie caly `pageBox`) do zakodowanej bitmapy — reczny odpowiednik
-   * `buildImageExtraction.ts`'s automatycznej ekstrakcji, dla obszaru
-   * wskazanego PRZEZ UZYTKOWNIKA (przeciagniecie myszki po podgladzie strony
-   * w `packages/module`), nie wykrytego automatycznie. Zwraca `RegionCrop`
-   * (nie goly `EncodedImage` jak `renderPage`) — wolajacy potrzebuje
-   * `width`/`height`, zeby od razu zbudowac `CIFImage` bez dodatkowego
-   * dekodowania bajtow WebP w przegladarce.
+   * [Step 18, "Select and crop"] Renders ANY bbox (in PDF space, not
+   * necessarily the whole `pageBox`) to an encoded bitmap — the manual
+   * counterpart to `buildImageExtraction.ts`'s automatic extraction, for an
+   * area indicated BY THE USER (dragging the mouse over the page preview
+   * in `packages/module`), not detected automatically. Returns a
+   * `RegionCrop` (not a bare `EncodedImage` like `renderPage`) — the
+   * caller needs `width`/`height` to build a `CIFImage` right away without
+   * additionally decoding the WebP bytes in the browser.
    */
   renderRegion(pageNumber: number, bbox: Rect, opts: { targetLongEdgePx: number; signal?: AbortSignal; format?: EncodeOptions['format']; quality?: EncodeOptions['quality'] }): Promise<RegionCrop>;
   /**
-   * [zgloszenie uzytkownika, "Zaznacz i wytnij" — mozliwosc obrocenia
-   * zaznaczonego obszaru] Jak `renderRegion`, ale `region` NIE musi byc
-   * rownolegly do osi — patrz `renderRotatedRegion.ts` po pelne uzasadnienie
-   * (renderuje otoczke normalnie, potem "prostuje" wlasciwy, obrocony
-   * prostokat czysto pikselowo).
+   * [user report, "Select and crop" — ability to rotate the selected area]
+   * Like `renderRegion`, but `region` does NOT have to be axis-aligned —
+   * see `renderRotatedRegion.ts` for the full justification (renders the
+   * bounding box normally, then "straightens" the actual, rotated
+   * rectangle purely at the pixel level).
    */
   renderRotatedRegion(pageNumber: number, region: RotatedPdfRegion, opts: { targetLongEdgePx: number; signal?: AbortSignal; format?: EncodeOptions['format']; quality?: EncodeOptions['quality'] }): Promise<RegionCrop>;
-  /** Zwalnia zasoby pdf.js (worker, cache dokumentu) — MUSI zostac wywolane, gdy ekran przegladu sie zamyka. */
+  /** Releases pdf.js resources (worker, document cache) — MUST be called when the review screen closes. */
   destroy(): Promise<void>;
 }
 
@@ -68,9 +68,10 @@ export interface OpenPreviewDocumentOptions {
 
 export async function openPreviewDocument(data: ArrayBuffer, opts: OpenPreviewDocumentOptions): Promise<PreviewDocument> {
   pdfjs.GlobalWorkerOptions.workerSrc = `${opts.assetBaseUrl}pdf.worker.mjs`;
-  // `PDFDocumentProxy` (wynik `.promise`) NIE ma wlasnego `destroy()` — nalezy
-  // on do `PDFDocumentLoadingTask` (obiekt zwrocony PRZEZ `getDocument()`,
-  // zanim jeszcze `.promise` sie rozwiaze) — stad trzymamy OBA.
+  // `PDFDocumentProxy` (the result of `.promise`) does NOT have its own
+  // `destroy()` — it belongs to `PDFDocumentLoadingTask` (the object
+  // returned BY `getDocument()`, even before `.promise` resolves) — hence
+  // we keep BOTH.
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(data.slice(0)),
     wasmUrl: `${opts.assetBaseUrl}wasm/`,

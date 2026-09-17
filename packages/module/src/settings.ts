@@ -4,12 +4,12 @@ import { STATBLOCKS_ENABLED } from './features.js';
 
 export const MODULE_ID = 'bindery';
 
-/** Sciezka bazowa assetow pdf.js wzgledem korzenia web-servera Foundry (ryzyko I1/I3). */
+/** Base path of pdf.js assets relative to the Foundry web server root (risk I1/I3). */
 export const ASSET_BASE_URL = `modules/${MODULE_ID}/lib/`;
 
 export function registerSettings(): void {
-  // Wywolywane w hooku 'init' — game.settings jest juz zainicjalizowane na tym etapie
-  // cyklu zycia Foundry, mimo ze typ 'game' dopuszcza stan przed-inicjalizacyjny.
+  // Called in the 'init' hook — game.settings is already initialized at this point
+  // in Foundry's lifecycle, even though the 'game' type allows for a pre-init state.
   game.settings!.registerMenu(MODULE_ID, 'openWizard', {
     name: 'BINDERY.settings.openWizardMenuLabel',
     hint: 'BINDERY.settings.openWizardMenuHint',
@@ -19,15 +19,16 @@ export function registerSettings(): void {
     restricted: true,
   });
 
-  // [KROK-22 Z1] Profile Studio — przycisk OBOK "Importuj PDF..." (brief:
-  // "Studio to inny tryb pracy, dla innej osoby, w innym momencie"). `type`
-  // wskazuje na cienki `ProfileStudioLauncher`, NIE na prawdziwy `ProfileStudio`
-  // — patrz komentarz w `ProfileStudioLauncher.ts` (I3, budzet <40KB startu swiata).
+  // [Step 22 Z1] Profile Studio — a button NEXT TO "Import PDF..." (brief:
+  // "the Studio is a different mode of work, for a different person, at a
+  // different time"). `type` points to the thin `ProfileStudioLauncher`, NOT
+  // the real `ProfileStudio` — see the comment in `ProfileStudioLauncher.ts`
+  // (I3, the <40KB world-startup budget).
   //
-  // [KROK-44 Z1] Ukryte za `STATBLOCKS_ENABLED` — patrz `features.ts` po
-  // uzasadnienie i warunek przywrocenia. Wpis menu po prostu nie jest
-  // rejestrowany, gdy flaga jest wylaczona — Foundry nie pokazuje go w ogole
-  // w ustawieniach modulu, zero martwego przycisku.
+  // [Step 44 Z1] Hidden behind `STATBLOCKS_ENABLED` — see `features.ts` for
+  // the rationale and the restore condition. The menu entry simply isn't
+  // registered when the flag is off — Foundry doesn't show it at all in the
+  // module settings, zero dead button.
   if (STATBLOCKS_ENABLED) {
     game.settings!.registerMenu(MODULE_ID, 'openProfileStudio', {
       name: 'BINDERY.settings.openProfileStudioMenuLabel',
@@ -39,7 +40,7 @@ export function registerSettings(): void {
     });
   }
 
-  // Zgoda z komunikatu prawnego §2.2 MDD — zapisywana jednorazowo per swiat.
+  // Consent from the legal notice, §2.2 MDD — saved once per world.
   game.settings!.register(MODULE_ID, 'legalNoticeAcknowledged', {
     name: 'Legal notice acknowledged',
     scope: 'world',
@@ -48,10 +49,10 @@ export function registerSettings(): void {
     default: false,
   });
 
-  // [KROK-8 Z4] Folder w skonfigurowanym zrodle przechowywania (domyslnie 'data'),
-  // do ktorego trafiaja wyeksportowane obrazy — konfigurowalny, bo swiaty
-  // roznia sie konwencja katalogow (i bo R6/A1: to WYLACZNIE miejsce zapisu,
-  // zadna logika decyzyjna).
+  // [Step 8 Z4] The folder in the configured storage source (default 'data')
+  // where exported images go — configurable, because worlds differ in
+  // directory conventions (and because R6/A1: this is ONLY a save location,
+  // no decision logic).
   game.settings!.register(MODULE_ID, 'uploadPath', {
     name: 'BINDERY.settings.uploadPathLabel',
     hint: 'BINDERY.settings.uploadPathHint',
@@ -61,9 +62,9 @@ export function registerSettings(): void {
     default: `worlds/${game.world?.id ?? 'world'}/bindery-imports`,
   });
 
-  // [KROK-8 Z5] Ostatnio uzyte ustawienie siatki (GridPicker) — zapamietane
-  // per swiat, nie pokazywane w ekranie ustawien (uzytkownik zmienia je
-  // WYLACZNIE przez sam GridPicker).
+  // [Step 8 Z5] The most recently used grid setting (GridPicker) —
+  // remembered per world, not shown in the settings screen (the user
+  // changes it ONLY through GridPicker itself).
   game.settings!.register(MODULE_ID, 'lastGridConfig', {
     name: 'Last grid config',
     scope: 'world',
@@ -72,69 +73,124 @@ export function registerSettings(): void {
     default: { size: 100, offsetX: 0, offsetY: 0 },
   });
 
-  // [KROK-11 Z6] Foldery docelowe + prefiks nazw z ekranu celu — zapamietane
-  // per swiat (brief: "Ustawienia zapamietywane per swiat"), NIE pokazywane w
-  // ekranie ustawien (uzytkownik zmienia je WYLACZNIE przez sam ekran celu),
-  // ten sam wzorzec co `lastGridConfig`. `imagePath` NIE duplikuje `uploadPath`
-  // powyzej — ekran celu edytuje/pokazuje TA SAMA wartosc (`uploadPath` jest
-  // juz per-swiat, config:true, ustawione od kroku 8).
+  // [Step 11 Z6] Target folders + name prefix from the target screen —
+  // remembered per world (brief: "settings remembered per world"), NOT
+  // shown in the settings screen (the user changes them ONLY through the
+  // target screen itself), the same pattern as `lastGridConfig`.
+  // `imagePath` does NOT duplicate `uploadPath` above — the target screen
+  // edits/shows THAT SAME value (`uploadPath` is already per-world,
+  // config:true, set since step 8).
   game.settings!.register(MODULE_ID, 'importTargets', {
     name: 'Import target folders',
     scope: 'world',
     config: false,
-    // [KROK-19 Z3] `actorFolder` dolozony do TEGO SAMEGO obiektu (nie osobny
-    // klucz `game.settings`) — ten sam wzorzec co `sceneFolder`/`journalFolder`
-    // powyzej, zeby ekran celu (kiedy dostanie zakladke aktorow) mogl
-    // odczytac/zapisac wszystkie foldery jednym wywolaniem `.get`/`.set`.
+    // [Step 19 Z3] `actorFolder` added to THIS SAME object (not a separate
+    // `game.settings` key) — the same pattern as `sceneFolder`/`journalFolder`
+    // above, so the target screen (once it gets an actors tab) can
+    // read/write all folders with one `.get`/`.set` call.
     default: { sceneFolder: '', journalFolder: '', actorFolder: '', namePrefix: '' },
   });
 
-  // [KROK-21 Z1] Ostatnio wczytany profil aktorow (plik JSON wybrany w
-  // ImportWizard) — zapamietany PER SWIAT, zeby nie trzeba bylo wskazywac go
-  // przy kazdym imporcie. Przechowuje SUROWA (jeszcze niewalidowana przy
-  // odczycie) tresc pliku + jego nazwe do wyswietlenia — walidacja
-  // (`validateProfile`) uruchamiana PONOWNIE przy kazdym odczycie w
-  // `ImportWizard`, nigdy zaufana bez sprawdzenia (ten sam wymog co przy
-  // pierwszym wczytaniu — profile pochodza od nieznanych autorow, R2/schema.ts).
-  // `config:false` — jak `lastGridConfig`/`importTargets`, uzytkownik zmienia
-  // to WYLACZNIE przez sam ImportWizard, nie przez ekran ustawien.
+  // [Step 21 Z1] The most recently loaded actor profile (a JSON file chosen
+  // in ImportWizard) — remembered PER WORLD, so it doesn't need to be
+  // selected again on every import. Stores the RAW (not yet validated on
+  // read) file content + its name for display — validation
+  // (`validateProfile`) runs AGAIN on every read in `ImportWizard`, never
+  // trusted without checking (the same requirement as on first load —
+  // profiles come from unknown authors, R2/schema.ts).
+  // `config:false` — like `lastGridConfig`/`importTargets`, the user changes
+  // this ONLY through ImportWizard itself, not through the settings screen.
   //
-  // [R3] To pole przechowuje TRESC dostarczona przez UZYTKOWNIKA, we WLASNYM
-  // swiecie Foundry (baza danych jego serwera) — nie w tym repozytorium i nie
-  // hostowane przez ten projekt dla innych. Analogiczne do zapisania obrazu
-  // czy aktora zaimportowanego z tego samego pliku; R3 dotyczy TEGO repo, nie
-  // danych swiata uzytkownika.
+  // [R3] This field stores CONTENT supplied by the USER, in their OWN
+  // Foundry world (their server's database) — not in this repository and
+  // not hosted by this project for others. Analogous to saving an image or
+  // actor imported from that same file; R3 applies to THIS repo, not to the
+  // user's world data.
   //
-  // [zmierzony wprost w kroku 21] CELOWO bez `type: Object` — z nim
-  // `ClientSettings.register` (typy `fvtt-types`) rzuca `Type 'ObjectConstructor'
-  // is not assignable to type 'undefined'` dla TEGO konkretnego wpisu (zawezone
-  // przez bisekcje: znika przy usunieciu `type`, wraca niezaleznie od nazwy
-  // klucza i ksztaltu interfejsu — wyglada na limit inferencji generykow przy
-  // trzecim/kolejnym ustawieniu typu Object w tym samym module, nie na blad w
-  // tym kodzie). `default` sam w sobie wystarcza Foundry do wywnioskowania typu.
+  // [measured directly in step 21] DELIBERATELY without `type: Object` —
+  // with it, `ClientSettings.register` (the `fvtt-types` types) throws
+  // `Type 'ObjectConstructor' is not assignable to type 'undefined'` for
+  // THIS particular entry (narrowed down by bisection: disappears when
+  // `type` is removed, comes back regardless of the key's name or the
+  // interface's shape — looks like a generic-inference limit on the
+  // third-or-later Object-typed setting in the same module, not a bug in
+  // this code). `default` alone is enough for Foundry to infer the type.
   game.settings!.register(MODULE_ID, 'lastActorProfile', {
     name: 'Last loaded actor profile',
     scope: 'world',
     config: false,
     default: { fileName: '', profile: null },
   });
+
+  // [Set as default] The starting values for the token-preparation panel,
+  // most recently saved by the user (the "Set as default" button in
+  // TokenPrepApp) — remembered PER WORLD, so preparing many tokens in a row
+  // (e.g. a whole group of NPCs from one rulebook) doesn't require repeating
+  // the same clicks every time. `enabled:false` (the initial value) = the
+  // user has never clicked the button yet — TokenPrepApp then uses its own
+  // built-in initial values, exactly as before (including
+  // `images.removeTokenBackgroundDefault` from the profile). When
+  // `enabled:true`, these values OVERRIDE even the profile's suggestion —
+  // this is an explicit, deliberate decision via the button, not a default
+  // heuristic. `config:false` — like `lastGridConfig` above, changed ONLY by
+  // TokenPrepApp itself, never through the settings screen.
+  //
+  // No explicit `type: Object` — same reason as `lastActorProfile` above
+  // (the fvtt-types generic-inference limit on the third-or-later
+  // Object-typed setting in the same module; `lastGridConfig`/`importTargets`
+  // above already take up the first two slots) — `default` alone is enough.
+  game.settings!.register(MODULE_ID, 'tokenPrepDefaults', {
+    name: 'Token preparation defaults',
+    scope: 'world',
+    config: false,
+    default: {
+      enabled: false,
+      shape: 'circle',
+      removeBackground: false,
+      // Source of truth: DEFAULT_REMOVE_BACKGROUND.tolerance in
+      // packages/core/src/images/removeBackground.ts (not imported here —
+      // world-startup budget, see the header of TokenPrepApp.ts).
+      removeBackgroundTolerance: 10,
+      frame: 'none',
+      // Source of truth: DEFAULT_FRAME_COLOR in TokenPrepApp.ts.
+      frameColor: '#8a6d3b',
+      frameCustomImage: null,
+      outputSize: 512,
+      format: 'webp',
+    } satisfies TokenPrepDefaults,
+  });
 }
 
-/** Ksztalt `lastActorProfile` — patrz komentarz przy rejestracji wyzej. `fileName === ''` = brak zapamietanego profilu. */
+/** Shape of `lastActorProfile` — see the comment at its registration above. `fileName === ''` = no remembered profile. */
 export interface LastActorProfile {
   fileName: string;
-  /** Surowy JSON z pliku, jeszcze NIEWALIDOWANY — walidacja przy kazdym odczycie. `null` gdy `fileName === ''`. */
+  /** Raw JSON from the file, not yet validated — validated on every read. `null` when `fileName === ''`. */
   profile: unknown;
 }
 
-/** Ksztalt `importTargets` — patrz komentarz przy rejestracji wyzej. */
+/** Shape of `tokenPrepDefaults` — see the comment at its registration above. */
+export interface TokenPrepDefaults {
+  /** `false` = the user has never clicked "Set as default", the other fields are ignored. */
+  enabled: boolean;
+  shape: string;
+  removeBackground: boolean;
+  removeBackgroundTolerance: number;
+  frame: string;
+  frameColor: string;
+  /** Base64 of the uploaded custom frame's bytes (only when `frame === 'custom'`), `null` when there is none. */
+  frameCustomImage: string | null;
+  outputSize: number;
+  format: string;
+}
+
+/** Shape of `importTargets` — see the comment at its registration above. */
 export interface ImportTargets {
-  /** Nazwa folderu `Scene` (Foundry `Folder.name`, tworzony jesli nie istnieje) — pusty = korzen. */
+  /** `Scene` folder name (Foundry `Folder.name`, created if it doesn't exist) — empty = root. */
   sceneFolder: string;
-  /** Nazwa folderu `JournalEntry` — pusty = korzen. */
+  /** `JournalEntry` folder name — empty = root. */
   journalFolder: string;
-  /** [KROK-19 Z3] Nazwa folderu `Actor` — pusty = korzen. */
+  /** [Step 19 Z3] `Actor` folder name — empty = root. */
   actorFolder: string;
-  /** Opcjonalny prefiks nazw tworzonych dokumentow (sceny/journale/aktorzy) — pusty = brak prefiksu. */
+  /** Optional name prefix for created documents (scenes/journals/actors) — empty = no prefix. */
   namePrefix: string;
 }

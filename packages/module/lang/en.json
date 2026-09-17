@@ -367,6 +367,9 @@
       "frameColor": "Frame color",
       "frameCustomUpload": "Choose frame file…",
       "frameCustomHint": "A PNG with transparency, the same square shape as the token — it will be composited on top.",
+      "setDefault": "Set as default",
+      "setDefaultHint": "Save the current shape, background removal, frame, size, and format as the starting point for every token you prepare next.",
+      "setDefaultSaved": "Saved as the default token setup.",
       "confirm": "Save token",
       "cancel": "Cancel"
     },

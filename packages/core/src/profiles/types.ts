@@ -2,24 +2,24 @@ import type { Rect } from '../geometry.js';
 import type { FontRole } from '../inventory/fontRegistry.js';
 
 /**
- * [KROK-18 Z2] Token wejsciowy silnika wzorcow — CELOWO plaski i niezalezny od
+ * [Step 18 Z2] Input token of the pattern engine — DELIBERATELY flat and independent of
  * `MergedToken`/`LineToken`/`TextLine` (layout/*, semantic/*). MDD §5.5:
- * silnik operuje na "surowym strumieniu tokenow pdf.js plus geometrii z
- * inwentaryzacji" — NIGDY na `SemanticBlock[]` (krok 12 wykazal, ze
- * `buildSemanticBlocks` rozbija statblock na 20-30 fragmentow i skleja dane
- * roznych encji, S1). Wywolujacy buduje `ProfileToken[]` z dowolnego zrodla
- * (raw `TextItem`, `MergedToken` po higienie/scalaniu slow) — silnik nie
- * zaklada, KTORY etap potoku je dostarczyl, tylko ze sa uporzadkowane w
- * kolejnosci strumienia tekstu PDF-a (nie w kolejnosci czytania — S3: encje
- * wystepuja partiami, parowanie geometryczne dzieje sie osobno, poza tym plikiem).
+ * the engine operates on "the raw pdf.js token stream plus geometry from
+ * inventory" — NEVER on `SemanticBlock[]` (step 12 showed that
+ * `buildSemanticBlocks` breaks a statblock into 20-30 fragments and merges data
+ * from different entities, S1). The caller builds `ProfileToken[]` from any source
+ * (raw `TextItem`, `MergedToken` after hygiene/word-merging) — the engine does not
+ * assume WHICH pipeline stage supplied them, only that they are ordered in the
+ * sequence of the PDF's text stream (not reading order — S3: entities
+ * appear in batches, geometric pairing happens separately, outside this file).
  */
 export interface ProfileToken {
   text: string;
   bbox: Rect;
-  /** [KROK-18 Z3] Rola fontu z inwentaryzacji (`buildInventory().fontRoles`) — wejscie do `fontRoleCandidate` (kandydaci na nazwe encji). Opcjonalne: `labelledPairs`/`sectionList` (Z2) go nie potrzebuja. */
+  /** [Step 18 Z3] Font role from inventory (`buildInventory().fontRoles`) — input to `fontRoleCandidate` (candidates for entity name). Optional: `labelledPairs`/`sectionList` (Z2) don't need it. */
   fontRole?: FontRole;
-  /** [KROK-29 Z3] Klucz nosny fontu (`buildFontKey` — BaseFont po zdjeciu prefiksu subsetu + rozmiar), NIEZALEZNY od `fontRole` (ktory jest rankingiem CZESTOSCI/rozmiaru per dokument, nie identyfikatorem konkretnego kroju). Wejscie do `fontRoleCandidate.requireFontKeys` — klikniecie kandydata na nazwe w Profile Studio uczy sie TEGO klucza, zawezajac fatalna precyzje samej roli fontu (H2 kroku 12: 2401 kandydatow na 15 encji) do faktycznie uzywanego kroju. Opcjonalne z tego samego powodu co `fontRole`. */
+  /** [Step 29 Z3] Carrier font key (`buildFontKey` — BaseFont with the subset prefix stripped + size), INDEPENDENT of `fontRole` (which is a ranking of FREQUENCY/size per document, not an identifier of a specific typeface). Input to `fontRoleCandidate.requireFontKeys` — clicking a name candidate in Profile Studio learns THIS key, narrowing the fatal imprecision of the font role alone (step 12's H2: 2401 candidates for 15 entities) down to the typeface actually in use. Optional for the same reason as `fontRole`. */
   fontKey?: string;
-  /** [KROK-18 Z3] Numer strony tokenu — potrzebny `excludeRepeatedAcrossPages` (H2: naglowki/stopki powtarzajace sie identycznym tekstem na wielu stronach to NIE kandydaci na nazwe). Opcjonalne z tego samego powodu co `fontRole`. */
+  /** [Step 18 Z3] Page number of the token — needed by `excludeRepeatedAcrossPages` (H2: headers/footers repeating identical text across multiple pages are NOT name candidates). Optional for the same reason as `fontRole`. */
   page?: number;
 }

@@ -19,28 +19,29 @@ import { localizeMessage } from '../i18n.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
-/** [KROK-17] Ponizej tego progu sugestia auto-detekcji siatki (`detectGrid.ts`) jest zbyt slaba, zeby cokolwiek zgadywac — patrz `#pickGridForImage`. */
+/** [Step 17] Below this threshold, the grid auto-detection suggestion (`detectGrid.ts`) is too weak to guess anything from — see `#pickGridForImage`. */
 const MIN_GRID_SUGGESTION_CONFIDENCE = 0.4;
 
 /**
- * [KROK-20, na zyczenie uzytkownika] Auto-detekcja core'a "to jest cala
- * scena/mapa" (`doc.scenes`, CIFScene) i "to jest pelny tekst ksiazki jako
- * journal" (`doc.journals`, CIFJournal z hierarchii zakladek PDF) wylaczona
- * "na razie" — flaga zamiast usuwania kodu, zeby latwo przywrocic pozniej.
- * Zakladki "Sceny"/"Journale" ukryte w `review-screen.hbs`; ta sama flaga
- * pomija ich tworzenie w `#runImport` (bez tego, obrazy uzyte przez
- * `doc.scenes` bylyby "uzyte" — patrz `usedImageIds` — mimo ukrytej zakladki,
- * i NIE trafialyby do zakladki Obrazy jako zwykly wybor Przeznaczenia).
- * Te same obrazy nadal dostepne w zakladce Obrazy z Przeznaczeniem
- * Scena/Journal, obsluzone per-obraz zamiast przez ten potok.
+ * [Step 20, at user request] Core's auto-detection of "this is a whole
+ * scene/map" (`doc.scenes`, CIFScene) and "this is the full book text as a
+ * journal" (`doc.journals`, CIFJournal from the PDF bookmark hierarchy) is
+ * disabled "for now" — a flag instead of removing the code, so it can be
+ * restored easily later. The "Scenes"/"Journals" tabs are hidden in
+ * `review-screen.hbs`; the same flag skips their creation in `#runImport`
+ * (without this, images used by `doc.scenes` would be "used" — see
+ * `usedImageIds` — despite the hidden tab, and would NOT reach the Images
+ * tab as a normal Destination choice). The same images are still available
+ * in the Images tab with a Scene/Journal Destination, handled per-image
+ * instead of through this pipeline.
  */
 const SCENES_JOURNALS_FROM_CIF_ENABLED = false;
 
 type ReviewTab = 'images' | 'scenes' | 'journals' | 'actors' | 'diagnostics';
 type ReviewStep = 'review' | 'target' | 'summary';
-/** [zgloszenie uzytkownika, "dwie zakladki: automatycznie i recznie"] Zrodlo obrazu — WYLACZNIE prezentacyjny podzial listy zakladki Obrazy, nie nowe pole `CIFImage`: `manual` rozpoznawane po prefiksie `id` (`manual-crop-`, patrz `#createManualCrop`). */
+/** [User request, "two tabs: automatic and manual"] Image source — PURELY a presentational split of the Images tab list, not a new `CIFImage` field: `manual` is recognized by the `id` prefix (`manual-crop-`, see `#createManualCrop`). */
 type ImageSourceTab = 'auto' | 'manual';
-/** [zgloszenie uzytkownika] Podzakladka WEWNATRZ kazdej z `ImageSourceTab` — filtruje wedlug JUZ istniejacego `ReviewSelection.imageDestination` (ten sam wybor co dropdown "Przeznaczenie" per wiersz), nie nowego stanu. */
+/** [User request] Sub-tab WITHIN each `ImageSourceTab` — filters by the ALREADY existing `ReviewSelection.imageDestination` (the same choice as the per-row "Destination" dropdown), not new state. */
 type ImageDestTab = ImageDestination;
 
 interface JournalRow {
@@ -63,7 +64,7 @@ export interface ReviewScreenData {
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>;
   previewDocument: PreviewDocument;
   fileName: string;
-  /** [KROK-42 Z1] Wartosc startowa przelacznika "usun tlo" w `TokenPrepApp` — patrz `images.removeTokenBackgroundDefault` w `schema.ts` (`@bindery/core`). */
+  /** [Step 42 Z1] Starting value of the "remove background" toggle in `TokenPrepApp` — see `images.removeTokenBackgroundDefault` in `schema.ts` (`@bindery/core`). */
   removeTokenBackgroundDefault?: boolean;
 }
 
@@ -72,15 +73,15 @@ export interface ReviewScreenResult {
 }
 
 /**
- * [KROK-11] Ekran przegladu (faza 9) — split-pane ApplicationV2, wirtualizowane
- * listy (Z2), podglad strony + nakladki bbox (Z3), model zaznaczenia (Z4),
- * drzewo journali tylko-do-odczytu (Z5), ekran celu (Z6), panel diagnostyki
- * (Z7). CZYSTA prezentacja/selekcja nad juz-gotowym `CIFDocument` — zero
- * logiki decyzyjnej (klasyfikacja/CIF budowane WYLACZNIE w `packages/core`,
- * check:boundary A1).
+ * [Step 11] Review screen (phase 9) — split-pane ApplicationV2, virtualized
+ * lists (Z2), page preview + bbox overlays (Z3), selection model (Z4), a
+ * read-only journal tree (Z5), the target screen (Z6), the diagnostics panel
+ * (Z7). PURE presentation/selection over an already-built `CIFDocument` —
+ * zero decision logic (classification/CIF is built EXCLUSIVELY in
+ * `packages/core`, check:boundary A1).
  *
- * Otwierany dynamicznie (patrz `ImportWizard.ts`) — NIE statycznie
- * importowany z `main.ts`, zeby nie obciazac budzetu <40KB startu swiata (I3).
+ * Opened dynamically (see `ImportWizard.ts`) — NOT statically imported from
+ * `main.ts`, so as not to burden the <40KB world-startup budget (I3).
  */
 export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
@@ -91,10 +92,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       resizable: true,
       icon: 'fa-solid fa-magnifying-glass',
     },
-    // [redesign 2a, naprawa zgloszona na zywo] Split podgladu (340px stale) +
-    // tabeli obrazow (kolumny 22/36/74/148px stale z README) potrzebuje
-    // znacznie wiecej miejsca niz dawny pojedynczy label — przy starej
-    // szerokosci 960 kolumna nazwy dostawala ok. 14px (praktycznie niewidoczna).
+    // [Redesign 2a, fix reported live] The preview split (fixed 340px) +
+    // image table (columns fixed at 22/36/74/148px from the README) needs
+    // considerably more room than the old single label — at the old 960
+    // width the name column got about 14px (practically invisible).
     position: { width: 1180, height: 720 },
     actions: {
       cancelReview: ReviewScreen.#onCancelReview,
@@ -125,21 +126,21 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   static override PARTS = {
     main: {
       template: 'modules/bindery/templates/review-screen.hbs',
-      // [zgloszenie uzytkownika, "klikniecie obrazu przewija liste na gore"]
-      // Klikniecie wiersza na innej stronie niz aktualnie wyswietlana
-      // (`#buildImageRow`) i wiele innych akcji (zaznacz wszystko/nic,
-      // zastosuj ustawienia zbiorcze, ...) wola `this.render()` — ten sam
-      // mechanizm co w `ImportWizard.ts` (patrz komentarz tam): ApplicationV2
-      // podmienia caly korzen tej czesci na nowy element, wiec KAZDY
-      // przewijany kontener w srodku (w tym `VirtualList`, ktora czyta
-      // `container.scrollTop` wprost przy montowaniu — `VirtualList.ts`)
-      // dostaje swiezy element ze `scrollTop` zerowanym z definicji.
-      // `scrollable` to udokumentowany mechanizm samego Foundry
-      // (`handlebars-application.mjs`) na dokladnie ten przypadek —
-      // zapamietuje `scrollTop` PRZED podmiana i przywraca go PO niej, ZANIM
-      // `_onRender` (a wiec i `#mountImageList`/`VirtualList`'s konstruktor)
-      // w ogole sie wykona, wiec wirtualizacja od razu widzi poprawna pozycje.
-      // Wszystkie piec przewijanych list ekranu przegladu, nie tylko Obrazy.
+      // [User report, "clicking an image scrolls the list back to the top"]
+      // Clicking a row on a page other than the one currently shown
+      // (`#buildImageRow`) and many other actions (select all/none, apply
+      // bulk settings, ...) call `this.render()` — the same mechanism as in
+      // `ImportWizard.ts` (see the comment there): ApplicationV2 replaces
+      // this whole part's root with a new element, so EVERY scrollable
+      // container inside it (including `VirtualList`, which reads
+      // `container.scrollTop` directly on mount — `VirtualList.ts`) gets a
+      // fresh element with `scrollTop` reset by definition. `scrollable` is
+      // Foundry's own documented mechanism (`handlebars-application.mjs`)
+      // for exactly this case — it remembers `scrollTop` BEFORE the swap and
+      // restores it AFTER, BEFORE `_onRender` (and hence `#mountImageList`/
+      // `VirtualList`'s constructor) even runs, so virtualization sees the
+      // correct position right away. All five scrollable lists on the review
+      // screen, not just Images.
       scrollable: [
         '[data-list="images"]',
         '[data-list="actors"]',
@@ -166,12 +167,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #step: ReviewStep = 'review';
   #tab: ReviewTab = 'images';
-  /** [zgloszenie uzytkownika] Podzakladki WEWNATRZ zakladki Obrazy — patrz `ImageSourceTab`/`ImageDestTab`. */
+  /** [User request] Sub-tabs WITHIN the Images tab — see `ImageSourceTab`/`ImageDestTab`. */
   #imageSourceTab: ImageSourceTab = 'auto';
-  // [zgloszenie uzytkownika, "wszystkie obrazy trafiaja do Nieprzydzielone"]
-  // Domyslna podzakladka to teraz `unassigned` (nie `scene`) — skoro KAZDY
-  // obraz startuje z tym przeznaczeniem, otwieranie na "Scena" pokazywaloby
-  // pusta liste za kazdym razem.
+  // [User request, "all images end up in Unassigned"]
+  // The default sub-tab is now `unassigned` (not `scene`) — since EVERY
+  // image starts with this destination, opening on "Scene" would show an
+  // empty list every time.
   #imageDestTab: ImageDestTab = 'unassigned';
 
   #currentPageNumber = 1;
@@ -180,76 +181,77 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   static readonly #PAGE_CACHE_SIZE = 5;
   #pageRenderToken = 0;
 
-  /** [KROK-11 Z3] Id obrazu podswietlonego przez klik NA LIScie LUB na nakladce bbox — dziala w obie strony. */
+  /** [Step 11 Z3] Id of the image highlighted by a click ON THE LIST OR on the bbox overlay — works both ways. */
   #highlightedImageId: string | null = null;
   #overlayImages: readonly CIFImage[] = [];
 
-  // ---- [zgloszenie uzytkownika, "przybliżenie PDFa w importerze"] --------
+  // ---- [User request, "zooming the PDF in the importer"] --------
   /**
-   * Przyblizenie podgladu strony — WSPOLNE dla zakladek Obrazy/Aktorzy (ten
-   * sam wzorzec co `#currentPageNumber`). 100 = domyslna, stala ramka 3:4
-   * z letterboxingiem (`bindery.css`, "NIETKNIETE" — literalny wymiar z
-   * design-handoffu) — POWYZEJ 100 przelacza `.bindery-page-canvas-wrap` w
-   * tryb przewijany (mirror `.bindery-profile-studio`'s juz istniejacego,
-   * sprawdzonego uzycia tego samego uktladu: `overflow:auto`, obraz
-   * skalowany WYLACZNIE szerokoscia). Zmiana zoomu jest CELOWO surgical
-   * (`#setZoom`, bez `void this.render()`) — pelny render podmienilby caly
-   * korzen czesci i zresetowal przewijanie listy obrazow (ten sam mechanizm
-   * co `scrollable` powyzej naprawia dla INNYCH akcji, ale zoom nie musi w
-   * ogole przez niego przechodzic, skoro to czysto wizualna zmiana stylu).
+   * Page-preview zoom level — SHARED between the Images/Actors tabs (the
+   * same pattern as `#currentPageNumber`). 100 = default, fixed 3:4 frame
+   * with letterboxing (`bindery.css`, "UNTOUCHED" — a literal dimension from
+   * the design handoff) — ABOVE 100 it switches `.bindery-page-canvas-wrap`
+   * into scrollable mode (mirroring `.bindery-profile-studio`'s already
+   * existing, proven use of the same layout: `overflow:auto`, image scaled
+   * by width ONLY). Changing zoom is DELIBERATELY surgical (`#setZoom`,
+   * without `void this.render()`) — a full render would replace the whole
+   * part's root and reset the image list's scroll position (the same
+   * mechanism `scrollable` above fixes for OTHER actions, but zoom doesn't
+   * need to go through it at all, since it's a purely visual style change).
    */
   static readonly #MIN_ZOOM = 100;
   static readonly #MAX_ZOOM = 300;
   static readonly #ZOOM_STEP = 25;
   #zoomPercent = ReviewScreen.#MIN_ZOOM;
-  /** [zgloszenie uzytkownika, "wolalbym mniejszy kat niz 90 stopni, np. co 10"] Krok pojedynczego klikniecia `#rotateImage` — drobna korekta (np. lekko krzywo zeskanowana mapa), nie pelny obrot o cwiartke. */
+  /** [User request, "I'd prefer a smaller angle than 90 degrees, e.g. every 10"] Step for a single `#rotateImage` click — a minor correction (e.g. a slightly skewed scanned map), not a full quarter-turn. */
   static readonly #IMAGE_ROTATE_STEP_DEG = 10;
 
-  // ---- [KROK-18] "Zaznacz i wytnij" — reczny wybor fragmentu strony --------
-  /** Tryb wlaczony/wylaczony przyciskiem w toolbarze podgladu strony — patrz `#onToggleSelectMode`. */
+  // ---- [Step 18] "Select and crop" — manual selection of a page fragment --------
+  /** Mode toggled on/off by a button in the page-preview toolbar — see `#onToggleSelectMode`. */
   #isSelectMode = false;
-  /** Licznik dla `id` reczne dodanych obrazow (`manual-crop-N`) — unikalne w obrebie TEJ sesji przegladu, to jedyne wymaganie (patrz `buildCIFImages` w core: `id` jest jedynie kluczem lokalnym dla tego dokumentu). */
+  /** Counter for `id`s of manually added images (`manual-crop-N`) — unique within THIS review session, which is the only requirement (see `buildCIFImages` in core: `id` is merely a local key for this document). */
   #manualCropSeq = 0;
-  /** Stan trwajacego przeciagniecia (miedzy pointerdown a pointerup) — `null` gdy nic sie nie przeciaga. Wspolrzedne w przestrzeni viewBox nakladki SVG (te same piksele co wyrenderowany podglad strony). */
+  /** State of an in-progress drag (between pointerdown and pointerup) — `null` when nothing is being dragged. Coordinates are in the SVG overlay's viewBox space (the same pixels as the rendered page preview). */
   #dragState: { startScreen: { x: number; y: number }; rectEl: SVGRectElement } | null = null;
-  /** Chroni przed rownoleglymi/nachodzacymi na siebie wycieciami (np. drugi drag zanim pierwszy render regionu sie skonczyl). */
+  /** Guards against parallel/overlapping crops (e.g. a second drag before the first region render has finished). */
   #isCropping = false;
   /**
-   * [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem"] Po
-   * zakonczeniu przeciagniecia (`finishDrag`) NIE wycinamy juz od razu —
-   * przechodzimy w stan "dostrajania obrotu": ten prostokat (wspolrzedne w
-   * TEJ SAMEJ przestrzeni viewBox co `#dragState`) jest rysowany z uchwytem
-   * do przeciagniecia (`#renderPendingCropOverlay`) i paskiem
-   * zatwierdz/anuluj (`#showPendingCropToolbar`), az uzytkownik potwierdzi
-   * (`#confirmPendingCrop`) lub anuluje (`#cancelPendingCrop`). `null` gdy
-   * nic nie jest w trakcie dostrajania.
+   * [User request, "rotate the selected area before cropping"] After a drag
+   * finishes (`finishDrag`) we no longer crop right away — we move into a
+   * "rotation adjustment" state: this rectangle (coordinates in the SAME
+   * viewBox space as `#dragState`) is drawn with a drag handle
+   * (`#renderPendingCropOverlay`) and a confirm/cancel bar
+   * (`#showPendingCropToolbar`), until the user confirms
+   * (`#confirmPendingCrop`) or cancels (`#cancelPendingCrop`). `null` when
+   * nothing is being adjusted.
    */
   #pendingCrop: RotatedRect | null = null;
-  /** Numer strony, NA KTOREJ powstal `#pendingCrop` — wspolrzedne pikselowe maja sens WYLACZNIE dla tej konkretnej strony/podgladu. Kazde miejsce zmieniajace `#currentPageNumber` (nawigacja ◄/►, klik na wierszu obrazu/aktora z innej strony, wpisanie numeru strony) musi wyzerowac `#pendingCrop` — `draw()` w `#mountOverlay` sprawdza to jako dodatkowa siatka bezpieczenstwa, patrz nizej. */
+  /** Page number ON WHICH `#pendingCrop` was created — the pixel coordinates only make sense for that specific page/preview. Every place that changes `#currentPageNumber` (◄/► navigation, clicking an image/actor row on another page, typing a page number) must reset `#pendingCrop` — `draw()` in `#mountOverlay` checks this as an extra safety net, see below. */
   #pendingCropPageNumber: number | null = null;
-  /** Element paska zatwierdz/anuluj dodany DYNAMICZNIE do `.bindery-page-canvas-wrap` (jak `rectEl` w `#dragState` — nie ma go w markupie Handlebars) — trzymany tu, zeby go usunac przy zatwierdzeniu/anulowaniu/zmianie strony. */
+  /** Confirm/cancel bar element added DYNAMICALLY to `.bindery-page-canvas-wrap` (like `rectEl` in `#dragState` — it's not in the Handlebars markup) — kept here so it can be removed on confirm/cancel/page change. */
   #pendingCropToolbar: HTMLElement | null = null;
   /**
-   * [zgloszenie uzytkownika, "mozliwosc obrocenia zaznaczonego automatycznie
-   * obrazu"] Obrot NA ZYWO dostrajany uchwytem w `#renderResizeHandles` dla
-   * PODSWIETLONEGO obrazu — trzymany osobno od `image.provenance.bbox`
-   * (ktory jest ZAWSZE rownolegly do osi w calym projekcie) i skopowany do
-   * `imageId`, zeby przypadkowo nie "przeciekl" na inny obraz, gdyby
-   * podswietlenie sie zmienilo bez pelnego renderu. Zerowany po udanym
-   * `#resizeImage` (patrz tam) — inaczej NASTEPNA edycja tego samego obrazu
-   * zaczelaby od bledna, "podwojonej" rotacji.
+   * [User request, "the ability to rotate an automatically selected image"]
+   * LIVE rotation adjusted via the handle in `#renderResizeHandles` for the
+   * HIGHLIGHTED image — kept separate from `image.provenance.bbox` (which is
+   * ALWAYS axis-aligned throughout the project) and keyed by `imageId`, so
+   * it can't accidentally "leak" onto another image if the highlight changes
+   * without a full render. Reset after a successful `#resizeImage` (see
+   * there) — otherwise the NEXT edit of the same image would start from an
+   * incorrect, "doubled" rotation.
    */
   #imageAdjustRotation: { imageId: string; rotationRad: number } | null = null;
   /**
-   * [KROK-19, zgloszony na zywo blad "wybiore Journal i zmienie strone, a
-   * wraca Scena"] Pasek operacji zbiorczych (`bulkDestination`/
-   * `bulkJournalGroup`) to zwykly `<select>`/`<input>` w markupie Handlebars,
-   * BEZ zadnego `{{value}}` bindowanego do trwalego stanu (w odroznieniu od
-   * np. `targets.namePrefix`) — kazdy `render()` (w tym zwykla nawigacja
-   * podgladu strony ◄/►) odtwarza je OD ZERA, a przegladarka domyslnie
-   * zaznacza PIERWSZA opcje `<select>` ("Scena"), cicho gubiac wybor
-   * uzytkownika. Te dwa pola pamietaja ostatni wybor i sa przywracane w
-   * `#wireBulkImageControls` po kazdym montowaniu zakladki Obrazy.
+   * [Step 19, bug reported live: "I pick Journal and change page, and it
+   * reverts to Scene"] The bulk-operations bar (`bulkDestination`/
+   * `bulkJournalGroup`) is a plain `<select>`/`<input>` in the Handlebars
+   * markup, with NO `{{value}}` bound to persistent state (unlike e.g.
+   * `targets.namePrefix`) — every `render()` (including plain ◄/► page
+   * preview navigation) recreates them FROM SCRATCH, and the browser
+   * defaults to selecting the FIRST `<select>` option ("Scene"), silently
+   * losing the user's choice. These two fields remember the last choice and
+   * are restored in `#wireBulkImageControls` after every mount of the
+   * Images tab.
    */
   #bulkDestinationValue: ImageDestination = 'scene';
   #bulkJournalGroupValue = '';
@@ -261,45 +263,47 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   #diagnosticList: VirtualList<DiagnosticGroup> | null = null;
   #thumbnailUrls = new Map<string, string>();
   /**
-   * [naprawa zgloszonego bledu, "po 36 obrotach po 10° obraz powinien wrocic
-   * do poczatkowej postaci (360°), a kurczy sie z kazdym obrotem"] Kazde
-   * `#rotateImage` PRZED ta naprawa obracalo juz-przyciety WYNIK poprzedniego
-   * obrotu, wiec strata przy przycinaniu (`inscribedRotatedRectScale` < 1 dla
-   * kazdego kata poza wielokrotnoscia 180°) KUMULOWALA SIE wykladniczo mimo
-   * ze sumaryczny kat wracal do 0°. Naprawa: pamietaj PIERWOTNE bajty (z
-   * momentu PIERWSZEGO klikniecia obrotu dla danego obrazu, jeszcze przed
-   * jakimkolwiek przycieciem) + sumaryczny kat W STOPNIACH (int, modulo
-   * 360 — zero dryfu zmiennoprzecinkowego z wielokrotnego dodawania radianow)
-   * i ZAWSZE obracaj PIERWOTNE bajty o CALY sumaryczny kat od zera, nigdy
-   * wynik poprzedniego obrotu. Przy sumarycznym kacie 0° (kazda wielokrotnosc
-   * 360°) `inscribedRotatedRectScale` zwraca DOKLADNIE 1 — pelny, dokladny
-   * powrot do oryginalu. Czyszczone w `#resizeImage` (swiezy crop z PDF-a to
-   * NOWY punkt odniesienia "0°", stare `originalBytes` juz nie obowiazuja).
+   * [Bug fix, reported: "after 36 rotations of 10°, the image should return
+   * to its original state (360°), but it shrinks with every rotation"]
+   * BEFORE this fix, every `#rotateImage` rotated the already-cropped RESULT
+   * of the previous rotation, so the cropping loss (`inscribedRotatedRectScale`
+   * < 1 for any angle other than a multiple of 180°) ACCUMULATED
+   * exponentially even though the total angle returned to 0°. Fix: remember
+   * the ORIGINAL bytes (from the moment of the FIRST rotation click for a
+   * given image, before any cropping at all) + the total angle IN DEGREES
+   * (int, modulo 360 — zero floating-point drift from repeatedly adding
+   * radians) and ALWAYS rotate the ORIGINAL bytes by the ENTIRE total angle
+   * from zero, never the result of the previous rotation. At a total angle
+   * of 0° (any multiple of 360°) `inscribedRotatedRectScale` returns EXACTLY
+   * 1 — a full, exact return to the original. Cleared in `#resizeImage` (a
+   * fresh crop from the PDF is a NEW "0°" reference point, the old
+   * `originalBytes` no longer applies).
    */
   #imageRotationState = new Map<string, { originalBytes: Uint8Array; originalFormat: string; totalDeg: number }>();
   /**
-   * [zgloszenie uzytkownika, "wybieram obraz z listy, przeskakuje na
-   * początek"] Pozycja przewijania KAZDEJ wirtualizowanej listy, sledzona
-   * NA ZYWO (patrz `VirtualList`'s `onScroll`) i przywracana przy kazdym
-   * ponownym montowaniu (`initialScrollTop`) — Foundry'owy `scrollable`
-   * (`PARTS.main` wyzej) NIE dziala dla tych list, patrz uzasadnienie przy
-   * `initialScrollTop` w `VirtualList.ts`. Klucz = ten sam string co
-   * `data-list="..."` w szablonie, WYLACZNIE do czytelnosci (nie odczytywany
-   * z DOM-u).
+   * [User request, "I pick an image from the list, it jumps back to the
+   * top"] Scroll position of EVERY virtualized list, tracked LIVE (see
+   * `VirtualList`'s `onScroll`) and restored on every remount
+   * (`initialScrollTop`) — Foundry's own `scrollable` (`PARTS.main` above)
+   * does NOT work for these lists, see the rationale next to
+   * `initialScrollTop` in `VirtualList.ts`. The key = the same string as
+   * `data-list="..."` in the template, PURELY for readability (not read
+   * from the DOM).
    */
   #listScrollTop: Record<string, number> = {};
 
-  // ---- [KROK-20 Z2] Zakladka aktorow --------------------------------------
+  // ---- [Step 20 Z2] Actors tab --------------------------------------
   #actorSelection: ActorReviewSelection;
-  /** [KROK-20 Z3] Id aktora podswietlonego przez klik na liscie LUB na nakladce bbox — mirror `#highlightedImageId`. */
+  /** [Step 20 Z3] Id of the actor highlighted by a click on the list OR on the bbox overlay — mirrors `#highlightedImageId`. */
   #highlightedActorId: string | null = null;
   /**
-   * [KROK-20 Z2] `coc7Adapter.fromActor` policzony NAD PRZEGLADANYMI danymi
-   * (nadpisania uzytkownika juz wliczone przez `applyActorOverrides`) — WYLACZNIE
-   * do PODGLADU `notes`/`issues` w tym ekranie (A3/A10: "pola nieparsowane
-   * widoczne, nie ukryte"). `#runImport` liczy WLASNY, niezalezny wynik tuz
-   * przed zapisem (na najswiezszym stanie `#actorSelection`) — ta mapa to
-   * WYLACZNIE cache do wyswietlenia, nigdy zrodlo prawdy dla importu.
+   * [Step 20 Z2] `coc7Adapter.fromActor` computed OVER THE DATA BEING
+   * REVIEWED (user overrides already applied via `applyActorOverrides`) —
+   * SOLELY for the `notes`/`issues` PREVIEW on this screen (A3/A10: "unparsed
+   * fields stay visible, never hidden"). `#runImport` computes its OWN,
+   * independent result right before saving (on the freshest `#actorSelection`
+   * state) — this map is PURELY a display cache, never the source of truth
+   * for the import.
    */
   #actorAdapterPreview = new Map<string, AdapterResult<Coc7ActorPayload>>();
 
@@ -318,10 +322,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#rebuildDiagnosticGroups();
     this.#rebuildActorAdapterPreview();
     const stored = game.settings!.get(MODULE_ID, 'importTargets') as ImportTargets;
-    // [KROK-19 Z3] `actorFolder` moze byc `undefined` w ustawieniach
-    // zapisanych PRZED tym krokiem (stary domyslny obiekt nie mial tego pola)
-    // — ten ekran (jeszcze) nie zarzadza aktorami, wiec wystarczy defensywny
-    // fallback, zeby nie zlamac `ImportTargets` na starszych swiatach.
+    // [Step 19 Z3] `actorFolder` can be `undefined` in settings saved
+    // BEFORE this step (the old default object didn't have this field) —
+    // this screen doesn't (yet) manage actors, so a defensive fallback is
+    // enough, so as not to break `ImportTargets` on older worlds.
     this.#targets = { sceneFolder: stored.sceneFolder, journalFolder: stored.journalFolder, actorFolder: stored.actorFolder ?? '', namePrefix: stored.namePrefix };
   }
 
@@ -337,20 +341,20 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-20 Z2] Przelicza `notes`/`issues` PODGLADOWE dla WSZYSTKICH
-   * aktorow, nad danymi PO nadpisaniach uzytkownika (`applyActorOverrides`)
-   * — wywolywane po kazdej edycji nazwy/wartosci/ataku, zeby lista notatek w
-   * wierszu odzwierciedlala TO, co user wlasnie zmienil (A3/A10: aktor
-   * ukrywajacy wlasna niepewnosc jest "szybszy do przejrzenia i mniej
-   * bezpieczny" — MDD P6, przestroga wprost z tego kroku).
+   * [Step 20 Z2] Recomputes the PREVIEW `notes`/`issues` for ALL actors,
+   * over the data AFTER user overrides (`applyActorOverrides`) — called
+   * after every edit of a name/value/attack, so the notes list in the row
+   * reflects what the user JUST changed (A3/A10: an actor hiding its own
+   * uncertainty is "faster to review and less safe" — MDD P6, a warning
+   * stated explicitly in this step).
    */
   #rebuildActorAdapterPreview(): void {
     this.#actorAdapterPreview.clear();
     for (const actor of this.#data.document.actors ?? []) {
       const patched = applyActorOverrides(actor, this.#actorSelection);
       const ctx = { folderId: null, imagePathResolver: () => null, language: null, profileId: null };
-      // `coc7Adapter` jest typowany jako `SystemAdapter` (kontrakt §5.6, `fromActor` zwraca `AdapterResult<object>`)
-      // — bezpieczny rzut na konkretny ksztalt WLASNEJ implementacji (`coc7.ts`), tak jak `createActors.ts` juz robi.
+      // `coc7Adapter` is typed as `SystemAdapter` (contract §5.6, `fromActor` returns `AdapterResult<object>`)
+      // — a safe cast to the concrete shape of OUR OWN implementation (`coc7.ts`), the same as `createActors.ts` already does.
       this.#actorAdapterPreview.set(actor.id, coc7Adapter.fromActor(patched, ctx) as AdapterResult<Coc7ActorPayload>);
     }
   }
@@ -367,19 +371,19 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       .sort((a, b) => b.count - a.count);
   }
 
-  /** [zgloszenie uzytkownika] `manual-crop-` to JEDYNY miejsce, gdzie ten prefiks jest nadawany (`#createManualCrop`) — bezpieczne rozpoznanie zrodla bez dodatkowego pola na `CIFImage`. */
+  /** [User request] `manual-crop-` is the ONLY place where this prefix is assigned (`#createManualCrop`) — a safe way to recognize the source without an extra field on `CIFImage`. */
   static #isManualImage(image: CIFImage): boolean {
     return image.id.startsWith('manual-crop-');
   }
 
-  /** Lista Obrazow PO obu poziomach filtrowania (zrodlo + przeznaczenie), w tej samej kolejnosci co `sortImagesForReview` — jedyne miejsce, ktore `#mountImageList`/`#mountOverlay` faktycznie widza. */
+  /** The Images list AFTER both levels of filtering (source + destination), in the same order as `sortImagesForReview` — the only thing `#mountImageList`/`#mountOverlay` actually see. */
   #visibleImages(): CIFImage[] {
     return sortImagesForReview(this.#data.document.images).filter(
       (i) => (ReviewScreen.#isManualImage(i) ? 'manual' : 'auto') === this.#imageSourceTab && this.#selection.imageDestination(i.id) === this.#imageDestTab,
     );
   }
 
-  /** Liczniki dla podzakladek zrodla ("Automatycznie wykryte"/"Zaznaczone ręcznie") — CALY dokument, niezaleznie od aktywnej podzakladki przeznaczenia. */
+  /** Counters for the source sub-tabs ("Automatically detected"/"Manually selected") — the WHOLE document, regardless of the active destination sub-tab. */
   #imageSourceCounts(): { auto: number; manual: number } {
     let auto = 0;
     let manual = 0;
@@ -390,7 +394,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return { auto, manual };
   }
 
-  /** Liczniki dla podzakladek przeznaczenia (Scena/Journal/Token/Nieprzydzielone) — WYLACZNIE w obrebie aktywnej podzakladki zrodla. */
+  /** Counters for the destination sub-tabs (Scene/Journal/Token/Unassigned) — SOLELY within the active source sub-tab. */
   #imageDestCounts(): Record<ImageDestTab, number> {
     const counts: Record<ImageDestTab, number> = { scene: 0, journal: 0, token: 0, unassigned: 0 };
     for (const image of this.#data.document.images) {
@@ -409,31 +413,30 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       isStepReview: this.#step === 'review',
       isStepTarget: this.#step === 'target',
       isStepSummary: this.#step === 'summary',
-      // [redesign 2a] Tor krokow w lewej kolumnie — "Plik" jest ZAWSZE
-      // ukonczony (PDF zostal juz wybrany w ImportWizard, zanim ten ekran
-      // w ogole istnieje), "Przeglad"/"Import" przechodza done/active/future
-      // wzgledem `#step`.
+      // [Redesign 2a] The step track in the left column — "File" is ALWAYS
+      // complete (the PDF was already chosen in the ImportWizard before this
+      // screen even exists), "Review"/"Import" cycle through done/active/future
+      // depending on `#step`.
       step2Done: this.#step !== 'review',
       step2Active: this.#step === 'review',
       step3Done: this.#step === 'summary',
       step3Active: this.#step === 'target',
       step3Future: this.#step === 'review',
-      // [KROK-44 Z1] Patrz `features.ts` — pierwsze wydanie publiczne
-      // obejmuje wylacznie obrazy. Zakladka Aktorzy ukryta w szablonie
-      // (`{{#if statblocksEnabled}}`), wiec `this.#tab` nigdy faktycznie nie
-      // stanie sie `'actors'` przez UI, ale kontekst i tak przekazuje flage
-      // wprost zamiast polegac na tym posrednio.
+      // [Step 44 Z1] See `features.ts` — the first public release covers
+      // images only. The Actors tab is hidden in the template
+      // (`{{#if statblocksEnabled}}`), so `this.#tab` can never actually
+      // become `'actors'` via the UI, but the context passes the flag
+      // through explicitly anyway instead of relying on that indirectly.
       statblocksEnabled: STATBLOCKS_ENABLED,
       isTabImages: this.#tab === 'images',
       isTabScenes: this.#tab === 'scenes',
       isTabJournals: this.#tab === 'journals',
       isTabActors: this.#tab === 'actors',
       isTabDiagnostics: this.#tab === 'diagnostics',
-      // [zgloszenie uzytkownika, "dwie zakladki: automatycznie i recznie" +
-      // podzakladki Scena/Journal/Token] Patrz `#visibleImages`/`ImageSourceTab`/
-      // `ImageDestTab` — CZYSTA prezentacja nad juz istniejacym stanem
-      // (`ReviewSelection.imageDestination`, `id` obrazu), zero nowej logiki
-      // decyzyjnej.
+      // [User request, "two tabs: automatic and manual" + Scene/Journal/Token
+      // sub-tabs] See `#visibleImages`/`ImageSourceTab`/`ImageDestTab` — PURE
+      // presentation over already existing state (`ReviewSelection.imageDestination`,
+      // image `id`), zero new decision logic.
       isImageSourceAuto: this.#imageSourceTab === 'auto',
       isImageSourceManual: this.#imageSourceTab === 'manual',
       autoImageCount: sourceCounts.auto,
@@ -450,26 +453,26 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       sceneCount: doc.scenes.length,
       journalCount: doc.journals.length,
       actorCount: doc.actors?.length ?? 0,
-      // [KROK-21 Z1] `doc.actors === undefined` = zaden profil nie zostal
-      // przekazany do budowy tego dokumentu (patrz `buildCIFFromDocument`,
-      // `profile` opcjonalne) — odrebne od "profil byl, ale nic nie
-      // znalazl" (`doc.actors === []`, `hasActorProfile` wtedy `true`).
-      // Rozroznienie potrzebne, zeby zakladka Aktorow mogla wyjasnic
-      // uzytkownikowi CO sie stalo zamiast pokazywac pusta liste bez powodu.
+      // [Step 21 Z1] `doc.actors === undefined` means no profile was passed
+      // when building this document (see `buildCIFFromDocument`, `profile`
+      // is optional) — distinct from "there was a profile, but it found
+      // nothing" (`doc.actors === []`, `hasActorProfile` is `true` then).
+      // The distinction is needed so the Actors tab can explain to the user
+      // WHAT happened instead of just showing an empty list for no reason.
       hasActorProfile: doc.actors !== undefined,
       diagnosticGroupCount: this.#diagnosticGroups.length,
       selectedImageCount: this.#selection.selectedImageCount,
       selectedSceneCount: this.#selection.selectedSceneCount,
       selectedJournalCount: this.#selection.selectedJournalCount,
       selectedActorCount: this.#actorSelection.selectedCount,
-      // [zgloszenie uzytkownika, "nie da sie importowac NPC bez tokena,
-      // przycisk Next jest wyszarzony"] Przycisk "Dalej" na ekranie przegladu
-      // byl zablokowany WYLACZNIE warunkiem `selectedImageCount` (patrz
-      // `review-screen.hbs`) — autor chcacy zaimportowac SAME aktory (bez
-      // zaznaczania zadnego obrazu jako token/scene/journal) nie mial jak
-      // przejsc dalej, mimo ze `selectedActorCount` byl > 0. Suma WSZYSTKICH
-      // czterech niezaleznych kategorii ("czy jest COKOLWIEK do zaimportowania"),
-      // nie tylko obrazow.
+      // [User request, "can't import an NPC without a token, the Next button
+      // is greyed out"] The "Next" button on the review screen was gated
+      // SOLELY on the `selectedImageCount` condition (see
+      // `review-screen.hbs`) — an author wanting to import ONLY actors
+      // (without selecting any image as token/scene/journal) had no way to
+      // proceed, even though `selectedActorCount` was > 0. The sum of ALL
+      // FOUR independent categories ("is there ANYTHING at all to import"),
+      // not just images.
       totalSelectedCount: this.#selection.selectedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount + this.#actorSelection.selectedCount,
       currentPageNumber: this.#currentPageNumber,
       pageCount: this.#data.previewDocument.pageCount,
@@ -495,13 +498,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
 
-    // [na zyczenie uzytkownika, ten sam wzorzec co Profile Studio] Nawigacja
-    // WYLACZNIE przyciskami ◄/► byla uciazliwa na dlugich dokumentach — pole
-    // liczbowe pozwala wpisac numer strony wprost. Wspolne dla zakladek
-    // Obrazy/Aktorzy (`#currentPageNumber` to JEDNO, dzielone pole) — w DOM
-    // istnieje najwyzej jeden `[data-input="pageNumber"]` naraz (druga
-    // zakladka nie jest wyrenderowana), wiec zapytanie zawsze trafia we
-    // wlasciwy input niezaleznie od aktywnej zakladki.
+    // [At the user's request, the same pattern as Profile Studio] Navigation
+    // SOLELY via ◄/► buttons was cumbersome on long documents — a numeric
+    // field lets the page number be typed directly. Shared between the
+    // Images/Actors tabs (`#currentPageNumber` is ONE, shared field) — at
+    // most one `[data-input="pageNumber"]` exists in the DOM at a time (the
+    // other tab isn't rendered), so the query always finds the right input
+    // regardless of the active tab.
     const pageNumberInput = this.element.querySelector<HTMLInputElement>('input[data-input="pageNumber"]');
     pageNumberInput?.addEventListener('change', () => {
       const parsed = Math.round(Number(pageNumberInput.value));
@@ -526,12 +529,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#diagnosticList?.destroy();
     this.#diagnosticList = null;
 
-    // [zgloszenie uzytkownika] Zastosowane PRZED montowaniem nakladki
-    // (`#mountOverlay`/`#mountActorOverlay` nizej) — `draw()` tam czyta
-    // `img.clientWidth` do wyskalowania SVG, wiec obraz musi juz miec
-    // docelowa (ewentualnie przyblizona) szerokosc, zanim to sie stanie.
-    // Bez tego kazda nawigacja miedzy stronami (pelny `render()`, nowy
-    // element `<img>` od zera) cicho gubilaby aktualny poziom przyblizenia.
+    // [User request] Applied BEFORE mounting the overlay
+    // (`#mountOverlay`/`#mountActorOverlay` below) — `draw()` there reads
+    // `img.clientWidth` to scale the SVG, so the image must already have its
+    // target (possibly zoomed) width before that happens. Without this,
+    // every navigation between pages (a full `render()`, a brand new `<img>`
+    // element) would silently lose the current zoom level.
     this.#applyZoomToDom();
 
     if (this.#step === 'review') {
@@ -574,14 +577,14 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return super.close(options);
   }
 
-  // ---- Podglad strony (Z3) ----------------------------------------------
+  // ---- Page preview (Z3) ----------------------------------------------
 
   async #ensurePageImage(pageNumber: number): Promise<void> {
     if (this.#pageImageCache.has(pageNumber)) return;
     const token = ++this.#pageRenderToken;
     try {
       const encoded = await this.#data.previewDocument.renderPage(pageNumber, { targetLongEdgePx: 1400, format: 'webp' });
-      if (token !== this.#pageRenderToken) return; // uzytkownik juz przeszedl dalej — porzuc przestarzaly wynik
+      if (token !== this.#pageRenderToken) return; // user has already moved on — discard the stale result
       const url = URL.createObjectURL(new Blob([new Uint8Array(encoded.bytes)], { type: 'image/webp' }));
       this.#pageImageCache.set(pageNumber, url);
       this.#pageImageOrder.push(pageNumber);
@@ -593,11 +596,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       if (this.#tab === 'images' && this.#step === 'review') await this.render();
     } catch (err) {
-      console.warn('Bindery | renderPage nieudany:', err);
+      console.warn('Bindery | renderPage failed:', err);
     }
   }
 
-  /** Ponowny rysunek nakladki na TEJ SAMEJ (juz zaladowanej) stronie — bez pelnego `render()`, wiec nie gubi przewijania listy. `getPageBox` jest cache'owane w `PreviewDocument`, wiec to tanie. */
+  /** Redraws the overlay on the SAME (already loaded) page — without a full `render()`, so it doesn't lose the list's scroll position. `getPageBox` is cached in `PreviewDocument`, so this is cheap. */
   async #redrawOverlay(): Promise<void> {
     await this.#mountOverlay(this.#overlayImages);
   }
@@ -608,15 +611,15 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const img = this.element.querySelector<HTMLImageElement>('.bindery-page-image');
     if (!svg || !img) return;
 
-    // [naprawa zgloszonego bledu — recenzja calego designu] `_onRender`
-    // wywoluje `#mountOverlay` bez `await` (celowo — nie chcemy blokowac
-    // zakonczenia renderu na doladowaniu geometrii strony), wiec KOLEJNY
-    // pelny render (np. drugi klik "nastepna strona" zanim `getPageBox`
-    // ponizej sie rozwiaze) moze podmienic `#currentPageNumber` ZANIM ten
-    // `await` wroci. Bez tej sprawdzajacej flagi nakladka rysowalaby
-    // prostokaty policzone dla NIEAKTUALNEJ juz strony na obrazie strony
-    // BIEZACEJ — kolejny (juz w locie) `#mountOverlay` i tak zaraz narysuje
-    // poprawna nakladke, wiec bezpiecznie po prostu pomijamy rysowanie tutaj.
+    // [Bug fix — whole-design review] `_onRender` calls `#mountOverlay`
+    // without `await` (deliberately — we don't want to block the render's
+    // completion on loading the page geometry), so ANOTHER full render (e.g.
+    // a second "next page" click before `getPageBox` below resolves) can
+    // change `#currentPageNumber` BEFORE this `await` returns. Without this
+    // guard flag, the overlay would draw rectangles computed for a page that
+    // is NO LONGER current on top of the image of the CURRENT page — the
+    // other (already in-flight) `#mountOverlay` will draw the correct
+    // overlay right after anyway, so it's safe to simply skip drawing here.
     const requestedPageNumber = this.#currentPageNumber;
     const box = await this.#data.previewDocument.getPageBox(requestedPageNumber);
     if (this.#currentPageNumber !== requestedPageNumber) return;
@@ -625,16 +628,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const height = img.naturalHeight || img.clientHeight;
       if (!width || !height) return;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      // [KROK-18, naprawa zgloszonego bledu "nie trafia, jest przesuniete w
-      // prawo"] Nakladka MUSI miec CSS box o dokladnie takich samych
-      // proporcjach co viewBox, inaczej domyslne `preserveAspectRatio` SVG
-      // ("xMidYMid meet") dokleja niewidoczne listwy i centruje/skaluje
-      // tresc SVG wewnatrz swojego pudelka — `width:100%;height:100%` z CSS
-      // liczy sie wzgledem `.bindery-page-canvas-wrap` (wysokosc ograniczona
-      // przez layout), NIE wzgledem faktycznie wyrenderowanego `<img>`
-      // (ktory dla wysokiej strony jest wyzszy i przewijany), wiec proporcje
-      // sie nie zgadzaly i naiwne przeliczenie w `toOverlayPoint` (proste
-      // `viewBox/rect`) dawalo bledny wynik.
+      // [Step 18, fix for reported bug "misses, it's shifted to the
+      // right"] The overlay's CSS box MUST have exactly the same proportions
+      // as the viewBox, otherwise SVG's default `preserveAspectRatio`
+      // ("xMidYMid meet") adds invisible bars and centers/scales the SVG
+      // content within its own box — `width:100%;height:100%` from CSS is
+      // computed relative to `.bindery-page-canvas-wrap` (whose height is
+      // constrained by layout), NOT relative to the actually rendered
+      // `<img>` (which for a tall page is taller and scrollable), so the
+      // proportions didn't match and the naive calculation in
+      // `toOverlayPoint` (a simple `viewBox/rect`) gave a wrong result.
       svg.style.width = `${img.clientWidth}px`;
       svg.style.height = `${img.clientHeight}px`;
       svg.innerHTML = '';
@@ -658,19 +661,19 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           draw();
         });
         svg.appendChild(rect);
-        // [zgloszenie uzytkownika, "mozliwosc zmiany rozmiaru automatycznie
-        // znalezionego obrazu"] Uchwyty pojawiaja sie WYLACZNIE na aktualnie
-        // podswietlonym obrazie (ten sam mechanizm co klik na wierszu listy/
-        // prostokacie — nic nowego do wlaczania) — reuzycie `#highlightedImageId`
-        // zamiast osobnego trybu.
+        // [User request, "the ability to resize an automatically found
+        // image"] Handles appear SOLELY on the currently highlighted image
+        // (the same mechanism as clicking a list row/rectangle — nothing new
+        // to turn on) — reusing `#highlightedImageId` instead of a separate
+        // mode.
         if (isHighlighted && !this.#pendingCrop) this.#renderResizeHandles(svg, image, rect, screen);
       }
       if (this.#pendingCrop && this.#pendingCropPageNumber !== this.#currentPageNumber) {
-        // Zabezpieczenie: przejscie na inna strone (nawigacja ◄/►, klik na
-        // wierszu obrazu/aktora z innej strony) juz powinno wyzerowac
-        // `#pendingCrop` u zrodla — to dodatkowa siatka, zeby PRZYPADKOWO
-        // nie wyciac fragmentu jednej strony na podstawie wspolrzednych
-        // narysowanych na zupelnie innej.
+        // Safety net: switching to another page (◄/► navigation, clicking an
+        // image/actor row on another page) should already have reset
+        // `#pendingCrop` at the source — this is an extra safety net so we
+        // don't ACCIDENTALLY crop a fragment of one page based on
+        // coordinates drawn on a completely different one.
         this.#pendingCrop = null;
         this.#pendingCropPageNumber = null;
         this.#teardownPendingCropUi();
@@ -683,7 +686,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#wireSelectDrag(svg, img, draw);
   }
 
-  // ---- [KROK-18] "Zaznacz i wytnij" ---------------------------------------
+  // ---- [Step 18] "Select and crop" ---------------------------------------
 
   static async #onToggleSelectMode(this: ReviewScreen): Promise<void> {
     this.#isSelectMode = !this.#isSelectMode;
@@ -695,24 +698,24 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * Podpina przeciaganie myszka NA `svg` (nie na pojedynczych prostokatach
-   * nakladki) — `pointerdown` na dziecku i tak wypluje sie do rodzica przez
-   * bubbling, wiec jeden zestaw nasluchiwaczy na calej nakladce wystarcza.
-   * Flaga `dataset['dragWired']` chroni przed powtornym podpieciem przy
-   * KAZDYM wywolaniu `#mountOverlay`/`#redrawOverlay` (klik na istniejacym
-   * prostokacie odswieza nakladke bez pelnego `render()`, wiec ten sam
-   * element `<svg>` moze przejsc przez `#mountOverlay` wielokrotnie) —
-   * element `<svg>` PRZETRWA `svg.innerHTML = ''` w `draw()` (czysci tylko
-   * dzieci), wiec flaga na nim samym jest bezpiecznym, trwalym znacznikiem.
+   * Wires up mouse dragging ON `svg` (not on the overlay's individual
+   * rectangles) — a `pointerdown` on a child bubbles up to the parent
+   * anyway, so one set of listeners on the whole overlay is enough. The
+   * `dataset['dragWired']` flag guards against re-wiring on EVERY call to
+   * `#mountOverlay`/`#redrawOverlay` (clicking an existing rectangle
+   * refreshes the overlay without a full `render()`, so the same `<svg>`
+   * element can pass through `#mountOverlay` multiple times) — the `<svg>`
+   * element SURVIVES `svg.innerHTML = ''` in `draw()` (which only clears its
+   * children), so a flag on the element itself is a safe, persistent marker.
    */
   #wireSelectDrag(svg: SVGSVGElement, img: HTMLImageElement, redraw: () => void): void {
     if (svg.dataset['dragWired']) return;
     svg.dataset['dragWired'] = '1';
 
-    // Rozmiar okna Foundry (a wiec i wyrenderowanego <img>) moze sie zmienic
-    // PO pierwszym `draw()` (przeciaganie/resize okna ApplicationV2) — bez
-    // tego nakladka zostalaby przy starym rozmiarze i letterboxing/przesuniecie
-    // wrocilyby po kazdej zmianie rozmiaru okna.
+    // The Foundry window's size (and hence the rendered <img>'s) can change
+    // AFTER the first `draw()` (dragging/resizing the ApplicationV2 window)
+    // — without this, the overlay would stay at the old size and
+    // letterboxing/misalignment would return on every window resize.
     new ResizeObserver(() => redraw()).observe(img);
 
     svg.addEventListener('pointerdown', (e: PointerEvent) => {
@@ -740,7 +743,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       rectEl.setAttribute('height', String(Math.abs(cur.y - startScreen.y)));
     });
 
-    const MIN_DRAG_PX = 8; // ponizej tego traktujemy jako przypadkowy klik, nie swiadome zaznaczenie
+    const MIN_DRAG_PX = 8; // below this we treat it as an accidental click, not a deliberate selection
     const finishDrag = (e: PointerEvent): void => {
       if (!this.#dragState) return;
       const { startScreen, rectEl } = this.#dragState;
@@ -754,9 +757,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         maxY: Math.max(startScreen.y, cur.y),
       };
       if (screenRect.maxX - screenRect.minX < MIN_DRAG_PX || screenRect.maxY - screenRect.minY < MIN_DRAG_PX) return;
-      // [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem"]
-      // NIE wycinamy juz od razu — przechodzimy w stan "dostrajania obrotu"
-      // (uchwyt + pasek zatwierdz/anuluj), patrz `#pendingCrop`.
+      // [User request, "rotate the selected area before cropping"]
+      // We no longer crop right away — we move into a "rotation adjustment"
+      // state (handle + confirm/cancel bar), see `#pendingCrop`.
       this.#pendingCrop = {
         centerX: (screenRect.minX + screenRect.maxX) / 2,
         centerY: (screenRect.minY + screenRect.maxY) / 2,
@@ -774,25 +777,26 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "obszar jest przesuniety w prawo wzgledem
-   * kursora"] `rect` to CALY box `<svg>` — rozmiar RAMKI (`img.clientWidth/
-   * Height`, patrz komentarz przy `.bindery-page-canvas-wrap`), NIE
-   * rozmiar faktycznie widocznej (letterboxowanej) tresci. `viewBox`'s
-   * domyslne `preserveAspectRatio="xMidYMid meet"` skaluje SWOJA TRESC
-   * (prostokaty nakladki) do NAJWIEKSZEGO fragmentu `rect` o proporcjach
-   * `viewBox`, WYSRODKOWANEGO — dokladnie to samo, co `object-fit: contain`
-   * robi z samym `<img>` (stad puste paski widoczne na ekranie za kazdym
-   * razem, gdy proporcje strony PDF nie sa DOKLADNIE 3:4). Prostokaty
-   * nakladki (rysowane w jednostkach `viewBox`) trafiaja wiec poprawnie —
-   * ten sam mechanizm SVG je pozycjonuje. Naiwne dzielenie `vb.width/
-   * rect.width` (bez tej samej korekty) zakladalo, ze tresc wypelnia CALY
-   * `rect`, wiec KAZDY klik/przeciagniecie bylo przesuniete o polowe
-   * szerokosci paska litery-boxingu — male, ale realne przesuniecie w
-   * prawo (lub w dol) przy kazdej stronie, ktorej proporcje nie sa
-   * dokladnie 3:4 (czyli niemal kazdej). Przy zoomie (`bindery-zoomed`,
-   * `object-fit:none`, `<img>` skalowany wylacznie szerokoscia) `rect` i
-   * `viewBox` maja te sama proporcje z definicji — formula ponizej wtedy
-   * degeneruje sie do dawnego (poprawnego w tym przypadku) zachowania.
+   * [User request, "the area is shifted to the right relative to the
+   * cursor"] `rect` is the WHOLE `<svg>` box — the FRAME's size
+   * (`img.clientWidth/Height`, see the comment next to
+   * `.bindery-page-canvas-wrap`), NOT the size of the actually visible
+   * (letterboxed) content. The `viewBox`'s default
+   * `preserveAspectRatio="xMidYMid meet"` scales ITS OWN CONTENT (the
+   * overlay rectangles) to the LARGEST fragment of `rect` with the
+   * `viewBox`'s proportions, CENTERED — exactly what `object-fit: contain`
+   * does to the `<img>` itself (hence the empty bars visible on screen
+   * whenever the PDF page's proportions aren't EXACTLY 3:4). The overlay
+   * rectangles (drawn in `viewBox` units) therefore land correctly — the
+   * same SVG mechanism positions them. A naive `vb.width/rect.width`
+   * division (without this same correction) assumed the content fills the
+   * WHOLE `rect`, so EVERY click/drag was offset by half the width of the
+   * letterboxing bar — a small but real shift to the right (or downward) on
+   * every page whose proportions aren't exactly 3:4 (i.e. almost every
+   * page). When zoomed (`bindery-zoomed`, `object-fit:none`, `<img>` scaled
+   * by width only) `rect` and `viewBox` have the same proportions by
+   * definition — the formula below then degenerates to the old (correct in
+   * that case) behavior.
    */
   #toOverlayPoint(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } {
     const rect = svg.getBoundingClientRect();
@@ -819,29 +823,29 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem",
-   * uchwyt do przeciagniecia] Rysuje `#pendingCrop` jako `<g>` z
-   * `transform="rotate(deg cx cy)"` (SVG-owy `rotate` uzywa DOKLADNIE tej
-   * samej macierzy `[cos,-sin; sin,cos]` co `screenRotatedRectToPdf` po
-   * stronie core — wiec to, co widac na ekranie, jest z definicji zgodne z
-   * tym, co pozniej faktycznie zostanie wyciete). Uchwyt to prosty okrag NAD
-   * srodkiem gornej krawedzi, W LOKALNYM (nieobroconym) ukladzie `<g>` —
-   * obraca sie razem z prostokatem wylacznie dzieki transformowi rodzica,
-   * bez osobnej algebry. Promien/odstep uchwytu przeliczone na jednostki
-   * `viewBox` tak, zeby na EKRANIE mial stala wielkosc niezaleznie od
-   * rozdzielczosci strony/poziomu przyblizenia (inaczej na wysokorozdzielczej
-   * stronie uchwyt bylby niewidocznie maly).
+   * [User request, "rotate the selected area before cropping", drag handle]
+   * Draws `#pendingCrop` as a `<g>` with `transform="rotate(deg cx cy)"`
+   * (SVG's `rotate` uses EXACTLY the same matrix `[cos,-sin; sin,cos]` as
+   * `screenRotatedRectToPdf` on the core side — so what's seen on screen is,
+   * by definition, consistent with what actually gets cropped afterward).
+   * The handle is a simple circle ABOVE the center of the top edge, in the
+   * `<g>`'s LOCAL (unrotated) coordinate space — it rotates together with
+   * the rectangle purely via the parent's transform, no separate algebra.
+   * The handle's radius/offset are converted to `viewBox` units so that on
+   * SCREEN it has a constant size regardless of the page's resolution/zoom
+   * level (otherwise on a high-resolution page the handle would be
+   * invisibly small).
    *
-   * [kierunek obrotu] `rotationRad = atan2(dy, dx) + PI/2` (gdzie `dx,dy` to
-   * wektor kursora wzgledem srodka) — wyprowadzone tak, zeby po zastosowaniu
-   * DOKLADNIE tej samej macierzy obrotu co SVG `rotate()`, uchwyt (lokalnie
-   * prosto NAD srodkiem) wyladowal DOKLADNIE pod kursorem: przeciaganie
-   * uchwytu jest wiec z definicji WYSIWYG na ekranie. Czy koncowy, wycięty
-   * PIKSELOWO obraz obraca sie w te sama strone co podglad na ekranie, NIE
-   * bylo mozliwe zweryfikowac bez zywego testu w Foundry (patrz
-   * `renderRotatedRegion.test.ts`) — jesli po zywym tescie okaze sie
-   * odwrotnie, jedyna poprawka to negacja kata TU (w `rotationRad = ...`
-   * ponizej), nie w warstwie `core`.
+   * [rotation direction] `rotationRad = atan2(dy, dx) + PI/2` (where `dx,dy`
+   * is the cursor vector relative to the center) — derived so that after
+   * applying EXACTLY the same rotation matrix as SVG's `rotate()`, the
+   * handle (locally straight ABOVE the center) lands EXACTLY under the
+   * cursor: dragging the handle is therefore WYSIWYG on screen by
+   * definition. Whether the final, PIXEL-cropped image rotates in the same
+   * direction as the on-screen preview could NOT be verified without a live
+   * test in Foundry (see `renderRotatedRegion.test.ts`) — if the live test
+   * shows it's reversed, the only fix is to negate the angle HERE (in
+   * `rotationRad = ...` below), not in the `core` layer.
    */
   #renderPendingCropOverlay(svg: SVGSVGElement): void {
     svg.querySelector('.bindery-pending-crop')?.remove();
@@ -899,19 +903,19 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const pt = this.#toOverlayPoint(svg, e.clientX, e.clientY);
       const angle = Math.atan2(pt.y - this.#pendingCrop.centerY, pt.x - this.#pendingCrop.centerX);
       this.#pendingCrop = { ...this.#pendingCrop, rotationRad: angle + Math.PI / 2 };
-      // [zgloszenie uzytkownika, "bardzo opornie, kilka stopni na raz"]
-      // NIE wolno tu wywolywac calego `#renderPendingCropOverlay` — ono
-      // USUWA i TWORZY OD NOWA `handle` (przez `svg.querySelector(...)
-      // .remove()` na poczatku), a usuniecie elementu z DOM ciagnacego
-      // `setPointerCapture` cicho zwalnia te capture (przegladarka
-      // automatycznie wysyla `lostpointercapture`). Nowy, swiezo utworzony
-      // `handle` NIE ma capture, wiec KOLEJNE `pointermove` (kursor juz
-      // daleko od jego pozycji) nie trafialy w niego wcale — stad "dziala
-      // tylko o kilka stopni na raz" (jeden ruch = jedno zdarzenie zanim
-      // handle zostal podmieniony). Podczas przeciagania zmienia sie
-      // WYLACZNIE kat obrotu — geometria lokalna (rect/line/handle) jest
-      // stala — wiec wystarczy podmienic `transform` na ISTNIEJACYM `g`,
-      // bez przebudowy calej grupy/utraty capture.
+      // [User request, "it's very sluggish, only a few degrees at a time"]
+      // The full `#renderPendingCropOverlay` must NOT be called here — it
+      // REMOVES and RECREATES the `handle` (via `svg.querySelector(...)
+      // .remove()` at the start), and removing an element from the DOM that
+      // holds `setPointerCapture` silently releases that capture (the
+      // browser automatically fires `lostpointercapture`). The newly
+      // created `handle` does NOT have capture, so SUBSEQUENT `pointermove`
+      // events (the cursor already far from its position) missed it
+      // entirely — hence "only works a few degrees at a time" (one move =
+      // one event before the handle got replaced). During dragging, ONLY
+      // the rotation angle changes — the local geometry (rect/line/handle)
+      // is constant — so it's enough to swap the `transform` on the
+      // EXISTING `g`, without rebuilding the whole group/losing capture.
       const deg = (this.#pendingCrop.rotationRad * 180) / Math.PI;
       g.setAttribute('transform', `rotate(${deg} ${this.#pendingCrop.centerX} ${this.#pendingCrop.centerY})`);
     });
@@ -924,7 +928,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     svg.appendChild(g);
   }
 
-  /** Pasek zatwierdz/anuluj dodany DYNAMICZNIE do `.bindery-page-canvas-wrap` (jak `rectEl`/`#pendingCrop` — nie ma go w markupie Handlebars, patrz `#pendingCropToolbar`). */
+  /** Confirm/cancel bar added DYNAMICALLY to `.bindery-page-canvas-wrap` (like `rectEl`/`#pendingCrop` — it's not in the Handlebars markup, see `#pendingCropToolbar`). */
   #showPendingCropToolbar(wrap: HTMLElement): void {
     this.#pendingCropToolbar?.remove();
     const toolbar = document.createElement('div');
@@ -967,20 +971,21 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "mozliwosc zmiany rozmiaru automatycznie
-   * znalezionego obrazu — jest za duzy/za maly, zeby recznie zwiekszyc lub
-   * zmniejszyc"] Osiem uchwytow (4 rogi + 4 srodki krawedzi) na prostokacie
-   * PODSWIETLONEGO obrazu — dziala tak samo dla obrazu automatycznie
-   * wykrytego jak i recznie wycietego, bo mechanizm dopasowania nie zalezy
-   * od zrodla obrazu. Rogi zmieniaja obie osie naraz, srodki krawedzi tylko
-   * jedna (`dx`/`dy` = -1 minX/minY, 0 = bez zmiany, +1 = maxX/maxY).
+   * [User request, "the ability to resize an automatically found image — it's
+   * too big/too small to manually enlarge or shrink"] Eight handles (4
+   * corners + 4 edge midpoints) on the rectangle of the HIGHLIGHTED image —
+   * works the same way for an automatically detected image and a manually
+   * cropped one, because the fitting mechanism doesn't depend on the
+   * image's source. Corners change both axes at once, edge midpoints only
+   * one (`dx`/`dy` = -1 minX/minY, 0 = no change, +1 = maxX/maxY).
    *
-   * [nauka z wczesniejszego bledu w tej samej sesji, "uchwyt obrotu dziala
-   * tylko o kilka stopni"] W TRAKCIE przeciagania NIE wolno wywolywac
-   * pelnego przerysowania nakladki (ono niszczy i tworzy uchwyty od nowa,
-   * cicho gubiac `setPointerCapture`) — `updateAll` tylko PODMIENIA atrybuty
-   * juz istniejacych elementow (`rectEl` + uchwyty), wiec ten sam element
-   * `<circle>` trzyma capture przez cala gestykulacje.
+   * [Lesson from an earlier bug in the same session, "the rotation handle
+   * only works a few degrees at a time"] WHILE dragging, a full overlay
+   * redraw must NOT be called (it destroys and recreates the handles from
+   * scratch, silently losing `setPointerCapture`) — `updateAll` only
+   * REPLACES the attributes of already existing elements (`rectEl` +
+   * handles), so the same `<circle>` element holds capture throughout the
+   * whole gesture.
    */
   #renderResizeHandles(svg: SVGSVGElement, image: CIFImage, rectEl: SVGRectElement, initialScreen: Rect): void {
     const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -988,7 +993,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const svgRect = svg.getBoundingClientRect();
     const scale = vb.width > 0 && svgRect.width > 0 ? vb.width / svgRect.width : 1;
     const handleRadius = 6 * scale;
-    const minSize = 12 * scale; // minimalny rozmiar w px viewBox — chroni przed sciagnieciem prostokata do zera/odwroceniem osi
+    const minSize = 12 * scale; // minimum size in viewBox px — guards against shrinking the rectangle to zero/flipping an axis
     const rotateHandleOffset = 32 * scale;
     const initialRotation = this.#imageAdjustRotation?.imageId === image.id ? this.#imageAdjustRotation.rotationRad : 0;
 
@@ -1003,12 +1008,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       { dx: -1, dy: 0, cursor: 'ew-resize' },
     ];
 
-    // [zgloszenie uzytkownika, "mozliwosc obrocenia zaznaczonego automatycznie
-    // obrazu"] Grupa nosi obrot — DOKLADNIE ten sam wzorzec co
-    // `#renderPendingCropOverlay` (SVG `rotate()` to ta sama macierz co
-    // `screenRotatedRectToPdf`, wiec ekran = to, co faktycznie zostanie
-    // wyciete). `rectEl` jest juz dolaczony do `svg` (przez wywolujacego w
-    // `draw()`) — `appendChild` PRZENOSI go do tej grupy, nie klonuje.
+    // [User request, "the ability to rotate an automatically selected
+    // image"] The group carries the rotation — EXACTLY the same pattern as
+    // `#renderPendingCropOverlay` (SVG's `rotate()` is the same matrix as
+    // `screenRotatedRectToPdf`, so screen = what actually gets cropped).
+    // `rectEl` is already attached to `svg` (by the caller in `draw()`) —
+    // `appendChild` MOVES it into this group, it doesn't clone it.
     const g = document.createElementNS(SVG_NS, 'g');
     svg.appendChild(g);
     g.appendChild(rectEl);
@@ -1029,29 +1034,30 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     rotateHandle.setAttribute('class', 'bindery-pending-crop-handle');
     g.appendChild(rotateHandle);
 
-    // [nauka z wczesniejszego bledu w tej samej sesji, "uchwyt obrotu dziala
-    // tylko o kilka stopni"] `currentRect`/`currentRotation` sa DZIELONE
-    // (closure) przez WSZYSTKIE uchwyty (8 do zmiany rozmiaru + 1 obrotu) —
-    // W TRAKCIE przeciagania NIE wolno wywolywac pelnego przerysowania
-    // nakladki (ono niszczy i tworzy uchwyty od nowa, cicho gubiac
-    // `setPointerCapture`) — `updateAll` tylko PODMIENIA atrybuty juz
-    // istniejacych elementow, wiec ten sam element `<circle>` trzyma capture
-    // przez cala gestykulacje, niezaleznie od tego, ile razy sie odpali.
+    // [Lesson from an earlier bug in the same session, "the rotation handle
+    // only works a few degrees at a time"] `currentRect`/`currentRotation`
+    // are SHARED (closure) across ALL handles (8 for resizing + 1 for
+    // rotation) — WHILE dragging, a full overlay redraw must NOT be called
+    // (it destroys and recreates the handles from scratch, silently losing
+    // `setPointerCapture`) — `updateAll` only REPLACES the attributes of
+    // already existing elements, so the same `<circle>` element holds
+    // capture throughout the whole gesture, no matter how many times it
+    // fires.
     let currentRect = initialScreen;
     let currentRotation = initialRotation;
 
-    // [zgloszenie uzytkownika, "nie mozna zmienic rozmiaru z lewej strony
-    // obrazu automatycznie wybranego"] Gdy zaznaczenie siega niemal do
-    // krawedzi strony (typowe dla automatycznie wykrytych obrazow zajmujacych
-    // cala/prawie cala strone), uchwyt narysowany DOKLADNIE na krawedzi
-    // prostokata ma POLOWE swojego kola poza `viewBox` — SVG domyslnie
-    // przycina (`overflow: hidden` z definicji na korzeniu `<svg>`) wszystko
-    // poza wlasnym pudelkiem, wiec ta polowa jest niewidoczna I niekliakalna;
-    // gdy krawedz jest WYSTARCZAJACO blisko brzegu, MOZE zniknac caly uchwyt.
-    // `clampX`/`clampY` odsuwaja WYLACZNIE narysowana/klikalna pozycje
-    // (nigdy dane `currentRect`, ktore nadal odzwierciedlaja PRAWDZIWA
-    // krawedz) o promien uchwytu od brzegow `viewBox`, wiec kazdy uchwyt
-    // zawsze miesci sie w calosci w widocznym/klikalnym obszarze.
+    // [User request, "can't resize from the left side of an automatically
+    // selected image"] When the selection reaches almost to the page edge
+    // (typical for automatically detected images covering all/almost all of
+    // the page), a handle drawn EXACTLY on the rectangle's edge has HALF of
+    // its circle outside the `viewBox` — SVG clips by default (`overflow:
+    // hidden` by definition on the root `<svg>`) everything outside its own
+    // box, so that half is invisible AND unclickable; when the edge is
+    // CLOSE ENOUGH to the border, the WHOLE handle can disappear. `clampX`/
+    // `clampY` only push the drawn/clickable position (never the
+    // `currentRect` data, which still reflects the TRUE edge) away from the
+    // `viewBox` borders by the handle's radius, so every handle always fits
+    // entirely within the visible/clickable area.
     const clampX = (x: number): number => Math.min(Math.max(x, handleRadius), Math.max(handleRadius, vb.width - handleRadius));
     const clampY = (y: number): number => Math.min(Math.max(y, handleRadius), Math.max(handleRadius, vb.height - handleRadius));
 
@@ -1066,11 +1072,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         resizeHandleEls[i]!.setAttribute('cx', String(clampX(dx === -1 ? currentRect.minX : dx === 1 ? currentRect.maxX : cx)));
         resizeHandleEls[i]!.setAttribute('cy', String(clampY(dy === -1 ? currentRect.minY : dy === 1 ? currentRect.maxY : cy)));
       });
-      // Ten sam problem/naprawa co uchwyty zmiany rozmiaru wyzej — dla
-      // zaznaczenia siegajacego blisko GORNEJ krawedzi strony uchwyt obrotu
-      // (zawsze nad srodkiem gornej krawedzi) moglby wypasc poza `viewBox`.
-      // Linia laczaca MUSI konczyc sie w TYM SAMYM (przyciemtym) punkcie co
-      // uchwyt, inaczej wizualnie "odlaczy sie" od niego.
+      // Same problem/fix as the resize handles above — for a selection
+      // reaching close to the TOP edge of the page, the rotation handle
+      // (always above the center of the top edge) could fall outside the
+      // `viewBox`. The connecting line MUST end at the SAME (clamped) point
+      // as the handle, otherwise it will visually "detach" from it.
       const rotateHandleX = clampX(cx);
       const rotateHandleY = clampY(currentRect.minY - rotateHandleOffset);
       rotateLine.setAttribute('x1', String(cx));
@@ -1084,7 +1090,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     };
     updateAll();
 
-    /** Punkt ekranu (nieobrocony uklad nakladki) -> LOKALNY uklad prostokata (odwrotnosc biezacego `currentRotation` wokol `cx,cy`) — potrzebne, zeby przeciaganie uchwytow zmiany rozmiaru dzialalo poprawnie takze wtedy, gdy obraz jest JUZ obrocony. */
+    /** Screen point (unrotated overlay coordinate space) -> LOCAL rectangle coordinate space (the inverse of the current `currentRotation` around `cx,cy`) — needed so that dragging the resize handles works correctly even when the image is ALREADY rotated. */
     const toLocalPoint = (screenPt: { x: number; y: number }, cx: number, cy: number): { x: number; y: number } => {
       const dx0 = screenPt.x - cx;
       const dy0 = screenPt.y - cy;
@@ -1188,16 +1194,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "zmiana rozmiaru" + "mozliwosc obrocenia
-   * zaznaczonego automatycznie obrazu"] Jak `#createManualCropRotated` (ten
-   * sam `screenRotatedRectToPdf` -> `previewDocument.renderRotatedRegion`),
-   * ale NADPISUJE istniejacy obraz W MIEJSCU (to samo `id`, ten sam wpis w
-   * `doc.images` — `image` to bezposrednia referencja, nie kopia) zamiast
-   * tworzyc nowy — obraz NIE zmienia zakladki/podzakladki (klasyfikacja/
-   * przeznaczenie sie nie zmieniaja), zmienia sie WYLACZNIE wycinany obszar
-   * (rozmiar i/lub obrot) i renderowane bajty/wymiary. `screenRect.rotationRad`
-   * moze byc 0 (czysta zmiana rozmiaru) — to tylko szczegolny przypadek tej
-   * samej funkcji core'a, dokladnie jak przy nowym wycieciu.
+   * [User request, "resizing" + "the ability to rotate an automatically
+   * selected image"] Like `#createManualCropRotated` (the same
+   * `screenRotatedRectToPdf` -> `previewDocument.renderRotatedRegion`), but
+   * OVERWRITES the existing image IN PLACE (same `id`, same entry in
+   * `doc.images` — `image` is a direct reference, not a copy) instead of
+   * creating a new one — the image does NOT change tab/sub-tab
+   * (classification/destination don't change), ONLY the cropped area
+   * (size and/or rotation) and the rendered bytes/dimensions change.
+   * `screenRect.rotationRad` can be 0 (a pure resize) — that's just a
+   * special case of the same core function, exactly as with a new crop.
    */
   async #resizeImage(image: CIFImage, screenRect: RotatedRect): Promise<void> {
     if (this.#isCropping) return;
@@ -1215,10 +1221,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       image.format = crop.format;
       image.provenance = { ...image.provenance, bbox: rotatedRectBounds(pdfRegion) };
       this.#imageAdjustRotation = null;
-      // [naprawa zgloszonego bledu, kumulujace sie kurczenie przy obrocie
-      // tresci] Swiezy crop z PDF-a to NOWY punkt odniesienia "0°" dla
-      // `#rotateImage` — stary `originalBytes` (jesli byl) juz nie
-      // reprezentuje biezacej tresci obrazu.
+      // [Bug fix, cumulative shrinking on content rotation] A fresh crop
+      // from the PDF is a NEW "0°" reference point for `#rotateImage` — the
+      // old `originalBytes` (if any) no longer represents the image's
+      // current content.
       this.#imageRotationState.delete(image.id);
       const oldThumbUrl = this.#thumbnailUrls.get(image.id);
       if (oldThumbUrl) {
@@ -1228,7 +1234,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: crop.bytes, format: crop.format });
       await this.render();
     } catch (err) {
-      console.warn('Bindery | zmiana rozmiaru/obrotu obrazu nieudana:', err);
+      console.warn('Bindery | image resize/rotate failed:', err);
       ui.notifications?.error(game.i18n!.localize('BINDERY.review.resizeFailed' as never));
     } finally {
       this.#isCropping = false;
@@ -1236,11 +1242,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-42, "token jako produkt"] Otwiera `TokenPrepApp` na BIEZACYCH
-   * bajtach obrazu (`this.#data.imageBytesById`, NIE PDF-ie — usuwanie tla,
-   * kadr/zoom, maska i ramka dzialaja na juz-wycietej tresci, dokladnie tak
-   * jak `#rotateImage`), na zatwierdzeniu podmienia bajty/wymiary/format —
-   * mirror `#resizeImage`'s wzorca podmiany, patrz tam.
+   * [Step 42, "token as a product"] Opens `TokenPrepApp` on the CURRENT
+   * image bytes (`this.#data.imageBytesById`, NOT the PDF — background
+   * removal, crop/zoom, mask and frame work on already-cropped content,
+   * exactly like `#rotateImage`); on confirmation it replaces the
+   * bytes/dimensions/format — mirrors `#resizeImage`'s replacement pattern,
+   * see there.
    */
   async #prepareToken(image: CIFImage): Promise<void> {
     if (this.#isCropping) return;
@@ -1268,7 +1275,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
       await this.render();
     } catch (err) {
-      console.warn('Bindery | przygotowanie tokenu nieudane:', err);
+      console.warn('Bindery | token preparation failed:', err);
       ui.notifications?.error(game.i18n!.localize('BINDERY.review.resizeFailed' as never));
     } finally {
       this.#isCropping = false;
@@ -1276,20 +1283,21 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "chodzi o obrocenie JUZ wycietego obrazu — mapa
-   * zajmuje cala strone, obrocenie zaznaczenia wytnie ja zle"; potem "wolalbym
-   * mniejszy kat niz 90 stopni, np. co 10"; potem "obraz mocno sie zmniejsza
-   * po obrocie, duzo pustego miejsca w ramce"; potem "po 36 obrotach powinien
-   * wrocic do poczatkowej postaci (360°), a kurczy sie z kazdym obrotem"]
-   * Obraca SAMA TRESC — PDF w ogole nie jest odpytywany ponownie (w
-   * odroznieniu od `#resizeImage`, ktory zawsze wraca do PDF-a po swiezy
-   * render). KAZDE wywolanie obraca `#imageRotationState`'s `originalBytes`
-   * (PIERWOTNE, NIGDY nie nadpisywane bajty sprzed jakiegokolwiek obrotu) o
-   * CALY nowy sumaryczny kat od zera — NIE obraca wyniku poprzedniego
-   * wywolania — inaczej strata przy przycinaniu do `inscribedRotatedRectScale`
-   * (NAJWIEKSZY prostokat o tych samych proporcjach, ktory miesci sie CALY
-   * wewnatrz obroconej tresci, zero przezroczystych rogow) kumulowalaby sie
-   * z kazdym klikniedciem, mimo ze sumaryczny kat wraca do 0°/360°.
+   * [User request, "it's about rotating an ALREADY cropped image — the map
+   * covers the whole page, rotating the selection would crop it wrong";
+   * then "I'd prefer a smaller angle than 90 degrees, e.g. every 10"; then
+   * "the image shrinks a lot after rotating, lots of empty space in the
+   * frame"; then "after 36 rotations it should return to its original state
+   * (360°), but it shrinks with every rotation"] Rotates the CONTENT
+   * ITSELF — the PDF is not queried again at all (unlike `#resizeImage`,
+   * which always goes back to the PDF for a fresh render). EVERY call
+   * rotates `#imageRotationState`'s `originalBytes` (the ORIGINAL bytes,
+   * NEVER overwritten, from before any rotation) by the ENTIRE new total
+   * angle from zero — it does NOT rotate the result of the previous call —
+   * otherwise the cropping loss from `inscribedRotatedRectScale` (the
+   * LARGEST rectangle with the same proportions that fits ENTIRELY inside
+   * the rotated content, zero transparent corners) would accumulate with
+   * every click, even though the total angle returns to 0°/360°.
    */
   async #rotateImage(image: CIFImage, direction: 1 | -1): Promise<void> {
     if (this.#isCropping) return;
@@ -1311,7 +1319,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const outHeight = Math.max(1, Math.round(bitmap.height * scale));
       const canvas = new OffscreenCanvas(outWidth, outHeight);
       const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('brak kontekstu 2D dla OffscreenCanvas');
+      if (!ctx) throw new Error('no 2D context for OffscreenCanvas');
       ctx.translate(outWidth / 2, outHeight / 2);
       ctx.rotate(angleRad);
       ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
@@ -1330,7 +1338,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: newBytes, format: state.originalFormat });
       await this.render();
     } catch (err) {
-      console.warn('Bindery | obrot obrazu nieudany:', err);
+      console.warn('Bindery | image rotation failed:', err);
       ui.notifications?.error(game.i18n!.localize('BINDERY.review.imageRotateFailed' as never));
     } finally {
       this.#isCropping = false;
@@ -1338,21 +1346,22 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem"]
-   * Bbox EKRANU OBROCONY (`#pendingCrop`, `rotationRad` moze byc 0 — nieobrocony
-   * to po prostu szczegolny przypadek, patrz test "rotationRad=0 -> ten sam
-   * wynik co zwykly screenRectToPdf" w `pageOverlayGeometry.test.ts`, dlatego
-   * NIE MA juz osobnej, "prostej" sciezki dla przypadku bez obrotu) ->
-   * `screenRotatedRectToPdf` -> `previewDocument.renderRotatedRegion` -> nowy
-   * `CIFImage` wstawiony do `doc.images` — TEN SAM ksztalt danych co obraz z
-   * automatycznej ekstrakcji core'a, wiec cala reszta ekranu (lista, wybor
-   * przeznaczenia, `#runImport`) obsluguje go bez zadnych specjalnych
-   * przypadkow (patrz `#finalizeManualCrop`). `provenance.bbox` (ZAWSZE
-   * rownolegly do osi w calym projekcie) to otoczka obroconego regionu PDF
-   * (`rotatedRectBounds`) — dla obroconego wyciecia podglad na liscie/nakladce
-   * pokaze wiec nieco WIEKSZY, nieobrocony prostokat wokol faktycznie
-   * zapisanego (poprawnie obroconego i wycietego) obrazu; sam zapisany obraz
-   * jest wycinany poprawnie niezaleznie od tego uproszczenia.
+   * [User request, "rotate the selected area before cropping"] A ROTATED
+   * screen bbox (`#pendingCrop`, `rotationRad` can be 0 — unrotated is just
+   * a special case, see the test "rotationRad=0 -> same result as plain
+   * screenRectToPdf" in `pageOverlayGeometry.test.ts`, which is why there is
+   * NO LONGER a separate, "simple" path for the no-rotation case) ->
+   * `screenRotatedRectToPdf` -> `previewDocument.renderRotatedRegion` -> a
+   * new `CIFImage` inserted into `doc.images` — THE SAME data shape as an
+   * image from core's automatic extraction, so the rest of the screen
+   * (list, destination choice, `#runImport`) handles it without any special
+   * cases (see `#finalizeManualCrop`). `provenance.bbox` (ALWAYS axis-aligned
+   * throughout the project) is the bounding box of the rotated PDF region
+   * (`rotatedRectBounds`) — for a rotated crop, the preview in the
+   * list/overlay will therefore show a slightly LARGER, unrotated rectangle
+   * around the actually saved (correctly rotated and cropped) image; the
+   * saved image itself is cropped correctly regardless of this
+   * simplification.
    */
   async #createManualCropRotated(screenRect: RotatedRect): Promise<void> {
     if (this.#isCropping) return;
@@ -1367,7 +1376,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const crop = await this.#data.previewDocument.renderRotatedRegion(this.#currentPageNumber, pdfRegion, { targetLongEdgePx: 2048, format: 'webp' });
       await this.#finalizeManualCrop(rotatedRectBounds(pdfRegion), crop);
     } catch (err) {
-      console.warn('Bindery | reczne wyciecie obroconego fragmentu nieudane:', err);
+      console.warn('Bindery | manual crop of rotated fragment failed:', err);
       ui.notifications?.error(game.i18n!.localize('BINDERY.review.selectModeCropFailed' as never));
     } finally {
       this.#isCropping = false;
@@ -1375,13 +1384,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * Bbox PDF + wynik renderu -> nowy `CIFImage` wstawiony do `doc.images` —
-   * TEN SAM ksztalt danych co obraz z automatycznej ekstrakcji core'a, wiec
-   * cala reszta ekranu (lista, wybor przeznaczenia, `#runImport`) obsluguje
-   * go bez zadnych specjalnych przypadkow. Wspolna dla `#createManualCrop`
-   * (osiowy) i `#createManualCropRotated` (obrocony) — jedyna roznica miedzy
-   * nimi to SPOSOB obliczenia `pdfBbox`/renderu, nie to, co sie dzieje z
-   * wynikiem.
+   * PDF bbox + render result -> a new `CIFImage` inserted into
+   * `doc.images` — THE SAME data shape as an image from core's automatic
+   * extraction, so the rest of the screen (list, destination choice,
+   * `#runImport`) handles it without any special cases. Shared between
+   * `#createManualCrop` (axis-aligned) and `#createManualCropRotated`
+   * (rotated) — the only difference between them is HOW `pdfBbox`/the
+   * render is computed, not what happens with the result.
    */
   async #finalizeManualCrop(pdfBbox: Rect, crop: RegionCrop): Promise<void> {
     const id = `manual-crop-${++this.#manualCropSeq}`;
@@ -1403,12 +1412,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const destination = defaultImageDestination();
     this.#selection.addManualImage(id, destination);
     this.#highlightedImageId = id;
-    // [zgloszenie uzytkownika, podzakladki Scena/Journal/Token/Nieprzydzielone]
-    // Nowo wyciety fragment idzie do podzakladki "Zaznaczone ręcznie" pod
-    // WLASNYM przeznaczeniem — bez tego, przy innej aktywnej podzakladce
-    // (np. domyslnej "Scena", gdy crop trafil do "Journal"), efekt
-    // "Zaznacz i wytnij" byl niewidoczny: obraz istnial, ale w INNEJ,
-    // niepokazanej wlasnie zakladce.
+    // [User request, Scene/Journal/Token/Unassigned sub-tabs]
+    // A newly cropped fragment goes into the "Manually selected" sub-tab
+    // under ITS OWN destination — without this, with a different sub-tab
+    // active (e.g. the default "Scene", when the crop went to "Journal"),
+    // the "Select and crop" effect was invisible: the image existed, but in
+    // a DIFFERENT tab that wasn't currently shown.
     this.#imageSourceTab = 'manual';
     this.#imageDestTab = destination;
     await this.render();
@@ -1439,11 +1448,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"]
-   * CELOWO surgical (bez `void this.render()`) — zoom to czysto wizualna
-   * zmiana stylu istniejacego `<img>`/nakladki, nie wymaga odtwarzania
-   * calego szablonu. Mirror `#refreshImageRowHighlights`/`#redrawOverlay`
-   * (ten sam powod: pelny render zresetowalby przewijanie listy obrazow).
+   * [User request, "the ability to zoom the PDF in the importer"]
+   * DELIBERATELY surgical (without `void this.render()`) — zoom is a purely
+   * visual style change to the existing `<img>`/overlay, it doesn't require
+   * recreating the whole template. Mirrors
+   * `#refreshImageRowHighlights`/`#redrawOverlay` (the same reason: a full
+   * render would reset the image list's scroll position).
    */
   #setZoom(percent: number): void {
     if (percent === this.#zoomPercent) return;
@@ -1457,24 +1467,25 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * Stosuje aktualny `#zoomPercent` do JUZ ISTNIEJACYCH elementow podgladu —
-   * wywolywane zarowno z `#setZoom` (klik +/−), jak i z `_onRender` (KAZDY
-   * pelny render, np. nawigacja stron, tworzy `<img>` OD ZERA, wiec zoom
-   * trzeba nalozyc ponownie, inaczej cicho wraca do 100%). Ponizej progu
-   * (`#MIN_ZOOM`) przywraca DOKLADNIE domyslny uklad (`bindery.css`: stala
-   * ramka 3:4 z letterboxingiem) — pusty `style.width` (nie jawna wartosc)
-   * daje WYZSZY priorytet zwyklej regule CSS, ktora go ustawia.
+   * Applies the current `#zoomPercent` to the ALREADY EXISTING preview
+   * elements — called both from `#setZoom` (+/− click) and from
+   * `_onRender` (EVERY full render, e.g. page navigation, creates the
+   * `<img>` FROM SCRATCH, so the zoom must be reapplied, otherwise it
+   * silently reverts to 100%). Below the threshold (`#MIN_ZOOM`) it restores
+   * EXACTLY the default layout (`bindery.css`: fixed 3:4 frame with
+   * letterboxing) — an empty `style.width` (not an explicit value) gives
+   * HIGHER priority to the plain CSS rule that sets it.
    *
-   * [zgloszenie uzytkownika, "rośnie też okno w którym jest pdf" — PIERWSZA
-   * proba naprawy TUTAJ (reczny pomiar+blokada wysokosci w JS) zepsula
-   * kolejne kliknieta "+", patrz teraz juz USUNIETY komentarz i
-   * `bindery.css`'s aktualne uzasadnienie przy `.bindery-zoomed`] Ramka
-   * zostaje STALEGO rozmiaru dzieki SAMEMU CSS (`aspect-ratio: 3/4` na
-   * `.bindery-page-canvas-wrap`, CELOWO nieusuwane przez `.bindery-zoomed`)
-   * — wysokosc ramki jest wyliczana WYLACZNIE z jej szerokosci (ktora zoom
-   * nigdy nie rusza), nigdy z tresci w srodku, wiec `overflow:auto` ma
-   * zawsze DOKLADNIE ten sam, staly viewport do przewijania. Zero pomiaru
-   * w JS potrzebne.
+   * [User request, "the window containing the pdf also grows" — the FIRST
+   * fix attempt HERE (manual measurement + height lock in JS) broke
+   * subsequent "+" clicks, see the now-REMOVED comment and `bindery.css`'s
+   * current rationale next to `.bindery-zoomed`] The frame stays a FIXED
+   * size purely through CSS itself (`aspect-ratio: 3/4` on
+   * `.bindery-page-canvas-wrap`, DELIBERATELY not removed by
+   * `.bindery-zoomed`) — the frame's height is computed SOLELY from its
+   * width (which zoom never touches), never from the content inside, so
+   * `overflow:auto` always has EXACTLY the same, fixed scrollable viewport.
+   * Zero measurement in JS needed.
    */
   #applyZoomToDom(): void {
     const zoomed = this.#zoomPercent > ReviewScreen.#MIN_ZOOM;
@@ -1486,13 +1497,14 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [wyodrebnione po recenzji calego designu — ten sam wzorzec byl
-   * powielony osobno w `#mountImageList`/`#mountSceneList`/
-   * `#mountJournalList`/`#mountDiagnosticList`] `scrollKey` to jedyne, co
-   * KAZDY z nich mial osobne (poza wysokoscia wiersza i budowniczym wiersza)
-   * — jedno miejsce na wiazanie `initialScrollTop`/`onScroll` z
-   * `#listScrollTop`, zamiast czterech kopii tej samej logiki, gdzie klucz
-   * moglby cicho rozjechac sie z atrybutem `data-list` w szablonie.
+   * [Extracted after a whole-design review — the same pattern was
+   * separately duplicated in `#mountImageList`/`#mountSceneList`/
+   * `#mountJournalList`/`#mountDiagnosticList`] `scrollKey` is the only
+   * thing EACH of them had separately (besides row height and the row
+   * builder) — a single place to wire `initialScrollTop`/`onScroll` to
+   * `#listScrollTop`, instead of four copies of the same logic, where the
+   * key could silently drift out of sync with the `data-list` attribute in
+   * the template.
    */
   #mountList<T>(container: HTMLElement | null, scrollKey: string, items: readonly T[], rowHeightPx: number, renderRow: (item: T) => HTMLElement): VirtualList<T> | null {
     if (!container) return null;
@@ -1506,13 +1518,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
   }
 
-  // ---- Lista obrazow (Z2/Z4) ---------------------------------------------
+  // ---- Image list (Z2/Z4) ---------------------------------------------
 
   #mountImageList(images: CIFImage[]): void {
-    // [redesign 2a] Wiersz sklada trzy linie w `.bindery-row-name-wrap`
-    // (nazwa + meta + grupa journala) obok miniatury 48px wysokosci —
-    // wysokosc dobrana empirycznie pod ten uklad (patrz `bindery.css`,
-    // sekcja "Tabela obrazow").
+    // [Redesign 2a] The row stacks three lines in `.bindery-row-name-wrap`
+    // (name + meta + journal group) next to a 48px-tall thumbnail — the
+    // height was chosen empirically for this layout (see `bindery.css`,
+    // "Image table" section).
     this.#imageList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="images"]'), 'images', images, 80, (image) => this.#buildImageRow(image));
   }
 
@@ -1543,10 +1555,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     row.appendChild(checkbox);
 
-    // [redesign 2a] Slot 36x48 ZAWSZE obecny (nawet bez miniatury), zeby
-    // kolumny siatki (`22px 36px 74px minmax(0,1fr) 148px`) zostawaly
-    // identyczne w kazdym wierszu — VirtualList wymaga stalej wysokosci
-    // wiersza, wiec brakujacy element nie moze zmieniac liczby kolumn.
+    // [Redesign 2a] The 36x48 slot is ALWAYS present (even without a
+    // thumbnail), so the grid columns (`22px 36px 74px minmax(0,1fr) 148px`)
+    // stay identical in every row — VirtualList requires a fixed row
+    // height, so a missing element must not change the number of columns.
     const thumbSlot = document.createElement('div');
     thumbSlot.className = 'bindery-row-thumb-slot';
     const thumbUrl = this.#thumbnailFor(image.id);
@@ -1567,14 +1579,15 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const nameWrap = document.createElement('div');
     nameWrap.className = 'bindery-row-name-wrap';
 
-    // [KROK-20, zgloszony na zywo brak "brakuje mi nadawania nazw wybranym
-    // obrazom"] Nazwa obrazu edytowalna WPROST w wierszu — mirror wzorca z
-    // `#buildJournalRow` (tam `nameInput` mutuje `row.journal.name` wprost na
-    // obiekcie core'a). `image.caption` to JUZ istniejace, opcjonalne pole
-    // `CIFImage` (patrz `packages/core/src/cif/types.ts`) czytane przez
-    // `#runImport` jako nadpisanie domyslnej nazwy (`image.caption?.trim() ||
-    // "Obraz p.N"`) — WSZYSTKIE trzy sciezki (Scena/Journal/Token) i grupowanie
-    // journali dostaja te nazwe za darmo, bez zadnej dodatkowej logiki tutaj.
+    // [Step 20, gap reported live: "I'm missing the ability to name selected
+    // images"] Image name directly editable IN the row — mirrors the
+    // pattern from `#buildJournalRow` (there `nameInput` mutates
+    // `row.journal.name` directly on the core object). `image.caption` is
+    // an ALREADY existing, optional `CIFImage` field (see
+    // `packages/core/src/cif/types.ts`) read by `#runImport` as an override
+    // for the default name (`image.caption?.trim() || "Image p.N"`) — ALL
+    // three paths (Scene/Journal/Token) and journal grouping get this name
+    // for free, with no extra logic here.
     const defaultImageName = game.i18n!.localize('BINDERY.review.defaultImageName' as never);
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
@@ -1587,23 +1600,23 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     nameWrap.appendChild(nameInput);
 
-    // [zgloszenie uzytkownika, "unknown - 65x115 - undecided (40%) jest
-    // zupelnie niepotrzebny, moze zostac jedynie rozmiar"] Dawniej pelny opis
-    // (`targetKind — WxH — classification (confidence%)`) — reszta oprocz
-    // samego rozmiaru byla wewnetrznym zargonem klasyfikatora, nieczytelnym
-    // dla uzytkownika i nieprzydatnym w podjeciu decyzji o przeznaczeniu.
+    // [User request, "'unknown - 65x115 - undecided (40%)' is completely
+    // unnecessary, only the size can stay"] Previously a full description
+    // (`targetKind — WxH — classification (confidence%)`) — everything
+    // besides the size itself was the classifier's internal jargon,
+    // unreadable to the user and useless for deciding on a destination.
     const meta = document.createElement('span');
     meta.className = 'bindery-row-meta';
     meta.textContent = `${image.width}×${image.height}`;
     nameWrap.appendChild(meta);
 
-    // [KROK-19] Nazwa grupy journala — ma sens WYLACZNIE dla przeznaczenia
-    // `journal` (patrz `ReviewSelection.imageJournalGroup`), stad ukryta
-    // dla pozostalych przeznaczen zamiast usuwana z DOM-u (prostszy toggle
-    // widocznosci nizej w handlerze zmiany `destSelect`). Trzecia linia w
-    // `nameWrap` (doc: "zachowaj pelna edycje per-wiersz, nie usuwaj bez
-    // pytania" — patrz README, wiec zostaje, tylko zdegradowana wizualnie
-    // przez `.bindery-row-journal-group` jak `meta` powyzej).
+    // [Step 19] Journal group name — only makes sense for the `journal`
+    // destination (see `ReviewSelection.imageJournalGroup`), hence hidden
+    // for other destinations instead of removed from the DOM (a simpler
+    // visibility toggle below, in the `destSelect` change handler). A third
+    // line in `nameWrap` (doc: "keep full per-row editability, don't remove
+    // without asking" — see README, so it stays, just visually
+    // de-emphasized via `.bindery-row-journal-group` like `meta` above).
     const groupInput = document.createElement('input');
     groupInput.type = 'text';
     groupInput.className = 'bindery-row-journal-group';
@@ -1615,15 +1628,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     nameWrap.appendChild(groupInput);
 
-    // [KROK-42, "token jako produkt"] Ten sam wzorzec co `groupInput` powyzej
-    // — trzecia linia w `nameWrap`, widoczna WYLACZNIE dla przeznaczenia
-    // `token` (grid `.bindery-image-row` ma STALA liczbe kolumn, patrz
-    // `bindery.css`, wiec nowy przycisk musi isc do JUZ istniejacej,
-    // elastycznej kolumny `nameWrap`, nie jako nowe dziecko `row`). Otwiera
-    // `TokenPrepApp` (usuwanie tla/maska/ramka), na zatwierdzeniu PODMIENIA
-    // bajty/wymiary/format obrazu — mirror `#resizeImage`/`#rotateImage`,
-    // patrz `#prepareToken`. Mechanizm przypisania tokenu do aktora (krok 35)
-    // nie wie i nie musi wiedziec, ze bajty pochodza z tego panelu.
+    // [Step 42, "token as a product"] The same pattern as `groupInput`
+    // above — a third line in `nameWrap`, visible SOLELY for the `token`
+    // destination (the `.bindery-image-row` grid has a FIXED number of
+    // columns, see `bindery.css`, so a new button must go into the ALREADY
+    // existing, flexible `nameWrap` column, not as a new child of `row`).
+    // Opens `TokenPrepApp` (background removal/mask/frame); on confirmation
+    // it REPLACES the image's bytes/dimensions/format — mirrors
+    // `#resizeImage`/`#rotateImage`, see `#prepareToken`. The mechanism for
+    // assigning a token to an actor (step 35) doesn't know and doesn't need
+    // to know that the bytes come from this panel.
     const prepareTokenBtn = document.createElement('button');
     prepareTokenBtn.type = 'button';
     prepareTokenBtn.className = 'bindery-row-prepare-token-btn';
@@ -1636,10 +1650,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     row.appendChild(nameWrap);
 
-    // [KROK-14 Z4] Przeznaczenie per obraz — sugerowane z `CIFImage.targetKind`
-    // [zgloszenie uzytkownika, "wszystkie obrazy trafiaja do Nieprzydzielone,
-    // uzytkownik przydziela recznie"] Domyslnie zawsze `unassigned` (patrz
-    // `defaultImageDestination`) — nadpisywalne tutaj.
+    // [Step 14 Z4] Per-image destination — suggested from `CIFImage.targetKind`
+    // [User request, "all images end up in Unassigned, the user assigns
+    // manually"] Always `unassigned` by default (see
+    // `defaultImageDestination`) — overridable here.
     const destSelect = document.createElement('select');
     destSelect.className = 'bindery-select bindery-row-destination';
     for (const [value, labelKey] of [
@@ -1661,34 +1675,35 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     destSelect.addEventListener('change', () => {
       const destination = destSelect.value as ImageDestination;
       this.#selection.setImageDestination(image.id, destination);
-      // [KROK-16 Z2, naprawa zgloszonego bledu] `#runImport` przetwarza
-      // WYLACZNIE zaznaczone obrazy (checkbox) — bez tego, wybranie
-      // przeznaczenia dla obrazu ktory startuje ODZNACZONY (KAZDY obraz,
-      // patrz `ReviewSelection.fromDocument` — zgloszenie uzytkownika,
-      // wszystkie obrazy startuja odznaczone) nie robilo NIC, bez zadnego
-      // bledu ani ostrzezenia ("scena sie nie tworzy"). Zmiana przeznaczenia na
-      // cokolwiek innego niz "Nieprzydzielone" jest jednoznaczna deklaracja
-      // intencji — zaznacz obraz od razu, zeby dropdown i checkbox nie
-      // rozjezdzaly sie w dwa niezalezne, ciche zrodla prawdy.
+      // [Step 16 Z2, fix for reported bug] `#runImport` processes SOLELY
+      // selected images (checkbox) — without this, choosing a destination
+      // for an image that starts UNCHECKED (EVERY image, see
+      // `ReviewSelection.fromDocument` — user request, all images start
+      // unchecked) did NOTHING, with no error or warning ("the scene isn't
+      // created"). Changing the destination to anything other than
+      // "Unassigned" is an unambiguous declaration of intent — select the
+      // image right away, so the dropdown and the checkbox don't drift
+      // apart into two independent, silent sources of truth.
       const shouldBeSelected = destination !== 'unassigned';
       if (this.#selection.isImageSelected(image.id) !== shouldBeSelected) this.#selection.setImage(image.id, shouldBeSelected);
-      // [zgloszenie uzytkownika, podzakladki Scena/Journal/Token/Nieprzydzielone] Obraz
-      // wedruje do INNEJ podzakladki przeznaczenia — pelny render (zamiast
-      // dotychczasowej chirurgicznej aktualizacji tego jednego wiersza), zeby
-      // zniknal z biezacej listy i pojawil sie we wlasciwej. `scrollable`
-      // (patrz `PARTS.main` wyzej) chroni pozycje przewijania listy mimo
-      // pelnego renderu.
+      // [User request, Scene/Journal/Token/Unassigned sub-tabs] The image
+      // moves to a DIFFERENT destination sub-tab — a full render (instead of
+      // the previous surgical update of this one row), so it disappears
+      // from the current list and appears in the correct one. `scrollable`
+      // (see `PARTS.main` above) protects the list's scroll position despite
+      // the full render.
       void this.render();
     });
     row.appendChild(destSelect);
 
-    // [zgloszenie uzytkownika, "obrocenie juz wycietego obrazu — mapa zajmuje
-    // cala strone, zaznaczenie obszaru by ja zle wycielo, chodzi o obrocenie
-    // JUZ wycietego obrazu"] Obraca SAMA TRESC (piksele juz zapisanych
-    // bajtow) o 90° — NIEZALEZNE od uchwytow obrotu/zmiany rozmiaru na
-    // podgladzie strony (`#renderResizeHandles`/`#resizeImage`), ktore
-    // dotycza WYBORU obszaru PRZED ponownym wycieciem z PDF-a. Tutaj PDF w
-    // ogole nie jest ponownie odpytywany — czysta operacja na canvasie.
+    // [User request, "rotate an already-cropped image — the map covers the
+    // whole page, selecting an area would crop it wrong, it's about
+    // rotating an ALREADY cropped image"] Rotates the CONTENT ITSELF (the
+    // pixels of the already-saved bytes) by 90° — INDEPENDENT of the
+    // rotation/resize handles on the page preview
+    // (`#renderResizeHandles`/`#resizeImage`), which concern SELECTING the
+    // area BEFORE re-cropping from the PDF. Here the PDF is not queried
+    // again at all — a pure canvas operation.
     const rotateWrap = document.createElement('div');
     rotateWrap.className = 'bindery-row-rotate';
     const rotateLeftBtn = document.createElement('button');
@@ -1741,10 +1756,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  // [KROK-16 Z2, naprawa zgloszonego bledu] Journale (pelny tekst ksiazki)
-  // startuja teraz odznaczone (patrz `ReviewSelection.fromDocument`) — te dwa
-  // przyciski to jawny opt-in zbiorczy, zeby uzytkownik, ktory FAKTYCZNIE chce
-  // pelnotekstowe journale, nie musial klikac kazdego rozdzialu osobno.
+  // [Step 16 Z2, fix for reported bug] Journals (full book text) now start
+  // unchecked (see `ReviewSelection.fromDocument`) — these two buttons are
+  // an explicit bulk opt-in, so a user who ACTUALLY wants full-text journals
+  // doesn't have to click every chapter individually.
   static #onSelectAllJournals(this: ReviewScreen): void {
     this.#selection.setAllJournals(true);
     void this.render();
@@ -1755,12 +1770,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [redesign 2a] Doc laczy dwa dawne przyciski ("Ustaw przeznaczenie
-   * zaznaczonym" + "Ustaw grupe journala zaznaczonym") w jeden — przeznaczenie
-   * jest ZAWSZE ustawiane (`<select>` zawsze ma jakas wartosc), grupa journala
-   * TYLKO gdy pole nie jest puste (patrz README: nie czysc grupy journala
-   * zaznaczonym obrazom tylko dlatego, ze ktos kliknal "Ustaw" bez wpisania
-   * niczego w to pole).
+   * [Redesign 2a] The doc merges two former buttons ("Set destination for
+   * selected" + "Set journal group for selected") into one — the
+   * destination is ALWAYS set (the `<select>` always has some value), the
+   * journal group ONLY when the field isn't empty (see README: don't clear
+   * the journal group of selected images just because someone clicked
+   * "Apply" without typing anything into that field).
    */
   static #onApplyBulkSettings(this: ReviewScreen): void {
     const select = this.element.querySelector<HTMLSelectElement>('[data-select="bulkDestination"]');
@@ -1777,11 +1792,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-19, naprawa zgloszonego bledu] Przywraca ostatni wybor w pasku
-   * operacji zbiorczych (`bulkDestination`/`bulkJournalGroup`) PO kazdym
-   * zamontowaniu zakladki Obrazy — patrz komentarz przy `#bulkDestinationValue`
-   * wyzej, dlaczego bez tego wybor cicho gubil sie przy kazdej nawigacji
-   * podgladu strony.
+   * [Step 19, fix for reported bug] Restores the last choice in the bulk
+   * operations bar (`bulkDestination`/`bulkJournalGroup`) AFTER every mount
+   * of the Images tab — see the comment next to `#bulkDestinationValue`
+   * above for why, without this, the choice was silently lost on every page
+   * preview navigation.
    */
   #wireBulkImageControls(): void {
     const destSelect = this.element.querySelector<HTMLSelectElement>('[data-select="bulkDestination"]');
@@ -1801,15 +1816,14 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [naprawa zgloszonego bledu — recenzja calego designu] Poprzednia wersja
-   * celowala w `.bindery-review-counts` — klase, ktora nigdy nie istniala w
-   * `review-screen.hbs`/`bindery.css` (prawdopodobnie relikt sprzed
-   * "redesign 2a"), wiec `querySelector` zawsze zwracal `null` i cala
-   * aktualizacja byla cichym no-opem: licznik "N zaznaczonych" w pasku
-   * krokow zamrazal sie po kazdym (od)zaznaczeniu checkboxa, az do
-   * przypadkowego pelnego renderu. `data-count="images"` na wlasciwym
-   * `<span>` (patrz szablon) jest jedynym miejscem, ktore faktycznie
-   * pokazuje ten licznik.
+   * [Bug fix — whole-design review] The previous version targeted
+   * `.bindery-review-counts` — a class that never existed in
+   * `review-screen.hbs`/`bindery.css` (probably a relic from before
+   * "redesign 2a"), so `querySelector` always returned `null` and the whole
+   * update was a silent no-op: the "N selected" counter in the step bar
+   * froze after every checkbox (de)selection, until an incidental full
+   * render. `data-count="images"` on the correct `<span>` (see the
+   * template) is the only place that actually shows this counter.
    */
   async #refreshHeaderCounts(): Promise<void> {
     const el = this.element.querySelector<HTMLElement>('[data-count="images"]');
@@ -1817,7 +1831,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     el.textContent = `${this.#selection.selectedImageCount} / ${this.#data.document.images.length} ${game.i18n!.localize('BINDERY.review.images' as never)}`;
   }
 
-  /** [KROK-11 Z3] Aktualizuje klase podswietlenia na juz-wyrenderowanych wierszach listy obrazow, bez pelnego `render()` (patrz `#redrawOverlay`). */
+  /** [Step 11 Z3] Updates the highlight class on the already-rendered image list rows, without a full `render()` (see `#redrawOverlay`). */
   #refreshImageRowHighlights(): void {
     const rows = this.element.querySelectorAll<HTMLElement>('.bindery-image-row');
     for (const row of rows) {
@@ -1825,57 +1839,57 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  // ---- [KROK-20 Z2] Lista aktorow -----------------------------------------
+  // ---- [Step 20 Z2] Actor list -----------------------------------------
 
   /**
-   * [KROK-21, zmierzony na zywo blad] Bez wirtualizacji — celowo, w
-   * odroznieniu od obrazow/scen/journali/diagnostyki (`VirtualList`, ktory
-   * zaklada WPROST "brak wierszy zmiennej wysokosci", patrz jego wlasny
-   * komentarz). Wiersz aktora jest z natury zmiennej wysokosci (opcjonalny
-   * rzad kandydatow na nazwe, zawijana lista cech, zawijana lista atakow,
-   * zmienna liczba notatek adaptera) — sztywne `rowHeightPx` w `VirtualList`
-   * powodowalo, ze tresc dluzszych wierszy (np. "Ręce" ze str. 56: 5 atakow +
-   * kilka notatek) byla wizualnie przykrywana przez NASTEPNY wiersz
-   * (absolutne pozycjonowanie + wymuszona wysokosc), mimo ze dane pod spodem
-   * byly kompletne przez caly czas — utworzony Actor mial wszystkie 4 ataki
-   * poprawnie, tylko EDYTOR ich nie pokazywal. Liczba aktorow w realnej
-   * ksiazce to dziesiatki, nie tysiace obrazow, ktore `VirtualList`
-   * faktycznie musi obslugiwac (jego wlasny cel: "2500 elementow bez
-   * zacinania") — zwykly, niewirtualizowany rendering jest tu poprawnym
-   * kompromisem, nie tymczasowym obejsciem.
+   * [Step 21, bug measured live] Without virtualization — deliberately,
+   * unlike images/scenes/journals/diagnostics (`VirtualList`, which
+   * EXPLICITLY assumes "no variable-height rows", see its own comment). An
+   * actor row is inherently of variable height (an optional row of name
+   * candidates, a wrapping trait list, a wrapping attack list, a variable
+   * number of adapter notes) — a fixed `rowHeightPx` in `VirtualList` caused
+   * the content of longer rows (e.g. "Hands" from p. 56: 5 attacks + several
+   * notes) to be visually covered by the NEXT row (absolute positioning +
+   * enforced height), even though the underlying data was complete the
+   * whole time — the created Actor had all 4 attacks correctly, only the
+   * EDITOR didn't show them. The number of actors in a real book is dozens,
+   * not the thousands of images that `VirtualList` actually has to handle
+   * (its own goal: "2500 items without stuttering") — plain,
+   * non-virtualized rendering is the correct trade-off here, not a
+   * temporary workaround.
    */
   #mountActorList(actors: CIFActor[]): void {
     const container = this.element.querySelector<HTMLElement>('[data-list="actors"]');
     if (!container) return;
     container.innerHTML = '';
     for (const actor of actors) container.appendChild(this.#buildActorRow(actor));
-    // [zgloszenie uzytkownika, "wybieram obraz z listy, przeskakuje na
-    // początek"] Ten sam problem co `VirtualList` (patrz uzasadnienie przy
-    // `initialScrollTop` tam), mimo ze ta lista NIE jest wirtualizowana:
-    // kontener jest PUSTY w szablonie Handlebars, wiec Foundry'owy
-    // `scrollable` probuje przywrocic `scrollTop` ZANIM wiersze wyzej w ogole
-    // istnieja — ustawienie scrolla na pustym kontenerze jest przegladarkowo
-    // przycinane do 0. Przywracamy wiec SAMI, PO wypelnieniu.
+    // [User request, "I pick an image from the list, it jumps back to the
+    // top"] The same problem as `VirtualList` (see the rationale next to
+    // `initialScrollTop` there), even though this list is NOT virtualized:
+    // the container is EMPTY in the Handlebars template, so Foundry's own
+    // `scrollable` tries to restore `scrollTop` BEFORE the rows above even
+    // exist — setting scroll on an empty container gets clamped to 0 by the
+    // browser. So we restore it OURSELVES, AFTER filling it.
     container.scrollTop = this.#listScrollTop['actors'] ?? 0;
     container.addEventListener('scroll', () => (this.#listScrollTop['actors'] = container.scrollTop));
   }
 
-  /** Wiersz statystyk z etykietami skroconymi (`S`,`WYG`,...) — patrz `CHARACTERISTIC_KEY_MAP`/derivedBlock w `adapters/coc7.ts`. Klucz kanoniczny jest dluzszy niz etykieta z ksiazki (np. "strength" vs "S") — mapa odwrotna WYLACZNIE do etykietowania inputow w tym ekranie, nie do zadnej decyzji. */
+  /** Stat row with abbreviated labels (`STR`,`APP`,...) — see `CHARACTERISTIC_KEY_MAP`/derivedBlock in `adapters/coc7.ts`. The canonical key is longer than the standard CoC7 character-sheet abbreviation (e.g. "strength" vs "STR") — a reverse map SOLELY for labeling inputs on this screen, not for any decision. */
   static readonly #STAT_SHORT_LABELS: Readonly<Record<string, string>> = {
-    strength: 'S',
-    charisma: 'WYG',
-    constitution: 'KON',
-    willpower: 'MOC',
-    size: 'BC',
-    education: 'WYK',
-    dexterity: 'ZR',
+    strength: 'STR',
+    charisma: 'APP',
+    constitution: 'CON',
+    willpower: 'POW',
+    size: 'SIZ',
+    education: 'EDU',
+    dexterity: 'DEX',
     intelligence: 'INT',
-    sanity: 'P',
-    hitPoints: 'PW',
-    damageBonus: 'MO',
-    build: 'Krzepa',
-    movement: 'Ruch',
-    magicPoints: 'PM',
+    sanity: 'SAN',
+    hitPoints: 'HP',
+    damageBonus: 'DB',
+    build: 'Build',
+    movement: 'Move',
+    magicPoints: 'MP',
   };
 
   #buildActorRow(actor: CIFActor): HTMLElement {
@@ -1900,10 +1914,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     line1.appendChild(checkbox);
 
-    // [DoD Z2] Rozstrzyganie nazwy — pole tekstowe zawsze edytowalne (nazwa
-    // pewna startuje wypelniona, placeholder startuje PUSTY, wymuszajac
-    // swiadomy wybor), plus przyciski-skroty dla kazdego kandydata z
-    // `nameCandidates` (S4/A10 — "jedno klikniecie, nie formularz", brief Z2).
+    // [DoD Z2] Name resolution — the text field is always editable (a
+    // confident name starts pre-filled, a placeholder starts EMPTY, forcing
+    // a deliberate choice), plus shortcut buttons for each candidate from
+    // `nameCandidates` (S4/A10 — "one click, not a form", Z2 brief).
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
     nameInput.className = 'bindery-row-name-input bindery-actor-name-input';
@@ -1929,13 +1943,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const pageLink = document.createElement('span');
     pageLink.className = 'bindery-actor-page-link';
-    pageLink.textContent = `str. ${actor.provenance.pageNumber}`;
+    pageLink.textContent = `p. ${actor.provenance.pageNumber}`;
     line1.appendChild(pageLink);
     row.appendChild(line1);
 
     row.appendChild(this.#buildActorImageSection(actor));
 
-    // Kandydaci na nazwe — WYLACZNIE gdy nazwa jeszcze nierozstrzygnieta (po rozstrzygnieciu znikaja, zeby nie zasmiecac wiersza).
+    // Name candidates — SOLELY while the name is still unresolved (they disappear after resolution, so as not to clutter the row).
     if (actor.nameCandidates && actor.nameCandidates.length > 0 && !this.#actorSelection.isNameResolved(actor)) {
       const candidatesRow = document.createElement('div');
       candidatesRow.className = 'bindery-actor-candidates';
@@ -1960,7 +1974,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       row.appendChild(candidatesRow);
     }
 
-    // [DoD Z2] Wartosci cech/pochodnych — edytowalny input per klucz FAKTYCZNIE obecny w tym aktorze (generyczne, nie zakodowana na sztywno lista pol).
+    // [DoD Z2] Characteristic/derived values — an editable input per key ACTUALLY present on this actor (generic, not a hardcoded field list).
     const statsRow = document.createElement('div');
     statsRow.className = 'bindery-actor-stats';
     for (const [key, stat] of Object.entries(actor.statistics)) {
@@ -1985,7 +1999,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     row.appendChild(statsRow);
 
-    // [DoD Z2] Ataki — nazwa/trafienie/obrazenia + przycisk usuniecia (przywracalny ponownym kliknieciem — `toggleAttackRemoved`).
+    // [DoD Z2] Attacks — name/to-hit/damage + a remove button (restorable by clicking again — `toggleAttackRemoved`).
     if (actor.attacks.length > 0) {
       const attacksRow = document.createElement('div');
       attacksRow.className = 'bindery-actor-attacks';
@@ -2017,7 +2031,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       row.appendChild(attacksRow);
     }
 
-    // [DoD Z2, A3/A10] `notes` z adaptera — WIDOCZNE, nigdy ukryte. Kontener z wlasnym data-attribute, zeby `#refreshActorRowNotes` mogl go podmienic bez przebudowy calego wiersza.
+    // [DoD Z2, A3/A10] Adapter `notes` — VISIBLE, never hidden. A container with its own data attribute, so `#refreshActorRowNotes` can replace it without rebuilding the whole row.
     const notesBox = document.createElement('div');
     notesBox.className = 'bindery-actor-notes';
     notesBox.dataset['actorNotesFor'] = actor.id;
@@ -2040,26 +2054,28 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-35 Z1/Z2] Token+portret aktora — WYLACZNIE wybor z listy obrazow o
-   * przeznaczeniu `token` (zakladka Obrazy), zero automatycznego dopasowania
-   * geometrycznego (`images.associateWithEntity` z profilu, MDD §5.5,
-   * swiadomie nieuzyte — decyzja produktowa kroku 35). Lista NIE jest
-   * ograniczona do strony aktora (brief: "autor moze chciec dowolny").
-   * Pusta lista tlumaczy, dlaczego jest pusta (ten sam wzorzec co pusta
-   * zakladka Aktorow bez profilu, krok 21), zamiast pokazywac pusty dropdown.
+   * [Step 35 Z1/Z2] Actor token+portrait — SOLELY a choice from the list of
+   * images with the `token` destination (Images tab), zero automatic
+   * geometric matching (`images.associateWithEntity` from the profile, MDD
+   * §5.5, deliberately unused — a product decision from step 35). The list
+   * is NOT restricted to the actor's page (brief: "the author may want any
+   * of them"). An empty list explains why it's empty (the same pattern as
+   * the empty Actors tab without a profile, step 21), instead of showing an
+   * empty dropdown.
    */
   #buildActorImageSection(actor: CIFActor): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'bindery-actor-image-section';
 
-    // [zgloszenie uzytkownika, "obraz bez zaznaczonego checkboxa dawal sie
-    // wybrac jako token, ale nie trafial do importu"] `imageDestination ===
-    // 'token'` samo w sobie NIE wystarcza — obraz z odznaczonym checkboxem
-    // (zakladka Obrazy) NIGDY nie trafia do `uploadedTokenImagePathById`
-    // (patrz `#runImport`, petla po `doc.images`: `if (!isImageSelected)
-    // continue`), wiec wybranie go tutaj konczylo sie tokenem bez obrazka na
-    // karcie (adapter degraduje z ostrzezeniem, ale autor tego ostrzezenia
-    // moglby nie zauwazyc). Lepiej nie dawac wyboru, ktory i tak nie zadziala.
+    // [User request, "an image with the checkbox unchecked could still be
+    // chosen as a token, but never reached the import"] `imageDestination
+    // === 'token'` by itself is NOT enough — an image with an unchecked
+    // checkbox (Images tab) NEVER reaches `uploadedTokenImagePathById` (see
+    // `#runImport`, the loop over `doc.images`: `if (!isImageSelected)
+    // continue`), so choosing it here would end up as a token with no image
+    // on the sheet (the adapter degrades with a warning, but the author
+    // might not notice that warning). Better not to offer a choice that
+    // won't work anyway.
     const candidates = this.#data.document.images
       .filter((img) => this.#selection.isImageSelected(img.id) && this.#selection.imageDestination(img.id) === 'token')
       .sort((a, b) => a.provenance.pageNumber - b.provenance.pageNumber);
@@ -2072,18 +2088,19 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       return wrap;
     }
 
-    // [zgloszenie uzytkownika, "podpowiedz automatyczna po nr strony", potem
-    // "ten proponowany token wyglada brzydko" — zmierzone: podpowiedz str. 3
-    // dla aktora ze str. 23] Gdy autor jeszcze NIC nie wybral
-    // (`hasTokenImageSelection` — odroznia to od jawnego "brak"), podpowiedz
-    // kandydata NAJBLIZSZEGO stronie wlasnego statbloku — ALE tylko gdy
-    // "najblizszy" faktycznie oznacza BLISKO (ten sam rozklad tresci
-    // ksiazki, np. portret na sasiedniej stronie/rozkladowce), nie
-    // "najmniej-daleki z calej ksiazki". Bez progu, gdy w calym dokumencie
-    // jest tylko kilka obrazow oznaczonych jako token, "najblizszy"
-    // potrafil wskazywac cos 20 stron dalej — geometrycznie NIEZWIAZanego
-    // z ta postacia (dokladnie zgloszony przypadek), gorsza podpowiedz niz
-    // brak podpowiedzi w ogole (A10 — nie zgaduj, gdy sygnal jest slaby).
+    // [User request, "auto-suggest by page number", then "this suggested
+    // token looks wrong" — measured case: suggested p. 3 for an actor from
+    // p. 23] When the author hasn't chosen ANYTHING yet
+    // (`hasTokenImageSelection` — distinguishes this from an explicit
+    // "none"), suggest the candidate CLOSEST to the actor's own statblock
+    // page — BUT only when "closest" actually means CLOSE (the same
+    // content layout of the book, e.g. a portrait on the adjacent
+    // page/spread), not "least-far in the whole book". Without a threshold,
+    // when the whole document has only a few images marked as token,
+    // "closest" could point at something 20 pages away — geometrically
+    // UNRELATED to this character (exactly the reported case), a worse
+    // suggestion than no suggestion at all (A10 — don't guess when the
+    // signal is weak).
     const TOKEN_SUGGESTION_MAX_PAGE_DISTANCE = 2;
     if (!this.#actorSelection.hasTokenImageSelection(actor.id)) {
       const nearest = candidates.reduce((best, img) =>
@@ -2107,10 +2124,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     );
     wrap.appendChild(tokenField);
 
-    // [Z2, "Rozdzielenie portretu i tokenu"] Pod "Ustawieniami zaawansowanymi"
-    // — domyslnie zwiniete i BEZ wlasnego przypisania (portret podaza za
-    // tokenem, P1), rozwiniete automatycznie gdy autor JUZ wczesniej rozdzielil
-    // (np. po edycji wczesniejszego wiersza i ponownym renderze calej listy).
+    // [Z2, "Separating the portrait and the token"] Under "Advanced
+    // settings" — collapsed by default and WITHOUT its own assignment (the
+    // portrait follows the token, P1), expanded automatically when the
+    // author has ALREADY separated them earlier (e.g. after editing an
+    // earlier row and re-rendering the whole list).
     const details = document.createElement('details');
     details.className = 'bindery-studio-advanced-details';
     details.open = this.#actorSelection.hasCustomPortrait(actor.id);
@@ -2139,9 +2157,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     portraitField.appendChild(portraitLabel);
     details.appendChild(portraitField);
 
-    // [Z2] Podglad portretu budowany DOPIERO gdy nadpisanie jest wlaczone —
-    // dopoki podaza za tokenem, nie ma WLASNEGO stanu wartego wlasnego
-    // widgetu (patrz `portraitImageId` w `ActorReviewSelection`).
+    // [Z2] The portrait preview is only built once the override is enabled —
+    // while it follows the token, there's no OWN state worth its own widget
+    // (see `portraitImageId` in `ActorReviewSelection`).
     const mountPortraitPicker = (): void => {
       const existing = portraitField.querySelector('.bindery-actor-image-picker');
       existing?.remove();
@@ -2171,12 +2189,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-35 Z1] Dropdown z miniaturami — natywny `<select>` nie potrafi
-   * pokazac obrazka per pozycja (twarde ograniczenie HTML), stad wlasny,
-   * malutki popover: przycisk pokazujacy AKTUALNY wybor (miniatura+strona),
-   * po kliknieciu lista wszystkich kandydatow (miniatura+strona kazdy).
-   * Samodzielny, zamykany klikiem poza soba — zero zaleznosci od reszty
-   * wiersza, zeby dalo sie go uzyc zarowno dla tokenu jak i portretu.
+   * [Step 35 Z1] A dropdown with thumbnails — a native `<select>` can't show
+   * an image per option (a hard HTML limitation), hence a custom, tiny
+   * popover: a button showing the CURRENT choice (thumbnail+page), and on
+   * click, a list of all candidates (thumbnail+page each). Self-contained,
+   * closed by clicking outside it — zero dependency on the rest of the row,
+   * so it can be used for both the token and the portrait.
    */
   #buildImagePicker(images: readonly CIFImage[], currentId: string, onSelect: (imageId: string) => void): HTMLElement {
     const wrap = document.createElement('div');
@@ -2202,7 +2220,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         toggle.appendChild(thumb);
       }
       const text = document.createElement('span');
-      text.textContent = image ? `str. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
+      text.textContent = image ? `p. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
       toggle.appendChild(text);
     };
     renderToggleContent(currentId);
@@ -2220,7 +2238,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         opt.appendChild(thumb);
       }
       const text = document.createElement('span');
-      text.textContent = image ? `str. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
+      text.textContent = image ? `p. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
       opt.appendChild(text);
       opt.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -2268,7 +2286,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  /** Odswieza WYLACZNIE notatki JEDNEGO wiersza (po edycji pola) — bez pelnego `render()`, zeby nie gubic fokusu/scrolla listy. */
+  /** Refreshes SOLELY the notes of ONE row (after editing a field) — without a full `render()`, so as not to lose the list's focus/scroll. */
   #refreshActorRowNotes(actorId: string): void {
     const box = this.element.querySelector<HTMLElement>(`[data-actor-notes-for="${actorId}"]`);
     if (box) this.#renderActorNotesInto(box, this.#actorAdapterPreview.get(actorId));
@@ -2283,7 +2301,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  /** [naprawa zgloszonego bledu — patrz `#refreshHeaderCounts`, ten sam blad, ten sam relikt `.bindery-review-counts`.] */
+  /** [Bug fix — see `#refreshHeaderCounts`, the same bug, the same `.bindery-review-counts` relic.] */
   async #refreshActorHeaderCounts(): Promise<void> {
     const el = this.element.querySelector<HTMLElement>('[data-count="actors"]');
     if (!el || this.#tab !== 'actors') return;
@@ -2297,7 +2315,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  /** [KROK-20 Z2] Nawigacja `provenance` w OBIE strony — mirror `#mountOverlay`/`#redrawOverlay` obrazow, ale bez trybu "zaznacz i wytnij" (nie dotyczy aktorow). */
+  /** [Step 20 Z2] `provenance` navigation in BOTH directions — mirrors the images' `#mountOverlay`/`#redrawOverlay`, but without "select and crop" mode (doesn't apply to actors). */
   async #redrawActorOverlay(): Promise<void> {
     await this.#mountActorOverlay(this.#data.document.actors ?? []);
   }
@@ -2307,7 +2325,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const img = this.element.querySelector<HTMLImageElement>('.bindery-page-image');
     if (!svg || !img) return;
 
-    // [naprawa zgloszonego bledu — patrz identyczny komentarz w `#mountOverlay`.]
+    // [Bug fix — see the identical comment in `#mountOverlay`.]
     const requestedPageNumber = this.#currentPageNumber;
     const box = await this.#data.previewDocument.getPageBox(requestedPageNumber);
     if (this.#currentPageNumber !== requestedPageNumber) return;
@@ -2333,8 +2351,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         rect.dataset['actorId'] = actor.id;
         rect.addEventListener('click', () => {
           this.#highlightedActorId = actor.id;
-          // [KROK-21] Bez VirtualList (patrz komentarz `#mountActorList`) — wiersz
-          // jest juz w DOM, wystarczy zwykle przewiniecie do niego.
+          // [Step 21] Without VirtualList (see the `#mountActorList` comment) — the row
+          // is already in the DOM, a plain scroll-into-view is enough.
           this.element.querySelector(`.bindery-actor-row[data-actor-id="${actor.id}"]`)?.scrollIntoView({ block: 'nearest' });
           this.#refreshActorRowHighlights();
           draw();
@@ -2346,7 +2364,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     else img.addEventListener('load', draw, { once: true });
   }
 
-  // ---- Lista scen ---------------------------------------------------------
+  // ---- Scene list ---------------------------------------------------------
 
   #mountSceneList(): void {
     this.#sceneList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="scenes"]'), 'scenes', this.#data.document.scenes, 48, (scene) => this.#buildSceneRow(scene));
@@ -2363,12 +2381,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     row.appendChild(checkbox);
     const label = document.createElement('span');
     label.className = 'bindery-row-label';
-    label.textContent = `${scene.name} — str. ${scene.provenance.pageNumber}`;
+    label.textContent = `${scene.name} — p. ${scene.provenance.pageNumber}`;
     row.appendChild(label);
     return row;
   }
 
-  // ---- Drzewo journali (Z5) ------------------------------------------------
+  // ---- Journal tree (Z5) ------------------------------------------------
 
   #mountJournalList(): void {
     this.#journalList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="journals"]'), 'journals', this.#journalRows, 40, (row) => this.#buildJournalRow(row));
@@ -2410,15 +2428,15 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return el;
   }
 
-  // ---- Diagnostyka (Z7) -----------------------------------------------------
+  // ---- Diagnostics (Z7) -----------------------------------------------------
 
   #mountDiagnosticList(container: HTMLElement | null, diagnostics?: readonly Diagnostic[]): void {
     if (!container) return;
     const groups = diagnostics ? this.#groupDiagnostics(diagnostics) : this.#diagnosticGroups;
-    // [zgloszenie uzytkownika] Ten sam kontroler montowany dla DWOCH roznych
-    // kontenerow (zakladka Diagnostyka i krok Podsumowanie) — `data-list`
-    // (juz uzyty przez wywolujacego do znalezienia `container`) jako klucz
-    // sledzenia przewijania, zeby obie listy mialy WLASNA, niezalezna pamiec.
+    // [User request] The same controller mounted for TWO different
+    // containers (the Diagnostics tab and the Summary step) — `data-list`
+    // (already used by the caller to find `container`) as the scroll
+    // tracking key, so both lists have THEIR OWN, independent memory.
     const key = container.dataset['list'] ?? 'diagnostics';
     this.#diagnosticList = this.#mountList(container, key, groups, 32, (group) => this.#buildDiagnosticRow(group));
   }
@@ -2443,7 +2461,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     if (firstPage !== undefined && this.#step === 'review') {
       const jump = document.createElement('button');
       jump.type = 'button';
-      jump.textContent = `str. ${firstPage}`;
+      jump.textContent = `p. ${firstPage}`;
       jump.addEventListener('click', () => {
         this.#currentPageNumber = firstPage;
         this.#tab = 'images';
@@ -2454,7 +2472,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return row;
   }
 
-  // ---- Zakladki / krok (Z2/Z6) -----------------------------------------------
+  // ---- Tabs / step (Z2/Z6) -----------------------------------------------
 
   static #onSwitchTab(this: ReviewScreen, _ev: PointerEvent, target: HTMLElement): void {
     const tab = target.dataset['tab'] as ReviewTab | undefined;
@@ -2525,7 +2543,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#step = 'summary';
     } catch (err) {
       this.#importError = game.i18n!.localize('BINDERY.review.importErrorGeneric');
-      console.warn('Bindery | import z ekranu przegladu nieudany:', err);
+      console.warn('Bindery | import from the review screen failed:', err);
     } finally {
       this.#isImporting = false;
       await this.render();
@@ -2537,25 +2555,32 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const baseName = this.#data.fileName.replace(/\.pdf$/i, '') || 'bindery-import';
     const prefix = this.#targets.namePrefix.trim();
     const withPrefix = (name: string): string => (prefix ? `${prefix} ${name}` : name);
+    // The uploaded FILE's name mirrors the document name the user actually
+    // typed in the Images tab (`image.caption`), sanitized by `uploadImage`
+    // itself — an empty caption keeps the previous, PDF-filename+id scheme
+    // unchanged.
+    const uploadBaseNameFor = (image: CIFImage): string => (image.caption?.trim() ? `${baseName}-${image.caption.trim()}` : `${baseName}-${image.id}`);
 
     const entries: { label: string; uuid?: string }[] = [];
     const runDiagnostics: Diagnostic[] = [];
 
-    // Sceny — WYLACZNIE zaznaczone.
+    // Scenes — SOLELY the selected ones.
     const sceneFolderId = await ensureFolder(this.#targets.sceneFolder, 'Scene');
-    // [KROK-14 Z4, poprawione KROK-16 Z2] Obrazy juz obsluzone przez CIFScene
-    // (nizej) lub osadzone w journalu (dalej) NIE przechodza jeszcze raz przez
-    // petle przeznaczenia per obraz — ten sam obraz nie powinien dostac DWOCH
-    // dokumentow. WYLACZNIE dla FAKTYCZNIE zaznaczonych scen/journali/stron —
-    // pierwotna wersja dodawala `scene.imageRef` bezwarunkowo, wiec obraz
-    // nalezacy do ODZNACZONEJ (a wiec nigdy nie utworzonej) CIFScene byl mimo
-    // to wykluczany z petli przeznaczenia per obraz w zakladce Obrazy ("scena
-    // sie nie tworzy" — obraz nie dostawal ZADNEGO dokumentu, wbrew intencji
-    // uzytkownika ustawionej w dropdownie).
+    // [Step 14 Z4, fixed in Step 16 Z2] Images already handled via CIFScene
+    // (below) or embedded in a journal (further down) do NOT pass through
+    // the per-image destination loop again — the same image shouldn't get
+    // TWO documents. SOLELY for scenes/journals/pages that are ACTUALLY
+    // selected — the original version added `scene.imageRef`
+    // unconditionally, so an image belonging to an UNSELECTED (and thus
+    // never created) CIFScene was nonetheless excluded from the per-image
+    // destination loop in the Images tab ("the scene isn't created" — the
+    // image got NO document at all, contrary to the user's intent set in
+    // the dropdown).
     const usedImageIds = new Set<string>();
-    // [KROK-20] Patrz komentarz przy `SCENES_JOURNALS_FROM_CIF_ENABLED` u gory
-    // pliku — auto-detekcja CIFScene/CIFJournal wylaczona "na razie", te same
-    // obrazy nadal dostepne w zakladce Obrazy z Przeznaczeniem Scena/Journal.
+    // [Step 20] See the comment next to `SCENES_JOURNALS_FROM_CIF_ENABLED`
+    // at the top of the file — CIFScene/CIFJournal auto-detection is
+    // disabled "for now", the same images are still available in the Images
+    // tab with a Scene/Journal Destination.
     if (SCENES_JOURNALS_FROM_CIF_ENABLED) {
       for (const scene of doc.scenes) {
         if (this.#selection.isSceneSelected(scene.id)) usedImageIds.add(scene.imageRef);
@@ -2581,7 +2606,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
 
-    // Journale — WYLACZNIE zaznaczone journale, WYLACZNIE zaznaczone strony wewnatrz.
+    // Journals — SOLELY selected journals, SOLELY selected pages within them.
     const journalFolderId = await ensureFolder(this.#targets.journalFolder, 'JournalEntry');
     if (SCENES_JOURNALS_FROM_CIF_ENABLED) {
       const filteredJournals: CIFJournalForCreation[] = [];
@@ -2610,13 +2635,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const defaultImageName = game.i18n!.localize('BINDERY.review.defaultImageName' as never);
 
-    // [KROK-19, zgloszony na zywo brak "brakuje mi lepszej segregacji
-    // journali"] Obrazy z przeznaczeniem `journal` I niepusta nazwa grupy
-    // (ustawiona w zakladce Obrazy — per obraz albo zbiorczo) trafiaja RAZEM
-    // do JEDNEGO JournalEntry (wiele stron typu image), zamiast kazdy dostawac
-    // wlasny osobny journal jak dotychczas. Obrazy z PUSTA grupa (domyslnie)
-    // zachowuja stare zachowanie — obsluguje je petla per-obraz ponizej,
-    // ktora pomija juz-obsluzone `usedImageIds`.
+    // [Step 19, gap reported live: "I'm missing better sorting of
+    // journals"] Images with the `journal` destination AND a non-empty
+    // group name (set in the Images tab — per-image or in bulk) go
+    // TOGETHER into ONE JournalEntry (multiple image-type pages), instead of
+    // each getting its own separate journal as before. Images with an EMPTY
+    // group (the default) keep the old behavior — handled by the per-image
+    // loop below, which skips images already in `usedImageIds`.
     const journalGroups = new Map<string, CIFImage[]>();
     for (const image of doc.images) {
       if (usedImageIds.has(image.id)) continue;
@@ -2624,10 +2649,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       if (this.#selection.imageDestination(image.id) !== 'journal') continue;
       const group = this.#selection.imageJournalGroup(image.id);
       if (!group) continue;
-      // Zaklamane od razu (nie dopiero po udanym przetworzeniu ponizej) —
-      // ten obraz NALEZY do grupy niezaleznie od tego czy jego przetworzenie
-      // sie powiedzie; petla per-obraz ponizej nie powinna go dotknac nawet
-      // przy bledzie (unika zdublowanej diagnostyki dla tego samego obrazu).
+      // Claimed right away (not only after successful processing below) —
+      // this image BELONGS to the group regardless of whether its
+      // processing succeeds; the per-image loop below shouldn't touch it
+      // even on error (avoids duplicate diagnostics for the same image).
       usedImageIds.add(image.id);
       const list = journalGroups.get(group) ?? [];
       list.push(image);
@@ -2642,12 +2667,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           continue;
         }
         try {
-          const upload = await uploadImage({ bytes: bytes.bytes, baseName: `${baseName}-${image.id}`, format: bytes.format === 'png' ? 'png' : 'webp' });
+          const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
           pages.push({ name: withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`), imagePath: upload.path });
         } catch (err) {
-          // [KROK-27 Z1] Kod odrebny od `REVIEW_IMAGE_DESTINATION_FAILED` ponizej —
-          // inny ksztalt parametrow (imageId+groupName, nie name+destination), wiec
-          // wspolny kod dawalby niespojny szablon lokalizacji.
+          // [Step 27 Z1] A code distinct from `REVIEW_IMAGE_DESTINATION_FAILED` below —
+          // a different parameter shape (imageId+groupName, not name+destination), so
+          // a shared code would give an inconsistent localization template.
           runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_JOURNAL_GROUP_FAILED', params: { imageId: image.id, groupName, error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
         }
       }
@@ -2660,22 +2685,23 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
 
-    // [KROK-35 Z2] Sciezka WGRANEGO obrazu `token` per `CIFImage.id` — jedyny
-    // most miedzy zakladka Obrazy (co ZOSTALO faktycznie wgrane, ponizej) i
-    // zakladka Aktorzy (co autor WYBRAL jako token/portret, `ctx.imagePathResolver`
-    // przekazany do adaptera). Zamierzenie: obraz wybrany jako token, ktory z
-    // jakiegos powodu nie trafil TUTAJ (odznaczony w zakladce Obrazy, przeznaczenie
-    // zmienione, blad uploadu — patrz `catch` nizej) po prostu nie ma tu wpisu,
-    // wiec resolver zwraca `null` i adapter degraduje z jawnym ostrzezeniem
-    // zamiast wpisywac sciezke do nieistniejacego pliku (A3/A7, brief Z2).
+    // [Step 35 Z2] The UPLOADED `token` image path per `CIFImage.id` — the
+    // only bridge between the Images tab (what was ACTUALLY uploaded,
+    // below) and the Actors tab (what the author CHOSE as token/portrait,
+    // `ctx.imagePathResolver` passed to the adapter). Intent: an image
+    // chosen as token that for some reason didn't end up HERE (deselected
+    // in the Images tab, destination changed, upload error — see the
+    // `catch` below) simply has no entry here, so the resolver returns
+    // `null` and the adapter degrades with an explicit warning instead of
+    // writing a path to a nonexistent file (A3/A7, Z2 brief).
     const uploadedTokenImagePathById = new Map<string, string>();
 
-    // [KROK-14 Z4] Przeznaczenie per obraz (zakladka Obrazy) — WYLACZNIE
-    // zaznaczone obrazy, ktore NIE zostaly juz obsluzone jako CIFScene, osadzone
-    // w journalu, ani zebrane w grupe journala powyzej. `scene`/`journal`/`token`
-    // tworza wprost z POJEDYNCZEGO obrazu (MDD v2.1 §1.2, P1); `unassigned`
-    // (dawne `skip` — zgloszenie uzytkownika, patrz `defaultImageDestination`)
-    // jest pomijany.
+    // [Step 14 Z4] Per-image destination (Images tab) — SOLELY selected
+    // images that have NOT already been handled as a CIFScene, embedded in
+    // a journal, or gathered into a journal group above. `scene`/`journal`/
+    // `token` are created directly from a SINGLE image (MDD v2.1 §1.2, P1);
+    // `unassigned` (formerly `skip` — user request, see
+    // `defaultImageDestination`) is skipped.
     for (const image of doc.images) {
       if (usedImageIds.has(image.id)) continue;
       if (!this.#selection.isImageSelected(image.id)) continue;
@@ -2689,7 +2715,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       const name = withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`);
       try {
-        const upload = await uploadImage({ bytes: bytes.bytes, baseName: `${baseName}-${image.id}`, format: bytes.format === 'png' ? 'png' : 'webp' });
+        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
         if (destination === 'scene') {
           const grid = await this.#pickGridForImage(bytes, image);
           const created = await createSceneFromImage({ name, imagePath: upload.path, width: image.width, height: image.height, grid, folder: sceneFolderId });
@@ -2698,15 +2724,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           const created = await createJournalHandoutFromImage({ name, imagePath: upload.path, folder: journalFolderId });
           entries.push({ label: name, uuid: created.uuid });
         } else {
-          // [KROK-14 Z4, poprawione KROK-16 Z2] 'token' — zapis na dysk, bez
-          // tworzenia dokumentu (brief). Pierwotnie etykieta bez sciezki byla
-          // NIEODROZNIALNA od "nic sie nie stalo" ("nie widze gdzie sie
-          // zapisuje tokeny") — dopisujemy realna sciezke zwrocona przez
-          // `FilePicker.upload()`, jedyny slad tego zapisu widoczny dla
-          // uzytkownika (brak dokumentu, wiec brak `uuid`/linku do otwarcia).
+          // [Step 14 Z4, fixed in Step 16 Z2] 'token' — saved to disk,
+          // without creating a document (brief). Originally, a label
+          // without a path was INDISTINGUISHABLE from "nothing happened"
+          // ("I can't see where the tokens are being saved") — we append
+          // the real path returned by `FilePicker.upload()`, the only trace
+          // of this save visible to the user (no document, hence no
+          // `uuid`/link to open).
           entries.push({ label: `${name} — ${upload.path}` });
-          // [KROK-35 Z2] Zapamietane PO udanym wgraniu — patrz komentarz przy
-          // `uploadedTokenImagePathById` powyzej.
+          // [Step 35 Z2] Recorded AFTER a successful upload — see the
+          // comment next to `uploadedTokenImagePathById` above.
           uploadedTokenImagePathById.set(image.id, upload.path);
         }
       } catch (err) {
@@ -2714,19 +2741,21 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
 
-    // [KROK-20 Z2] Aktorzy — WYLACZNIE zaznaczone, PO nadpisaniach uzytkownika
-    // (`applyActorOverrides`), z notatkami adaptera WLACZONYMI (w odroznieniu
-    // od `tools/build-z4-measurement-macro.ts` z kroku 19, ktore je celowo
-    // zerowalo WYLACZNIE do pomiaru — produkt docelowy zawsze je liczy, A3/A10).
+    // [Step 20 Z2] Actors — SOLELY selected ones, AFTER user overrides
+    // (`applyActorOverrides`), with adapter notes TURNED ON (unlike
+    // `tools/build-z4-measurement-macro.ts` from step 19, which deliberately
+    // zeroed them SOLELY for measurement — the actual product always computes
+    // them, A3/A10).
     const selectedActors = (doc.actors ?? []).filter((a) => this.#actorSelection.isSelected(a.id));
     if (selectedActors.length > 0) {
       const actorFolderId = await ensureFolder(this.#targets.actorFolder, 'Actor');
       const actorResults = selectedActors.map((actor) => {
         const patched = applyActorOverrides(actor, this.#actorSelection);
-        // [KROK-35 Z1/Z2] `tokenImageRef`/`portraitImageRef` — id obrazu WYBRANEGO
-        // przez autora w zakladce Aktorow (pusty string = "brak"), rozwiazywany
-        // na sciezke WYLACZNIE przez `imagePathResolver` (patrz `uploadedTokenImagePathById`
-        // powyzej) — adapter degraduje sam, gdy resolver zwroci `null`.
+        // [Step 35 Z1/Z2] `tokenImageRef`/`portraitImageRef` — the id of the
+        // image CHOSEN by the author in the Actors tab (empty string =
+        // "none"), resolved to a path SOLELY via `imagePathResolver` (see
+        // `uploadedTokenImagePathById` above) — the adapter degrades on its
+        // own when the resolver returns `null`.
         const ctx = {
           folderId: actorFolderId ?? null,
           imagePathResolver: (ref: string) => uploadedTokenImagePathById.get(ref) ?? null,
@@ -2735,17 +2764,18 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           tokenImageRef: this.#actorSelection.tokenImageId(actor.id) || null,
           portraitImageRef: this.#actorSelection.portraitImageId(actor.id) || null,
         };
-        // Patrz komentarz przy `#rebuildActorAdapterPreview` — ten sam bezpieczny rzut, WLASNA implementacja `coc7Adapter`.
+        // See the comment next to `#rebuildActorAdapterPreview` — the same safe cast, our OWN `coc7Adapter` implementation.
         return coc7Adapter.fromActor(patched, ctx) as AdapterResult<Coc7ActorPayload>;
       });
       try {
         const created = await createActorsFromAdapterResults({ results: actorResults, folder: actorFolderId });
         for (const entry of created) {
           entries.push({ label: entry.actor.name as unknown as string, uuid: (entry.actor as unknown as { uuid?: string }).uuid });
-          // [KROK-27 Z1] Bez prefiksu "nazwa aktora: " — parametry issue'a
-          // (np. `UNCERTAIN_NAME`'s `name`) juz niosa te sama nazwe; dublowanie
-          // jej tutaj (poprzedni ksztalt z `.message`) bylo widoczna nadmiarowoscia
-          // ("X: Nazwa niepewna: X..."), nie celowa cecha.
+          // [Step 27 Z1] Without an "actor name: " prefix — the issue's
+          // parameters (e.g. `UNCERTAIN_NAME`'s `name`) already carry the
+          // same name; duplicating it here (the previous shape, using
+          // `.message`) was visible redundancy ("X: Uncertain name: X..."),
+          // not an intentional feature.
           for (const issue of entry.issues) {
             runDiagnostics.push({ severity: issue.severity, code: issue.code, params: issue.params });
           }
@@ -2759,24 +2789,24 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-16 Z2, wpiecie GridPicker] Otwiera `GridPicker` (zbudowany w kroku
-   * 8, do dzis nigdzie nie wywolywany — martwy kod) z podgladem NA ZYWO
-   * KONKRETNEGO obrazu, zamiast dawac kazdej scenie ten sam, niedopasowany
-   * punkt startowy. Uzytkownik moze zatwierdzic (kalibracja zapisywana jako
-   * `lastGridConfig` — startowa pozycja suwakow dla NASTEPNEJ sceny, zeby nie
-   * zaczynac od zera przy podobnych mapach) albo anulowac — wtedy uzywamy
-   * OSTATNIEJ ZATWIERDZONEJ kalibracji jako rozsadnego przyblizenia (jawny
-   * wybor uzytkownika "pomin", nie ciche narzucenie cudzych ustawien jak w
-   * pierwotnym buggu — patrz historia tego pliku).
+   * [Step 16 Z2, wiring in GridPicker] Opens `GridPicker` (built in step 8,
+   * never called from anywhere until now — dead code) with a LIVE preview of
+   * the SPECIFIC image, instead of giving every scene the same, ill-fitting
+   * starting point. The user can confirm (the calibration is saved as
+   * `lastGridConfig` — the starting slider position for the NEXT scene, so
+   * as not to start from scratch on similar maps) or cancel — in which case
+   * we use the LAST CONFIRMED calibration as a reasonable approximation (an
+   * explicit user choice to "skip", not a silent imposition of someone
+   * else's settings like in the original bug — see this file's history).
    */
   async #pickGridForImage(bytes: { bytes: Uint8Array; format: string }, image: { width: number; height: number; suggestedGrid?: CIFImage['suggestedGrid'] }): Promise<GridConfig> {
     const mime = bytes.format === 'png' ? 'image/png' : 'image/webp';
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes.bytes)], { type: mime }));
     try {
-      // [KROK-17] Sugestia auto-detekcji przekazana WYLACZNIE gdy pewnosc
-      // przekracza prog "warty pokazania" — ponizej niego lepszym punktem
-      // startowym jest ostatnia reczna kalibracja (`lastGridConfig`, patrz
-      // `GridPickerApp.pick`) niz zgadywanie na slabym sygnale.
+      // [Step 17] The auto-detection suggestion is passed SOLELY when
+      // confidence exceeds the "worth showing" threshold — below it, the
+      // last manual calibration (`lastGridConfig`, see `GridPickerApp.pick`)
+      // is a better starting point than guessing on a weak signal.
       const suggested = image.suggestedGrid;
       const suggestedGrid =
         suggested && suggested.confidence >= MIN_GRID_SUGGESTION_CONFIDENCE

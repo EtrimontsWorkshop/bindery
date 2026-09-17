@@ -1,85 +1,88 @@
 import type { TextLine, LineRun } from './lineCluster.js';
 
 /**
- * [KROK-11 Z1] Dzieli JEDNA linie na kilka "linii", gdy jej POCZATEK i/lub
- * KONIEC jest naglowkiem-etykieta srodakapitowa ("DOM MLOTOW rozpoczyna
- * akapit..." lub "...jego pozycja jestZAGROzeNIE buntu" na jednym wierszu,
- * MDD §5.2). Bez tego cala linia dostaje JEDEN `dominantFont` (ten o
- * najwiekszej liczbie znakow) i konstruktor blokow nigdy nie zobaczy granicy.
+ * [Step 11 Z1] Splits ONE line into several "lines" when its START and/or
+ * END is an inline heading label glued onto the first/last row of a
+ * paragraph (MDD §5.2). Without this the whole line gets ONE `dominantFont`
+ * (the one with the most characters) and the block builder never sees the
+ * boundary.
  *
- * ZASTĘPUJE dyskryminator z KROK-9 (Z1b, para rol heading<->body, zyl w
- * `semantic/blockBuilder.ts`) — na prawdziwych plikach etykieta srodakapitowa
- * czesto ma role fontu `accent`, nie `heading` (reguła Z1a z kroku 9 nadaje
- * `heading` wylacznie blokom JEDNOLINIJKOWYM i IZOLOWANYM pionowo, a etykieta
- * wewnatrz akapitu z definicji izolowana nie jest) — para rol nigdy sie nie
- * odpalala (KROK-10 kontrola reczna, Cienie str. 20 / Za_lini_wroga str. 24,
- * 68 / Wrath & Glory "drocZEniE buntu"). Nowy dyskryminator jest POZYCYJNY,
- * nie zalezy od `fontRoles` w ogole.
+ * REPLACES the Step 9 discriminator (Z1b, the heading<->body role pair, which
+ * lived in `semantic/blockBuilder.ts`) — on real files, an inline label often
+ * has the `accent` font role, not `heading` (Step 9's Z1a rule assigns
+ * `heading` only to blocks that are SINGLE-LINE and VERTICALLY ISOLATED, and
+ * a label inside a paragraph is by definition not isolated) — the role pair
+ * never fired (Step 10 manual review, Cienie p. 20 / Za_lini_wroga p. 24,
+ * 68 / Wrath & Glory, an inline label at the end of a line). The new
+ * discriminator is POSITIONAL and doesn't depend on `fontRoles` at all.
  *
- * [KROK-11, odkrycie — brief mowil tylko o PREFIKSIE, dane pokazaly potrzebe
- * SYMETRII] Pierwsza wersja (tylko `runs[0]`, dokladnie wg briefu) poprawnie
- * rozcinala Cienie str. 20 i Za_lini_wroga str. 24/68, ale NIE `Wrath & Glory`
- * "drocZEniE buntu" — bezposrednia inspekcja `runs` pokazala, ze ten
- * KONKRETNY przypadek ma etykiete na KONCU linii (`['CaxtonStd-Book@7.5':
- * body 52 znaki, 'CaxtonStd-Bold-SC700@19': "o" 1 znak,
- * 'CaxtonStd-Bold-SC700@13.5': "drocZEniE buntu" 15 znakow]`) — SUFIKS, nie
- * prefiks. Dyskryminator zostal wiec uogolniony symetrycznie: liczony jest
- * NAJPIERW dominujacy font CALEJ linii (po laczej liczbie znakow wsrod
- * WSZYSTKICH przebiegow), a nastepnie odcinany jest maksymalny przebieg
- * BRZEGOWY (od poczatku LUB od konca) o INNYM kluczu niz ten dominujacy, pod
- * warunkiem ze jest KROTSZY niz reszta linii. Uzycie dominanty CALEJ linii
- * (nie osobno liczonej "reszty po jednej stronie") jest kluczowe — naiwna
- * wersja liczaca dominante osobno dla kazdej strony myli sie, gdy DRUGA
- * strona linii SAMA zawiera anomalie (np. body-akcent-body: liczac dominante
- * "reszty" dla sufiksu bez wylaczenia prefiksu, akcent moze przypadkiem
- * "wygrac" z body i sprowokowac falszywe ciecie) — zweryfikowane bezposrednio
- * w testach (patrz `lineEdgeSplit.test.ts`).
+ * [Step 11, discovery — the brief only talked about a PREFIX, the data
+ * showed a need for SYMMETRY] The first version (only `runs[0]`, exactly per
+ * the brief) correctly split Cienie p. 20 and Za_lini_wroga p. 24/68, but NOT
+ * the `Wrath & Glory` case — direct inspection of `runs` showed
+ * that this SPECIFIC case has the label at the END of the line
+ * (`['CaxtonStd-Book@7.5': body 52 chars, 'CaxtonStd-Bold-SC700@19': single
+ * connector char 1 char, 'CaxtonStd-Bold-SC700@13.5': label text 15
+ * chars]`) — a SUFFIX, not a prefix. The discriminator was therefore generalized
+ * symmetrically: FIRST the dominant font of the WHOLE line is computed
+ * (by total character count across ALL runs), and then the maximal EDGE run
+ * (from the start OR from the end) with a DIFFERENT key than that dominant
+ * one is cut off, provided it is SHORTER than the rest of the line. Using
+ * the dominant of the WHOLE line (not a separately computed "rest on one
+ * side") is key — a naive version computing the dominant separately for each
+ * side gets it wrong when the OTHER side of the line itself contains an
+ * anomaly (e.g. body-accent-body: computing the "rest" dominant for the
+ * suffix without excluding the prefix, the accent might accidentally "win"
+ * over body and trigger a false cut) — verified directly in tests (see
+ * `lineEdgeSplit.test.ts`).
  *
- * Wyroznienie w PRAWDZIWYM SRODKU zdania (otoczone dominujacym fontem z OBU
- * stron) nie jest ani prefiksem, ani sufiksem, wiec warunku nie spelnia —
- * kursywa w srodku akapitu nie rozbije bloku. Wyroznienie NA SAMYM POCZATKU
- * lub NA SAMYM KONCU linii MOZE zostac uznane za etykiete (ten sam,
- * udokumentowany i zaakceptowany kompromis co przy oryginalnym,
- * jednostronnym dyskryminatorze z briefu — realny tekst zaczynajacy/konczacy
- * sie krotkim wyroznieniem jest rzadszy niz wyroznienie w srodku, a false
- * positive tutaj to wciaz PODZIAL na dwa poprawne bloki, nie utrata tresci).
+ * An emphasis in the TRUE MIDDLE of a sentence (surrounded by the dominant
+ * font on BOTH sides) is neither a prefix nor a suffix, so it doesn't meet
+ * the condition — italics in the middle of a paragraph won't split the
+ * block. An emphasis at the VERY START or VERY END of a line MAY be treated
+ * as a label (the same documented and accepted trade-off as with the
+ * original, one-sided discriminator from the brief — real text that
+ * starts/ends with a short emphasis is rarer than mid-sentence emphasis, and
+ * a false positive here still just means SPLITTING into two correct blocks,
+ * not losing content).
  *
- * [KROK-11, odkrycie] MUSI dzialac PRZED `splitSpanningLines`/`detectColumns`/
- * `gutterRepair.ts`, nie w `blockBuilder.ts` jak pierwotna wersja z KROK-9 —
- * na prawdziwych plikach linia z naglowkiem srodakapitowym jest CZESTO
- * jednoczesnie zaklasyfikowana jako `spanning` (szeroki bbox, wiele
- * przebiegow roznych fontow) i PRZECINA wykryta rynne (KROK-10).
- * `gutterRepair.ts` uruchomione jako pierwsze rozcina taka linie na fragmenty
- * NA PODSTAWIE `tokens` (nie `runs`) i celowo zeruje `runs` na kazdym
- * fragmencie (dokumentacja `gutterRepair.ts`: "inherited runs may be
- * invalid") — do czasu, gdy `blockBuilder.ts` probowal rozciac linie po
- * `runs`, ta informacja juz nie istniala, wiec dyskryminator nigdy sie nie
- * odpalal (zweryfikowane bezposrednio: `Za_lini_wroga.pdf` str. 24, linia
- * `p24-0-74` -> fragment `p24-0-74-gutter0` z `runs.length === 0`). Rozciecie
- * WCZESNIEJ (na surowych liniach z `lineCluster.ts`, zanim cokolwiek inne je
- * zobaczy) produkuje WEZSZE fragmenty, z ktorych ZADEN zwykle juz nie
- * przecina rynny — `gutterRepair.ts` w ogole nie musi ich dotykac.
+ * [Step 11, discovery] MUST run BEFORE `splitSpanningLines`/`detectColumns`/
+ * `gutterRepair.ts`, not in `blockBuilder.ts` like the original Step 9
+ * version — on real files, a line with an inline heading label is OFTEN
+ * simultaneously classified as `spanning` (wide bbox, multiple runs of
+ * different fonts) and CROSSES a detected gutter (Step 10). Running
+ * `gutterRepair.ts` first splits such a line into fragments BASED ON
+ * `tokens` (not `runs`) and deliberately clears `runs` on every fragment
+ * (per `gutterRepair.ts`'s own documentation: "inherited runs may be
+ * invalid") — by the time `blockBuilder.ts` tried to split the line by
+ * `runs`, that information no longer existed, so the discriminator never
+ * fired (verified directly: `Za_lini_wroga.pdf` p. 24, line `p24-0-74` ->
+ * fragment `p24-0-74-gutter0` with `runs.length === 0`). Splitting EARLIER
+ * (on the raw lines from `lineCluster.ts`, before anything else sees them)
+ * produces NARROWER fragments, none of which usually crosses a gutter
+ * anymore — `gutterRepair.ts` doesn't need to touch them at all.
  *
- * Kazdy fragment dostaje wlasny `dominantFont`/`fonts` (z run'u), wiec
- * nastepujacy `shouldBreak` w `blockBuilder.ts` (zmiana `fontKey`) SAM juz
- * rozdzieli fragmenty na osobne bloki — nie trzeba osobnego mechanizmu.
+ * Each fragment gets its own `dominantFont`/`fonts` (from its run), so the
+ * subsequent `shouldBreak` in `blockBuilder.ts` (a `fontKey` change) will
+ * ITSELF already separate the fragments into distinct blocks — no separate
+ * mechanism is needed.
  *
- * [KROK-11, ZNANE OGRANICZENIE, zweryfikowane na `Cienie_posrod_mgie.pdf`
- * str. 20] "DOM MLOTOW" i "DOSKONALI DOSTAWCY" (oba z briefu) NIE sa prostymi
- * 2-3-biegowymi przypadkami brzegowymi jak Za_lini_wroga str. 24/68 czy
- * Wrath & Glory — bezposrednia inspekcja pokazala 4 (DOM MLOTOW) i 3
- * (DOSKONALI DOSTAWCY) przebiegi, gdzie etykieta lezy w SRODKU tablicy
- * `runs`, a przebiegi PO OBU jej stronach naleza do TEJ SAMEJ rodziny fontu
- * body (`MinionPro-Regular`, tylko z drobna roznica rozmiaru: @10.5 vs @10) —
- * a przy tym leza na WYRAZNIE roznych pasmach Y (nie jedna fizyczna linia,
- * tylko kilka linii/kolumn scalonych w jedna przez wczesniejszy etap
- * klastrowania). To dyskryminator BRZEGOWY z zalozenia NIE lapie (etykieta w
- * prawdziwym srodku, otoczona ta sama rodzina fontu z obu stron — dokladnie
- * przypadek, ktory ten dyskryminator ma NIE ruszac, zeby nie rozbijac
- * prawdziwych wyroznien srodzdaniowych). Naprawa wymagalaby innego sygnalu
- * (np. przerwy w pasmie Y miedzy sasiednimi przebiegami tej samej "rodziny"
- * fontu) — swiadomie NIE dodane w tym kroku (ryzyko nowych falszywych ciec),
- * pozostawione jako otwarte zadanie dla przyszlego kroku. Patrz
+ * [Step 11, KNOWN LIMITATION, verified on `Cienie_posrod_mgie.pdf`
+ * p. 20] Two of the labels from the brief
+ * are NOT simple 2-3-run edge cases like Za_lini_wroga p. 24/68 or
+ * Wrath & Glory — direct inspection showed 4 (first label) and 3
+ * (second label) runs, where the label sits in the MIDDLE of the
+ * `runs` array, and the runs on BOTH its sides belong to the SAME body font
+ * family (`MinionPro-Regular`, only with a small size difference: @10.5 vs
+ * @10) — while also sitting on CLEARLY different Y bands (not one physical
+ * line, but several lines/columns merged into one by an earlier clustering
+ * stage). This is an EDGE discriminator by design and does NOT catch this
+ * (a label in the true middle, surrounded by the same font family on both
+ * sides — exactly the case this discriminator is meant NOT to touch, so as
+ * not to break genuine mid-sentence emphasis). Fixing it would require a
+ * different signal (e.g. a gap in the Y band between adjacent runs of the
+ * same font "family") — deliberately NOT added at this step (risk of new
+ * false cuts), left as an open item for a future step. See
  * RAPORT-KROK-11.md.
  */
 export function splitLineByEdgeRun(line: TextLine): TextLine[] {
@@ -101,12 +104,12 @@ export function splitLineByEdgeRun(line: TextLine): TextLine[] {
 
   if (!hasPrefix && !hasSuffix) return [line];
 
-  // Kazdy przebieg w strefie brzegowej (prefiks/sufiks) dostaje WLASNY
-  // fragment (nie jeden zbiorczy) — na prawdziwych danych strefa brzegowa
-  // bywa niejednorodna (Za_lini_wroga str. 24: tytul-oblique + etykieta-inny-
-  // font, DWA rozne fonty w samym prefiksie) i musi zostac rozbita dalej,
-  // zeby `blockBuilder.ts`'s `shouldBreak` (zmiana fontKey) zobaczyl KAZDA
-  // granice. Strefa SRODKOWA (dominujaca) zostaje jednym fragmentem.
+  // Each run in an edge zone (prefix/suffix) gets its OWN fragment (not one
+  // combined fragment) — on real data the edge zone can be non-uniform
+  // (Za_lini_wroga p. 24: oblique-title + a different-font label, TWO
+  // different fonts within the prefix alone) and must be split further so
+  // that `blockBuilder.ts`'s `shouldBreak` (a fontKey change) sees EVERY
+  // boundary. The MIDDLE (dominant) zone stays one fragment.
   const effectivePrefixEnd = hasPrefix ? prefixEnd : 0;
   const effectiveSuffixStart = hasSuffix ? suffixStart : runs.length;
 
@@ -142,7 +145,7 @@ export function splitLineByEdgeRun(line: TextLine): TextLine[] {
   });
 }
 
-/** Klucz fontu z najwieksza laczna liczba znakow wsrod danych przebiegow. */
+/** The font key with the largest total character count among the given runs. */
 function dominantRunFontKey(runs: readonly LineRun[]): string {
   const counts = new Map<string, number>();
   for (const r of runs) counts.set(r.fontKey, (counts.get(r.fontKey) ?? 0) + r.text.length);

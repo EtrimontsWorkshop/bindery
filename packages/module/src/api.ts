@@ -6,18 +6,18 @@ import type { Coc7ActorPayload } from './adapters/coc7.js';
 export interface BinderyAPI {
   readonly version: string;
   /**
-   * Analizuje PDF bez UI. Ladowanie @bindery/core (i pdf.js, ktorego uzywa)
-   * jest leniwe — dopiero przy pierwszym wywolaniu (ryzyko I3).
+   * Analyzes a PDF without a UI. Loading @bindery/core (and the pdf.js it
+   * uses) is lazy — only on first call (risk I3).
    */
   inspectDocument(data: ArrayBuffer): Promise<import('@bindery/core').DocumentSummary>;
   /**
-   * [KROK-19 Z4] WYLACZNIE do pomiaru B'/A z uzytkownikiem — NIE ekran
-   * przegladu (celowo poza zakresem tego kroku, patrz "Czego NIE robic" w
-   * KROK-19-adapter-coc7.md). Przyjmuje JUZ GOTOWE wyniki adaptera (policzone
-   * z calego dokumentu wczesniej, w Node — `coc7Adapter.fromActor` jest
-   * czysta funkcja, wiec jej wynik jest identyczny niezaleznie od tego, gdzie
-   * zostal policzony) i tworzy z nich Actor+Item w AKTYWNYM swiecie. Uzycie:
-   * wklejone do konsoli przegladarki Foundry, patrz
+   * [Step 19 Z4] EXCLUSIVELY for measuring B'/A with the user — NOT the
+   * review screen (deliberately out of scope for this step, see "What NOT to
+   * do" in KROK-19-adapter-coc7.md). Takes ALREADY COMPUTED adapter results
+   * (computed from the whole document earlier, in Node — `coc7Adapter.fromActor`
+   * is a pure function, so its result is identical no matter where it was
+   * computed) and creates an Actor+Item from them in the ACTIVE world. Usage:
+   * pasted into the Foundry browser console, see
    * `tools/build-z4-measurement-macro.ts`.
    */
   createStatblockActorsForMeasurement(
@@ -26,7 +26,7 @@ export interface BinderyAPI {
   ): Promise<{ id: string; name: string; notes: readonly import('@bindery/core').LocalizableMessage[]; issues: readonly import('@bindery/core').AdapterIssue[] }[]>;
 }
 
-/** Podglad wyekstrahowanego obrazu — TYLKO to, co potrzebne ekranowi przegladu (A5: czlowiek zawsze przeglada przed zapisem). */
+/** Preview of an extracted image — ONLY what the review screen needs (A5: a human always reviews before saving). */
 export interface ExtractedImagePreview {
   objId: string | null;
   page: number;
@@ -36,13 +36,13 @@ export interface ExtractedImagePreview {
   height: number;
   format: 'webp' | 'png';
   bytes: Uint8Array;
-  /** Blob URL do podgladu w UI — wolajacy odpowiada za `URL.revokeObjectURL` po zamknieciu. */
+  /** Blob URL for previewing in the UI — the caller is responsible for `URL.revokeObjectURL` after closing. */
   previewUrl: string;
 }
 
 function bytesToBlobUrl(bytes: Uint8Array, format: 'webp' | 'png'): string {
   const mime = format === 'webp' ? 'image/webp' : 'image/png';
-  // Kopia na nowym ArrayBuffer (nie ArrayBufferLike/SharedArrayBuffer) — wymog typu `BlobPart`.
+  // Copy into a new ArrayBuffer (not ArrayBufferLike/SharedArrayBuffer) — required by the `BlobPart` type.
   return URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: mime }));
 }
 
@@ -66,14 +66,14 @@ export type ActorProfileValidation =
   | { ok: false; issues: readonly string[] };
 
 /**
- * [KROK-21 Z1] Waliduje tresc pliku profilu wybranego przez uzytkownika w
- * `ImportWizard` (`<input type="file">`, nigdy konsola — patrz RAPORT-KROK-20.md
- * odkrycie #3, zakladka Aktorow byla "funkcjonalnie martwa dla kazdego poza
- * deweloperem"). Zastepuje usuniete `setDebugActorProfile` — JEDNA droga do
- * wczytania profilu, nie dwie ("Dwie drogi do tej samej rzeczy to dwie drogi
- * do rozjazdu", brief kroku 21). Zwraca `ok:false` z czytelnymi bledami
- * zamiast rzucac — zly plik to spodziewany, nie wyjatkowy przypadek (ten sam
- * kontrakt co `validateProfile` samo w sobie).
+ * [Step 21 Z1] Validates the content of a profile file chosen by the user in
+ * `ImportWizard` (`<input type="file">`, never the console — see
+ * RAPORT-KROK-20.md finding #3, the Actors tab was "functionally dead for
+ * anyone but the developer"). Replaces the removed `setDebugActorProfile` —
+ * ONE way to load a profile, not two ("Two ways to do the same thing is two
+ * ways to diverge", step 21 brief). Returns `ok:false` with readable errors
+ * instead of throwing — a bad file is an expected case, not an exceptional
+ * one (the same contract as `validateProfile` itself).
  */
 export async function validateActorProfileFile(raw: unknown): Promise<ActorProfileValidation> {
   const { validateProfile } = await import('@bindery/core');
@@ -83,19 +83,20 @@ export async function validateActorProfileFile(raw: unknown): Promise<ActorProfi
 }
 
 /**
- * Orkiestracja fazy 3 nad prawdziwym dokumentem w przegladarce (KROK-8 Z4/Z5).
- * Cala logika otwierania pdf.js i sklejania inwentaryzacji z ekstrakcja zyje w
- * `@bindery/core` (`extractImagesFromDocument`) — NIE tutaj. Powod: `pdfjs-dist`
- * jest zewnetrzny (`external`) we wszystkich konfiguracjach Vite tego repo, ale
- * przekierowanie goleg specyfikatora na prawdziwa sciezke (`output.paths`) jest
- * skonfigurowane WYLACZNIE w `packages/core/vite.config.ts`. Bezposredni
- * `import('pdfjs-dist/...')` STAD zostawilby goly specyfikator w zbudowanym
- * kodzie modulu — zlapane empirycznie przez `check:imports` (ten sam blad co
- * "bare-specifier incident" z fazy 1, RAPORT-FAZA-1.md) przy pierwszej probie.
+ * Phase 3 orchestration over a real document in the browser (Step 8 Z4/Z5).
+ * All the logic for opening pdf.js and stitching together inventory and
+ * extraction lives in `@bindery/core` (`extractImagesFromDocument`) — NOT
+ * here. Reason: `pdfjs-dist` is external (`external`) in all of this repo's
+ * Vite configs, but remapping the bare specifier to a real path
+ * (`output.paths`) is configured ONLY in `packages/core/vite.config.ts`. A
+ * direct `import('pdfjs-dist/...')` FROM HERE would leave a bare specifier
+ * in the module's built code — caught empirically by `check:imports` (the
+ * same bug class as the "bare-specifier incident" from phase 1,
+ * RAPORT-FAZA-1.md) on the first attempt.
  *
- * Zwraca WYLACZNIE wpisy `content` — `undecided` trafi do ekranu przegladu
- * dopiero w kroku 9 (bloki semantyczne), na razie pokazujemy tylko to, co
- * `packages/core` juz uznalo za jednoznaczna tresc.
+ * Returns ONLY `content` entries — `undecided` will go to the review screen
+ * only in step 9 (semantic blocks); for now we only show what
+ * `packages/core` has already recognized as unambiguous content.
  */
 export async function extractImagesForReview(data: ArrayBuffer, opts: { signal?: AbortSignal } = {}): Promise<ExtractedImagePreview[]> {
   const { extractImagesFromDocument } = await import('@bindery/core');
@@ -116,7 +117,7 @@ export async function extractImagesForReview(data: ArrayBuffer, opts: { signal?:
     }));
 }
 
-/** Podglad hierarchii journali PRZED zapisem (A5: czlowiek zawsze przeglada) — nazwa + liczba stron, bez pelnej tresci HTML. */
+/** Preview of the journal hierarchy BEFORE saving (A5: a human always reviews) — name + page count, without the full HTML content. */
 export interface JournalPreview {
   name: string;
   pageCount: number;
@@ -128,17 +129,17 @@ export interface CIFBuildResult {
   imageBytesById: Map<string, { bytes: Uint8Array; format: string }>;
 }
 
-/** SHA-256 w hex — Web Crypto API standardowa (nie Foundry), do `CIFDocument.source.fileHash`. */
+/** SHA-256 in hex — the standard Web Crypto API (not Foundry's), for `CIFDocument.source.fileHash`. */
 async function hashArrayBuffer(data: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Orkiestracja fazy 8 (KROK-9 Z3/Z4/Z5) nad prawdziwym dokumentem w
- * przegladarce — ten sam wzorzec architektoniczny co `extractImagesForReview`:
- * cale otwieranie pdf.js zyje w `@bindery/core` (`buildCIFFromDocument`), NIE
- * tutaj (`check:imports`, patrz komentarz przy `extractImagesForReview`).
+ * Phase 8 orchestration (Step 9 Z3/Z4/Z5) over a real document in the
+ * browser — the same architectural pattern as `extractImagesForReview`:
+ * all the pdf.js opening lives in `@bindery/core` (`buildCIFFromDocument`),
+ * NOT here (`check:imports`, see the comment near `extractImagesForReview`).
  */
 export async function buildJournalsForReview(
   data: ArrayBuffer,
@@ -159,9 +160,10 @@ export async function buildJournalsForReview(
 }
 
 /**
- * [KROK-11 Z3] Otwiera uchwyt dokumentu WYLACZNIE do podgladu stron w ekranie
- * przegladu — patrz `openPreviewDocument` w `@bindery/core`. Wywolujacy
- * (`ReviewScreen`) jest odpowiedzialny za `destroy()` po zamknieciu ekranu.
+ * [Step 11 Z3] Opens a document handle EXCLUSIVELY for previewing pages in
+ * the review screen — see `openPreviewDocument` in `@bindery/core`. The
+ * caller (`ReviewScreen`) is responsible for calling `destroy()` when the
+ * screen closes.
  */
 export async function openPreviewForReview(data: ArrayBuffer): Promise<import('@bindery/core').PreviewDocument> {
   const { openPreviewDocument } = await import('@bindery/core');

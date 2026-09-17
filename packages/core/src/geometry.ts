@@ -1,19 +1,20 @@
 /**
- * Macierze 2D i prostokąty — matematyka współdzielona przez inwentaryzację
- * (faza 2/3, MDD zał. A). Reimplementowane niezależnie od pdfjs-dist (nie
- * importujemy `Util` z pdf.js tutaj), żeby `walkOperators` pozostał w pełni
- * czystą funkcją, testowalną na gołych tablicach liczb bez żadnej zależności —
- * formuła zweryfikowana wprost względem `Util.transform` w pdf.mjs (KROK-4).
+ * 2D matrices and rectangles — math shared by the inventory pass (phase 2/3,
+ * MDD appendix A). Reimplemented independently of pdfjs-dist (we do not
+ * import `Util` from pdf.js here), so `walkOperators` stays a fully pure
+ * function, testable on bare number arrays with zero dependencies — the
+ * formula was verified directly against `Util.transform` in pdf.mjs (Step 4).
  */
 
-/** Macierz afiniczna PDF: [a, b, c, d, e, f], punkt' = (x*a + y*c + e, x*b + y*d + f). */
+/** PDF affine matrix: [a, b, c, d, e, f], point' = (x*a + y*c + e, x*b + y*d + f). */
 export type Matrix = readonly [number, number, number, number, number, number];
 
 export const IDENTITY_MATRIX: Matrix = [1, 0, 0, 1, 0, 0];
 
 /**
- * Skleja dwie macierze: `m1` (dotychczasowe CTM) rozszerzone o `m2` (nowa macierz,
- * np. z operatora `cm`). Formula identyczna z `Util.transform(m1, m2)` w pdf.js.
+ * Composes two matrices: `m1` (the current CTM) extended by `m2` (the new
+ * matrix, e.g. from a `cm` operator). Formula identical to
+ * `Util.transform(m1, m2)` in pdf.js.
  */
 export function multiplyMatrix(m1: Matrix, m2: Matrix): Matrix {
   return [
@@ -34,9 +35,9 @@ export interface Rect {
 }
 
 /**
- * Bbox kwadratu jednostkowego [0,1]x[0,1] przekształconego przez CTM — metodyka
- * ze spike'u fazy 0 (`Util.getAxialAlignedBoundingBox` nie istnieje w 6.1.200).
- * Ujemne wspolrzedne SA poprawne (spad drukarski) — nigdy nie przycinaj.
+ * Bbox of the unit square [0,1]x[0,1] transformed by the CTM — methodology
+ * from the phase-0 spike (`Util.getAxialAlignedBoundingBox` does not exist in
+ * 6.1.200). Negative coordinates ARE valid (print bleed) — never clip them.
  */
 export function unitSquareBBox(ctm: Matrix): Rect {
   const corners: Array<[number, number]> = [
@@ -55,16 +56,16 @@ export function unitSquareBBox(ctm: Matrix): Rect {
 }
 
 /**
- * Bbox przebiegu TextItem z pdf.js. NIE jest to przypadek `localRectBBox`:
- * `item.width`/`item.height` z `getTextContent()` sa JUZ finalna dlugoscia w
- * przestrzeni urzadzenia (suma delt pozycji glifow, patrz `updateAdvanceScale`
- * w pdf.worker.mjs) — NIE lokalnymi jednostkami sprzed transformacji jak w
- * przypadku operatora `re`. Mnozenie ich przez `transform[0]`/`transform[3]`
- * (jak robi `localRectBBox`) PODWAJA skalowanie o rozmiar fontu (np. 10x dla
- * Tf 10) — empirycznie wykryte w KROK-6 przy pierwszej integracji detekcji
- * kolumn na prawdziwych fixture'ach (bboxy linii siegaly x=2000+ na stronie
- * 612pt szerokiej). Zamiast tego: znormalizuj kierunek z (a,b)/(c,d), przeskaluj
- * przez JUZ-finalne width/height.
+ * Bbox of a pdf.js TextItem run. This is NOT the same case as `localRectBBox`:
+ * `item.width`/`item.height` from `getTextContent()` are ALREADY the final
+ * length in device space (the sum of glyph position deltas, see
+ * `updateAdvanceScale` in pdf.worker.mjs) — NOT local pre-transform units like
+ * with the `re` operator. Multiplying them by `transform[0]`/`transform[3]`
+ * (as `localRectBBox` does) DOUBLES the scaling by the font size (e.g. 10x
+ * for Tf 10) — discovered empirically in Step 6 during the first integration
+ * of column detection on real fixtures (line bboxes reached x=2000+ on a
+ * 612pt-wide page). Instead: normalize direction from (a,b)/(c,d), scale by
+ * the ALREADY-final width/height.
  */
 export function textRunBBox(transform: Matrix, width: number, height: number): Rect {
   const [a, b, c, d, e, f] = transform;
@@ -106,7 +107,7 @@ export function rectsOverlap(a: Rect, b: Rect): boolean {
   return a.minX < b.maxX && b.minX < a.maxX && a.minY < b.maxY && b.minY < a.maxY;
 }
 
-/** Powierzchnia przeciecia / powierzchnia mniejszego z dwoch prostokatow — do wykrywania masek (path "geometry"). */
+/** Intersection area / area of the smaller of the two rectangles — used for mask detection (the "geometry" path). */
 export function overlapRatio(a: Rect, b: Rect): number {
   const inter = rectIntersection(a, b);
   if (!inter) return 0;
@@ -115,7 +116,7 @@ export function overlapRatio(a: Rect, b: Rect): number {
   return rectArea(inter) / smaller;
 }
 
-/** Powierzchnia `r` wzgledem powierzchni strony — 0..1+ (obraz moze wychodzic poza strone). */
+/** Area of `r` relative to the page area — 0..1+ (an image may extend past the page). */
 export function relativeArea(r: Rect, page: Rect): number {
   const pageArea = rectArea(page);
   if (pageArea <= 0) return 0;
@@ -123,11 +124,11 @@ export function relativeArea(r: Rect, page: Rect): number {
 }
 
 /**
- * [wyodrebnione po recenzji calego designu — ta sama formula byla
- * zduplikowana w trzech plikach `profiles/`] Odleglosc miedzy NAJBLIZSZYMI
- * krawedziami dwoch prostokatow — 0, gdy sie stykaja lub nakladaja (gap
- * ujemny/zerowy jest przycinany do 0 w kazdej osi z osobna PRZED `Math.hypot`,
- * nie po), inaczej euklidesowa odleglosc miedzy najblizszymi punktami.
+ * [extracted after a full design review — the same formula was duplicated
+ * across three files in `profiles/`] Distance between the NEAREST edges of
+ * two rectangles — 0 when they touch or overlap (a negative/zero gap is
+ * clamped to 0 on each axis separately BEFORE `Math.hypot`, not after),
+ * otherwise the Euclidean distance between the nearest points.
  */
 export function rectGapDistance(a: Rect, b: Rect): number {
   const dx = Math.max(b.minX - a.maxX, a.minX - b.maxX, 0);
@@ -136,46 +137,46 @@ export function rectGapDistance(a: Rect, b: Rect): number {
 }
 
 /**
- * [zgloszenie uzytkownika, "obraz mocno sie zmniejsza po obrocie, duzo
- * pustego miejsca w ramce"] Wspolczynnik skali `s` (0 < s <= 1) NAJWIEKSZEGO
- * prostokata o TYCH SAMYCH proporcjach co `width x height`, ktory miesci sie
- * CALY wewnatrz TEGO SAMEGO prostokata obroconego o `angleRad` (DOWOLNY kat,
- * dowolny znak i dowolna wielkosc — patrz redukcja ponizej). Wyjscie:
- * `packages/module`'s `#rotateImage` uzywa tego, zeby przyciac obrocony
- * obraz do rozmiaru BEZ przezroczystych rogow (zamiast powiekszac otoczke,
- * zeby zmiescic CALY oryginal z pustymi rogami) — standardowe zachowanie
- * narzedzi "wyprostuj" w edytorach zdjec.
+ * [user report, "the image shrinks a lot after rotation, lots of empty space
+ * in the frame"] Scale factor `s` (0 < s <= 1) of the LARGEST rectangle with
+ * the SAME aspect ratio as `width x height` that fits ENTIRELY inside THAT
+ * SAME rectangle rotated by `angleRad` (ANY angle, any sign, any magnitude —
+ * see the reduction below). Output: `packages/module`'s `#rotateImage` uses
+ * this to crop the rotated image down to size WITHOUT transparent corners
+ * (instead of enlarging the canvas to fit the WHOLE original with empty
+ * corners) — the standard behavior of "straighten" tools in photo editors.
  *
- * Wyprowadzenie: prostokat wyjsciowy o polowicznych wymiarach `(s*a, s*b)`
- * (a=width/2, b=height/2), WYSRODKOWANY w tym samym punkcie co obrot, miesci
- * sie w oryginale (przed obrotem) dokladnie wtedy, gdy KAZDY z jego 4 rogow,
- * po obrocie WSTECZ o `angleRad` (macierz `R(-angleRad)`), ma wspolrzedne w
- * `[-a,a] x [-b,b]` — cztery nierownosci z tego (jedna per odrebny typ rogu)
- * daja cztery gorne ograniczenia na `s`, brany jest NAJMNIEJSZY (najbardziej
- * restrykcyjny). Zweryfikowane recznie na dwoch znanych przypadkach: kat=0 ->
- * s=1 (pelny rozmiar); kwadrat obrocony o 45° -> s=1/√2 (znany wynik
- * geometryczny) — patrz testy.
+ * Derivation: an output rectangle with half-dimensions `(s*a, s*b)`
+ * (a=width/2, b=height/2), CENTERED at the same point as the rotation, fits
+ * inside the original (pre-rotation) exactly when EVERY one of its 4 corners,
+ * after rotating BACKWARD by `angleRad` (matrix `R(-angleRad)`), has
+ * coordinates in `[-a,a] x [-b,b]` — the four inequalities from this (one per
+ * distinct corner type) give four upper bounds on `s`, of which the SMALLEST
+ * (most restrictive) is taken. Manually verified on two known cases: angle=0
+ * -> s=1 (full size); a square rotated 45° -> s=1/√2 (known geometric result)
+ * — see the tests.
  *
- * [naprawa zgloszonego bledu — "po 36 obrotach po 10° obraz sie kurczy" ujawnil
- * TEZ, ze funkcja dawala UJEMNE (bezsensowne) wyniki dla katow > 90°, np.
- * 170°/190°] Prostokat ma OKRES 180° (symetria srodkowa — obrot o θ i o
- * θ+180° daje IDENTYCZNY zbior punktow) I jest symetryczny wzgledem znaku
- * (obrot w lewo/prawo o ten sam kat daje zwierciadlany, wiec rownowazny pod
- * wzgledem samej skali wynik) — dawne `Math.abs(angleRad)` bez zadnej innej
- * redukcji poprawnie obslugiwalo WYLACZNIE katy juz w [-90°, 90°]; dla
- * wiekszych katow (nieuniknione przy wielokrotnym klikaniu przycisku obrotu
- * o maly krok) dawalo dowolnie zle wyniki. Redukcja ponizej: modulo π (okres
- * 180°, z obsluga ujemnych — JS `%` NIE jest "floor mod"), zlozenie do
- * `(-π/2, π/2]`, potem `Math.abs` -> zawsze `[0, π/2]`.
+ * [fix for a reported bug — "after 36 rotations of 10° each, the image
+ * shrinks" ALSO revealed that the function produced NEGATIVE (nonsensical)
+ * results for angles > 90°, e.g. 170°/190°] The rectangle has a 180° PERIOD
+ * (central symmetry — rotating by θ and by θ+180° yields an IDENTICAL point
+ * set) AND is symmetric with respect to sign (rotating left/right by the same
+ * angle gives a mirrored, and therefore scale-equivalent, result) — the
+ * previous `Math.abs(angleRad)` with no other reduction correctly handled
+ * ONLY angles already in [-90°, 90°]; for larger angles (unavoidable when
+ * repeatedly clicking a small-step rotate button) it produced arbitrarily
+ * wrong results. Reduction below: modulo π (180° period, handling negatives —
+ * JS `%` is NOT "floor mod"), fold into `(-π/2, π/2]`, then `Math.abs` ->
+ * always `[0, π/2]`.
  */
 export function inscribedRotatedRectScale(width: number, height: number, angleRad: number): number {
   if (width <= 0 || height <= 0) return 1;
   const a = width / 2;
   const b = height / 2;
   let angle = angleRad % Math.PI;
-  if (angle < 0) angle += Math.PI; // teraz w [0, π)
-  if (angle > Math.PI / 2) angle -= Math.PI; // teraz w (-π/2, π/2]
-  angle = Math.abs(angle); // teraz w [0, π/2]
+  if (angle < 0) angle += Math.PI; // now in [0, π)
+  if (angle > Math.PI / 2) angle -= Math.PI; // now in (-π/2, π/2]
+  angle = Math.abs(angle); // now in [0, π/2]
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
   const c1 = a / (a * cos + b * sin);

@@ -2,29 +2,30 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { isInsideShape, type TokenMaskShape } from './tokenMask.js';
 
 /**
- * [KROK-42 Z3, "ramki"] Dwie sciezki: wbudowany jednolity pierscien (kilka
- * grubosci, kolor konfigurowalny — "nie buduj biblioteki ozdobnych ramek, to
- * praca graficzna" z briefu), oraz zlozenie z wlasna, wgrana ramka
- * (przezroczysty PNG/WebP tego samego rozmiaru co token).
+ * [Step 42 Z3, "frames"] Two paths: a built-in solid ring (a few thickness
+ * options, configurable color — "don't build a library of decorative
+ * frames, that's graphic-design work" per the brief), and compositing with
+ * the user's own uploaded frame (a transparent PNG/WebP the same size as
+ * the token).
  */
 
 export interface BuiltInFrameOptions {
   shape: TokenMaskShape;
-  /** Grubosc pierscienia jako udzial promienia/polowy boku plotna (0-1). */
+  /** Ring thickness as a share of the canvas's radius/half-side (0-1). */
   thicknessNorm: number;
   color: readonly [number, number, number];
 }
 
 /**
- * Pierscien narysowany TUZ WEWNATRZ granicy `shape` — pasmo miedzy zewnetrzna
- * granica ksztaltu (skala 1) a jej WEWNETRZNA kopia (skala `1-thicknessNorm`).
- * Testowanie "czy punkt jest w skurczonym ksztalcie" bez osobnej geometrii per
- * ksztalt: przeskalowanie PUNKTU o `1/(1-thicknessNorm)` przed testem
- * `isInsideShape` jest matematycznie rownowazne przeskalowaniu SAMEGO
- * ksztaltu w dol (jednorodne skalowanie) — dziala jednakowo dla wszystkich
- * czterech ksztaltow z `tokenMask.ts` bez zadnej dodatkowej algebry.
- * Nadpisuje WYLACZNIE RGB w pasmie (alfa nietkniete — pierscien pojawia sie
- * tylko tam, gdzie maska juz uczynila piksel widocznym).
+ * A ring drawn JUST INSIDE the `shape`'s boundary — the band between the
+ * shape's outer boundary (scale 1) and its INNER copy (scale
+ * `1-thicknessNorm`). Testing "is the point inside the shrunken shape"
+ * without separate geometry per shape: scaling the POINT by
+ * `1/(1-thicknessNorm)` before the `isInsideShape` test is mathematically
+ * equivalent to scaling the SHAPE ITSELF down (uniform scaling) — works
+ * identically for all four shapes in `tokenMask.ts` with no extra algebra.
+ * Overwrites RGB EXCLUSIVELY within the band (alpha untouched — the ring
+ * only appears where the mask has already made a pixel visible).
  */
 export function applyBuiltInFrame(image: DecodedImage, opts: BuiltInFrameOptions): DecodedImage {
   const { width, height, rgba } = image;
@@ -51,14 +52,15 @@ export function applyBuiltInFrame(image: DecodedImage, opts: BuiltInFrameOptions
 }
 
 /**
- * Zlozenie standardowe Porter-Duff "source over destination": `frame` (wlasna
- * wgrana ramka, przezroczysty PNG/WebP) NAD `image` (juz gotowy token) — OBA
- * MUSZA miec ten sam rozmiar (wolajacy skaluje ramke do rozmiaru tokenu
- * PRZED wywolaniem, ta funkcja tego nie robi — jedna odpowiedzialnosc).
+ * Standard Porter-Duff "source over destination" compositing: `frame` (the
+ * user's own uploaded frame, a transparent PNG/WebP) OVER `image` (the
+ * already-finished token) — BOTH MUST be the same size (the caller scales
+ * the frame to the token's size BEFORE calling this, this function doesn't
+ * do that — single responsibility).
  */
 export function compositeCustomFrame(image: DecodedImage, frame: DecodedImage): DecodedImage {
   if (frame.width !== image.width || frame.height !== image.height) {
-    throw new Error(`compositeCustomFrame: rozmiar ramki (${frame.width}x${frame.height}) musi zgadzac sie z rozmiarem tokenu (${image.width}x${image.height})`);
+    throw new Error(`compositeCustomFrame: frame size (${frame.width}x${frame.height}) must match token size (${image.width}x${image.height})`);
   }
   const out = new Uint8ClampedArray(image.rgba.length);
   for (let i = 0; i < image.rgba.length; i += 4) {

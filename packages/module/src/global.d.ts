@@ -1,5 +1,5 @@
 import type { BinderyAPI } from './api.js';
-import type { ImportTargets, LastActorProfile } from './settings.js';
+import type { ImportTargets, LastActorProfile, TokenPrepDefaults } from './settings.js';
 
 declare module 'fvtt-types/configuration' {
   interface ModuleConfig {
@@ -18,5 +18,6 @@ declare module 'fvtt-types/configuration' {
     'bindery.lastGridConfig': { size: number; offsetX: number; offsetY: number };
     'bindery.importTargets': ImportTargets;
     'bindery.lastActorProfile': LastActorProfile;
+    'bindery.tokenPrepDefaults': TokenPrepDefaults;
   }
 }

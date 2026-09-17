@@ -2,30 +2,32 @@ import type { CIFActor, CIFJournal, CIFScene } from './types.js';
 import type { LocalizableMessage } from '../localizableMessage.js';
 
 /**
- * [KROK-19 Z1] Kontrakt adaptera systemowego — dokladnie z §5.6 MDD. Zyje w
- * `packages/core` (nie `packages/module`) bo to WYLACZNIE typy-kontrakt,
- * generyczne wzgledem systemu docelowego — implementacje konkretnych
- * adapterow (np. CoC7) sa Foundry/system-specyficzne i zyja w
- * `packages/module/src/adapters/` (MDD §7, struktura repozytorium).
+ * [Step 19 Z1] System adapter contract — exactly per MDD §5.6. Lives in
+ * `packages/core` (not `packages/module`) because it is ONLY a
+ * type-contract, generic with respect to the target system — concrete
+ * adapter implementations (e.g. CoC7) are Foundry/system-specific and live
+ * in `packages/module/src/adapters/` (MDD §7, repository structure).
  *
- * **Kontrakt adaptera (MDD §5.6):**
- * 1. Nigdy nie rzuca wyjatku — bledy przez `issues`.
- * 2. Nigdy nie gubi danych — nierozpoznane pola do `notes`, ktore laduja w opisie aktora.
- * 3. Nigdy nie przelicza wartosci miedzy liniami wydawniczymi (§6.6).
- * 4. Jest CZYSTA funkcja — brak efektow ubocznych, brak tworzenia dokumentow.
- *    Dokumenty tworzy warstwa modulu (`packages/module/documents/`), NIE adapter.
+ * **Adapter contract (MDD §5.6):**
+ * 1. Never throws — errors are reported via `issues`.
+ * 2. Never loses data — unrecognized fields go into `notes`, which end up
+ *    in the actor's description.
+ * 3. Never converts values between game lines (§6.6).
+ * 4. Is a PURE function — no side effects, no document creation. Documents
+ *    are created by the module layer (`packages/module/documents/`), NOT
+ *    the adapter.
  */
 
 export type ContentKind = 'actors' | 'items' | 'journals' | 'scenes' | 'images';
 
-/** [KROK-27 Z1] `message: string` usuniete — patrz `LocalizableMessage`. */
+/** [Step 27 Z1] `message: string` removed — see `LocalizableMessage`. */
 export interface AdapterIssue extends LocalizableMessage {
   severity: 'info' | 'warning' | 'error';
 }
 
 export interface AdapterResult<T> {
   data: T;
-  /** Co adapter zrobil z polami, ktorych nie umial zmapowac. */
+  /** What the adapter did with fields it wasn't able to map. */
   notes: LocalizableMessage[];
   issues: AdapterIssue[];
 }
@@ -36,31 +38,32 @@ export interface ImportContext {
   language: string | null;
   profileId: string | null;
   /**
-   * [KROK-35 Z2] Id obrazu (`CIFImage.id`) wybranego przez uzytkownika w
-   * ekranie przegladu jako token/portret TEGO KONKRETNEGO aktora — WYLACZNIE
-   * ten id, nie sciezka (rozwiazywana dopiero przez `imagePathResolver`,
-   * WPROST w adapterze, zeby `fromActor` zostal czysta funkcja — patrz
-   * naglowek pliku). `null`/nieustawione = autor wybral "brak" albo nie
-   * skonfigurowal jeszcze przypisania. Decyzja produktowa kroku 35: zero
-   * automatycznego dopasowania (`images.associateWithEntity`, §5.5,
-   * pozostaje NIEUZYTE) — WYLACZNIE jawny wybor z listy w ekranie przegladu.
+   * [Step 35 Z2] The id of the image (`CIFImage.id`) selected by the user
+   * in the review screen as the token/portrait for THIS SPECIFIC actor —
+   * ONLY this id, not the path (which is resolved only by
+   * `imagePathResolver`, DIRECTLY in the adapter, so that `fromActor`
+   * remains a pure function — see the file header). `null`/unset = the
+   * author chose "none" or hasn't configured the assignment yet. Step 35
+   * product decision: zero automatic matching (`images.associateWithEntity`,
+   * §5.5, remains UNUSED) — ONLY an explicit choice from the list in the
+   * review screen.
    */
   tokenImageRef?: string | null;
-  /** [KROK-35 Z2] Jak `tokenImageRef`, ale dla portretu — "Jedno wskazanie ustawia oba" (P1 decyzja produktowa): ekran przegladu domyslnie kopiuje tu TA SAMA wartosc co `tokenImageRef`, chyba ze autor jawnie rozdzielil je pod "Ustawieniami zaawansowanymi". */
+  /** [Step 35 Z2] Like `tokenImageRef`, but for the portrait — "One selection sets both" (P1 product decision): the review screen copies this same value from `tokenImageRef` by default, unless the author explicitly separated them under "Advanced Settings". */
   portraitImageRef?: string | null;
 }
 
 export interface SystemAdapter {
   readonly id: string;
   readonly systemId: string;
-  /** Zakres semver, np. ">=7.0.0 <9". */
+  /** semver range, e.g. ">=7.0.0 <9". */
   readonly systemVersion: string;
-  /** gameLine akceptowane przez ten adapter; `'*'` = uniwersalny fallback. */
+  /** gameLine values accepted by this adapter; `'*'` = universal fallback. */
   readonly accepts: readonly string[];
   readonly produces: readonly ContentKind[];
   readonly label: string;
 
-  /** Nieobowiazkowa, plytka walidacja przed pelnym mapowaniem. */
+  /** Optional, shallow validation before full mapping. */
   validate?(cif: CIFActor): AdapterIssue[];
 
   fromActor(cif: CIFActor, ctx: ImportContext): AdapterResult<object>;

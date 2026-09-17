@@ -2,27 +2,27 @@ import { rectGapDistance, unionRect, type Rect } from '../geometry.js';
 import type { LabelledPairsMatch } from './patterns.js';
 
 /**
- * [KROK-18 Z3] Skladanie encji przez geometrie — implementacja
- * `entityAssembly` z §5.5 MDD. Parowanie GEOMETRYCZNE (bbox), nie po
- * kolejnosci w strumieniu tekstu — S3: encje wystepuja partiami (wszystkie
- * nazwy, potem wszystkie siatki, potem wszystkie bloki pochodne/ataki, NIE
- * przeplecione per-encja, potwierdzone bezposrednio na str. 55 ksiazki z
- * kroku 12/13).
+ * [Step 18 Z3] Entity assembly via geometry — an implementation of
+ * `entityAssembly` from MDD §5.5. GEOMETRIC pairing (bbox), not by
+ * order in the text stream — S3: entities occur in batches (all
+ * names, then all grids, then all derived-stats/attack blocks, NOT
+ * interleaved per-entity, confirmed directly on p. 55 of the step-12/13
+ * book).
  *
- * Dwie oddzielne funkcje:
- * - `attachNearest` — ogolne dolaczanie (derivedBlock/attackSection do
- *   kotwicy-siatki), zwraca po prostu najblizszego kandydata w danym
- *   kierunku albo `null`. Zaden pomysl pewnosci — MDD nie wymaga confidence
- *   dla tych wzorcow, tylko dla nazwy (S4).
- * - `resolveEntityNames` — parowanie nazwa<->siatka (H3 ze spike'u kroku 13),
- *   Z WBUDOWANA pewnoscia i progiem (S4): ponizej `nameConfidenceThreshold`
- *   NIGDY nie zgaduj, placeholder + lista kandydatow do rozstrzygniecia w
- *   przegladzie (bledna nazwa gorsza niz jej brak).
+ * Two separate functions:
+ * - `attachNearest` — general attachment (derivedBlock/attackSection to a
+ *   grid anchor), simply returns the nearest candidate in a given
+ *   direction, or `null`. No confidence concept — the MDD doesn't require confidence
+ *   for these patterns, only for the name (S4).
+ * - `resolveEntityNames` — name<->grid pairing (H3 from the step-13 spike),
+ *   WITH BUILT-IN confidence and a threshold (S4): below `nameConfidenceThreshold`
+ *   NEVER guess, a placeholder + a list of candidates to resolve in the
+ *   review (a wrong name is worse than none).
  */
 
 export interface GeometricAnchor {
   bbox: Rect;
-  /** Indeks pierwszego tokenu tej kotwicy w strumieniu — do porzadku przetwarzania i `preferEarlierSibling`. */
+  /** Index of this anchor's first token in the stream — for processing order and `preferEarlierSibling`. */
   anchorTokenIndex: number;
 }
 
@@ -38,16 +38,16 @@ export interface PreferEarlierSiblingConfig {
 }
 
 /**
- * Odleglosc kandydata od kotwicy WE WLASCIWYM KIERUNKU, albo `null` jesli
- * kandydat wcale nie lezy w tym kierunku (PDF: Y rosnie W GORE strony —
- * "below" = MNIEJSZE Y, patrz `pageOverlayGeometry.ts`).
+ * Distance of a candidate from the anchor IN THE PROPER DIRECTION, or `null` if
+ * the candidate doesn't lie in that direction at all (PDF: Y increases UPWARD on the
+ * page — "below" = SMALLER Y, see `pageOverlayGeometry.ts`).
  *
- * [KROK-18 Z7] `nearest` — BEZ wymogu kierunku, sam dystans euklidesowy
- * miedzy krawedziami bboksow. Dopisane po pomiarze na calej ksiazce: strony z
- * wieloma postaciami ukladaja siatke i jej blok pochodnych OBOK SIEBIE w tej
- * samej linii (kolumny), nie jedna pod druga — `nearestBelow`/`nearestAbove`
- * nigdy nie znajduja takiego kandydata (warunek kierunkowy nigdy spelniony),
- * niezaleznie od `maxDistancePt`. Zob. komentarz przy `AttachStrategy` w schema.ts.
+ * [Step 18 Z7] `nearest` — WITHOUT a directional requirement, plain Euclidean distance
+ * between bbox edges. Added after measuring across the whole book: pages with
+ * multiple characters lay out the grid and its derived-stats block SIDE BY SIDE on the
+ * same line (columns), not one below the other — `nearestBelow`/`nearestAbove`
+ * never find such a candidate (the directional condition is never satisfied),
+ * regardless of `maxDistancePt`. See the comment at `AttachStrategy` in schema.ts.
  */
 export function directionalDistance(anchor: Rect, candidate: Rect, strategy: AttachStrategy): number | null {
   const horizontalGap = Math.max(candidate.minX - anchor.maxX, anchor.minX - candidate.maxX, 0);
@@ -63,11 +63,11 @@ export function directionalDistance(anchor: Rect, candidate: Rect, strategy: Att
 export type RelativeDirection = 'below' | 'above' | 'beside';
 
 /**
- * [KROK-24 Z2] Klasyfikuje POLOZENIE kandydata wzgledem kotwicy, BEZ progu
- * odleglosci — do pomiaru geometrii (`measureAttachGeometry.ts`), nie do
- * samego dopasowania. Reuzywa `directionalDistance`, zeby definicja
- * "ponizej"/"powyzej" byla JEDNYM zrodlem prawdy z faktycznym dopasowaniem
- * uzywanym przez `attachNearestInternal`.
+ * [Step 24 Z2] Classifies a candidate's POSITION relative to the anchor, WITHOUT a
+ * distance threshold — for geometry measurement (`measureAttachGeometry.ts`), not
+ * for actual matching. Reuses `directionalDistance`, so the definition of
+ * "below"/"above" is a SINGLE source of truth shared with the actual matching
+ * used by `attachNearestInternal`.
  */
 export function classifyRelativeDirection(anchor: Rect, candidate: Rect): RelativeDirection {
   if (directionalDistance(anchor, candidate, 'nearestBelow') !== null) return 'below';
@@ -92,10 +92,10 @@ function pickBest(anchor: Rect, candidates: readonly AttachCandidate[], used: Re
 }
 
 /**
- * [H3, spike krok 13] Nazwa i podtytul stoja blisko w tym samym kroju —
- * naiwny "najblizszy" wybiera czesc PODTYTUL, bo lezy blizej (nizej/pozniej)
- * kotwicy niz sama nazwa. Preferuj WCZESNIEJSZEGO (w strumieniu) sasiada w
- * bliskiej odleglosci pionowej od `best` — zalozenie "Nazwa nad Podtytulem".
+ * [H3, step-13 spike] The name and subtitle stand close together in the same typeface —
+ * a naive "nearest" picks the SUBTITLE part, because it lies closer (below/later)
+ * to the anchor than the name itself. Prefer the EARLIER (in the stream) sibling at a
+ * close vertical distance from `best` — the "Name above Subtitle" assumption.
  */
 function preferEarlierSibling(
   anchor: Rect,
@@ -120,36 +120,35 @@ function preferEarlierSibling(
 }
 
 /**
- * [KROK-30, zmierzony na zywo blad, ZAWEZONE po regresji] `preferEarlierSibling`
- * wyklucza podtytul z liczenia dwuznacznosci WYLACZNIE wtedy, gdy musial
- * aktywnie PRZELACZYC wybor z podtytulu na nazwe (`chosen.index !== best.index`
- * w `resolveEntityNames`). Gdy nazwa jest JUZ geometrycznie najblizsza (typowy
- * uklad "Nazwa nad Podtytulem" na TEJ SAMEJ linii, nazwa zaczyna sie bardziej
- * na lewo wiec bywa i tak najblizsza kotwicy), przelaczenie nigdy nie zachodzi,
- * wiec podtytul NIGDY nie zostaje wykluczony — zostaje policzony jako "drugi
- * najlepszy kandydat" i uruchamia kare dwuznacznosci, mimo ze to DOKLADNIE ten
- * sam, oczekiwany wzorzec "Nazwa+Podtytul". Zmierzone wprost na realnych
- * danych (str. 23-24 "Zew Cthulhu 7ed. Wrak.pdf", KROK-30 Z5,
- * RAPORT-KROK-30.md): Calhoun/Hansen/Sciapod wszyscy dostawali placeholder
- * zamiast pewnej nazwy z tego wlasnie powodu.
+ * [Step 30, bug measured live, NARROWED after a regression] `preferEarlierSibling`
+ * excludes a subtitle from ambiguity counting ONLY when it had to
+ * actively SWITCH the choice from the subtitle to the name (`chosen.index !== best.index`
+ * in `resolveEntityNames`). When the name is ALREADY geometrically nearest (a typical
+ * "Name above Subtitle" layout on THE SAME line, the name starts further
+ * to the left so it happens to be nearest to the anchor anyway), the switch never
+ * occurs, so the subtitle is NEVER excluded — it gets counted as the "second
+ * best candidate" and triggers the ambiguity penalty, even though this is EXACTLY the
+ * same, expected "Name+Subtitle" pattern. Measured directly on real
+ * data (p. 23-24 "Zew Cthulhu 7ed. Wrak.pdf", Step 30 Z5,
+ * RAPORT-KROK-30.md): several entities on those pages were all getting a placeholder
+ * instead of a confident name for exactly this reason.
  *
- * [Regresja, zmierzona na zywo NATYCHMIAST po pierwszej wersji] Pierwsza
- * wersja wykluczala KAZDEGO sasiada w tym samym pasmie Y, bez wzgledu na
- * polozenie X — zlapala test `studioAnalysis.test.ts` skonstruowany
- * SWIADOMIE odwrotnie: dwa NIEZALEZNE, KONKURUJACE kandydaty na nazwe
- * ("Kandydat A"/"Kandydat B") postawione NIEMAL W TYM SAMYM miejscu (ten sam
- * X, 1pt roznicy Y) maja reprezentowac PRAWDZIWA dwuznacznosc, ktora silnik
- * MA wykryc, a "poszerzone" wykluczenie mylnie je scalalo. Prawdziwa nazwa +
- * podtytul NIE stoja w tym samym miejscu — leza NA TEJ SAMEJ LINII, jedno PO
- * DRUGIM (podtytul zaczyna sie tam, gdzie nazwa sie konczy, X nie zachodzi na
- * siebie): zmierzone wprost, "John Calhoun," konczy sie na X=143.0, "kapitan
- * jachtu" zaczyna sie na X=146.6. Naprawa: DODATKOWO wymagaj, zeby kandydat
- * (a) byl POZNIEJ w strumieniu niz wybrany (lustrzane odbicie kierunku
- * `preferEarlierSibling`, ktory patrzy WSTECZ) i (b) jego X NIE zachodzil na
- * X wybranego (zaczyna sie tam, gdzie wybrany sie konczy, albo dalej) — to
- * dokladnie odrzuca test-owy przypadek "dwa kandydaci w tym samym miejscu"
- * (Kandydat B zaczyna sie na X=1, wybrany "Kandydat A" konczy sie na X=8 —
- * zachodzi), zachowujac naprawe prawdziwego przypadku "Nazwa+Podtytul".
+ * [Regression, measured live IMMEDIATELY after the first version] The first
+ * version excluded EVERY sibling in the same Y band, regardless of
+ * X position — this caught a `studioAnalysis.test.ts` test deliberately
+ * constructed the opposite way: two INDEPENDENT, COMPETING name candidates
+ * ("Candidate A"/"Candidate B") placed AT NEARLY THE SAME spot (the same
+ * X, 1pt Y difference) are meant to represent GENUINE ambiguity that the engine
+ * IS supposed to detect, and the "widened" exclusion was incorrectly merging them. A genuine name +
+ * subtitle do NOT stand at the same spot — they lie ON THE SAME LINE, one AFTER
+ * THE OTHER (the subtitle starts where the name ends, X does not overlap): measured directly,
+ * a name token ends at X=143.0, and the following occupation-label token starts at X=146.6. Fix: ADDITIONALLY
+ * require that a candidate (a) be LATER in the stream than the chosen one (the mirror
+ * image of `preferEarlierSibling`'s direction, which looks BACKWARD) and (b) its X NOT
+ * overlap the chosen one's X (it starts where the chosen one ends, or further) — this
+ * precisely rejects the test's "two candidates at the same spot" case
+ * (Candidate B starts at X=1, the chosen "Candidate A" ends at X=8 —
+ * overlap), while preserving the fix for the genuine "Name+Subtitle" case.
  */
 function findKnownSiblingIndex(
   anchor: Rect,
@@ -175,44 +174,44 @@ function findKnownSiblingIndex(
 }
 
 /**
- * [KROK-21, zmierzony na zywo blad] Dolacza kandydatow do kotwic jako
- * GLOBALNE dopasowanie o minimalnym LACZNYM dystansie (zachlanne po
- * posortowanych parach rosnaco), NIE per-kotwica w kolejnosci strumienia.
- * Roznica ma znaczenie: str. 55 "nie czas na krzyk" ma 3 postacie w ukladzie
- * dwukolumnowym, gdzie siatka JEDNEJ postaci bywa geometrycznie BLIZEJ
- * sekcji ATAKI SASIADA (przez odstepy portretu/obrazu w jej WLASNEJ kolumnie)
- * niz wlasnej sekcji ATAKI. Wersja "kazda kotwica bierze swojego
- * najblizszego, kotwice przetwarzane w kolejnosci strumienia" prowadzila do
- * zamiany: pierwsza przetworzona kotwica (Warwick) "kradla" sekcje ATAKI
- * sasiadki (Pielegniarki, bo byla jej geometrycznie blizej niz wlasna), a
- * Pielegniarka dostawala to, co zostalo — Warwicka wlasna sekcje. Zmierzone
- * wprost: obie pary MYLONYCH kandydatow maja WIEKSZY dystans niz ich
- * WLASCIWE (prawidlowe) pary — globalne sortowanie po najmniejszym dystansie
- * NAJPIERW przydziela wlasciwe, ciasno dopasowane pary (np. Pielegniarka<->jej
- * wlasna ATAKI, dystans ~25pt), zanim jakikolwiek dalszy/dwuznaczny kandydat
- * (Warwick<->cudza ATAKI, dystans ~120pt) w ogole dostanie szanse. Dla stron
- * BEZ dwuznacznosci (typowa jedna postac na stronie) wynik identyczny jak
- * poprzednio — kazda kotwica i tak dostaje swojego jedynego/najblizszego
- * kandydata, kolejnosc przetwarzania nie ma tu znaczenia.
+ * [Step 21, bug measured live] Attaches candidates to anchors as a
+ * GLOBAL match with minimal TOTAL distance (greedy over
+ * pairs sorted ascending), NOT per-anchor in stream order.
+ * The difference matters: p. 55 "Nie czas na krzyk" has 3 characters in a
+ * two-column layout, where ONE character's grid can be geometrically CLOSER to the
+ * NEIGHBOR's ATTACKS section (due to portrait/image spacing in its OWN column)
+ * than to its own ATTACKS section. The "each anchor takes its own
+ * nearest, anchors processed in stream order" version led to a
+ * swap: the first anchor processed "stole" a neighboring
+ * entity's ATTACKS section (because it was geometrically closer to it than its own), and
+ * that neighbor got whatever was left — the first entity's own section. Measured
+ * directly: both pairs of CONFUSED candidates have a LARGER distance than their
+ * TRUE (correct) pairs — globally sorting by smallest distance
+ * FIRST assigns the true, tightly-matched pairs (e.g. one entity<->her
+ * own ATTACKS, distance ~25pt), before any further/ambiguous candidate
+ * (another entity<->someone else's ATTACKS, distance ~120pt) gets a chance at all. For pages
+ * WITHOUT ambiguity (typically one character per page) the result is identical to
+ * before — each anchor gets its only/nearest candidate anyway,
+ * processing order doesn't matter here.
  */
 /**
- * [KROK-22 Z2/Z3] Kandydat najblizszy kotwicy bez zadnego dopasowania w
- * `maxDistancePt` — diagnostyka "kandydat poza zasiegiem" (odkrycie #6 kroku
- * 21: dzis to milczy, nieodroznialne od "strona faktycznie nic nie ma").
+ * [Step 22 Z2/Z3] The candidate nearest to an anchor with no match at all within
+ * `maxDistancePt` — "candidate out of range" diagnostics (step-21
+ * discovery #6: today this is silent, indistinguishable from "the page genuinely has nothing").
  *
- * [KROK-29, zmierzony na zywo blad] Nazwa jest MYLACA — ten kandydat CZESTO
- * jest FAKTYCZNIE poza `maxDistancePt` (`reason: 'tooFar'`), ale zdarza sie
- * TEZ (globalne, zachlanne dopasowanie w `attachNearestInternal`), ze lezy
- * DOBRZE wewnatrz limitu, po prostu inna kotwica dostala go pierwsza w
- * sortowaniu po najmniejszym dystansie (`reason: 'claimedByOther'`) —
- * zmierzone wprost: str. 23 "Zew Cthulhu 7ed. Wrak.pdf", Calhoun pokazywal
- * "kandydat 87pt, limit 400pt" jako "poza zasiegiem", mimo ze 87 < 400,
- * dokladnie dlatego, ze jego wlasciwy kandydat zostal PRZEJETY przez inna,
- * geometrycznie blizsza kotwice (spowodowane INNYM bledem — sekcja sasiada
- * bez wlasnej granicy rozrosla sie na cala strone). `distance`/`maxDistancePt`
- * SAME W SOBIE nie mowia, ktory to przypadek — komunikat UI musi rozroznic
- * `reason`, zeby nie pokazac nonsensownego "87pt > 400pt" (dystans MNIEJSZY
- * niz limit, opisany jako przekroczenie).
+ * [Step 29, bug measured live] The name is MISLEADING — this candidate is OFTEN
+ * genuinely outside `maxDistancePt` (`reason: 'tooFar'`), but it ALSO
+ * happens (a global, greedy match in `attachNearestInternal`) that it lies
+ * WELL within the limit, it's just that another anchor got it first in
+ * the sort by smallest distance (`reason: 'claimedByOther'`) —
+ * measured directly: p. 23 "Zew Cthulhu 7ed. Wrak.pdf", one entity showed
+ * "candidate 87pt, limit 400pt" as "out of range", even though 87 < 400,
+ * precisely because its true candidate had been TAKEN by another,
+ * geometrically closer anchor (caused by a DIFFERENT bug — a neighbor's section
+ * without its own boundary had grown to cover the whole page). `distance`/`maxDistancePt`
+ * ALONE don't say which case this is — the UI message must distinguish
+ * `reason`, so it doesn't show a nonsensical "87pt > 400pt" (a distance SMALLER
+ * than the limit, described as an overrun).
  */
 export interface OutOfRangeCandidate {
   distance: number;
@@ -222,7 +221,7 @@ export interface OutOfRangeCandidate {
 
 export interface AttachDiagnostics {
   attached: (AttachCandidate | null)[];
-  /** Dla kazdej kotwicy BEZ dopasowania (`attached[i] === null`): najblizszy kandydat IGNORUJAC `maxDistancePt`, jesli jakikolwiek istnieje w tym kierunku na stronie. `null` przy dopasowaniu ALBO przy calkowitym braku kandydatow. */
+  /** For each anchor WITHOUT a match (`attached[i] === null`): the nearest candidate IGNORING `maxDistancePt`, if any exists in that direction on the page. `null` on a match OR when there are no candidates at all. */
   nearestOutOfRange: (OutOfRangeCandidate | null)[];
 }
 
@@ -260,10 +259,10 @@ function attachNearestInternal(
       if (!best || p.distance < best.distance) best = { candidateIndex: p.candidateIndex, distance: p.distance };
     }
     if (!best) return null;
-    // [KROK-29, zmierzony na zywo blad] `best.distance <= maxDistancePt`
-    // znaczy, ze ten kandydat BYL w zasiegu, ale poszedl do innej kotwicy w
-    // zachlannym globalnym dopasowaniu wyzej (inaczej `attached[ai]` bylby
-    // ustawiony) — patrz komentarz przy `OutOfRangeCandidate`.
+    // [Step 29, bug measured live] `best.distance <= maxDistancePt`
+    // means this candidate WAS in range, but went to a different anchor in the
+    // greedy global match above (otherwise `attached[ai]` would be
+    // set) — see the comment at `OutOfRangeCandidate`.
     const reason: OutOfRangeCandidate['reason'] = best.distance > maxDistancePt ? 'tooFar' : 'claimedByOther';
     return { distance: best.distance, candidate: candidates[best.candidateIndex]!, reason };
   });
@@ -280,7 +279,7 @@ export function attachNearest(
   return attachNearestInternal(anchors, candidates, strategy, maxDistancePt).attached;
 }
 
-/** [KROK-22 Z2/Z3] Jak `attachNearest`, ale zwraca TEZ diagnostyke "kandydat poza zasiegiem" — WYLACZNIE do Profile Studio (podglad/diagnostyka), nie do prawdziwego potoku importu (ktory dalej wola `attachNearest` bez zmian). Ta sama wewnetrzna logika co `attachNearest` (`attachNearestInternal`), zeby diagnostyka nigdy nie mogla rozjechac sie z prawdziwym dopasowaniem. */
+/** [Step 22 Z2/Z3] Like `attachNearest`, but ALSO returns "candidate out of range" diagnostics — used ONLY by Profile Studio (preview/diagnostics), not by the real import pipeline (which keeps calling `attachNearest` unchanged). The same internal logic as `attachNearest` (`attachNearestInternal`), so the diagnostics can never diverge from the actual matching. */
 export function attachNearestWithDiagnostics(
   anchors: readonly GeometricAnchor[],
   candidates: readonly AttachCandidate[],
@@ -293,70 +292,70 @@ export function attachNearestWithDiagnostics(
 export interface MergedLabelledPairsAttachment {
   attached: (LabelledPairsMatch | null)[];
   /**
-   * [KROK-34 Z2, zmierzony na zywo blad] `attached[i].startIndex..endIndex`
-   * to bounding UNIA wszystkich dolaczonych dopasowan — NIE ciagly zakres
-   * tokenow, gdy `attached[i]` powstalo ze SCALENIA rozlacznych dopasowan
-   * (np. glowny blok pochodnych, tokeny 20-32, PLUS "Pancerz" we WLASNYM
-   * akapicie, tokeny 70-72 — bounding `[20, 72)` polyka TEZ cala nieklaimowana
-   * proze MIEDZY nimi). Kod, ktory potrzebuje "faktycznie skonsumowane
-   * tokeny" (np. `proseBlock`'s wykluczenia, zeby notatka nie dublowala
-   * pochodnych, ale TEZ nie przeskakiwala niezaklaimowanej prozy miedzy
-   * scalonymi fragmentami) MUSI iterowac PO TEJ liscie (kazdy wpis WLASNY,
-   * ciagly `[startIndex,endIndex)`), NIE po `attached[i]` bounding range.
+   * [Step 34 Z2, bug measured live] `attached[i].startIndex..endIndex`
+   * is the bounding UNION of all attached matches — NOT a contiguous range
+   * of tokens, when `attached[i]` was formed by MERGING disjoint matches
+   * (e.g. the main derived-stats block, tokens 20-32, PLUS an armor-value pair in its OWN
+   * paragraph, tokens 70-72 — the bounding `[20, 72)` also swallows ALL unclaimed
+   * prose BETWEEN them). Code that needs "actually consumed
+   * tokens" (e.g. `proseBlock`'s exclusions, so a note doesn't duplicate
+   * the derived stats, but ALSO doesn't skip over unclaimed prose between
+   * merged fragments) MUST iterate OVER THIS list (each entry's OWN,
+   * contiguous `[startIndex,endIndex)`), NOT over `attached[i]`'s bounding range.
    */
   subMatches: LabelledPairsMatch[][];
-  /** Diagnostyka WYLACZNIE z pierwszej (najblizszej) rundy — jak w `attachNearestWithDiagnostics` (Studio). */
+  /** Diagnostics ONLY from the first (nearest) round — as in `attachNearestWithDiagnostics` (Studio). */
   nearestOutOfRange: (OutOfRangeCandidate | null)[];
 }
 
 /**
- * [KROK-34 Z1, zmierzony na zywo problem, "Wrak.pdf" str. 24, Sciapod] `Pancerz:`
- * bywa zapisany jako WLASNY, osobny akapit ("Pancerz: 5, niezwykle gruba
- * skóra...") daleko (inny wiersz, PONIZEJ atakow) od reszty bloku pochodnych
- * (PW/MO/Krzepa/Ruch/PM, w jednym wierszu WCZESNIEJ na stronie, zaraz po
- * siatce cech) — `matchLabelledPairs` zwraca to jako DWA ROZLACZNE
- * dopasowania TEGO SAMEGO wzorca (kazde samo w sobie spelnia `minPairs: 1`),
- * a zwykly `attachNearest` (bipartite, JEDEN kandydat na kotwice) przypisuje
- * kotwicy TYLKO blizsze z nich — drugie ("Pancerz") zostawalo CALKOWICIE
- * odrzucone, mimo ze na stronie byla dokladnie JEDNA encja, do ktorej mogl
- * nalezec (zmierzone wprost: `armour` nie pojawialo sie WCALE w
- * `CIFActor.statistics`, nie tylko okrojone). Generalizacja (DoD kroku 34:
- * "to samo dotyczy kazdej pochodnej z opisem, nie tylko pancerza") — KAZDY
- * wzorzec `labelledPairs` dolaczany do kotwicy MOZE zwrocic wiecej niz jedno
- * dopasowanie na strone.
+ * [Step 34 Z1, problem measured live, "Wrak.pdf" p. 24, a monster statblock] An
+ * armor-value label/pair is sometimes written as its OWN, separate paragraph (a short
+ * clause giving the armor value plus a descriptive note) far away (a different line, BELOW the attacks) from the rest of the derived-stats block
+ * (the usual HP/MOV/BUILD/Move/MP line, on one line EARLIER on the page, right after
+ * the attribute grid) — `matchLabelledPairs` returns this as TWO DISJOINT
+ * matches of THE SAME pattern (each on its own satisfies `minPairs: 1`),
+ * and a plain `attachNearest` (bipartite, ONE candidate per anchor) assigns to
+ * the anchor ONLY the closer of the two — the second one (the armor pair) was being
+ * COMPLETELY dropped, even though there was exactly ONE entity on the page it could
+ * have belonged to (measured directly: `armour` did not appear AT ALL in
+ * `CIFActor.statistics`, not merely truncated). Generalization (step 34's DoD:
+ * "the same applies to every derived stat with a description, not just armor") — EVERY
+ * `labelledPairs` pattern attached to an anchor CAN return more than one
+ * match per page.
  *
- * Dziala w rundach: pierwsza runda to DOKLADNIE `attachNearest` (ten sam
- * bezpieczny bipartite algorytm co reszta silnika) — na stronach z DOKLADNIE
- * jednym dopasowaniem na kotwice (wszystkie dotychczasowe profile
- * referencyjne) wynik jest IDENTYCZNY jak przed ta funkcja, zero regresji.
- * Dopasowania nieprzejete w pierwszej rundzie ("osierocone") proboja
- * dolaczyc sie w KOLEJNYCH rundach do NAJBLIZSZEJ WCIAZ dostepnej kotwicy —
- * TEN SAM bipartite algorytm, wiec dwie kotwice na stronie nigdy nie
- * licytuja sie o TEN SAM osierocony match (wygrywa blizsza), a kandydat poza
- * `maxDistancePt` KAZDEJ kotwicy zostaje odrzucony tak jak wczesniej (A10 —
- * brak dopasowania to nadal poprawny wynik, nie zgadywanie). Pary z kazdego
- * dodatkowego dopasowania sa DOKLADANE (union po `canonicalKey`, pierwsze
- * — najblizsze — dopasowanie wygrywa przy konflikcie) do wyniku pierwszej
- * rundy, nigdy go nie zastepuja.
+ * Works in rounds: the first round is EXACTLY `attachNearest` (the same
+ * safe bipartite algorithm as the rest of the engine) — on pages with EXACTLY
+ * one match per anchor (all reference profiles so
+ * far), the result is IDENTICAL to before this function, zero regressions.
+ * Matches not claimed in the first round ("orphans") try to
+ * attach in SUBSEQUENT rounds to the NEAREST STILL available anchor —
+ * the SAME bipartite algorithm, so two anchors on a page never
+ * bid against each other for THE SAME orphaned match (the closer one wins), and a candidate
+ * beyond `maxDistancePt` of EVERY anchor is rejected just as before (A10 —
+ * no match is still a valid result, not a guess). Pairs from each
+ * extra match are ADDED (a union by `canonicalKey`, the first
+ * — nearest — match wins on conflict) to the first round's
+ * result, never replacing it.
  */
 /**
- * [zgloszenie uzytkownika, powtorzony trzykrotnie na zywo, "Wrak.pdf", Sciapod]
- * Mnoznik zasiegu WYLACZNIE dla rund dolaczania OSIEROCONYCH dopasowan
- * (ponizej), NIE dla pierwszej/glownej rundy. Zmierzone wprost: prawdziwa
- * odleglosc do osieroconego "Pancerz:" Sciapoda to 410.85pt — autor profilu
- * (Profile Studio, wartosc domyslna nowej reguly dolaczenia) ustawia
- * `maxDistancePt` na 400pt, wiec dopasowanie odpadalo jako "poza zasiegiem"
- * (armour nigdy nie trafial na karte), MIMO ze na stronie jest dokladnie
- * jedna kotwica, do ktorej ten osierocony fragment mogl nalezec. Poprzednio
- * naprawiane recznie w SAMYM PROFILU (podniesienie `maxDistancePt` do 450) —
- * ale kazda przebudowa profilu w Profile Studio (nowa regula dolaczenia)
- * wraca do wartosci domyslnej 400, wiec ten sam blad wracal przy KAZDEJ
- * kolejnej edycji. Naprawa w SILNIKU zamiast w danych profilu: rundy
- * osierocone z natury lapia tresc CELOWO polozona daleko od glownego bloku
- * (osobny akapit), wiec zasluguja na wiekszy zasieg niz pierwsza runda —
- * bez ryzyka falszywych trafien pierwszej rundy (ktora NIE jest tym
- * mnoznikiem objeta), bo kandydat na ta runde i tak musi juz byc
- * "osierocony" (odrzucony przez WSZYSTKIE kotwice w pierwszej rundzie).
+ * [user report, repeated live three times, "Wrak.pdf", a monster statblock]
+ * A range multiplier ONLY for the rounds attaching ORPHANED matches
+ * (below), NOT for the first/main round. Measured directly: the true
+ * distance to that entity's orphaned armor-value pair is 410.85pt — the profile author
+ * (Profile Studio, the default value of a new attach rule) sets
+ * `maxDistancePt` to 400pt, so the match was falling out as "out of range"
+ * (armour never made it onto the sheet), DESPITE there being exactly
+ * one anchor on the page this orphaned fragment could have belonged to. Previously
+ * fixed manually IN THE PROFILE ITSELF (raising `maxDistancePt` to 450) —
+ * but every rebuild of the profile in Profile Studio (a new attach rule)
+ * resets to the default value of 400, so the same bug kept coming back on EVERY
+ * subsequent edit. Fixing it in the ENGINE instead of the profile data: orphan
+ * rounds by nature catch content DELIBERATELY placed far from the main block
+ * (a separate paragraph), so they deserve a larger range than the first round —
+ * without risking false matches in the first round (which is NOT covered by this
+ * multiplier), because a candidate for this round must already be
+ * "orphaned" (rejected by ALL anchors in the first round) anyway.
  */
 const ORPHAN_ROUND_DISTANCE_MULTIPLIER = 1.5;
 
@@ -432,37 +431,37 @@ export interface ResolveEntityNamesConfig {
   maxDistancePt: number;
   preferEarlierSibling?: PreferEarlierSiblingConfig;
   nameConfidenceThreshold: number;
-  /** Wstawiane w miejsce `{page}`/`{ordinal}` w `namePlaceholder`. */
+  /** Inserted in place of `{page}`/`{ordinal}` in `namePlaceholder`. */
   page: number;
   namePlaceholder: string;
   /**
-   * [ZGŁOSZENIE po kroku 30, "Dlaczego muszę wskazywać ręcznie, skoro profil
-   * już to zawiera"] `tokenIndex`-y tokenow rozpoznanych przez WLASNY,
-   * ODDZIELNY wzorzec zawodu/typu (`entityAssembly.typeLabelPattern`) —
-   * NIEZALEZNIE od tego, czy autor zdazyl juz zawezic mu `requireFontKeys`.
-   * Autor JUZ POWIEDZIAL profilowi "to jest zawod/typ, nie nazwa" samym
-   * faktem wskazania osobnego wzorca — silnik nie powinien wiec ZNOWU pytac
-   * czlowieka o rozstrzygniecie miedzy tymi dwoma polami (kara dwuznacznosci
-   * ponizej), skoro odpowiedz juz jest w konfiguracji profilu. Bez tego:
-   * dopoki `requireFontKeys` obu wzorcow nie sa jawnie rozne (autor jeszcze
-   * nie klikal wystarczajaco), kandydat na zawod/typ nadal liczy sie jako
-   * "prawie tak samo bliski konkurent" nazwy, wiec `resolveEntityNames`
-   * fałszywie karze pewnosc i encja trafia do przegladu jako placeholder z
-   * dwoma kandydatami do RECZNEGO rozstrzygniecia — mimo ze profil JUZ ma
-   * wystarczajaca informacje, zeby to rozstrzygnac automatycznie.
+   * [reported after step 30, "Why do I have to point it out manually when the
+   * profile already contains this"] `tokenIndex`es of tokens recognized by the entity's OWN,
+   * SEPARATE occupation/type pattern (`entityAssembly.typeLabelPattern`) —
+   * REGARDLESS of whether the author has already narrowed it with `requireFontKeys`.
+   * The author has ALREADY TOLD the profile "this is an occupation/type, not the name" by the
+   * mere fact of pointing to a separate pattern — the engine shouldn't therefore ask
+   * a human to resolve the choice between these two fields AGAIN (the ambiguity
+   * penalty below), since the answer is already in the profile's configuration. Without this:
+   * as long as the two patterns' `requireFontKeys` aren't explicitly different (the author hasn't
+   * clicked enough examples yet), an occupation/type candidate still counts as
+   * "an almost-as-close competitor" of the name, so `resolveEntityNames`
+   * falsely penalizes confidence and the entity ends up in the review as a placeholder with
+   * two candidates for MANUAL resolution — even though the profile ALREADY has
+   * enough information to resolve it automatically.
    */
   knownSiblingTokenIndices?: ReadonlySet<number>;
 }
 
 /**
- * [S4] Ponizej `nameConfidenceThreshold` NIGDY nie zgaduj — placeholder +
- * lista kandydatow (posortowana po odleglosci) do rozstrzygniecia w
- * przegladzie. Pewnosc = f(odleglosc najlepszego kandydata WZGLEDEM progu) Z
- * KARA za dwuznacznosc (drugi kandydat prawie tak samo blisko jak pierwszy —
- * dokladnie przypadek H3 "50% trafnosci", gdzie dwa krotkie teksty w tym
- * samym kroju stoja blisko siebie). Formula NIEKALIBROWANA na prawdziwej
- * ksiazce — to zadanie Z7 (pomiar na calej ksiazce), tutaj jest jawnie
- * udokumentowana i testowalna, nie zaszyta bez wyjasnienia.
+ * [S4] Below `nameConfidenceThreshold`, NEVER guess — a placeholder +
+ * a list of candidates (sorted by distance) to resolve in the
+ * review. Confidence = f(distance of the best candidate RELATIVE TO the threshold) WITH
+ * a PENALTY for ambiguity (a second candidate almost as close as the first —
+ * exactly the H3 "50% accuracy" case, where two short texts in the same
+ * typeface stand close together). The formula is NOT CALIBRATED on a real
+ * book — that's Z7's task (measurement across the whole book); here it is explicitly
+ * documented and testable, not hardcoded without explanation.
  */
 const AMBIGUITY_RATIO_THRESHOLD = 1.5;
 const AMBIGUITY_CONFIDENCE_PENALTY = 0.5;
@@ -486,27 +485,27 @@ export function resolveEntityNames(anchors: readonly GeometricAnchor[], nameCand
       ? preferEarlierSibling(anchor.bbox, nameCandidates, used, config.strategy, config.maxDistancePt, best, config.preferEarlierSibling)
       : best;
 
-    // Drugi najlepszy kandydat (poza wybranym) — sygnal dwuznacznosci. Gdy
-    // `preferEarlierSibling` przelaczyl wybor z `best` (geometrycznie
-    // najblizszy) na wczesniejszego sasiada (nazwa zamiast podtytulu),
-    // `best` jest ZROZUMIALYM, oczekiwanym "konkurentem" (to WLASNIE podtytul,
-    // ktory bylby najblizej) — NIE prawdziwa dwuznacznoscia. Wyklucz go z
-    // liczenia dwuznacznosci, inaczej kazde poprawne zadzialanie reguly
-    // "nazwa nad podtytulem" byloby mylnie karane jako niepewne.
+    // The second-best candidate (besides the chosen one) — an ambiguity signal. When
+    // `preferEarlierSibling` switched the choice from `best` (geometrically
+    // nearest) to an earlier sibling (name instead of subtitle),
+    // `best` is an UNDERSTANDABLE, expected "competitor" (it IS the subtitle,
+    // which would be nearest) — NOT genuine ambiguity. Exclude it from
+    // the ambiguity count, otherwise every correct application of the
+    // "name above subtitle" rule would be falsely penalized as uncertain.
     const ambiguityExclusions = new Set([...used, chosen.index]);
     if (chosen.index !== best.index) ambiguityExclusions.add(best.index);
-    // [KROK-30] Symetryczny przypadek: `chosen` jest JUZ najblizszy (`best`),
-    // wiec powyzsze wykluczenie nigdy sie nie uruchamia, mimo ze podtytul
-    // dalej stoi na tej samej linii i dalej jest "oczekiwanym konkurentem",
-    // nie prawdziwa dwuznacznoscia — patrz komentarz przy `findKnownSiblingIndex`.
+    // [Step 30] The symmetric case: `chosen` is ALREADY the nearest (`best`),
+    // so the exclusion above never triggers, even though the subtitle
+    // still stands on the same line and is still the "expected competitor",
+    // not genuine ambiguity — see the comment at `findKnownSiblingIndex`.
     if (config.preferEarlierSibling) {
       const sibling = findKnownSiblingIndex(anchor.bbox, nameCandidates, used, config.strategy, config.maxDistancePt, chosen.index, config.preferEarlierSibling);
       if (sibling !== null) ambiguityExclusions.add(sibling);
     }
-    // [ZGŁOSZENIE po kroku 30] Kandydat rozpoznany przez WLASNY wzorzec
-    // zawodu/typu ma juz "niewinne wytlumaczenie" — profil sam go zaklasyfikowal
-    // jako INNE pole, wiec nie liczy sie jako prawdziwa dwuznacznosc nazwy,
-    // niezaleznie od geometrii/`preferEarlierSibling`.
+    // [reported after step 30] A candidate recognized by its OWN
+    // occupation/type pattern already has an "innocent explanation" — the profile has already classified it
+    // as a DIFFERENT field, so it doesn't count as genuine name ambiguity,
+    // regardless of geometry/`preferEarlierSibling`.
     if (config.knownSiblingTokenIndices) {
       nameCandidates.forEach((c, i) => {
         if (config.knownSiblingTokenIndices!.has(c.tokenIndex)) ambiguityExclusions.add(i);
@@ -525,14 +524,14 @@ export function resolveEntityNames(anchors: readonly GeometricAnchor[], nameCand
       const candidateTexts = [chosen, ...(secondBest ? [secondBest] : [])].map((c) => (nameCandidates[c.index] as NameCandidate).text);
       result[ai] = { kind: 'placeholder', placeholder, candidates: candidateTexts };
     } else {
-      // [KROK-22, znaleziony przy budowie Profile Studio] `chosen.index` to indeks
-      // WEWNATRZ tablicy `nameCandidates` (pozycja kandydata w argumencie tej
-      // funkcji), NIE prawdziwy indeks tokenu w strumieniu — te dwie liczby myliy
-      // sie tutaj do tej pory NIEZAUWAZONE, bo `NameResolution.tokenIndex` nie mial
-      // zadnego konsumenta w produkcie (`buildCIFActor.ts` czyta wylacznie `.text`).
-      // Profile Studio jest PIERWSZYM kodem, ktory faktycznie uzywa tego pola (do
-      // narysowania nakladki nazwy nad wlasciwym tokenem) — bez tej poprawki
-      // wskazywalby na losowy, przypadkowy token w strumieniu.
+      // [Step 22, found while building Profile Studio] `chosen.index` is an index
+      // WITHIN the `nameCandidates` array (a candidate's position in this
+      // function's argument), NOT the true token index in the stream — these two numbers were
+      // confused here, UNNOTICED until now, because `NameResolution.tokenIndex` had
+      // no consumer in the product (`buildCIFActor.ts` only ever reads `.text`).
+      // Profile Studio is the FIRST piece of code that actually uses this field (to
+      // draw the name overlay over the correct token) — without this fix
+      // it would point to a random, arbitrary token in the stream.
       const chosenCandidate = nameCandidates[chosen.index] as NameCandidate;
       result[ai] = { kind: 'confident', text: chosenCandidate.text, confidence, tokenIndex: chosenCandidate.tokenIndex };
     }

@@ -5,14 +5,14 @@ import { effectiveGapProfileForPage, type HierarchicalGapProfile } from '../text
 import { axisPositions, baselineTolerance, fontSizeFromTransform, type StreamAngle } from './textGeometry.js';
 
 /**
- * Scalanie fragmentow w tokeny wysokiego prawdopodobienstwa spojnosci (KROK-5
- * Z4). Scala DWA sasiadujace itemy tylko gdy WSZYSTKIE warunki z briefu sa
- * spelnione — brak choc jednego = brak scalenia. Wynik NIE jest "slowem" w
- * sensie jezykowym (brak walidacji slownikowej, brak detekcji jezyka).
+ * Merges fragments into tokens with a high probability of cohesion (Step 5
+ * Z4). Merges TWO adjacent items only when ALL conditions from the brief are
+ * met — missing even one means no merge. The result is NOT a "word" in the
+ * linguistic sense (no dictionary validation, no language detection).
  *
- * P1 (polskie wyrazy jednoliterowe: w, z, i, o, a, u, e): NIGDY nie uzywamy
- * samej dlugosci tokenu jako przeslanki do scalania — warunki ponizej nie
- * odwoluja sie do dlugosci `str` w ogole.
+ * P1 (Polish single-letter words: w, z, i, o, a, u, e): we NEVER use token
+ * length alone as grounds for merging — the conditions below never refer to
+ * `str` length at all.
  */
 
 export interface MergeCandidateItem extends CleanItem {
@@ -21,15 +21,15 @@ export interface MergeCandidateItem extends CleanItem {
 
 export interface MergedToken {
   str: string;
-  /** Transform PIERWSZEGO zrodlowego itemu — kotwica pozycji tokenu. */
+  /** Transform of the FIRST source item — the token's position anchor. */
   transform: readonly number[];
-  /** Rozpietosc wzdluz osi czytania od kotwicy do konca OSTATNIEGO zrodlowego itemu. */
+  /** Span along the reading axis from the anchor to the end of the LAST source item. */
   width: number;
   height: number;
   fontKey: string;
   fontName: string;
   syntheticBold: boolean;
-  /** [F0] Slad scalenia — oryginalne indeksy + powod, do ekranu przegladu (faza 9). */
+  /** [F0] Merge trail — original indices + reason, for the review screen (phase 9). */
   sourceIndices: number[];
   mergeReason: 'no-merge' | 'gap-below-threshold';
 }
@@ -52,10 +52,10 @@ function toToken(item: MergeCandidateItem): MergedToken {
 }
 
 /**
- * Powod decyzji o (nie)scaleniu pary sasiadujacych itemow — uzywane zarowno
- * przez `mergeWords` jak i przez `tools/calibrate-merge.mjs` (KROK-5, kalibracja
- * na plikach z `samples/`), zeby narzedzie diagnostyczne nie powielalo logiki
- * produkcyjnej.
+ * The reason for the (non-)merge decision on a pair of adjacent items — used
+ * both by `mergeWords` and by `tools/calibrate-merge.mjs` (Step 5, calibration
+ * on files from `samples/`), so the diagnostic tool doesn't duplicate
+ * production logic.
  */
 export type MergeBlockReason =
   | 'merged'
@@ -67,11 +67,11 @@ export type MergeBlockReason =
   | 'overlapping';
 
 /**
- * Klasyfikuje, czy `next` powinien scalic sie z `prev` — WSZYSTKIE warunki z
- * tabeli briefu (Z4) musza byc spelnione, sprawdzane w tej samej kolejnosci co
- * w tabeli. `angle` to kat strumienia, wspolny dla calego wywolania mergeWords
- * (warunek #3 spelniony z definicji, bo wolajacy dzieli juz itemy na strumienie
- * katowe przed wywolaniem — patrz Z3).
+ * Classifies whether `next` should merge with `prev` — ALL conditions from
+ * the brief's table (Z4) must be met, checked in the same order as the
+ * table. `angle` is the stream angle, shared across the whole mergeWords call
+ * (condition #3 satisfied by definition, since the caller already splits
+ * items into angular streams before calling — see Z3).
  */
 export function classifyMergeDecision(
   prev: MergeCandidateItem,
@@ -81,34 +81,35 @@ export function classifyMergeDecision(
   gapProfiles: ReadonlyMap<string, HierarchicalGapProfile>,
   page: number,
 ): MergeBlockReason {
-  // #1 Ten sam klucz fontu.
+  // #1 Same font key.
   if (prev.fontKey !== next.fontKey) return 'different-font';
 
-  // #4 [U2, TWARDY] Brak granicy z wordBoundaries miedzy nimi.
+  // #4 [U2, HARD] No wordBoundaries boundary between them.
   if (hasBoundaryBetween(wordBoundaries, prev.index, next.index)) return 'word-boundary';
 
-  // #2 Ta sama linia bazowa (tolerancja wspoldzielona z Z5, patrz textGeometry.ts).
+  // #2 Same baseline (tolerance shared with Z5, see textGeometry.ts).
   const prevAxis = axisPositions(prev.transform, angle);
   const nextAxis = axisPositions(next.transform, angle);
   const tolerance = baselineTolerance(fontSizeFromTransform(prev.transform));
   if (Math.abs(prevAxis.cross - nextAxis.cross) > tolerance) return 'different-baseline';
 
-  // #6 Profil fontu musi byc wiarygodny (separation powyzej progu ufnosci) — Z2.
-  // [KROK-6 Z1a] Bardziej zachowawczy z progu dokumentowego i stronicowego (patrz effectiveGapProfileForPage).
+  // #6 The font profile must be reliable (separation above the confidence threshold) — Z2.
+  // [Step 6 Z1a] Uses the more conservative of the document-level and page-level thresholds (see effectiveGapProfileForPage).
   const hierarchical = gapProfiles.get(prev.fontKey);
   if (!hierarchical) return 'unreliable-profile';
   const profile = effectiveGapProfileForPage(hierarchical, page);
   if (!profile.reliable) return 'unreliable-profile';
 
-  // #5 Odstep SCISLE ponizej progu wewnatrzwyrazowego dla tego fontu.
+  // #5 Gap STRICTLY below the intra-word threshold for this font.
   const gap = nextAxis.along - (prevAxis.along + prev.width);
-  // [KROK-6, odkrycie] Odstep UJEMNY (itemy nakladajace sie geometrycznie wzdluz
-  // osi czytania) NIE jest "blisko" — to zawsze odrebne, nieciagle elementy (np.
-  // dwie kolumny geste tabeli/spisu tresci ktore przypadkiem wspoldziela linie
-  // bazowa), nigdy prawdziwa fragmentacja jednego slowa. Bez tej granicy dolnej
-  // `gap < intraWordThreshold` przepuszczalo KAZDY ujemny gap (zawsze "mniejszy"
-  // niz dowolny dodatni prog) — zweryfikowane empirycznie: to byla PRAWDZIWA
-  // przyczyna sklejen na str. 3 Cienie_posrod_mgie.pdf (Z1a), nie kalibracja progu.
+  // [Step 6, discovery] A NEGATIVE gap (items geometrically overlapping along
+  // the reading axis) is NOT "close" — it's always separate, discontinuous
+  // elements (e.g. two dense columns of a table/table-of-contents that happen
+  // to share a baseline), never a genuine fragmentation of one word. Without
+  // this lower bound, `gap < intraWordThreshold` let through EVERY negative
+  // gap (always "smaller" than any positive threshold) — verified
+  // empirically: this was the ACTUAL cause of merges on p. 3 of
+  // Cienie_posrod_mgie.pdf (Z1a), not threshold calibration.
   if (gap < 0) return 'overlapping';
   if (!(gap < profile.intraWordThreshold)) return 'gap-too-large';
 
@@ -116,15 +117,16 @@ export function classifyMergeDecision(
 }
 
 /**
- * Grupuje po PRZYBLIZONEJ linii bazowej (cross-axis, zaokraglone do tolerancji)
- * PRZED sortowaniem/scalaniem wzdluz osi czytania — bez tego calenie porownuje
- * fragmenty z ROZNYCH linii, ktore przypadkiem znalazly sie obok siebie w
- * globalnym sortowaniu po samej osi `along` (wykryte empirycznie kalibracja na
- * plikach z `samples/`, KROK-5: na stronie wieloliniowej >90% par "sasiednich"
- * po takim globalnym sortowaniu bylo z roznych linii — blokowane poprawnie
- * przez warunek #2, ale marnujace pracie i, gorzej, mogace pominac prawdziwe
- * scalenia jesli fragment innej linii wsuwa sie miedzy dwa fragmenty tej samej
- * linii w sortowaniu). Ta sama metoda bucketowania co `collectGapSamples` (Z2).
+ * Groups by APPROXIMATE baseline (cross-axis, rounded to the tolerance)
+ * BEFORE sorting/merging along the reading axis — without this, merging
+ * would compare fragments from DIFFERENT lines that happened to end up next
+ * to each other in a global sort by the `along` axis alone (discovered
+ * empirically via calibration on files from `samples/`, Step 5: on a
+ * multi-line page, >90% of "adjacent" pairs after such a global sort were
+ * from different lines — correctly blocked by condition #2, but wasting
+ * work and, worse, potentially missing genuine merges if a fragment from
+ * another line slots in between two fragments of the same line in the
+ * sort). Same bucketing method as `collectGapSamples` (Z2).
  */
 function bucketByBaseline(items: readonly MergeCandidateItem[], angle: StreamAngle): MergeCandidateItem[][] {
   const buckets = groupByQuantizedPosition(items, (item) => {
@@ -138,10 +140,10 @@ function bucketByBaseline(items: readonly MergeCandidateItem[], angle: StreamAng
 }
 
 /**
- * Scala sasiadujace itemy JEDNEGO strumienia katowego (juz po higienie, Z1) w
- * tokeny. Wolajacy (orkiestrator) dostarcza itemy jednego kata na raz (Z3
- * poprzedza Z4); kolejnosc wejscia jest nieistotna — funkcja grupuje po linii
- * bazowej i sortuje wzdluz osi czytania wewnatrz kazdej grupy sama.
+ * Merges adjacent items from ONE angular stream (already past hygiene, Z1)
+ * into tokens. The caller (orchestrator) supplies items for one angle at a
+ * time (Z3 precedes Z4); input order doesn't matter — the function groups by
+ * baseline and sorts along the reading axis within each group itself.
  */
 export function mergeWords(
   items: readonly MergeCandidateItem[],

@@ -3,25 +3,25 @@ import type { EncodedImage, EncodeOptions, ImageEncoder } from './encodeImage.js
 import type { PdfPageForRender, RegionRenderer } from './regionRenderer.js';
 
 /**
- * [KROK-11 Z3] Render CALEJ strony (nie pojedynczego obrazu) do bitmapy —
- * potrzebne dla panelu podgladu strony PDF w ekranie przegladu (faza 9).
- * Zadnej NOWEJ logiki renderu — `RegionRenderer`/`ImageEncoder` z kroku 7
- * juz robia dokladnie to, czego trzeba (render dowolnego bboksa strony,
- * zakodowanie do WebP/PNG); ten plik to CIENKI orkiestrator, ktory po prostu
- * przekazuje bbox CALEJ strony zamiast bboksu pojedynczego obrazu — mirror
- * wzorca `buildImageExtraction.ts`/`buildPageLayout.ts` (jeden entry point
- * spinajacy juz istniejace kawalki), nie nowy mechanizm.
+ * [Step 11 Z3] Render of the WHOLE page (not a single image) into a bitmap —
+ * needed for the PDF page preview panel on the review screen (phase 9). No
+ * NEW render logic — `RegionRenderer`/`ImageEncoder` from step 7 already do
+ * exactly what's needed (render an arbitrary page bbox, encode to
+ * WebP/PNG); this file is a THIN orchestrator that simply passes the bbox of
+ * the WHOLE page instead of a single image's bbox — mirroring the pattern of
+ * `buildImageExtraction.ts`/`buildPageLayout.ts` (one entry point tying
+ * already-existing pieces together), not a new mechanism.
  *
- * `renderer`/`encoder` sa wstrzykiwane (nie zaszyte na sztywno
- * `browserRegionRenderer`/`browserImageEncoder`) — ten sam powod co w
- * `buildImageExtraction.ts`: testowalnosc w Node (`nodeCanvasRenderer.ts`/
- * `nodeCanvasImageEncoder.ts`, celowo NIEEKSPORTOWANE z `index.ts`), warstwa
- * Foundry (`packages/module`) wstrzykuje `browserRegionRenderer`/
- * `browserImageEncoder` (jedyne prawdziwe implementacje w przegladarce, A1).
+ * `renderer`/`encoder` are injected (not hardcoded to
+ * `browserRegionRenderer`/`browserImageEncoder`) — the same reason as in
+ * `buildImageExtraction.ts`: testability in Node (`nodeCanvasRenderer.ts`/
+ * `nodeCanvasImageEncoder.ts`, deliberately NOT EXPORTED from `index.ts`),
+ * while the Foundry layer (`packages/module`) injects `browserRegionRenderer`/
+ * `browserImageEncoder` (the only real implementations in the browser, A1).
  */
 
 export interface RenderPagePreviewOptions {
-  /** Docelowa dlugosc dluzszej krawedzi wyniku w pikselach — patrz `RenderRegionOptions`. */
+  /** Target length of the result's longer edge in pixels — see `RenderRegionOptions`. */
   targetLongEdgePx: number;
   signal?: AbortSignal;
   format?: EncodeOptions['format'];
@@ -29,9 +29,10 @@ export interface RenderPagePreviewOptions {
 }
 
 /**
- * Renderuje CALA strone (bbox = `pageBox`, typowo z `InventoryResult.perPage[].box`,
- * juz policzony przez inwentaryzacje — krok 4 — zeby uniknac ponownego
- * odczytywania `page.view` tutaj) do zakodowanej bitmapy gotowej na `<img>`.
+ * Renders the WHOLE page (bbox = `pageBox`, typically from
+ * `InventoryResult.perPage[].box`, already computed by the inventory pass —
+ * step 4 — to avoid re-reading `page.view` here) into an encoded bitmap
+ * ready for an `<img>`.
  */
 export async function renderPagePreview(
   page: PdfPageForRender,

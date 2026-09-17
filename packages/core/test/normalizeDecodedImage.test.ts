@@ -25,7 +25,7 @@ describe('normalizeDecodedImage — ksztalt {kind, data} (Node, fazy 0 spike)', 
 
   it('rzuca czytelny blad dla nieznanego kind', () => {
     expect(() => normalizeDecodedImage({ width: 1, height: 1, kind: 99, data: new Uint8ClampedArray([0]) })).toThrow(
-      /nieobslugiwany kind/,
+      /unsupported kind/,
     );
   });
 });
@@ -75,7 +75,7 @@ describe('normalizeDecodedImage — ksztalt {bitmap} (przegladarka)', () => {
 
 describe('normalizeDecodedImage — walidacja wejscia', () => {
   it('rzuca dla null', () => {
-    expect(() => normalizeDecodedImage(null)).toThrow(/oczekiwano obiektu/);
+    expect(() => normalizeDecodedImage(null)).toThrow(/expected an object/);
   });
 
   it('rzuca, gdy brak width/height', () => {
@@ -83,6 +83,6 @@ describe('normalizeDecodedImage — walidacja wejscia', () => {
   });
 
   it('rzuca dla nierozpoznanego ksztaltu (brak data i brak bitmap)', () => {
-    expect(() => normalizeDecodedImage({ width: 1, height: 1 })).toThrow(/nierozpoznany ksztalt/);
+    expect(() => normalizeDecodedImage({ width: 1, height: 1 })).toThrow(/unrecognized input shape/);
   });
 });

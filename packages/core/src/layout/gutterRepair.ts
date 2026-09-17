@@ -4,34 +4,35 @@ import type { LineToken, TextLine } from './lineCluster.js';
 import type { SpanningSplit } from './spanning.js';
 
 /**
- * Przebieg naprawczy PO detekcji kolumn (KROK-10) — naprawia linie fałszywie
- * sklejone przez `lineCluster.ts` w dwie (lub więcej) kolumny na tej samej
- * wysokości, gdy słaba podpowiedź rynny (`gutterHint.ts`, działa PRZED
- * klastrowaniem, na surowym histogramie) nie wystarczyła.
+ * Repair pass AFTER column detection (Step 10) — fixes lines that
+ * `lineCluster.ts` falsely merged across two (or more) columns at the same
+ * height, when the weak gutter hint (`gutterHint.ts`, runs BEFORE
+ * clustering, on the raw histogram) wasn't enough.
  *
- * [decyzja architektoniczna, brief] `gutterHint` działa PRZED klastrowaniem
- * linii i dysponuje wyłącznie zgrubnym histogramem — wzmacnianie go tam
- * oznaczałoby walkę na najgorszym dostępnym poziomie informacji, w mocno
- * przetestowanym rdzeniu (`lineCluster.ts`/`sameLine`), z realnym ryzykiem
- * regresji. Zamiast tego: PO detekcji kolumn (Z3, `detectColumns`) mamy PEWNĄ
- * wiedzę o granicach kolumn — ten moduł ją wykorzystuje WSTECZ, jako osobny
- * przebieg, bez dotykania `lineCluster.ts`'s logiki decyzyjnej.
+ * [architectural decision, per the brief] `gutterHint` runs BEFORE line
+ * clustering and only has a coarse histogram available — strengthening it
+ * there would mean fighting at the worst available information level, inside
+ * the heavily tested core (`lineCluster.ts`/`sameLine`), with real regression
+ * risk. Instead: AFTER column detection (Z3, `detectColumns`) we have CERTAIN
+ * knowledge of column boundaries — this module uses that knowledge
+ * RETROACTIVELY, as a separate pass, without touching `lineCluster.ts`'s
+ * decision logic.
  *
- * Dyskryminator (sedno zadania): linia, ktorej bbox przecina wykryta rynne,
- * moze byc (a) PRAWDZIWA linia rozpinajaca — ma token(y) WEWNATRZ obszaru
- * rynny, tekst faktycznie tam biegnie — NIE ruszaj; (b) FALSZYWE sklejenie —
- * ZERO tokenow w rynnie, dwa skupiska z dziura — ROZETNIJ. Bezpiecznik: dziala
- * WYLACZNIE gdy confidence detekcji kolumn >= progu (niepewna detekcja kolumn
- * = nie wiadomo gdzie SA kolumny, lepiej zostawic istniejacy blad niz
- * wprowadzic nowy).
+ * The discriminator (the crux of the task): a line whose bbox crosses a
+ * detected gutter can be either (a) a TRUE spanning line — it has token(s)
+ * INSIDE the gutter area, text genuinely runs through there — DO NOT touch
+ * it; or (b) a FALSE merge — ZERO tokens in the gutter, two clusters with a
+ * gap — SPLIT it. Safeguard: only runs when column detection confidence >=
+ * threshold (uncertain column detection = we don't know where the columns
+ * ARE, better to leave an existing bug than introduce a new one).
  */
 
-/** Ten sam prog co `LOW_CONFIDENCE_THRESHOLD` w `tools/calibrate-layout.ts` — spojnosc z istniejaca konwencja "ponizej tego kolumny sa niepewne". */
+/** Same threshold as `LOW_CONFIDENCE_THRESHOLD` in `tools/calibrate-layout.ts` — consistent with the existing convention "below this, columns are uncertain". */
 const GUTTER_REPAIR_CONFIDENCE_THRESHOLD = 0.85;
 
 export interface GutterRepairResult {
   split: SpanningSplit;
-  /** Liczba linii faktycznie rozcietych — do kalibracji/raportu. */
+  /** Number of lines actually split — for calibration/reporting. */
   splitCount: number;
 }
 
@@ -40,7 +41,7 @@ interface Gutter {
   maxX: number;
 }
 
-/** Rynny miedzy KOLEJNYMI (posortowanymi wzdluz X) kolumnami — N kolumn daje N-1 rynien. */
+/** Gutters between CONSECUTIVE (X-sorted) columns — N columns give N-1 gutters. */
 function computeGutters(columns: readonly ColumnRegion[]): Gutter[] {
   const sorted = [...columns].sort((a, b) => a.bbox.minX - b.bbox.minX);
   const gutters: Gutter[] = [];
@@ -50,7 +51,7 @@ function computeGutters(columns: readonly ColumnRegion[]): Gutter[] {
   return gutters;
 }
 
-/** Ktore z rynien linia FAKTYCZNIE przecina swoim bboksem (moze byc wiecej niz jedna przy 3+ kolumnach). */
+/** Which gutters a line's bbox ACTUALLY crosses (can be more than one with 3+ columns). */
 function crossedGutters(line: TextLine, gutters: readonly Gutter[]): Gutter[] {
   return gutters.filter((g) => line.bbox.minX < g.minX && line.bbox.maxX > g.maxX);
 }
@@ -63,7 +64,7 @@ function buildFragmentBBox(tokens: readonly LineToken[]): Rect {
   return tokens.map((t) => t.bbox).reduce<Rect | null>((acc, b) => (acc ? unionRect(acc, b) : b), null)!;
 }
 
-/** Fragment linii po rozcieciu — nowy `TextLine` z podzbiorem tokenow, tekstem/bboksem przeliczonym TYLKO z nich. `id` niesie powiazanie ze zrodlowa linia (provenance, brief). */
+/** A line fragment after splitting — a new `TextLine` with a subset of tokens, text/bbox recomputed ONLY from them. `id` carries the link to the source line (provenance, per the brief). */
 function buildFragment(line: TextLine, tokens: readonly LineToken[], fragmentIndex: number): TextLine {
   return {
     ...line,
@@ -71,18 +72,18 @@ function buildFragment(line: TextLine, tokens: readonly LineToken[], fragmentInd
     text: tokens.map((t) => t.text).join(' '),
     bbox: buildFragmentBBox(tokens),
     tokens: [...tokens],
-    // `runs` (KROK-9 Z1b) odziedziczone z linii zrodlowej nie sa juz poprawne
-    // dla fragmentu (moga odwolywac sie do tokenow z DRUGIEJ strony rynny) —
-    // wyczyszczone zamiast wprowadzac cichy blad w dalszym przebiegu Z1b.
+    // `runs` (Step 9 Z1b) inherited from the source line are no longer valid
+    // for the fragment (they may reference tokens from the OTHER side of the
+    // gutter) — cleared instead of introducing a silent bug further down the Z1b pipeline.
     runs: undefined,
   };
 }
 
 /**
- * Rozcina linie z `split.spanning`, ktore fałszywie sklejaja dwie (lub wiecej)
- * kolumny na tej samej wysokosci. Bezpieczna z zalozenia: przy braku danych o
- * tokenach (`TextLine.tokens` niepopulowane — np. recznie zbudowane fixture'y
- * bez tego pola) albo niepewnej detekcji kolumn, NIC nie rozcina.
+ * Splits lines from `split.spanning` that falsely merge two (or more)
+ * columns at the same height. Safe by design: when token data is missing
+ * (`TextLine.tokens` unpopulated — e.g. hand-built fixtures without that
+ * field) or column detection is uncertain, it splits NOTHING.
  */
 export function repairGutterCrossingLines(split: SpanningSplit, columns: readonly ColumnRegion[], columnConfidence: number): GutterRepairResult {
   if (columnConfidence < GUTTER_REPAIR_CONFIDENCE_THRESHOLD || columns.length < 2) {
@@ -104,19 +105,19 @@ export function repairGutterCrossingLines(split: SpanningSplit, columns: readonl
 
     const tokens = line.tokens;
     if (!tokens || tokens.length === 0) {
-      // Bezpiecznik: brak danych o tokenach — nie tnij bez pewnosci (A7-podobna zasada: degraduj, nie zgaduj).
+      // Safeguard: no token data — don't cut without certainty (A7-like rule: degrade, don't guess).
       remainingSpanning.push(line);
       continue;
     }
 
     const hasTokenInAnyCrossedGutter = crossed.some((g) => tokens.some((t) => tokenIntersectsGutter(t, g)));
     if (hasTokenInAnyCrossedGutter) {
-      // Prawdziwa linia rozpinajaca — tekst faktycznie biegnie przez rynne. NIE ruszaj.
+      // A true spanning line — text genuinely runs through the gutter. DO NOT touch it.
       remainingSpanning.push(line);
       continue;
     }
 
-    // Podziel na fragmenty miedzy kolejnymi przecietymi rynnami.
+    // Split into fragments between consecutive crossed gutters.
     const sortedGutters = [...crossed].sort((a, b) => a.minX - b.minX);
     const regionBounds: { min: number; max: number }[] = [];
     let prevMax = Number.NEGATIVE_INFINITY;
@@ -131,7 +132,7 @@ export function repairGutterCrossingLines(split: SpanningSplit, columns: readonl
     for (const t of tokens) {
       const regionIndex = regionBounds.findIndex((r) => t.bbox.minX >= r.min && t.bbox.maxX <= r.max);
       if (regionIndex === -1) {
-        // Token nie miesci sie czysto w zadnym regionie (np. sam nachodzi na granice rynny) — bezpiecznik, nie tnij.
+        // Token doesn't fit cleanly into any region (e.g. it itself overlaps the gutter boundary) — safeguard, don't cut.
         allTokensAssigned = false;
         break;
       }
@@ -139,7 +140,7 @@ export function repairGutterCrossingLines(split: SpanningSplit, columns: readonl
     }
 
     if (!allTokensAssigned || fragmentsTokens.some((f) => f.length === 0)) {
-      // Ktoras strona wyszlaby pusta (albo token niejednoznaczny) — nie ma dwoch realnych stron do rozdzielenia.
+      // One side would end up empty (or a token is ambiguous) — there aren't two real sides to separate.
       remainingSpanning.push(line);
       continue;
     }

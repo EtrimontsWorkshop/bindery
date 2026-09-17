@@ -1,28 +1,29 @@
 /**
- * Podpowiedz rynny (KROK-6, odkrycie na `samples/`) — lekki histogram gestosci
- * na osi X, ta sama metodyka co `detectColumns` (Z3), ale BEZ pelnej walidacji
- * pionowej i BEZ ksztaltu `ColumnRegion[]`: to tylko PODPOWIEDZ dla klastrowania
- * w linie (Z5, `lineCluster.ts`), nie autorytatywna odpowiedz o kolumnach (ta
- * wciaz nalezy wylacznie do Z3, na juz poprawnie podzielonych liniach).
+ * Gutter hint (Step 6, discovery on `samples/`) — a lightweight density
+ * histogram on the X axis, the same methodology as `detectColumns` (Z3), but
+ * WITHOUT full vertical validation and WITHOUT the `ColumnRegion[]` shape:
+ * this is just a HINT for line clustering (Z5, `lineCluster.ts`), not the
+ * authoritative answer about columns (that still belongs solely to Z3, on
+ * already correctly split lines).
  *
- * Dlaczego to w ogole potrzebne: na prawdziwych plikach (nie w syntetycznych
- * fixture'ach) rynna miedzy kolumnami bywa waska (~1.2x rozmiaru fontu,
- * zmierzone na Cienie_posrod_mgie.pdf str. 46) — nie do odroznienia od
- * zwyklego, szerokiego odstepu miedzywyrazowego SAMA odlegloscia ani obecnoscia
- * granicy pdf.js (`WordBoundary`): oba sygnaly zawodza dokladnie w tym samym
- * zakresie wartosci. Jedyny niezawodny sygnal to KONSYSTENCJA pozycji X w
- * wielu WIERSZACH (rowId) na raz — czyli dokladnie to, co liczy histogram
- * ponizej, ale MUSI to nastapic PRZED klastrowaniem w linie (Z5), inaczej dwie
- * kolumny na tym samym wierszu juz sa sklejone w jedna linie, zanim Z3 w ogole
- * dostanie szanse to zobaczyc.
+ * Why this is needed at all: on real files (not synthetic fixtures) the
+ * gutter between columns can be narrow (~1.2x font size, measured on
+ * Cienie_posrod_mgie.pdf p. 46) — indistinguishable from an ordinary, wide
+ * inter-word space by distance alone, nor by the presence of a pdf.js
+ * boundary (`WordBoundary`): both signals fail in exactly the same value
+ * range. The only reliable signal is the CONSISTENCY of X positions across
+ * multiple ROWS (rowId) at once — exactly what the histogram below computes,
+ * but this MUST happen BEFORE line clustering (Z5), otherwise two columns on
+ * the same row are already merged into one line before Z3 even gets a chance
+ * to see it.
  *
- * [KROK-6, druga poprawka — pierwsza wersja liczyla gestosc po TOKENACH, nie
- * WIERSZACH: na pojedynczej linii z 2-5 slowami (np. fixture text-empty-items)
- * kazdy odstep miedzy slowami wygladal jak "100% pusta dolina" wzgledem
- * garstki tokenow tej jednej linii, falszywie rozpoznawany jako rynna.
- * Gestosc musi liczyc DYSTYNKTYWNE wiersze pokrywajace dany bin, nie surowa
- * liczbe tokenow — i wymagac minimalnej liczby wierszy, zanim cokolwiek
- * zostanie zaufane (ponizej progu: brak sensownych danych, zwroc pusto).
+ * [Step 6, second fix — the first version counted density by TOKEN, not
+ * ROW: on a single line with 2-5 words (e.g. fixture text-empty-items) every
+ * gap between words looked like a "100% empty valley" relative to the
+ * handful of tokens on that one line, falsely recognized as a gutter.
+ * Density must count DISTINCT rows covering a given bin, not the raw token
+ * count — and require a minimum number of rows before anything is trusted
+ * (below the threshold: no meaningful data, return empty).
  */
 
 export interface GutterHint {
@@ -33,24 +34,25 @@ export interface GutterHint {
 export interface SpanWithRow {
   minX: number;
   maxX: number;
-  /** Identyfikator wiersza (np. zaokraglona pozycja cross-axis) — gutter liczy sie po ROW, nie po tokenie. */
+  /** Row identifier (e.g. rounded cross-axis position) — the gutter is computed per ROW, not per token. */
   rowId: string | number;
 }
 
 const HISTOGRAM_BIN_WIDTH_PT = 2;
 const MAX_VALLEY_ROW_RATIO = 0.05;
 /**
- * [KROK-6, odkrycie] Nizszy prog niz w `detectColumns` (tam 10pt) — ta
- * podpowiedz dziala na SUROWYCH TOKENACH (szumniejsze niz gotowe linie Z3) i
- * jej blad w jedna strone jest tani (najwyzej niepotrzebnie rozbije linie o
- * niezwykle szerokim odstepie), a w druga kosztowny (cichy blad sklejenia
- * kolumn w tekst). Zmierzone na Cienie_posrod_mgie.pdf str. 20: prawdziwa
- * rynna ~10pt na surowych tokenach czasem mierzy sie odrobine wezsza niz na
- * finalnych liniach (szerszy token nachodzi na skraj rynny), przez co przy
- * progu=10pt caly kandydat byl odrzucany i sklejenie wracalo.
+ * [Step 6, discovery] A lower threshold than in `detectColumns` (10pt there) —
+ * this hint operates on RAW TOKENS (noisier than Z3's finished lines), and
+ * its error in one direction is cheap (worst case, it unnecessarily splits a
+ * line with an unusually wide gap), while in the other direction it's costly
+ * (a silent bug merging columns into text). Measured on
+ * Cienie_posrod_mgie.pdf p. 20: the true ~10pt gutter on raw tokens
+ * sometimes measures a bit narrower than on the final lines (a wider token
+ * overlaps the edge of the gutter), so at threshold=10pt the whole candidate
+ * was rejected and the merge came back.
  */
 const MIN_VALLEY_WIDTH_PT = 6;
-/** Ponizej tylu DYSTYNKTYWNYCH wierszy histogram nie ma zadnej mocy statystycznej — nie zwracaj zadnej podpowiedzi. */
+/** Below this many DISTINCT rows the histogram has no statistical power at all — return no hint. */
 const MIN_ROWS_FOR_GUTTER_HINT = 3;
 
 export function findLikelyGutters(spans: readonly SpanWithRow[]): GutterHint[] {
@@ -86,7 +88,7 @@ export function findLikelyGutters(spans: readonly SpanWithRow[]): GutterHint[] {
       runStart = null;
     }
   }
-  // Rynna otwarta az do prawego brzegu bloku to margines, nie rynna miedzykolumnowa (jak w detectColumns) — pomijamy.
+  // A gutter open all the way to the right edge of the block is margin, not an inter-column gutter (as in detectColumns) — skipped.
 
   return gutters;
 }

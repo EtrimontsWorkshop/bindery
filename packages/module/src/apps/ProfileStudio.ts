@@ -35,38 +35,38 @@ import {
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 /**
- * [KROK-22] Profile Studio — narzedzie autora profilu (osobne od
- * `ImportWizard`/`ReviewScreen`, ktore importuja). Cala analiza
- * (`analyzeProfileDocument` i inne funkcje `@bindery/core`) zyje w rdzeniu —
- * ten plik WYLACZNIE rysuje i obsluguje zdarzenia (`check:boundary`).
+ * [Step 22] Profile Studio — the profile-author tool (separate from
+ * `ImportWizard`/`ReviewScreen`, which handle importing). All analysis
+ * (`analyzeProfileDocument` and other `@bindery/core` functions) lives in the
+ * core — this file ONLY draws the UI and handles events (`check:boundary`).
  *
- * [KROK-28, KOREKTA architektury ekranu] Poprzednia wersja (krok 22-27)
- * miala trzy zakladki mieszajace trzy rozne osie (Strona=widok materialu,
- * Cały dokument=widok wynikow, Edytor=tryb pracy), bez zadnej reprezentacji
- * czwartej, najwazniejszej osi: KTORA CZESC PROFILU wlasnie sie buduje. Stad
- * dwa zgloszone przez wlasciciela produktu problemy: panel pokazywal trzy
- * komunikaty naraz (bo nie wiedzial, w jakim jest stanie), i dalo sie dodac
- * WYLACZNIE cechy z widoku strony — zeby wskazac pochodna (np. PW), trzeba
- * bylo przejsc do Edytora, a nawet tam nie dalo sie jej kliknac na PDF-ie,
- * bo nie istnial stan "wskazuje pochodne".
+ * [Step 28, screen-architecture CORRECTION] The previous version (steps 22-27)
+ * had three tabs mixing three different axes (Page=material view, Whole
+ * document=results view, Editor=work mode), with no representation at all of
+ * the fourth, most important axis: WHICH PART OF THE PROFILE is currently
+ * being built. Hence two problems reported by the product owner: the panel
+ * showed three messages at once (because it didn't know what state it was
+ * in), and it was only possible to add traits from the page view — to point
+ * out a derived stat (e.g. PW), you had to switch to the Editor, and even
+ * there you couldn't click it on the PDF, because no "pointing at derived
+ * stats" state existed.
  *
- * Nowa architektura: **ekran wejsciowy** (Nowy profil / Edycja profilu) ->
- * **ekran budowania** (PDF po lewej, panel po prawej). Zakladki panelu to
- * TERAZ WZORCE profilu — Cechy/Pochodne/Ataki/Umiejetnosci/Nazwa/Sprawdz —
- * nie widoki. Klikniecie w PDF dotyczy WYLACZNIE aktywnej zakladki: to
- * rozwiazuje problem nr 2 U ZRODLA (etykieta powstaje z klikniecia W
- * KONTEKSCIE zakladki, na ktorej autor stoi, nie z osobnego kroku "utworz
- * etykiete"). Mechanika Z1-Z6 z poprzedniej wersji (celowany redraw bez
- * pelnego `render()`, automatyczny odczyt wartosci obok etykiety, granice
- * sekcji przez przeciaganie, linia prowadzaca, ukryte ustawienia
- * zaawansowane) zostaje BEZ ZMIAN — korekta dotyczy WYLACZNIE tego, co je
- * hostuje.
+ * New architecture: **entry screen** (New profile / Edit profile) ->
+ * **build screen** (PDF on the left, panel on the right). The panel tabs are
+ * NOW profile PATTERNS — Traits/Derived/Attacks/Skills/Name/Check —
+ * not views. Clicking in the PDF applies ONLY to the active tab: this
+ * solves problem #2 AT THE SOURCE (a label is created from a click IN THE
+ * CONTEXT of the tab the author is currently on, not from a separate "create
+ * label" step). The Z1-Z6 mechanics from the previous version (targeted
+ * redraw without a full `render()`, automatic reading of the value next to a
+ * label, section boundaries via dragging, a leader line, hidden advanced
+ * settings) remain UNCHANGED — the correction concerns ONLY what hosts them.
  *
- * [I3] Statyczny import w `settings.ts` (`registerMenu` wymaga klasy
- * dostepnej synchronicznie) — dlatego ten plik NIGDY nie importuje
- * `@bindery/core` jako REALNEJ wartosci na poziomie modulu, WYLACZNIE
- * `import type` + dynamiczny `import()` wewnatrz metod. `check:size` (budzet
- * <40KB startu swiata) egzekwuje to w CI.
+ * [I3] Static import in `settings.ts` (`registerMenu` requires the class to
+ * be available synchronously) — that's why this file NEVER imports
+ * `@bindery/core` as a REAL module-level value, ONLY as `import type` plus a
+ * dynamic `import()` inside methods. `check:size` (the <40KB world-startup
+ * budget) enforces this in CI.
  */
 
 interface ProfileSummary {
@@ -83,11 +83,11 @@ type EntryMode = 'choose' | 'new' | 'edit';
 const ROUTE_OPTIONS: readonly PageRoute[] = ['npc', 'playerCharacter'];
 
 /**
- * [KROK-39 Z2] Pola `ProfileDraft` specyficzne dla JEDNEJ trasy — dokladnie
- * to, co w schemacie (`schema.ts`, `@bindery/core`) tworzy `PatternSet`
- * (`patterns`/`entityAssembly`), rozbite na plaski ksztalt szkicu. Reszta pol
- * `ProfileDraft` (metadane profilu) jest WSPOLNA dla obu tras — patrz
- * `#activeRoute` w `ProfileStudio`.
+ * [Step 39 Z2] `ProfileDraft` fields specific to a SINGLE route — exactly
+ * what the schema (`schema.ts`, `@bindery/core`) creates as `PatternSet`
+ * (`patterns`/`entityAssembly`), flattened into the draft's shape. The rest
+ * of `ProfileDraft`'s fields (profile metadata) are SHARED between both
+ * routes — see `#activeRoute` in `ProfileStudio`.
  */
 type RoutePatternSlice = Pick<ProfileDraft, 'patterns' | 'anchor' | 'attach' | 'nameConfidenceThreshold' | 'namePlaceholder' | 'skillsPattern' | 'typeLabelPattern' | 'notesPatterns'>;
 
@@ -115,27 +115,28 @@ function applyRouteSlice(draft: ProfileDraft, slice: RoutePatternSlice): void {
   draft.notesPatterns = slice.notesPatterns;
 }
 
-/** [KROK-39 Z2] Punkt startowy dla trasa `playerCharacter`, gdy autor przelacza sie na nia po raz pierwszy w tej sesji edycji — te same domyslne wartosci co `createEmptyProfileDraft`, ale WYLACZNIE dla pol per-trasa (`RoutePatternSlice`). */
+/** [Step 39 Z2] Starting point for the `playerCharacter` route, when the author switches to it for the first time in this editing session — the same default values as `createEmptyProfileDraft`, but ONLY for the per-route fields (`RoutePatternSlice`). */
 function emptyRouteSlice(): RoutePatternSlice {
-  return { patterns: [], anchor: '', attach: [], nameConfidenceThreshold: 0.7, namePlaceholder: 'Postać #{ordinal} (str. {page})', skillsPattern: '', typeLabelPattern: '', notesPatterns: [] };
+  return { patterns: [], anchor: '', attach: [], nameConfidenceThreshold: 0.7, namePlaceholder: 'NPC #{ordinal} (p. {page})', skillsPattern: '', typeLabelPattern: '', notesPatterns: [] };
 }
 
 interface StudioState {
   /**
-   * [KROK-28 korekta] Ekran wejsciowy (dwie opcje, nic wiecej) vs ekran budowania (PDF + zakladki-wzorce).
-   * [zgloszenie uzytkownika, "dobrze by bylo najpierw pokazac uzupelnienie
-   * metadanych, a dopiero po uzupelnieniu przechodzic dalej"] `'metadata'`
-   * wstawiony MIEDZY nimi — `#maybeEnterBuildScreen` (Nowy/Edycja profilu,
-   * po zaladowaniu wymaganych plikow) laduje TU, nie od razu w `'build'`.
-   * Bez tego kroku autor budujacy nowy profil trafial na "Sprawdz"/"Notatki"
-   * (ktore waliduja CALY szkic, patrz `#onNoteTokenClick`) z domyslnie
-   * pustymi `id`/`gameLine`/`language`/`title`/`publication` — pieciu polami
-   * bez znaczenia dla samego dopasowania, ale wymaganymi przez schemat pliku
-   * (`profileV2Schema`), i dowiadywal sie o tym dopiero z bledu walidacji
-   * PRZY PROBIE uzycia zupelnie innej funkcji.
+   * [Step 28 correction] Entry screen (two options, nothing else) vs. build screen (PDF + pattern tabs).
+   * [user report: "it would be good to show the metadata step first, and
+   * only proceed after it's filled in"] `'metadata'` was inserted BETWEEN
+   * them — `#maybeEnterBuildScreen` (New/Edit profile, after the required
+   * files are loaded) lands HERE, not directly in `'build'`. Without this
+   * step, an author building a new profile would land on "Check"/"Notes"
+   * (which validate the ENTIRE draft, see `#onNoteTokenClick`) with
+   * `id`/`gameLine`/`language`/`title`/`publication` all defaulting to
+   * empty — five fields that don't matter for the matching itself, but are
+   * required by the file schema (`profileV2Schema`), and they'd only find
+   * out about it from a validation error WHILE TRYING to use a completely
+   * different feature.
    */
   screen: 'entry' | 'metadata' | 'build';
-  /** Ktora sciezka ekranu wejsciowego jest w toku — `'choose'` = same dwa przyciski, `'new'`/`'edit'` = odpowiedni(e) picker(y) plikow. */
+  /** Which entry-screen path is in progress — `'choose'` = just the two buttons, `'new'`/`'edit'` = the corresponding file picker(s). */
   entryMode: EntryMode;
   pdfFileName: string | null;
   profileFileName: string | null;
@@ -146,30 +147,30 @@ interface StudioState {
   analyzeError: string | null;
   currentPageNumber: number;
   pageCount: number;
-  /** [KROK-28 korekta] Zakladka ekranu budowania — KAZDA to jeden wzorzec profilu, nie widok. `'check'` (dawne "Cały dokument") jest zawsze ostatnia. */
+  /** [Step 28 correction] Build-screen tab — EACH ONE is a single profile pattern, not a view. `'check'` (formerly "Whole document") is always last. */
   buildTab: BuildTab;
-  /** Bledy `validateProfile` po "Zapisz"/przebiegu — czytelne, nigdy wyjatek. */
+  /** `validateProfile` errors after "Save"/a run — human-readable, never an exception. */
   editorIssues: readonly string[] | null;
   rawJsonMode: boolean;
   rawJsonError: string | null;
-  /** [KROK-24 Z1] Tryb "obrysuj obszar myszą" — dostepny WYLACZNIE na zakladkach Cechy/Pochodne (obrysowanie granic sekcji dzieje sie geometrycznie, Z3, nie przez zaznaczenie obszaru). */
+  /** [Step 24 Z1] "Draw an area with the mouse" mode — available ONLY on the Traits/Derived tabs (section boundaries are set geometrically, Z3, not by area selection). */
   isSelectAreaMode: boolean;
 }
 
-/** [KROK-23 Z6] Cel biezacego "wskaz na stronie" z formularza zaawansowanego — klikniecie tokenu wstawia jego tekst do tego pola. `null` = tryb wskazywania nieaktywny. */
+/** [Step 23 Z6] The target of the current "pick on page" action from the advanced form — clicking a token inserts its text into this field. `null` = picking mode inactive. */
 interface PickTarget {
   description: string;
   apply: (text: string) => void;
 }
 
-/** [KROK-24 Z1, uproszczone w KROK-28 korekcie] Propozycja z obrysowania obszaru — WYLACZNIE pary etykieta-wartosc (siatka/pochodne). Sekcje buduje sie geometrycznie (Z3), nie hurtowym zaznaczeniem, wiec `select area` jest dostepne tylko na zakladkach Cechy/Pochodne — `slot` mowi, ktora z nich. */
+/** [Step 24 Z1, simplified in the Step 28 correction] A proposal from drawing an area — ONLY label-value pairs (grid/derived). Sections are built geometrically (Z3), not via bulk selection, so `select area` is only available on the Traits/Derived tabs — `slot` says which one. */
 interface SelectionProposal {
   slot: 'grid' | 'derived';
   pairs: { label: string; value: string; canonicalKey: string; checked: boolean; confidence: LabelledPairConfidence }[];
   rawPreview: string;
 }
 
-/** [KROK-24 Z2] Stan pomiaru geometrii per wiersz reguly dolaczenia — kluczowany po REFERENCJI obiektu `AttachRuleDraft`, zeby przetrwac ponowne budowanie panelu przy kazdym celowanym redraw. */
+/** [Step 24 Z2] Geometry-measurement state per attach-rule row — keyed by the `AttachRuleDraft` object REFERENCE, so it survives the panel being rebuilt on every targeted redraw. */
 type MeasurementState = { state: 'measuring' } | { state: 'error'; message: string } | { state: 'done'; result: AttachGeometryMeasurement };
 
 const BUILD_TABS: readonly BuildTab[] = ['grid', 'derived', 'attacks', 'skills', 'notes', 'name', 'check'];
@@ -183,12 +184,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       resizable: true,
       icon: 'fa-solid fa-flask',
     },
-    // [zgloszenie uzytkownika, "wyglada bardzo nieczytelnie"] Podniesione
-    // razem z resztą redesignu, tym samym powodem co ReviewScreen (krok
-    // "Zmiana wyglądu"): dwukolumnowy uklad podgladu strony (340px) + panel
-    // budowania scisnietego w waskim oknie robil sie ciasny, zwlaszcza z
-    // szerszymi kontrolkami (pigulki `.bindery-input`/`.bindery-select`,
-    // ktore maja wieksze `min-width` niz stare, waskie inputy).
+    // [user report: "looks very hard to read"] Raised together with the
+    // rest of the redesign, for the same reason as ReviewScreen (the
+    // "Visual redesign" step): the two-column layout of the page preview
+    // (340px) plus the build panel got cramped in a narrow window,
+    // especially with the wider controls (the `.bindery-input`/
+    // `.bindery-select` pills, which have a larger `min-width` than the old,
+    // narrow inputs).
     position: { width: 1180, height: 720 },
     actions: {
       chooseNewProfile: ProfileStudio.#onChooseNewProfile,
@@ -242,17 +244,17 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   #pageRenderToken = 0;
 
   /**
-   * [Zmierzony na zywo blad] Powiekszenie/zmniejszenie okna zmienia
-   * `img.clientWidth/clientHeight` (obraz jest `width:100%`), ale `#mountOverlay`/
-   * `#mountPickableTokens` licza rozmiar nakladki SVG WYLACZNIE w momencie
-   * wlasnego rysowania — bez tego obserwatora nic nie wywolywalo ponownego
-   * rysowania PRZY SAMEJ zmianie rozmiaru okna (dopiero zmiana strony i powrot
-   * wymuszaly redraw), wiec klikalne prostokaty na PDF-ie "rozjezdzaly sie" z
-   * tekstem po zmianie rozmiaru okna. `ResizeObserver` na `<img>` (nie na
-   * `<svg>`, ktory ten redraw sam modyfikuje — obserwowanie wlasnego celu
-   * rysowania stworzyloby petle) wywoluje TEN SAM ciag rysowania co
-   * `_onRender`, za kazdym razem, gdy realny rozmiar obrazu na ekranie sie
-   * zmienia, niezaleznie od przyczyny.
+   * [Bug reproduced live] Resizing the window changes
+   * `img.clientWidth/clientHeight` (the image is `width:100%`), but
+   * `#mountOverlay`/`#mountPickableTokens` compute the SVG overlay size ONLY
+   * at the moment they draw themselves — without this observer, nothing
+   * triggered a redraw on a window resize BY ITSELF (only switching pages
+   * and back forced a redraw), so the clickable rectangles on the PDF would
+   * drift out of alignment with the text after a window resize.
+   * `ResizeObserver` on the `<img>` (not on the `<svg>`, which this same
+   * redraw modifies itself — observing its own drawing target would create a
+   * loop) triggers the SAME drawing sequence as `_onRender`, every time the
+   * image's actual on-screen size changes, regardless of the cause.
    */
   #overlayResizeObserver: ResizeObserver | null = null;
 
@@ -260,70 +262,70 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #draft: ProfileDraft | null = null;
   /**
-   * [KROK-39 Z2] Ktora trasa (`pageRoute.ts`, `@bindery/core`) jest AKTUALNIE
-   * edytowana. `#draft`'s pola specyficzne dla trasy (patrz `RoutePatternSlice`
-   * nizej: `patterns`/`anchor`/`attach`/`nameConfidenceThreshold`/
+   * [Step 39 Z2] Which route (`pageRoute.ts`, `@bindery/core`) is CURRENTLY
+   * being edited. `#draft`'s route-specific fields (see `RoutePatternSlice`
+   * below: `patterns`/`anchor`/`attach`/`nameConfidenceThreshold`/
    * `namePlaceholder`/`skillsPattern`/`typeLabelPattern`/`notesPatterns`)
-   * ZAWSZE naleza do TEJ trasy — reszta pol `#draft` (metadane profilu:
-   * id/gameLine/title/pages/images/...) jest WSPOLNA dla obu tras i NIGDY nie
-   * jest podmieniana przy przelaczeniu, patrz `#switchRoute`.
+   * ALWAYS belong to THIS route — the rest of `#draft`'s fields (profile
+   * metadata: id/gameLine/title/pages/images/...) are SHARED between both
+   * routes and are NEVER swapped out on switching, see `#switchRoute`.
    */
   #activeRoute: PageRoute = 'npc';
-  /** [KROK-39 Z2] Wycinek wzorcow trasy `npc`, odlozony na bok gdy `#activeRoute !== 'npc'` — `null`, dopoki autor ani razu nie odwiedzil/opuscil trasy `npc` w tej sesji edycji (przy wczytaniu profilu jest ZAWSZE wypelniony, bo `#activeRoute` startuje jako `'npc'`). Patrz `#switchRoute`/`#extractRouteSlice`. */
+  /** [Step 39 Z2] The `npc` route's pattern slice, set aside when `#activeRoute !== 'npc'` — `null` until the author has visited/left the `npc` route at least once in this editing session (when a profile is loaded it is ALWAYS populated, since `#activeRoute` starts as `'npc'`). See `#switchRoute`/`#extractRouteSlice`. */
   #npcRouteSlice: RoutePatternSlice | null = null;
-  /** [KROK-39 Z2] Jak wyzej, dla trasy `playerCharacter` — `null`, gdy profil jej jeszcze nie ma (brak sekcji `playerCharacter` = trasa nieobslugiwana, `schema.ts`). */
+  /** [Step 39 Z2] As above, for the `playerCharacter` route — `null` when the profile doesn't have it yet (no `playerCharacter` section = route unsupported, `schema.ts`). */
   #playerCharacterRouteSlice: RoutePatternSlice | null = null;
   #rawJsonText = '';
   #pickTarget: PickTarget | null = null;
 
-  // ---- [KROK-24 Z1] Inferencja wzorca z zaznaczenia myszą ----------------
+  // ---- [Step 24 Z1] Pattern inference from a mouse selection ----------------
   #dragState: { startScreen: { x: number; y: number }; rectEl: SVGRectElement } | null = null;
   #selectionProposal: SelectionProposal | null = null;
 
-  // ---- [KROK-24 Z2] Pomiar geometrii per regula dolaczenia ---------------
+  // ---- [Step 24 Z2] Geometry measurement per attach rule ---------------
   #measurements = new Map<AttachRuleDraft, MeasurementState>();
 
-  // ---- [KROK-24 Z3] Weryfikacja mapowan mechanika ------------------------
+  // ---- [Step 24 Z3] Mechanic-mapping verification ------------------------
   #mechanicalRelations: string[] = [''];
   #mechanicalResults: RelationCheckResult[] | null = null;
 
-  // ---- [KROK-28, KOREKTA] Budowanie profilu wskazywaniem, per zakladka ---
-  /** Tokeny CALEJ biezacej strony, z indeksem w strumieniu. */
+  // ---- [Step 28, CORRECTION] Building the profile by pointing, per tab ---
+  /** Tokens for the ENTIRE current page, with their index in the stream. */
   #buildTokensCache = new Map<number, IndexedSelectionToken[]>();
-  /** [Korekta] Kazda zakladka-wzorzec ma WLASNY, jawny slot — inaczej niz w poprzedniej wersji (jeden "aktywny" wzorzec dzielony przez wszystko), co bylo dokladnie zrodlem zgloszonego problemu "da sie dodac tylko cechy". */
+  /** [Correction] Each pattern tab has its OWN, explicit slot — unlike the previous version (one "active" pattern shared by everything), which was exactly the source of the reported "you can only add traits" problem. */
   #activeGridPatternId: string | null = null;
   #activeDerivedPatternId: string | null = null;
   #activeAttackPatternId: string | null = null;
   #activeSkillsPatternId: string | null = null;
   #activeNamePatternId: string | null = null;
-  /** [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Drugi, niezalezny slot NA TEJ SAMEJ zakladce "Nazwa" — patrz `#nameSubMode`. */
+  /** [Report after step 30, "Separating the name from the type/occupation"] A second, independent slot on the SAME "Name" tab — see `#nameSubMode`. */
   #activeTypeLabelPatternId: string | null = null;
-  /** [ZGŁOSZENIE po kroku 30] Ktory z dwoch trybow wskazywania na zakladce "Nazwa" jest aktywny — jedna zakladka, dwa aspekty tej samej encji (nazwa/zawod), nie dwie osobne zakladki. */
+  /** [Report after step 30] Which of the two pointing modes on the "Name" tab is active — one tab, two aspects of the same entity (name/occupation), not two separate tabs. */
   #nameSubMode: 'name' | 'typeLabel' = 'name';
   /**
-   * [KROK-34 Z2] Zakladka "Notatki" jest INNA niz reszta — WIELE niezaleznych
-   * blokow (`draft.notesPatterns`, kolejnosc = kolejnosc w liscie), nie jeden
-   * slot per zakladka. Zamiast `#activeXPatternId`, ten stan sledzi KTORY
-   * blok WLASNIE czeka na klikniecie w PDF-ie, zeby zmierzyc jego `offset`
-   * (`null` = zaden, klikniecia na tej zakladce nic nie robia).
+   * [Step 34 Z2] The "Notes" tab is DIFFERENT from the rest — MANY
+   * independent blocks (`draft.notesPatterns`, order = list order), not one
+   * slot per tab. Instead of `#activeXPatternId`, this state tracks WHICH
+   * block is currently waiting for a click on the PDF, to measure its
+   * `offset` (`null` = none, clicks on this tab do nothing).
    */
   #notesPickPatternId: string | null = null;
   /**
-   * [KROK-34 Z2] Podglad per blok notatki, liczony WYLACZNIE na zadanie
-   * (klikniecie/"Odśwież podgląd"), nigdy automatycznie przy kazdym
-   * przerysowaniu (unika petli renderowania) — patrz `#refreshNotePreview`.
-   * `'loading'` w trakcie liczenia, `null` gdy jeszcze nie liczono ANI teraz
-   * nie liczy, tablica `{ordinal,text}[]` (jeden wpis na encje znaleziona na
-   * BIEZACEJ stronie) po zakonczeniu.
+   * [Step 34 Z2] Per-note-block preview, computed ONLY on request
+   * (click/"Refresh preview"), never automatically on every redraw (avoids a
+   * rendering loop) — see `#refreshNotePreview`. `'loading'` while computing,
+   * `null` when it hasn't been computed yet AND isn't computing right now, an
+   * `{ordinal,text}[]` array (one entry per entity found on the CURRENT page)
+   * once done.
    */
   #notesPreview = new Map<string, 'loading' | { ordinal: number; text: string | null }[]>();
-  /** [Z2] WYLACZNIE podglad w panelu ("S → Siła [140]") — wartosc NIGDY nie jest zapisywana w szkicu, klucz `patternId:label`. */
+  /** [Z2] Panel preview ONLY ("S → Strength [140]") — the value is NEVER saved into the draft, key `patternId:label`. */
   #buildPairPreviewValues = new Map<string, string>();
-  /** [Z2] Klikniecie etykiety dalo WIECEJ NIZ JEDNEGO kandydata na wartosc — czekamy na DRUGIE klikniecie, zamiast zgadywac (A10). */
+  /** [Z2] Clicking a label produced MORE THAN ONE value candidate — we wait for a SECOND click instead of guessing (A10). */
   #pendingValueChoice: { slot: 'grid' | 'derived'; labelText: string; labelBbox: Rect; candidates: readonly ValueCandidate[] } | null = null;
-  /** [Z3] Ktora sekcja (Ataki/Umiejetnosci) jest "w ognisku" przeciagania granicy — strona i indeks naglowka razem, bo nakladka ma sens WYLACZNIE na stronie, na ktorej kliknieto naglowek. */
+  /** [Z3] Which section (Attacks/Skills) is "in focus" for boundary dragging — page and header index together, since the overlay only makes sense on the page where the header was clicked. */
   #sectionBoundaryFocus: { patternId: string; page: number; headerTokenIndex: number } | null = null;
-  /** [Z3] Aktywne przeciaganie dolnej krawedzi zasiegu sekcji. */
+  /** [Z3] Active drag of a section's lower boundary edge. */
   #boundaryDrag: {
     patternId: string;
     headerTokenIndex: number;
@@ -332,9 +334,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     pageHeightPx: number;
     overlapCheckBboxes: readonly Rect[];
   } | null = null;
-  /** [KROK-29 Z1] Przykladowe teksty pozycji klikniete przez autora, klucz `patternId` -- wejscie do `inferItemPatternFromExamples`. Rosnie z kazdym klikniecim w fazie 3 (granica juz ustawiona), NIGDY nie jest zapisywane wprost do szkicu (tylko wygenerowany `itemPattern` jest). */
+  /** [Step 29 Z1] Sample item texts clicked by the author, keyed by `patternId` -- input to `inferItemPatternFromExamples`. Grows with each click in phase 3 (boundary already set), NEVER saved directly to the draft (only the generated `itemPattern` is). */
   #itemPatternExamples = new Map<string, string[]>();
-  /** [KROK-29 Z1] Ostatnio rozpoznany ksztalt per wzorzec — WYLACZNIE do czytelnego komunikatu w panelu ("Rozpoznano: nazwa → procent → ..."), nigdy surowy regex. */
+  /** [Step 29 Z1] Last recognized shape per pattern — ONLY for the human-readable message in the panel ("Recognized: name → percent → ..."), never a raw regex. */
   #itemPatternShape = new Map<string, ItemShapeCode>();
 
   override async _prepareContext(): Promise<Record<string, unknown>> {
@@ -363,10 +365,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       canGoPrevPage: this.#state.currentPageNumber > 1,
       canGoNextPage: this.#state.currentPageNumber < this.#state.pageCount,
       currentPageImageUrl: this.#pageImageCache.get(this.#state.currentPageNumber) ?? null,
-      // [KROK-39 Z2] Przelacznik trasy nad zakladkami — "NPC i potwory" /
-      // "Postacie graczy" (brief). Zakladki ponizej (`buildTabs`) sa TE SAME
-      // niezaleznie od trasy — budowane z innego zestawu danych (`#draft`
-      // wskazuje aktualnie na wycinek AKTYWNEJ trasy, patrz `#switchRoute`).
+      // [Step 39 Z2] Route switcher above the tabs — "NPCs and monsters" /
+      // "Player characters" (per the brief). The tabs below (`buildTabs`) are
+      // THE SAME regardless of route — built from a different data set
+      // (`#draft` currently points at the ACTIVE route's slice, see
+      // `#switchRoute`).
       activeRoute: this.#activeRoute,
       routeOptions: ROUTE_OPTIONS.map((route) => ({ id: route, active: route === this.#activeRoute, label: this.#routeLabel(route) })),
       buildTab: this.#state.buildTab,
@@ -406,27 +409,27 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     check: 'BINDERY.studio.buildTabCheck',
   };
 
-  /** [KROK-28 korekta] "Autor widzi na pierwszy rzut oka, co zostało do zrobienia, bez klikania po zakładkach." Pusta / liczba / ostrzeżenie — w tej kolejności pierwszenstwa (ostrzezenie przebija liczbe). */
+  /** [Step 28 correction] "The author can see at a glance what's left to do, without clicking through tabs." Empty / count / warning — in this priority order (a warning beats a count). */
   #computeTabBadge(tab: BuildTab): { kind: 'empty' } | { kind: 'count'; n: number } | { kind: 'warning' } {
     if (tab === 'check') {
       if (this.#docAnalysis && this.#docAnalysis.totalWarnings > 0) return { kind: 'warning' };
       if (this.#docAnalysis) return { kind: 'count', n: this.#docAnalysis.totalWarnings };
       return { kind: 'empty' };
     }
-    // [KROK-34 Z2] Notatki maja WIELE wzorcow naraz (`draft.notesPatterns`),
-    // nie jeden slot jak reszta zakladek — sama LICZBA skonfigurowanych
-    // blokow, bez proby wywiedzenia ostrzezenia: `patternMatchTotals` dla
-    // `proseBlock` jest ZAWSZE 0 (nie skanuje strony tekstowo, patrz
-    // `studioAnalysis.ts`), wiec "0 trafien" nie niesie tu zadnej informacji
-    // — prawdziwa skutecznosc widoczna jest w podgladzie per blok nizej, nie
-    // w odznace zakladki.
+    // [Step 34 Z2] Notes have MANY patterns at once (`draft.notesPatterns`),
+    // not one slot like the rest of the tabs — just the COUNT of configured
+    // blocks, without trying to derive a warning: `patternMatchTotals` for
+    // `proseBlock` is ALWAYS 0 (it doesn't scan the page as text, see
+    // `studioAnalysis.ts`), so "0 matches" carries no information here — the
+    // real effectiveness is visible in the per-block preview below, not in
+    // the tab badge.
     if (tab === 'notes') {
       const n = this.#draft?.notesPatterns.length ?? 0;
       if (n === 0) return { kind: 'empty' };
-      // [ZGŁOSZENIE na żywo, patrz `#noteLooksTruncated`] W odroznieniu od
-      // reszty komentarza wyzej ("0 trafien nie niesie tu informacji") — TEN
-      // sygnal JEST znaczacy, bo pochodzi z prawdziwego podgladu tresci
-      // (`#notesPreview`), nie z surowej liczby dopasowan wzorca.
+      // [Live report, see `#noteLooksTruncated`] Unlike the rest of the
+      // comment above ("0 matches carries no information here") — THIS
+      // signal IS meaningful, because it comes from an actual content
+      // preview (`#notesPreview`), not from a raw pattern-match count.
       const looksTruncated = (this.#draft?.patterns ?? []).some(
         (e) => e.pattern.kind === 'proseBlock' && this.#draft!.notesPatterns.includes(e.id) && this.#noteLooksTruncated(e.pattern, this.#notesPreview.get(e.id)),
       );
@@ -441,17 +444,18 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return { kind: 'count', n: 1 };
   }
 
-  /** Zero trafien wzorca na calej ksiazce ALBO zachodzenie odwolujace sie do regionu tego typu — WYLACZNIE gdy pelny przebieg juz istnieje (przed nim brak ostrzezen jest oczekiwany, nie "wszystko OK"). */
+  /** Zero matches for a pattern across the whole book OR an overlap referencing a region of this type — ONLY once a full scan already exists (before that, the absence of warnings is expected, not "everything's OK"). */
   #tabHasWarning(tab: Exclude<BuildTab, 'check'>, entry: PatternEntryDraft): boolean {
-    // [ZGŁOSZENIE na żywo, powtórka bledu "do Name trafia Wiek:" na profilu
-    // zbudowanym od zera na Forge] `#computeBuildGuidance` juz ostrzega o
-    // brakujacym `requireFontKeys` tekstem — ale WYLACZNIE gdy autor akurat
-    // stoi na zakladce Nazwa w tym konkretnym trybie (Name/Zawod). Kliknij
-    // przyklad, przejdz dalej budowac Cechy/Ataki/Notatki, nigdy nie wroc na
-    // Nazwe przed zapisem — nic nie ostrzega. Ten sam warunek trafia wiec
-    // TEZ do odznaki zakladki (widocznej z KAZDEGO miejsca w Studiu),
-    // niezaleznie od `#docAnalysis` (to fakt o WLASNEJ konfiguracji wzorca,
-    // nie o wyniku skanu calej ksiazki — nie trzeba czekac na "Sprawdz").
+    // [Live report, a repeat of the "Age: ends up matched into Name" bug on
+    // a profile built from scratch on Forge] `#computeBuildGuidance` already
+    // warns about missing `requireFontKeys` text — but ONLY while the author
+    // is currently on the Name tab in this specific mode (Name/Occupation).
+    // Click the example, move on to build Traits/Attacks/Notes, and never
+    // come back to Name before saving — nothing warns you. So this same
+    // condition ALSO feeds the tab badge (visible from ANYWHERE in the
+    // Studio), independent of `#docAnalysis` (this is a fact about the
+    // pattern's OWN configuration, not about the result of a full-book scan
+    // — no need to wait for "Check").
     if (tab === 'name' && entry.pattern.kind === 'fontRoleCandidate' && entry.pattern.requireFontKeys.length === 0) return true;
     if (!this.#docAnalysis) return false;
     const zeroMatch = this.#docAnalysis.patternMatchTotals.some((p) => p.patternId === entry.id && p.matchCount === 0);
@@ -484,14 +488,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         return this.#activeAttackPatternId;
       case 'skills':
         return this.#activeSkillsPatternId;
-      // [KROK-34 Z2] Notatki maja WIELE wzorcow — nie ma jednego "aktywnego"
-      // do zwrocenia, `#computeTabBadge` obsluguje ten przypadek OSOBNO,
-      // wyzej, przed wywolaniem tej metody.
+      // [Step 34 Z2] Notes have MANY patterns — there's no single "active"
+      // one to return; `#computeTabBadge` handles this case SEPARATELY,
+      // above, before calling this method.
       case 'notes':
         return null;
       case 'name':
-        // [ZGŁOSZENIE po kroku 30] Jedna zakladka, dwa sloty — plaszczyzna
-        // (badge/ostrzezenie) pokazuje ten, ktory tryb jest aktualnie wybrany.
+        // [Report after step 30] One tab, two slots — the flat view
+        // (badge/warning) shows whichever mode is currently selected.
         return this.#nameSubMode === 'typeLabel' ? this.#activeTypeLabelPatternId : this.#activeNamePatternId;
       case 'check':
         return null;
@@ -536,9 +540,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
 
-    // [zmierzony na zywo problem] Nawigacja WYLACZNIE przyciskami ◄/► byla
-    // uciazliwa na wielostronicowej ksiazce — pole liczbowe pozwala wpisac
-    // numer strony wprost.
+    // [Problem observed live] Navigation using ONLY the ◄/► buttons was
+    // cumbersome on a multi-page book — the numeric field lets you type the
+    // page number directly.
     const pageNumberInput = this.element.querySelector<HTMLInputElement>('input[data-input="pageNumber"]');
     pageNumberInput?.addEventListener('change', () => {
       const parsed = Math.round(Number(pageNumberInput.value));
@@ -562,10 +566,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#mountEntityPanel(context._pageAnalysis as PageAnalysis | null);
     this.#mountSelectionProposal();
     this.#mountBuildPanel();
-    // Sekwencyjnie, NIE rownolegle — `#mountOverlay` czysci `svg.innerHTML`
-    // przy KAZDYM (ponownym) rysowaniu; gdyby `#mountPickableTokens`/granica
-    // sekcji dopisaly swoje elementy PRZED tym czyszczeniem, `#mountOverlay`
-    // by je skasowal.
+    // Sequentially, NOT in parallel — `#mountOverlay` clears `svg.innerHTML`
+    // on EVERY (re)draw; if `#mountPickableTokens`/the section boundary
+    // added their elements BEFORE this clearing, `#mountOverlay` would wipe
+    // them out.
     void (async () => {
       await this.#mountOverlay(context._pageAnalysis as PageAnalysis | null);
       await this.#mountPickableTokens();
@@ -577,7 +581,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     if (img) this.#wireOverlayResize(img);
   }
 
-  /** [Zmierzony na zywo blad, patrz komentarz przy `#overlayResizeObserver`] Przerysowuje nakladke SVG za kazdym razem, gdy renderowany rozmiar `<img>` faktycznie sie zmienia — WYLACZNIE nowy `img` (pelny render Handlebars zastepuje cale drzewo DOM starym elementem, wiec stary obserwator i tak przestalby cokolwiek widziec, ale jawne `disconnect()` unika trzymania odniesienia do odlaczonego elementu). */
+  /** [Bug reproduced live, see the comment on `#overlayResizeObserver`] Redraws the SVG overlay every time the rendered `<img>` size actually changes — ONLY the new `img` (a full Handlebars render replaces the whole DOM subtree with a new element anyway, so the old observer would stop seeing anything regardless, but an explicit `disconnect()` avoids holding a reference to a detached element). */
   #wireOverlayResize(img: HTMLImageElement): void {
     this.#overlayResizeObserver?.disconnect();
     this.#overlayResizeObserver = new ResizeObserver(() => {
@@ -596,7 +600,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return super.close(options);
   }
 
-  // ---- [KROK-28 korekta] Ekran wejsciowy ---------------------------------
+  // ---- [Step 28 correction] Entry screen ---------------------------------
 
   static #onChooseNewProfile(this: ProfileStudio): void {
     this.#state.entryMode = 'new';
@@ -608,7 +612,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  /** [Korekta] Powrot z ekranu budowania do wejsciowego — resetuje WSZYSTKO (PDF, profil, szkic), zeby autor mogl zaczac od nowa z innym plikiem bez zamykania okna. Nie jest wprost wymagane przez brief, ale bez tego "zla decyzja na starcie" nie miala wyjscia poza zamknieciem calego okna. */
+  /** [Correction] Going back from the build screen to the entry screen — resets EVERYTHING (PDF, profile, draft), so the author can start over with a different file without closing the window. Not explicitly required by the brief, but without it a "wrong choice at the start" had no way out other than closing the whole window. */
   static #onBackToEntry(this: ProfileStudio): void {
     for (const url of this.#pageImageCache.values()) URL.revokeObjectURL(url);
     this.#pageImageCache.clear();
@@ -651,24 +655,24 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39 Z2, zgloszenie uzytkownika na zywo: "Name i zawód jest wspólny
-   * dla NPC i Bohaterów... jak zaznaczę dla NPC to jest to widoczne w
-   * Bohaterach"] `#switchRoute` (nizej) zamienia `#draft`'s POLA (patterns/
-   * anchor/attach/...) na wycinek nowej trasy poprawnie (potwierdzone
-   * bezposrednim testem izolowanym od Foundry — zero dzielenia referencji
-   * miedzy `#npcRouteSlice`/`#playerCharacterRouteSlice`), ale WCZESNIEJSZA
-   * wersja NIE czyscila kosmetycznych cache'y "ostatnie klikniecie" —
-   * `#namePreviewText`/`#typeLabelPreviewText` (podglad w panelu "Wskazano
-   * jako nazwę: ..."), `#buildPairPreviewValues` (podglad wartosci cech),
-   * `#itemPatternExamples`/`#itemPatternShape` (rozpoznany ksztalt pozycji
-   * Atakow/Umiejetnosci). Po przelaczeniu trasy te podglady dalej pokazywaly
-   * WYNIK z POPRZEDNIEJ trasy (np. imie NPC-a w panelu Nazwy, mimo ze
-   * WLASCIWY wzorzec `playerCharacter` byl juz — poprawnie — pusty) — z
-   * perspektywy autora wygladalo to jak "to samo ustawienie" dzielone przez
-   * obie trasy, mimo ze w SZKICU byly juz od poczatku rozdzielone. Wydzielone
-   * tutaj, zeby TO SAMO czyszczenie dzialalo przy KAZDEJ zmianie kontekstu
-   * (przelaczenie trasy PONIZEJ, powrot do ekranu wejsciowego wyzej), nie
-   * tylko czesc z nich.
+   * [Step 39 Z2, live user report: "Name and occupation is shared between
+   * NPCs and Player Characters... if I set it for the NPC it shows up in
+   * Player Characters"] `#switchRoute` (below) correctly swaps `#draft`'s
+   * FIELDS (patterns/anchor/attach/...) for the new route's slice (confirmed
+   * by a direct test isolated from Foundry — zero reference sharing between
+   * `#npcRouteSlice`/`#playerCharacterRouteSlice`), but the EARLIER version
+   * did NOT clear the cosmetic "last click" caches —
+   * `#namePreviewText`/`#typeLabelPreviewText` (the panel preview "Picked as
+   * name: ..."), `#buildPairPreviewValues` (trait value preview),
+   * `#itemPatternExamples`/`#itemPatternShape` (the recognized shape of
+   * Attacks/Skills entries). After switching routes, these previews kept
+   * showing the RESULT from the PREVIOUS route (e.g. the NPC's name in the
+   * Name panel, even though the ACTUAL `playerCharacter` pattern was already
+   * — correctly — empty) — from the author's perspective this looked like
+   * "the same setting" shared between both routes, even though in the DRAFT
+   * they had already been separated from the start. Extracted here so the
+   * SAME cleanup runs on EVERY context change (switching routes BELOW,
+   * returning to the entry screen ABOVE), not just some of them.
    */
   #resetEphemeralBuildState(): void {
     this.#nameSubMode = 'name';
@@ -689,15 +693,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39 Z2] Rozdziela WLASNIE zwalidowany profil (`@bindery/core`
-   * `ProfileV2`, ale przyjety jako `any` — TA SAMA konwencja co `profileToDraft`
-   * samo, patrz jej komentarz) na `#draft` (metadane + wzorce trasy `npc`,
-   * ZAWSZE na korzeniu profilu) i `#playerCharacterRouteSlice` (opcjonalna
-   * druga sekcja, `null` gdy profil jej nie ma). Jedyne miejsce, ktore
-   * powinno WCZYTYWAC profil do stanu edytora — trzy dawne wywolania
-   * `profileToDraft` (wybor "Edycja profilu", udany "Zastosuj i sprawdz",
-   * wyjscie z trybu surowego JSON) przechodza przez ta metode, zeby ZADNE z
-   * nich nie zgubilo milczaco sekcji `playerCharacter` (A3).
+   * [Step 39 Z2] Splits a just-validated profile (`@bindery/core`
+   * `ProfileV2`, but accepted as `any` — the SAME convention as
+   * `profileToDraft` itself, see its comment) into `#draft` (metadata + the
+   * `npc` route's patterns, ALWAYS at the profile's root) and
+   * `#playerCharacterRouteSlice` (an optional second section, `null` when
+   * the profile doesn't have one). The only place that should LOAD a profile
+   * into editor state — the three former call sites of `profileToDraft`
+   * (choosing "Edit profile", a successful "Apply and check", exiting raw
+   * JSON mode) all go through this method, so NONE of them silently drops
+   * the `playerCharacter` section (A3).
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #loadProfileIntoDraft(profile: any): void {
@@ -710,12 +715,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39 Z2] Jak `#loadProfileIntoDraft`, ale BEZ resetowania
-   * `#activeRoute` — do odswiezenia `#draft`/wycinkow OBU tras z kanonicznej,
-   * znormalizowanej przez Zod postaci PO udanej walidacji (`#applyDraftAndScan`),
-   * zeby zakladki-wzorce i zapisany .json byly spojne z tym, co faktycznie
-   * napedza diagnostyke — bez przelaczania autora z powrotem na trase `npc`,
-   * jesli akurat pracowal nad `playerCharacter`.
+   * [Step 39 Z2] Like `#loadProfileIntoDraft`, but WITHOUT resetting
+   * `#activeRoute` — used to refresh `#draft`/the slices for BOTH routes
+   * from the canonical form normalized by Zod AFTER a successful validation
+   * (`#applyDraftAndScan`), so the pattern tabs and the saved .json stay
+   * consistent with what actually drives the diagnostics — without
+   * switching the author back to the `npc` route if they happened to be
+   * working on `playerCharacter`.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #refreshDraftFromValidatedProfile(profile: any): void {
@@ -730,13 +736,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39 Z2] `#draft` niesie ZAWSZE metadane wspolne + wzorce
-   * `#activeRoute` — ta metoda odklada biezacy wycinek, wczytuje docelowy
-   * (albo pusty punkt startowy, gdy autor przelacza sie na trase, ktorej
-   * jeszcze nie dotknal w tej sesji) i przebudowuje sloty zakladek
-   * (`#deriveActivePatternSlotsFromDraft`) dla NOWEJ trasy — te same
-   * zakladki (Cechy/Pochodne/Ataki/...), zbudowane teraz z innego zestawu
-   * danych (brief: "Zakładki... te same, budowane osobno dla każdej trasy").
+   * [Step 39 Z2] `#draft` ALWAYS carries the shared metadata + the
+   * `#activeRoute`'s patterns — this method sets aside the current slice,
+   * loads the target one (or an empty starting point, when the author
+   * switches to a route they haven't touched yet in this session), and
+   * rebuilds the tab slots (`#deriveActivePatternSlotsFromDraft`) for the
+   * NEW route — the same tabs (Traits/Derived/Attacks/...), now built from a
+   * different data set (per the brief: "Tabs... the same, built separately
+   * for each route").
    */
   #switchRoute(route: PageRoute): void {
     if (!this.#draft || route === this.#activeRoute) return;
@@ -763,19 +770,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39 Z2] Wejscie do `validateActorProfileFile`/zapisu — MERGE obu tras
-   * w JEDEN obiekt profilu, dokladnie w ksztalcie `profileV2Schema`
-   * (`schema.ts`): metadane + wzorce `npc` na korzeniu (`patterns`/
-   * `entityAssembly`), wzorce `playerCharacter` (jesli skonfigurowane —
-   * NIEPUSTA lista `patterns`) w opcjonalnym polu `playerCharacter`. W
-   * odroznieniu od `draftToProfileInput(this.#draft)` uzywanego w
-   * pojedynczych, WASKICH akcjach (klikniecie mierzace notatke, podglad
-   * jednego wzorca — patrz `#refreshNotePreview`/`#onNoteTokenClick`, ktore
-   * CELOWO dzialaja WYLACZNIE na aktywnej trasie), ta metoda jest jedynym
-   * zrodlem prawdy dla PELNEGO przebiegu (`#applyDraftAndScan`) i zapisu do
-   * pliku (`#onSaveProfileJson`) — obie MUSZA widziec OBIE trasy naraz, zeby
-   * `classifyPageRoute` (`@bindery/core`) mogla poprawnie routowac KAZDA
-   * strone dokumentu, nie tylko te akurat edytowana.
+   * [Step 39 Z2] Input for `validateActorProfileFile`/saving — MERGES both
+   * routes into ONE profile object, exactly in the shape of
+   * `profileV2Schema` (`schema.ts`): metadata + the `npc` patterns at the
+   * root (`patterns`/`entityAssembly`), the `playerCharacter` patterns (if
+   * configured — a NON-EMPTY `patterns` list) in the optional
+   * `playerCharacter` field. Unlike `draftToProfileInput(this.#draft)`,
+   * which is used for single, NARROW actions (a click measuring a note, a
+   * single pattern's preview — see `#refreshNotePreview`/`#onNoteTokenClick`,
+   * which DELIBERATELY operate ONLY on the active route), this method is the
+   * single source of truth for the FULL scan (`#applyDraftAndScan`) and for
+   * saving to a file (`#onSaveProfileJson`) — both MUST see BOTH routes at
+   * once, so `classifyPageRoute` (`@bindery/core`) can correctly route EVERY
+   * page of the document, not just the one currently being edited.
    */
   #buildMergedProfileInput(): unknown {
     if (!this.#draft) return null;
@@ -793,7 +800,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return base;
   }
 
-  /** [Korekta] "Kazda zakladka-wzorzec ma jawny slot" — po wczytaniu/zbudowaniu szkicu, wywiedz KTORY istniejacy wzorzec nalezy do ktorego slotu, zeby zakladki od razu pokazaly poprawny stan (Edycja profilu) zamiast pustych. Wzorce spoza tych pieciu slotow (np. z recznie edytowanego surowego JSON-a) NIE gina — zostaja w `draft.patterns`, po prostu nie sa dostepne z zadnej zakladki-wzorca (nadal wyeksportowane poprawnie przy zapisie). */
+  /** [Correction] "Each pattern tab has an explicit slot" — after loading/building the draft, work out WHICH existing pattern belongs to WHICH slot, so the tabs immediately show the correct state (Edit profile) instead of appearing empty. Patterns outside these five slots (e.g. from manually edited raw JSON) do NOT get lost — they stay in `draft.patterns`, they're just not reachable from any pattern tab (still exported correctly on save). */
   #deriveActivePatternSlotsFromDraft(): void {
     if (!this.#draft) {
       this.#resetBuildPointers();
@@ -827,7 +834,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#state.pageCount = this.#previewDocument.pageCount;
       this.#state.currentPageNumber = 1;
     } catch (err) {
-      console.warn('Bindery | Profile Studio: nie udalo sie otworzyc PDF-a:', err);
+      console.warn('Bindery | Profile Studio: failed to open the PDF:', err);
       this.#state.analyzeError = game.i18n!.localize('BINDERY.studio.errorOpenPdf' as never);
       await this.render();
       return;
@@ -870,13 +877,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Korekta] "Nowy profil" -> wybor PDF-a -> ekran budowania. "Edycja profilu" -> wybor PDF-a I PLIKU PROFILU -> ten sam ekran, wypelniony. Przejscie nastepuje automatycznie, gdy wszystkie wymagane pliki dla wybranej sciezki sa juz zaladowane — autor nie klika osobnego "Dalej".
-   * [zgloszenie uzytkownika] "Ten sam ekran" TERAZ oznacza ekran metadanych
-   * (`'metadata'`) — nie od razu budowanie. Dla Edycji profilu pola sa juz
-   * wypelnione (wczytany plik przeszedl `validateActorProfileFile`, ktora
-   * wymusza dokladnie te same 5 pol), wiec krok jest tu WYLACZNIE do
-   * przegladu/poprawki przed wejsciem w budowanie -- "Dalej" przechodzi
-   * natychmiast, jesli autor niczego nie zmienil.
+   * [Correction] "New profile" -> choose PDF -> build screen. "Edit profile" -> choose PDF AND PROFILE FILE -> the same screen, pre-filled. The transition happens automatically once all required files for the chosen path have been loaded — the author doesn't click a separate "Next".
+   * [user report] "The same screen" NOW means the metadata screen
+   * (`'metadata'`) — not building right away. For Edit profile the fields
+   * are already filled in (the loaded file passed `validateActorProfileFile`,
+   * which enforces exactly the same 5 fields), so this step is ONLY for
+   * review/correction before entering the build screen -- "Next" proceeds
+   * immediately if the author hasn't changed anything.
    */
   async #maybeEnterBuildScreen(): Promise<void> {
     if (!this.#pdfBuffer) {
@@ -902,12 +909,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika] Piec pol wymaganych przez `profileV2Schema`
-   * (`id`/`gameLine`/`language`/`title`/`publication`, patrz `schema.ts` —
-   * TA SAMA piatka co `#friendlyMetadataValidationMessage` wyzej) — bez
-   * znaczenia dla dopasowania, ale bez nich zapis/pelna walidacja i tak
-   * odrzuci caly plik. Zwraca ETYKIETY widoczne w formularzu (nie surowe
-   * klucze) do czytelnego komunikatu "uzupelnij: ...".
+   * [user report] The five fields required by `profileV2Schema`
+   * (`id`/`gameLine`/`language`/`title`/`publication`, see `schema.ts` —
+   * the SAME five as `#friendlyMetadataValidationMessage` above) — they
+   * don't matter for matching, but without them the save/full validation
+   * will reject the whole file anyway. Returns the LABELS shown in the form
+   * (not the raw keys) for the human-readable "please fill in: ..." message.
    */
   #missingMetadataFieldLabels(): string[] {
     const draft = this.#draft;
@@ -921,7 +928,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return missing;
   }
 
-  /** [zgloszenie uzytkownika] "Dalej" na ekranie metadanych — przepuszcza do budowania WYLACZNIE gdy wszystkie 5 pol jest wypelnionych; inaczej pokazuje, ktorych brakuje, zamiast cichego "nic sie nie dzieje". */
+  /** [user report] "Next" on the metadata screen — only lets you through to building once all 5 fields are filled in; otherwise it shows which ones are missing, instead of a silent "nothing happens". */
   static #onContinueFromMetadataStep(this: ProfileStudio): void {
     if (!this.#draft) return;
     const missing = this.#missingMetadataFieldLabels();
@@ -937,7 +944,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const tab = target.dataset['tab'] as BuildTab | undefined;
     if (!tab || !BUILD_TABS.includes(tab)) return;
     this.#state.buildTab = tab;
-    // Opuszczenie zakladki przerywa oba tryby wskazywania (S4-podobnie: nigdy niejawny stan w tle).
+    // Leaving the tab cancels both pointing modes (S4-like: never leave implicit state lingering in the background).
     this.#pickTarget = null;
     this.#state.isSelectAreaMode = false;
     this.#selectionProposal = null;
@@ -945,7 +952,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  /** [KROK-24 Z1] Przelacza tryb "obrysuj obszar myszą". */
+  /** [Step 24 Z1] Toggles "draw an area with the mouse" mode. */
   static #onToggleSelectArea(this: ProfileStudio): void {
     this.#state.isSelectAreaMode = !this.#state.isSelectAreaMode;
     this.#selectionProposal = null;
@@ -953,18 +960,18 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  // ---- [KROK-28 korekta] Pasek trwaly ekranu budowania -------------------
+  // ---- [Step 28 correction] Build screen's persistent toolbar -------------------
 
   static async #onRunFullScan(this: ProfileStudio): Promise<void> {
     await this.#applyDraftAndScan();
   }
 
   /**
-   * [Korekta] Zakladka "Sprawdz" ma JEDEN przycisk — zamiast dawnego
-   * dwuetapowego "Zastosuj i sprawdz" (Edytor) + "Sprawdz wszystkie strony"
-   * (osobna zakladka). Waliduje BIEZACY szkic (Zod, nigdy zaufanie bez
-   * sprawdzenia — ten sam wymog co przy wczytaniu pliku), i przy sukcesie od
-   * razu uruchamia pelny przebieg z NOWO zwalidowanym profilem.
+   * [Correction] The "Check" tab has ONE button — replacing the former
+   * two-step "Apply and check" (Editor) + "Check all pages" (a separate
+   * tab). It validates the CURRENT draft (Zod, never trusted without
+   * checking — the same requirement as when loading a file), and on success
+   * immediately runs a full scan with the NEWLY validated profile.
    */
   async #applyDraftAndScan(): Promise<void> {
     if (!this.#draft || !this.#pdfBuffer) return;
@@ -980,9 +987,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       this.#state.rawJsonError = null;
     } else {
-      // [KROK-39 Z2] MERGE obu tras (nie tylko `#draft`, aktywnej) — "Sprawdz"
-      // musi routowac KAZDA strone dokumentu, wiec profil wejsciowy musi
-      // niesc OBIE sekcje wzorcow naraz, patrz `#buildMergedProfileInput`.
+      // [Step 39 Z2] MERGE both routes (not just `#draft`, the active one)
+      // — "Check" has to route EVERY page of the document, so the input
+      // profile must carry BOTH pattern sections at once, see
+      // `#buildMergedProfileInput`.
       input = this.#buildMergedProfileInput();
     }
 
@@ -994,14 +1002,15 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     this.#profile = result.profile;
-    // Odswiez szkic z KANONICZNEJ, znormalizowanej przez Zod postaci — zeby
-    // zakladki-wzorce i zapisany .json byly SPOJNE z tym, co faktycznie
-    // napedza diagnostyke. Identyfikatory wzorcow sa zachowywane przez
-    // `profileToDraft`/`draftToProfileInput`, wiec sloty NIE gubia sie.
-    // [KROK-39 Z2] `#refreshDraftFromValidatedProfile`, NIE `#loadProfileIntoDraft`
-    // — ta ostatnia resetuje `#activeRoute` na `'npc'`, co przelaczaloby autora
-    // z powrotem na zakladki NPC przy KAZDYM "Sprawdz" wykonanym z aktywna
-    // trasa Postaci graczy (mierzone jako oczywisty regres UX przy przegladzie).
+    // Refresh the draft from the CANONICAL form normalized by Zod — so the
+    // pattern tabs and the saved .json stay CONSISTENT with what actually
+    // drives the diagnostics. Pattern identifiers are preserved by
+    // `profileToDraft`/`draftToProfileInput`, so the slots do NOT get lost.
+    // [Step 39 Z2] `#refreshDraftFromValidatedProfile`, NOT `#loadProfileIntoDraft`
+    // — the latter resets `#activeRoute` back to `'npc'`, which would switch
+    // the author back to the NPC tabs on EVERY "Check" run while the Player
+    // Characters route was active (flagged as an obvious UX regression during
+    // review).
     this.#refreshDraftFromValidatedProfile(result.profile);
     this.#deriveActivePatternSlotsFromDraft();
     this.#state.editorIssues = null;
@@ -1038,7 +1047,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       });
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        console.warn('Bindery | Profile Studio: analiza nieudana:', err);
+        console.warn('Bindery | Profile Studio: analysis failed:', err);
         this.#state.analyzeError = game.i18n!.localize('BINDERY.studio.errorAnalyze' as never);
       }
     } finally {
@@ -1053,12 +1062,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     void (async () => {
       const { buildDiagnosticsExport } = await import('@bindery/core');
       const report = buildDiagnosticsExport(this.#docAnalysis!);
-      const withMeta = { wygenerowano: new Date().toISOString(), plikProfilu: this.#state.profileFileName, plikPdf: this.#state.pdfFileName, ...report };
+      const withMeta = { generatedAt: new Date().toISOString(), profileFile: this.#state.profileFileName, pdfFile: this.#state.pdfFileName, ...report };
       const blob = new Blob([JSON.stringify(withMeta, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bindery-profile-studio-${(this.#state.profileFileName ?? 'diagnostyka').replace(/\.json$/i, '')}.json`;
+      a.download = `bindery-profile-studio-${(this.#state.profileFileName ?? 'diagnostics').replace(/\.json$/i, '')}.json`;
       a.click();
       URL.revokeObjectURL(url);
     })();
@@ -1076,11 +1085,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         return;
       }
     } else {
-      // [KROK-39 Z2] MERGE obu tras — zapis do pliku musi niesc CALY profil,
-      // nie tylko trase akurat otwarta na ekranie, patrz `#buildMergedProfileInput`.
+      // [Step 39 Z2] MERGE both routes — saving to a file must carry the
+      // WHOLE profile, not just the route currently open on screen, see
+      // `#buildMergedProfileInput`.
       input = this.#buildMergedProfileInput();
     }
-    const idPart = (this.#draft.id || 'profil').trim().replace(/[^a-zA-Z0-9_-]+/g, '-') || 'profil';
+    const idPart = (this.#draft.id || 'profile').trim().replace(/[^a-zA-Z0-9_-]+/g, '-') || 'profile';
     const blob = new Blob([JSON.stringify(input, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1093,8 +1103,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   static #onToggleRawJsonMode(this: ProfileStudio): void {
     if (!this.#draft) return;
     if (!this.#state.rawJsonMode) {
-      // [KROK-39 Z2] MERGE obu tras — tryb surowego JSON pokazuje/edytuje CALY
-      // profil naraz (obie sekcje wzorcow), nie tylko trase akurat otwarta.
+      // [Step 39 Z2] MERGE both routes — raw JSON mode shows/edits the
+      // WHOLE profile at once (both pattern sections), not just the route
+      // currently open.
       this.#rawJsonText = JSON.stringify(this.#buildMergedProfileInput(), null, 2);
       this.#state.rawJsonMode = true;
       this.#state.rawJsonError = null;
@@ -1103,12 +1114,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     try {
       const parsed = JSON.parse(this.#rawJsonText);
-      // [KROK-39 Z2] `#loadProfileIntoDraft`, nie goly `profileToDraft` —
-      // surowy JSON mogl zmienic OBIE sekcje wzorcow (albo dodac/usunac
-      // `playerCharacter` w calosci), wiec oba wycinki tras musza zostac
-      // ponownie rozdzielone, nie tylko `#draft` samo. Resetuje `#activeRoute`
-      // na `'npc'` — po wyjsciu z surowego JSON-a nie ma juz wiarygodnego
-      // sygnalu, ktora trasa byla "aktywna" w dowolnie zmienionym tekscie.
+      // [Step 39 Z2] `#loadProfileIntoDraft`, not bare `profileToDraft` —
+      // the raw JSON could have changed BOTH pattern sections (or added/
+      // removed `playerCharacter` entirely), so both route slices need to be
+      // re-split, not just `#draft` alone. Resets `#activeRoute` to `'npc'`
+      // — after leaving raw JSON mode there's no longer a reliable signal of
+      // which route was "active" in the arbitrarily edited text.
       this.#loadProfileIntoDraft(parsed);
       this.#deriveActivePatternSlotsFromDraft();
       this.#state.rawJsonMode = false;
@@ -1150,11 +1161,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       if (this.#state.screen === 'build' && this.#state.buildTab !== 'check') await this.render();
     } catch (err) {
-      console.warn('Bindery | Profile Studio: renderPage nieudany:', err);
+      console.warn('Bindery | Profile Studio: renderPage failed:', err);
     }
   }
 
-  // ---- Panel strony (nakladka regionow, encje, zachodzenia) --------------
+  // ---- Page panel (region overlay, entities, overlaps) --------------
 
   static readonly #REGION_LABEL_KEYS: Readonly<Record<StudioRegionKind, string>> = {
     grid: 'BINDERY.studio.regionGrid',
@@ -1170,19 +1181,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return game.i18n!.localize(ProfileStudio.#REGION_LABEL_KEYS[kind] as never);
   }
 
-  /** [zgloszenie uzytkownika, "warning 'id: String must ...'"] Pola profilu-jako-pliku, ktore nie wplywaja na samo dopasowanie, tylko na tozsamosc profilu (patrz `.min(...)` w `profileV2Schema`, `schema.ts`) — wypelniane w zwijanym naglowku "Metadane i zakres stron". */
+  /** [user report, "warning 'id: String must ...'"] Profile-as-file fields that don't affect matching itself, only the profile's identity (see `.min(...)` in `profileV2Schema`, `schema.ts`) — filled in via the collapsible "Metadata and page range" header. */
   static readonly #METADATA_ISSUE_FIELDS: ReadonlySet<string> = new Set(['id', 'gameLine', 'language', 'title', 'publication']);
 
   /**
-   * [zgloszenie uzytkownika, "dostaje warningi 'id: String must contain at
-   * least 1 character(s)'"] `result.issues` to stringi w formacie
-   * `"<sciezka>: <komunikat Zod>"` (patrz `schema.ts`, `parseProfileV2`) —
-   * gdy KAZDY biezacy blad dotyczy jednego z pieciu pol metadanych pliku
-   * (bez znaczenia dla dopasowania notatki/kotwicy), autor NIE POTRZEBUJE
-   * widziec surowej skladni Zod — potrzebuje wiedziec, gdzie klikonac. Gdy
-   * choc jeden blad dotyczy czegos innego (np. faktycznie zepsuty wzorzec),
-   * zwraca `null` — wywolujacy wraca do surowego pierwszego bledu, zeby NIE
-   * ukryc prawdziwej przyczyny za myląco uspokajajacym komunikatem o metadanych.
+   * [user report, "I get warnings 'id: String must contain at least 1
+   * character(s)'"] `result.issues` are strings in the format
+   * `"<path>: <Zod message>"` (see `schema.ts`, `parseProfileV2`) — when
+   * EVERY current error concerns one of the five file-metadata fields (which
+   * don't matter for the note/anchor matching), the author DOESN'T NEED to
+   * see the raw Zod syntax — they need to know where to click. When even one
+   * error concerns something else (e.g. an actually broken pattern), it
+   * returns `null` — the caller falls back to the raw first error, so as NOT
+   * to hide the real cause behind a misleadingly reassuring metadata message.
    */
   static #friendlyMetadataValidationMessage(issues: readonly string[]): string | null {
     if (issues.length === 0) return null;
@@ -1191,18 +1202,18 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return game.i18n!.localize('BINDERY.studio.notesPickFailedMissingMetadata' as never);
   }
 
-  /** Prosty test przeciecia dwoch prostokatow PDF — WYLACZNIE do ostrzezenia o zachodzeniu W TRAKCIE przeciagania granicy sekcji; nie eksportowane z `@bindery/core` (geometria UI, nie silnik dopasowan). */
+  /** A simple intersection test for two PDF rectangles — ONLY for warning about overlap WHILE dragging a section boundary; not exported from `@bindery/core` (UI geometry, not the matching engine). */
   static #rectsOverlap(a: Rect, b: Rect): boolean {
     return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
   }
 
   /**
-   * [KROK-29 Z5] Odwraca `escapeSectionBoundaryLiteral` (`^Jørgen$` ->
-   * `Jørgen`) do wyswietlenia PRAWDZIWEGO tekstu granicy i do sprawdzenia,
-   * czy to caly token, a nie pojedynczy znak. Usuwa TEZ opcjonalny koncowy
-   * dwukropek (`:?$`, dopisany przez `escapeSectionBoundaryLiteral` — patrz
-   * jej komentarz) PRZED proba usuniecia zwyklego `$`, zeby wyswietlony tekst
-   * nie pokazywal surowej skladni regexu ("Umiejętności:?" zamiast "Umiejętności").
+   * [Step 29 Z5] Reverses `escapeSectionBoundaryLiteral` (`^Jørgen$` ->
+   * `Jørgen`) to display the ACTUAL boundary text and to check whether it's
+   * a whole token rather than a single character. ALSO strips the optional
+   * trailing colon (`:?$`, appended by `escapeSectionBoundaryLiteral` — see
+   * its comment) BEFORE attempting to strip the plain `$`, so the displayed
+   * text doesn't show raw regex syntax ("Skills:?" instead of "Skills").
    */
   static #unescapeBoundaryText(pattern: string): string {
     return pattern
@@ -1226,15 +1237,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (!analysis) return;
 
-    // [KROK-39 Z2] Panel strony jest zakotwiczony w AKTYWNEJ trasie (autor
-    // buduje/kalibruje WLASNIE ja) — ale `analysis` pochodzi z ostatniego
-    // pelnego przebiegu (`#docAnalysis`), ktory routuje KAZDA strone
-    // AUTOMATYCZNIE (`classifyPageRoute`, `@bindery/core`). Gdy te dwie trasy
-    // sie roznia, pokazanie wynikow z `analysis.route` (INNEJ trasy niz ta,
-    // ktora autor akurat edytuje) wygladaloby jak dzialajace dopasowanie tej,
-    // ktora edytuje — dokladnie ostrzezenie z briefu Kroku 39 Z2 ("autor
-    // kalibrujący postacie graczy nie może zobaczyć wyników dla NPC-ów i
-    // uznać, że coś działa"). Jawny komunikat zamiast cichego, mylącego pokazu.
+    // [Step 39 Z2] The page panel is anchored to the ACTIVE route (the
+    // author is currently building/calibrating it) — but `analysis` comes
+    // from the last full scan (`#docAnalysis`), which routes EVERY page
+    // AUTOMATICALLY (`classifyPageRoute`, `@bindery/core`). When these two
+    // routes differ, showing results from `analysis.route` (a DIFFERENT
+    // route than the one the author is currently editing) would look like a
+    // working match for the one they're editing — exactly the warning from
+    // the Step 39 Z2 brief ("an author calibrating player characters must
+    // not be able to see NPC results and conclude that something works").
+    // An explicit message instead of a silent, misleading display.
     if (analysis.route !== this.#activeRoute) {
       const p = document.createElement('p');
       p.className = 'hint';
@@ -1263,12 +1275,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-29, zmierzony na zywo blad] `outOfRange` MA DWA rozne powody
-   * (patrz `OutOfRangeCandidate` w `entityAssembly.ts`): kandydat faktycznie
-   * dalej niz limit (`'tooFar'`, komunikat "dystans > limit" ma tu sens), ALBO
-   * kandydat byl w zasiegu, tylko przejety przez inna kotwice (`'claimedByOther'`)
-   * — dla TEGO przypadku "87pt > 400pt" jest nonsensowne (87 < 400), wiec
-   * dostaje WLASNY, uczciwy komunikat zamiast tej samej formuly arytmetycznej.
+   * [Step 29, bug reproduced live] `outOfRange` HAS TWO different reasons
+   * (see `OutOfRangeCandidate` in `entityAssembly.ts`): the candidate is
+   * actually farther than the limit (`'tooFar'`, the "distance > limit"
+   * message makes sense here), OR the candidate was within range but
+   * claimed by another anchor (`'claimedByOther'`) — for THIS case "87pt >
+   * 400pt" is nonsensical (87 < 400), so it gets its OWN, honest message
+   * instead of the same arithmetic formula.
    */
   #buildAttachStatus<TMatch>(label: string, result: { match: TMatch | null; outOfRange: { distance: number; maxDistancePt: number; reason: 'tooFar' | 'claimedByOther' } | null }): HTMLElement {
     const row = document.createElement('div');
@@ -1385,19 +1398,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     else img.addEventListener('load', draw, { once: true });
   }
 
-  // ---- [KROK-28, korekta] Panel budowania profilu wskazywaniem -----------
+  // ---- [Step 28, correction] Panel for building the profile by pointing -----------
 
   /**
-   * [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] pdf.js
-   * czasem rozbija JEDNO drukowane slowo na kilka `TextItem` w miejscu zmiany
-   * fontu/kodowania glifu (typowo znak diakrytyczny: "Jørgen" -> "J"+"ørgen"
-   * jako DWA stykajace sie tokeny) — bez `mergeTouchingTokens` klikniecie w
-   * to, co wizualnie jest jednym slowem, moglo dac tylko jego fragment
-   * ("J"), a ten fragment jako `terminateSectionBefore`/etykieta/naglowek
-   * dopasowywal sie PRZYPADKOWO gdziekolwiek indziej w ksiazce. Scalanie
-   * dzieje sie TUTAJ, RAZ, na pelnej liscie tokenow strony — kazdy
-   * konsument (klikniecie etykiety/naglowka/granicy, tryb 📍) dostaje juz
-   * scalone, "cale slowo" tokeny za darmo.
+   * [Bug reproduced live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] pdf.js
+   * sometimes splits ONE printed word into several `TextItem`s at a
+   * font/glyph-encoding change (typically a diacritical character: "Jørgen"
+   * -> "J"+"ørgen" as TWO touching tokens) — without `mergeTouchingTokens`,
+   * clicking on what is visually one word could yield only a fragment of it
+   * ("J"), and that fragment, used as `terminateSectionBefore`/a label/a
+   * header, would then match RANDOMLY somewhere else in the book. Merging
+   * happens HERE, ONCE, over the page's full token list — every consumer
+   * (clicking a label/header/boundary, 📍 mode) already gets merged,
+   * "whole word" tokens for free.
    */
   async #getBuildTokens(pageNumber: number): Promise<IndexedSelectionToken[]> {
     const cached = this.#buildTokensCache.get(pageNumber);
@@ -1406,10 +1419,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const { getPageTextTokens, mergeTouchingTokens, splitMergedLabelValueTokens, stripStrayLeadingColonTokens } = await import('@bindery/core');
     const raw = await getPageTextTokens(this.#pdfBuffer, pageNumber, { assetBaseUrl: ASSET_BASE_URL });
     const merged = mergeTouchingTokens(raw);
-    // [KROK-42/43] Ta sama naprawa co produkcyjne `tokenizePage.ts` — niektore
-    // PDF-y skladaja etykiete siatki cech i jej wartosc w JEDEN token pdf.js
-    // ("S 40"), a inne zostawiaja dwukropek na POCZATKU wartosci zamiast na
-    // koncu etykiety (": Brak.") — patrz komentarze przy
+    // [Step 42/43] The same fix as the production `tokenizePage.ts` — some
+    // PDFs merge a trait-grid label and its value into ONE pdf.js token
+    // ("S 40"), while others leave the colon at the START of the value
+    // instead of at the end of the label (": None.") — see the comments on
     // `splitMergedLabelValueTokens`/`stripStrayLeadingColonTokens`.
     const split = splitMergedLabelValueTokens(stripStrayLeadingColonTokens(merged));
     const indexed: IndexedSelectionToken[] = split.map((t, i) => ({ ...t, tokenIndex: i }));
@@ -1417,7 +1430,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return indexed;
   }
 
-  /** [U3] "Interfejs nie tłumaczy niczego" — jedna linia mówiąca dokładnie, co zrobić DALEJ, per aktywna zakladka-wzorzec. */
+  /** [U3] "The interface doesn't explain anything" — one line saying exactly what to do NEXT, per active pattern tab. */
   #computeBuildGuidance(): string {
     const loc = (key: string) => game.i18n!.localize(`BINDERY.studio.${key}` as never);
     if (!this.#draft) return loc('guidanceNoDraft');
@@ -1443,17 +1456,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       case 'name': {
         const currentId = this.#nameSubMode === 'typeLabel' ? this.#activeTypeLabelPatternId : this.#activeNamePatternId;
         const entry = this.#findPattern(currentId);
-        // [ZGŁOSZENIE na żywo po Kroku 39, "nadal do name trafia Wiek:"] Ten sam
-        // blad co "Zawód: -> Zawód:" (draft-12 bez requireFontKeys przegrywa z
-        // bliższą etykietą, patrz spike/bohaterowie/15-repro-wrak-name.ts),
-        // ALE tym razem NIE naprawiony punktowo na pliku profilu — bo takie
-        // punktowe naprawy nie przetrwaja kolejnego zapisu z samego Studio
-        // (dokladnie zarzut autora: "jak zmiane zrobiles tylko w pliku, to
-        // jak stworze nowy [profil], problem sie powtorzy"). Zamiast tego:
-        // ostrzezenie strukturalne, WIDOCZNE OD RAZU po otwarciu zakladki
-        // (nie dopiero po "Sprawdz"/imporcie), dla KAZDEGO profilu, ktory ma
-        // wzorzec Nazwy/Zawodu bez zadnego wymaganego kroju — bo sama rola
-        // fontu ma "fatalna precyzje" (patrz komentarz #onNameCandidateClick).
+        // [Live report after Step 39, "Age: still ends up matched into
+        // name"] The same bug as "Occupation: -> Occupation:" (draft-12
+        // without requireFontKeys loses to a closer label, see
+        // spike/bohaterowie/15-repro-wrak-name.ts), BUT this time NOT fixed
+        // point-wise on the profile file — because point fixes like that
+        // don't survive the next save from the Studio itself (exactly the
+        // author's complaint: "if you only fixed it in the file, the problem
+        // will come back the next time I create a [profile]"). Instead: a
+        // structural warning, VISIBLE IMMEDIATELY on opening the tab (not
+        // only after "Check"/import), for EVERY profile that has a
+        // Name/Occupation pattern without any required font — because the
+        // font role alone has "terrible precision" (see the comment on
+        // #onNameCandidateClick).
         if (entry?.pattern.kind === 'fontRoleCandidate' && entry.pattern.requireFontKeys.length === 0) {
           return loc(this.#nameSubMode === 'typeLabel' ? 'guidanceTypeLabelNoFontKey' : 'guidanceNameNoFontKey');
         }
@@ -1474,23 +1489,25 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const entry = this.#findPattern(patternId);
     if (!entry || entry.pattern.kind !== 'sectionList') return loc(emptyKey);
     if (!entry.pattern.terminateSectionBefore) return loc('guidanceSectionPicked');
-    // [KROK-29 Z1] Trzecia faza — granica juz ustawiona, ale autor nie
-    // kliknal jeszcze zadnej przykladowej pozycji (`itemPattern` nadal puste).
+    // [Step 29 Z1] Third phase — the boundary is already set, but the
+    // author hasn't clicked any example item yet (`itemPattern` still empty).
     if (!entry.pattern.itemPattern) return loc('guidanceItemPatternExamples');
     return loc('guidanceComplete');
   }
 
   /**
-   * Dopasowanie nazwy klikniętej etykiety do słownika kluczy kanonicznych
-   * (`CANONICAL_STATS`) — WYŁĄCZNIE podpowiedź, jedno kliknięcie zmienia.
+   * Matches a clicked label's name against the canonical-key dictionary
+   * (`CANONICAL_STATS`) — a suggestion ONLY, a single click can change it.
    *
-   * [zgłoszenie użytkownika, "Pancerz" nie dostawał sugestii "armour"]
-   * Etykiety w tej i innych książkach CoC7 często kończą się dwukropkiem
-   * ("Pancerz:", "Krzepa:", "Ruch:") — sam token kliknięty na stronie NIESIE
-   * ten dwukropek, ale `CANONICAL_STATS`'s podpowiedzi (`statKeys.ts`) go NIE
-   * mają (to warianty językowe/skróty, nie dosłowne tokeny z PDF-a), więc
-   * dokładne porównanie nigdy nie trafiało dla żadnej etykiety z dwukropkiem —
-   * autor musiał zawsze wpisywać klucz ręcznie, nawet dla dobrze znanych pól.
+   * [user report: "Pancerz" (Armor) wasn't getting the "armour" suggestion]
+   * Labels in this and other CoC7 books often end with a colon
+   * ("Pancerz:", "Krzepa:", "Ruch:" — "Armor:", "Build:", "Move:") — the
+   * token clicked on the page CARRIES that colon, but `CANONICAL_STATS`'s
+   * hints (`statKeys.ts`) do NOT have it (they're language
+   * variants/abbreviations, not literal tokens straight from the PDF), so an
+   * exact comparison never matched for any label with a trailing colon —
+   * the author always had to type the key in by hand, even for well-known
+   * fields.
    */
   async #suggestCanonicalKey(labelText: string): Promise<string> {
     const { CANONICAL_STATS } = await import('@bindery/core');
@@ -1505,12 +1522,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   static readonly #DEFAULT_ATTACH_MAX_DISTANCE_PT = 400;
 
   /**
-   * [Korekta] Dodaje (albo odswieza) jedna pare etykieta-wartosc w slocie
-   * `'grid'` (Cechy, kotwica) albo `'derived'` (Pochodne, drugi labelledPairs)
-   * — TA SAMA logika co poprzednio, ale sparametryzowana slotem zamiast
-   * jednego dzielonego "aktywnego wzorca", zeby klikniecie na kazdej z tych
-   * dwoch zakladek trafialo do WLASCIWEGO wzorca (dokladnie zgloszony
-   * problem: "z widoku strony da się dodać tylko cechy").
+   * [Correction] Adds (or refreshes) one label-value pair in the `'grid'`
+   * slot (Traits, anchor) or the `'derived'` slot (Derived, the second
+   * labelledPairs) — the SAME logic as before, but parameterized by slot
+   * instead of one shared "active pattern", so clicking on each of these two
+   * tabs lands in the RIGHT pattern (exactly the reported problem: "from the
+   * page view you can only add traits").
    */
   async #addOrUpdateGridPair(slot: 'grid' | 'derived', labelText: string, value: string): Promise<void> {
     if (!this.#draft) return;
@@ -1525,11 +1542,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       if (slot === 'grid') {
         this.#activeGridPatternId = entry.id;
         if (!this.#draft.anchor) this.#draft.anchor = entry.id;
-        // [KROK-28, odkrycie] `createEmptyProfileDraft` nie tworzy ZADNEGO
-        // wzorca `fontRoleCandidate` (nazwa encji) — bez tego autor musialby
-        // wrocic do surowego JSON-a po niego, lamiac "zero przelaczania
-        // zakladek". Rozsadne wartosci domyslne (te same, ktorych uzywaja
-        // oba istniejace profile CoC7) tworzone razem z PIERWSZA siatka.
+        // [Step 28, discovery] `createEmptyProfileDraft` doesn't create ANY
+        // `fontRoleCandidate` pattern (the entity's name) — without it the
+        // author would have to go back to raw JSON to get one, breaking
+        // "zero tab-switching". Sensible default values (the same ones both
+        // existing CoC7 profiles use) are created together with the FIRST
+        // grid.
         if (!this.#draft.patterns.some((e) => e.pattern.kind === 'fontRoleCandidate' && e.id !== this.#draft!.typeLabelPattern)) {
           const nameEntry = createPatternDraft(
             'fontRoleCandidate',
@@ -1559,12 +1577,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Korekta] Klikniecie naglowka sekcji w slocie `'attacks'` (Ataki) albo
-   * `'skills'` (Umiejetnosci) — zakladka juz mowi, KTORA to sekcja, wiec (w
-   * odroznieniu od poprzedniej wersji) nie trzeba tego zgadywac z "brak
-   * kandydata na wartosc w poblizu". Tworzy (albo ponownie uzywa, jesli ten
-   * slot juz ma wzorzec) `sectionList`, dodaje regule dolaczenia do kotwicy,
-   * i wchodzi w "ognisko" przeciagania granicy.
+   * [Correction] Clicking a section header in the `'attacks'` slot (Attacks)
+   * or `'skills'` slot (Skills) — the tab already says WHICH section this
+   * is, so (unlike the previous version) there's no need to guess it from
+   * "no value candidate nearby". Creates (or reuses, if this slot already
+   * has a pattern) a `sectionList`, adds an attach rule to the anchor, and
+   * enters boundary-dragging "focus".
    */
   #startSectionFromHeader(slot: 'attacks' | 'skills', tok: IndexedSelectionToken): void {
     if (!this.#draft) return;
@@ -1592,36 +1610,37 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-29 Z1, sedno kroku] Klikniecie w fazie 3 (naglowek + granica juz
-   * ustawione) — WSKAZUJESZ, narzedzie WNIOSKUJE. `collectRowText` zbiera
-   * tekst calego wizualnego wiersza wokol klikniecia (zwykle to i tak caly
-   * tekst jednego tokenu — pdf.js czesciej niz nie skleja cala linie w jeden
-   * `TextItem`, zmierzone wprost na str. 23 "Zew Cthulhu 7ed. Wrak.pdf"), a
-   * `inferItemPatternFromExamples` dobiera i dostraja jeden z OGRANICZONEJ
-   * rodziny ksztaltow (brief: nigdy dowolny regex od podstaw) na podstawie
-   * WSZYSTKICH dotychczasowych przykladow dla TEGO wzorca — kolejne
-   * klikniecie moze wiec ROZSZERZYC rozpoznany ksztalt (zmierzone: "Walka
-   * wręcz 30%..." samo daje ksztalt procentowy, dopiero DRUGI przyklad
-   * "pałka 1K4+1K4" bez procentu dodaje druga galaz alternatywy i pałka
-   * zaczyna byc rozpoznawana jako osobna pozycja).
+   * [Step 29 Z1, the crux of this step] A click in phase 3 (header +
+   * boundary already set) — YOU POINT, the tool INFERS. `collectRowText`
+   * gathers the text of the whole visual row around the click (usually
+   * that's the full text of one token anyway — pdf.js more often than not
+   * fuses a whole line into one `TextItem`, measured directly on p. 23 "Zew
+   * Cthulhu 7ed. Wrak.pdf"), and `inferItemPatternFromExamples` picks and
+   * tunes one of a LIMITED family of shapes (per the brief: never an
+   * arbitrary regex from scratch) based on ALL the examples gathered so far
+   * for THIS pattern — so a subsequent click can EXTEND the recognized shape
+   * (measured: a percentage-based melee entry alone gives the
+   * percentage shape, only a SECOND example — a weapon-plus-dice entry
+   * without a percentage — adds a second alternative branch, and the
+   * weapon starts being recognized as a separate item).
    */
   async #addItemPatternExample(slot: 'attacks' | 'skills', entry: PatternEntryDraft, tok: IndexedSelectionToken, allTokens: readonly IndexedSelectionToken[]): Promise<void> {
     if (entry.pattern.kind !== 'sectionList') return;
     const { collectRowText, inferItemPatternFromExamples } = await import('@bindery/core');
     const rowIndex = allTokens.findIndex((t) => t.tokenIndex === tok.tokenIndex);
-    // [zgloszenie uzytkownika, "granica ustawiona, ale klikniecie przykladu
-    // (np. Walka wrecz) nic nie robi"] Dwa wczesniejsze `return` ponizej byly
-    // CALKOWICIE ciche — ten sam ksztalt bledu co juz raz naprawiony dla
-    // `#onNoteTokenClick` (patrz `notesPickFailedNoToken` i siostrzane klucze)
-    // — klikniecie, ktore z jakiegokolwiek powodu nie doda przykladu, MUSI
-    // powiedziec dlaczego, zamiast wygladac jak martwy przycisk. Dokladna
-    // przyczyna tego zgloszenia nie zostala jeszcze odtworzona wprost (brak
-    // dostepu do zywego Foundry w tej sesji) — te ostrzezenia sa wiec
-    // jednoczesnie naprawa UX (A3: nic nie ginie w ciszy) i diagnostyka na
-    // wypadek nawrotu (`rowText` puste = `collectRowText` nie znalazlo
-    // zadnego tekstu wokol klikniecia; brak `inferred` = przyklad ZOSTAL
-    // przyjety, ale zaden ze znanych ksztaltow itemPattern jeszcze do niego
-    // nie pasuje — inaczej niz calkowita cisza, oba stany sa teraz widoczne).
+    // [user report, "boundary is set, but clicking an example (e.g. Melee)
+    // does nothing"] The two earlier `return`s below were COMPLETELY
+    // silent — the same shape of bug already fixed once for
+    // `#onNoteTokenClick` (see `notesPickFailedNoToken` and its sibling
+    // keys) — a click that, for whatever reason, doesn't add an example
+    // MUST say why, instead of looking like a dead button. The exact cause
+    // of this report hasn't been reproduced directly yet (no access to a
+    // live Foundry instance in this session) — so these warnings are both a
+    // UX fix (A3: nothing disappears silently) and diagnostics in case it
+    // recurs (`rowText` empty = `collectRowText` found no text around the
+    // click; no `inferred` = the example WAS accepted, but none of the known
+    // itemPattern shapes matches it yet — unlike total silence, both states
+    // are now visible).
     if (rowIndex === -1) {
       ui.notifications?.warn(game.i18n!.localize('BINDERY.studio.itemExampleTokenNotFound' as never));
       return;
@@ -1644,7 +1663,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#refreshBuildPanel();
   }
 
-  /** [KROK-29 Z1] "Zacznij od nowa" dla przykladow itemPattern — NIE usuwa granicy/naglowka, WYLACZNIE nagromadzone przyklady i wygenerowany z nich wzorzec (recznie wpisany wzorzec pod "Zaawansowane" zostaje nietkniety, jesli autor sam go tam wpisal). */
+  /** [Step 29 Z1] "Start over" for itemPattern examples — does NOT remove the boundary/header, ONLY the accumulated examples and the pattern generated from them (a pattern manually typed under "Advanced" is left untouched, if the author typed it in there themselves). */
   #clearItemPatternExamples(entry: PatternEntryDraft): void {
     this.#itemPatternExamples.delete(entry.id);
     this.#itemPatternShape.delete(entry.id);
@@ -1652,11 +1671,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-28 Z1, wymog krytyczny, bez zmian od poprzedniej wersji] Odswieza
-   * WYLACZNIE zawartosc panelu budowania (i nakladke SVG) — NIGDY
-   * `this.render()`. Pelny render ApplicationV2 przebudowuje CALY szablon
-   * `.hbs` od zera, co gubi pozycje przewijania obu kolumn — dokladnie
-   * zgloszony problem (U1).
+   * [Step 28 Z1, critical requirement, unchanged from the previous version]
+   * Refreshes ONLY the build panel's contents (and the SVG overlay) — NEVER
+   * `this.render()`. A full ApplicationV2 render rebuilds the ENTIRE `.hbs`
+   * template from scratch, which loses both columns' scroll position —
+   * exactly the reported problem (U1).
    */
   #refreshBuildPanel(): void {
     this.#mountBuildPanel();
@@ -1664,7 +1683,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.#mountSectionBoundaryOverlay();
   }
 
-  /** [Korekta] Klikniecie tokenu na PDF-ie w domyslnym trybie budowania — jedyna droga budowania, TERAZ jednoznacznie kierowana aktywna zakladka zamiast zgadywana z geometrii. */
+  /** [Correction] Clicking a token on the PDF in the default build mode — the only way to build, NOW unambiguously routed by the active tab instead of guessed from geometry. */
   async #onBuildTokenClick(tok: IndexedSelectionToken, allTokens: readonly IndexedSelectionToken[]): Promise<void> {
     if (!this.#draft) return;
 
@@ -1676,7 +1695,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         await this.#addOrUpdateGridPair(slot, labelText, chosen.text);
         return;
       }
-      // Klikniecie POZA podswietlonymi kandydatami = rezygnacja — ten klik liczy sie jako NOWE klikniecie, ponizej.
+      // A click OUTSIDE the highlighted candidates = cancel — this click counts as a NEW click, below.
     }
 
     const tab = this.#state.buildTab;
@@ -1693,24 +1712,25 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#refreshBuildPanel();
         return;
       }
-      // Brak kandydata na wartosc -- na tej zakladce to NIE oznacza juz automatycznie "wiec to naglowek sekcji" (to bylo zrodlem niejednoznacznosci w poprzedniej wersji) -- po prostu nic tu nie ma do sparowania.
+      // No value candidate -- on this tab that no longer automatically means "so it must be a section header" (that was the source of ambiguity in the previous version) -- there's simply nothing here to pair.
       return;
     }
     if (tab === 'attacks' || tab === 'skills') {
       const currentId = tab === 'attacks' ? this.#activeAttackPatternId : this.#activeSkillsPatternId;
       const focus = this.#sectionBoundaryFocus;
       const entry = this.#draft.patterns.find((e) => e.id === currentId && e.pattern.kind === 'sectionList');
-      // [Korekta uzytkownika] Gdy naglowek tej sekcji jest juz "w ognisku" na
-      // TEJ stronie, KOLEJNE klikniecie (na cokolwiek innego niz sam token
-      // naglowka) NIE jest juz nowym naglowkiem. Trzy fazy, w tej kolejnosci:
-      // (1) brak naglowka -> to klikniecie NIM ZOSTAJE; (2) naglowek jest, ale
-      // `terminateSectionBefore` jeszcze nie -> to klikniecie ustawia granice
-      // (pierwszy element SPOZA sekcji, prostsze niz przeciaganie — ktore
-      // zostaje dostepne OBOK, `#sectionBoundaryFocus` nie jest czyszczone,
-      // wiec uchwyt na PDF-ie nadal sie rysuje); (3) granica JUZ ustawiona ->
-      // [KROK-29 Z1] to klikniecie to PRZYKLAD pozycji do wyuczenia
-      // `itemPattern` — brief wprost: "Po ustawieniu granicy sekcji panel
-      // mowi: Kliknij 2-3 przykladowe pozycje w tej sekcji".
+      // [User correction] Once this section's header is already "in focus"
+      // on THIS page, a SUBSEQUENT click (on anything other than the header
+      // token itself) is no longer a new header. Three phases, in this
+      // order: (1) no header -> this click BECOMES it; (2) header exists but
+      // `terminateSectionBefore` doesn't yet -> this click sets the boundary
+      // (the first item OUTSIDE the section, simpler than dragging — which
+      // remains available ALONGSIDE it, `#sectionBoundaryFocus` isn't
+      // cleared, so the handle keeps drawing on the PDF); (3) boundary
+      // ALREADY set -> [Step 29 Z1] this click is an EXAMPLE item to train
+      // `itemPattern` — the brief says it directly: "Once the section
+      // boundary is set, the panel says: Click 2-3 example items in this
+      // section".
       if (entry?.pattern.kind === 'sectionList' && focus && focus.patternId === currentId && focus.page === this.#state.currentPageNumber && tok.tokenIndex !== focus.headerTokenIndex) {
         if (!entry.pattern.terminateSectionBefore) {
           entry.pattern.terminateSectionBefore = escapeSectionBoundaryLiteral(tok.text);
@@ -1733,34 +1753,36 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Korekta, "Nazwa: wskazuje kandydata na nazwę istoty"] `fontRoleCandidate`
-   * dopasowuje po ROLI FONTU, nie po literalnym tekscie (w odroznieniu od
-   * `labelledPairs`/`sectionList`) — klikniecie NIE MOZE wiec wpisac
-   * dokladnie tego tekstu jako "akceptowana wartosc" tak jak dla etykiet.
-   * Zamiast tego: klikniecie sluzy jako TEST na PRAWDZIWYCH danych (jesli
-   * pelny przebieg juz istnieje dla tej strony, pokaz, czy TEN token zostal
-   * rozpoznany jako kandydat) i jako podpowiedz do jedynego parametru
-   * literalnie wywodliwego z klikniecia bez zmiany silnika: `maxLength`
-   * (jesli klikniety tekst jest dluzszy niz obecny limit, podnosi go).
+   * [Correction, "Name: points to a creature-name candidate"] `fontRoleCandidate`
+   * matches by FONT ROLE, not by literal text (unlike `labelledPairs`/
+   * `sectionList`) — so a click CANNOT insert this exact text as an
+   * "accepted value" the way it can for labels. Instead: the click serves as
+   * a TEST against REAL data (if a full scan already exists for this page,
+   * show whether THIS token was recognized as a candidate) and as a hint for
+   * the only parameter that can literally be derived from a click without
+   * changing the engine: `maxLength` (if the clicked text is longer than the
+   * current limit, it raises it).
    *
-   * [KROK-29 Z3] Drugi parametr wywodliwy z klikniecia: `fontKey` klikniętego
-   * tokenu dopisywany do `requireFontKeys` (jesli jeszcze go tam nie ma).
-   * Sama rola fontu ma fatalna precyzje (H2 kroku 12: 2401 kandydatow na 15
-   * encji) — klucz fontu zawezenia o rzad wielkosci, bo w odroznieniu od roli
-   * (rankingu per DOKUMENT) identyfikuje KONKRETNY kroj uzyty na nazwy.
-   * Kolejne klikniecia DODAJA alternatywy (kilka krojow uzywanych na nazwy w
-   * tej samej ksiazce), nigdy nie zastepuja. Reszta (`excludeRoles` i inne)
-   * zostaje pod "Ustawienia zaawansowane" — swiadomie NIE zmieniamy silnika
-   * dopasowan (brief, wprost).
+   * [Step 29 Z3] A second parameter derivable from a click: the clicked
+   * token's `fontKey`, appended to `requireFontKeys` (if not already there).
+   * The font role alone has terrible precision (H2 from step 12: 2401
+   * candidates for 15 entities) — the font key narrows this by an order of
+   * magnitude, because unlike the role (a ranking per DOCUMENT) it
+   * identifies the SPECIFIC typeface used for names. Subsequent clicks ADD
+   * alternatives (several typefaces used for names within the same book),
+   * never replace. The rest (`excludeRoles` and others) stays under
+   * "Advanced settings" — we deliberately do NOT change the matching engine
+   * (per the brief, explicitly).
    *
-   * [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Sparametryzowane
-   * `slot`iem, tak samo jak `#startSectionFromHeader` dla Ataki/Umiejetnosci —
-   * jedna zakladka "Nazwa", DWA niezalezne sloty `fontRoleCandidate` (nazwa +
-   * zawod/typ), kazdy z WLASNYM `requireFontKeys` (np. "John Calhoun," pogrubiony,
-   * "kapitan jachtu" kursywa — dwa rozne kroje w tej samej ksiazce odrozniaja
-   * pola, ktore wczesniej dzielily jeden wzorzec i konkurowaly o to samo pole).
-   * Slot `typeLabel` dodatkowo zapisuje `draft.typeLabelPattern`, tak samo jak
-   * `#startSectionFromHeader` zapisuje `draft.skillsPattern` dla Umiejetnosci.
+   * [Report after step 30, "Separating the name from the type/occupation"]
+   * Parameterized by `slot`, the same way as `#startSectionFromHeader` for
+   * Attacks/Skills — one "Name" tab, TWO independent `fontRoleCandidate`
+   * slots (name + occupation/type), each with its OWN `requireFontKeys`
+   * (e.g. "John Calhoun," bold, "yacht captain" italic — two different
+   * typefaces in the same book distinguish fields that used to share one
+   * pattern and compete for the same field). The `typeLabel` slot
+   * additionally saves `draft.typeLabelPattern`, the same way
+   * `#startSectionFromHeader` saves `draft.skillsPattern` for Skills.
    */
   async #onNameCandidateClick(slot: 'name' | 'typeLabel', tok: IndexedSelectionToken): Promise<void> {
     if (!this.#draft) return;
@@ -1793,19 +1815,20 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [ZGŁOSZENIE na żywo po naprawie draft-12, "Zawód: ma Wiek:"] Odrebny od
-   * `#warnIfClickedRoleIsExcluded` blad tej samej rodziny: autor kliknal
-   * SAMA ETYKIETE pola ("Zawód:"), nie jej wartosc — rola etykiety (`accent`)
-   * NIE jest wykluczona, wiec TAMTO ostrzezenie sie nie odpala, ale wzorzec
-   * fontRoleCandidate i tak nigdy nie zlapie WLASCIWEJ etykiety: kazda
-   * etykieta pola w tej samej ksiazce dzieli ten sam krok/role ("Wiek:",
-   * "Zawód:", skroty cech "S"/"KON"/...), wiec `nearestAbove` zawsze wygra
-   * ta GEOMETRYCZNIE najblizsza kotwicy, nie ta, na ktora autor kliknal.
-   * `fontRoleCandidate` jest zaprojektowany do lapania SAMODZIELNYCH naglowkow
-   * (imie, tytul potwora) — nie etykiet zakonczonych dwukropkiem, ktore z
-   * definicji naleza do `labelledPairs`. Sprawdzenie jest CZYSTO strukturalne
-   * (koniec ":" LUB dokladne dopasowanie do etykiety juz uzytej w KTORYMKOLWIEK
-   * `labelledPairs` w tym szkicu) — zero kosztu PDF, bo to juz mamy w pamieci.
+   * [Live report after the draft-12 fix, "Occupation: gets Age:"] A separate
+   * bug from the same family as `#warnIfClickedRoleIsExcluded`: the author
+   * clicked the field's LABEL ITSELF ("Occupation:"), not its value — the
+   * label's role (`accent`) is NOT excluded, so THAT warning doesn't fire,
+   * but the fontRoleCandidate pattern will still never catch the RIGHT
+   * label: every field label in the same book shares the same
+   * typeface/role ("Age:", "Occupation:", the trait abbreviations
+   * "STR"/"CON"/...), so `nearestAbove` will always win with whichever is
+   * GEOMETRICALLY closest to the anchor, not the one the author clicked.
+   * `fontRoleCandidate` is designed to catch STANDALONE headers (a name, a
+   * monster's title) — not colon-terminated labels, which by definition
+   * belong to `labelledPairs`. The check is PURELY structural (ends with ":"
+   * OR an exact match against a label already used in ANY `labelledPairs`
+   * in this draft) — zero PDF cost, since we already have this in memory.
    */
   #warnIfClickedTextLooksLikeFieldLabel(tok: IndexedSelectionToken): void {
     if (!this.#draft) return;
@@ -1817,21 +1840,23 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-39, zgloszenie na zywo, "Zawód: trafia w pole Zawód"] `fontRoleCandidate`
-   * ZAWSZE odrzuca role wymienione w `excludeRoles` (domyslnie `['body']`) —
-   * PRZED sprawdzeniem `requireFontKeys`. Klikniecie na przyklad, ktorego
-   * WLASNA rola fontu jest na tej liscie (np. wartosc pola "Zawód:" w tej
-   * ksiazce, zwykly styl `body`, nie wyroznik jak u NPC-ow), tworzy wzorzec,
-   * ktory NIGDY nie znajdzie NICZEGO — nie tylko tego jednego przykladu,
-   * KAZDEGO tokenu tej samej roli, bez wzgledu na `requireFontKeys`. Ten sam
-   * blad zdiagnozowany dopiero PO pelnym imporcie (Wrak.pdf, pole "Zawód"
-   * Badaczy) — zamiast czekac na "Sprawdz"/import, ostrzega NATYCHMIAST po
-   * klikniciu, bo wtedy autor jeszcze pamieta, na co dokladnie kliknal.
+   * [Step 39, live report, "Occupation: ends up matching the Occupation
+   * field"] `fontRoleCandidate` ALWAYS rejects roles listed in
+   * `excludeRoles` (default `['body']`) — BEFORE checking
+   * `requireFontKeys`. Clicking an example whose OWN font role is on that
+   * list (e.g. the value of the "Occupation:" field in this book, plain
+   * `body` style, not a distinguishing mark like NPCs have) creates a
+   * pattern that will NEVER find ANYTHING — not just this one example,
+   * EVERY token with the same role, regardless of `requireFontKeys`. This
+   * same bug was only diagnosed AFTER a full import (Wrak.pdf, the
+   * Investigators' "Occupation" field) — instead of waiting for
+   * "Check"/import, it warns IMMEDIATELY after the click, while the author
+   * still remembers exactly what they clicked.
    *
-   * [Koszt] `getFontRoleAwareTokensForPage` liczy PELNA inwentaryzacje
-   * dokumentu (ten sam koszt co `#refreshNotePreview`) — ale klikniecie
-   * przykladu Nazwy/Zawodu jest rzadkim, swiadomym dzialaniem autora (nie
-   * per-render/per-klatka), wiec ten sam kompromis kosztu co notatki.
+   * [Cost] `getFontRoleAwareTokensForPage` computes a FULL document
+   * inventory (the same cost as `#refreshNotePreview`) — but clicking a
+   * Name/Occupation example is a rare, deliberate author action (not
+   * per-render/per-frame), so it's the same cost tradeoff as notes.
    */
   async #warnIfClickedRoleIsExcluded(pattern: FontRoleCandidatePatternDraft, tok: IndexedSelectionToken): Promise<void> {
     if (!this.#pdfBuffer) return;
@@ -1855,9 +1880,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  /** [Korekta] Ostatnio klikniety token na zakladce Nazwa (tryb "Wskaż nazwę") — WYLACZNIE podglad w panelu, nigdy zapisywany w szkicu. */
+  /** [Correction] The last clicked token on the Name tab (mode "Point to name") — panel preview ONLY, never saved into the draft. */
   #namePreviewText: string | null = null;
-  /** [ZGŁOSZENIE po kroku 30] Jak wyzej, ale dla trybu "Wskaż zawód / typ" — osobne pole, zeby przelaczanie miedzy trybami nie nadpisywalo podgladu drugiego. */
+  /** [Report after step 30] As above, but for "Point to occupation / type" mode — a separate field, so switching between modes doesn't overwrite the other one's preview. */
   #typeLabelPreviewText: string | null = null;
 
   #mountBuildPanel(): void {
@@ -1966,11 +1991,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const h = document.createElement('h4');
     h.textContent = ProfileStudio.#unescapeBoundaryText(pattern.sectionHeader);
     section.appendChild(h);
-    // [KROK-37 Z2] Sam naglowek sekcji jest TEZ literalnym tokenem wzietym z
-    // JEDNEJ strony materialu — tej samej klasy ryzyko co `terminateSectionBefore`
-    // (patrz `#checkBoundaryGenericity`/`#checkLiteralGenericity`): jesli
-    // wystepuje wylacznie tam, gdzie autor go kliknal, sekcja nie rozpozna
-    // sie u zadnej innej postaci w ksiazce.
+    // [Step 37 Z2] The section header itself is ALSO a literal token taken
+    // from ONE page of material — the same class of risk as
+    // `terminateSectionBefore` (see `#checkBoundaryGenericity`/
+    // `#checkLiteralGenericity`): if it occurs only where the author clicked
+    // it, the section won't be recognized for any other character in the
+    // book.
     if (pattern.sectionHeader) {
       const headerGenericityWarn = document.createElement('p');
       headerGenericityWarn.className = 'notification error';
@@ -1985,23 +2011,25 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const boundaryText = pattern.terminateSectionBefore ? ProfileStudio.#unescapeBoundaryText(pattern.terminateSectionBefore) : null;
     status.textContent = boundaryText ? `${game.i18n!.localize('BINDERY.studio.buildSectionEndsAt' as never)}: ${boundaryText}` : game.i18n!.localize('BINDERY.studio.buildSectionNoBoundary' as never);
     section.appendChild(status);
-    // [KROK-29 Z5, zmierzony na zywo blad] Granica ktora wyszla jako pojedynczy
-    // znak ("^J$" zamiast "^Jørgen$") dopasuje sie PRZYPADKOWO gdziekolwiek w
-    // calej ksiazce -- ostrzez zamiast milczaco zapisac (brief kroku wprost).
+    // [Step 29 Z5, bug reproduced live] A boundary that ended up as a single
+    // character ("^J$" instead of "^Jørgen$") will match RANDOMLY anywhere
+    // in the whole book -- warn instead of silently saving it (per the
+    // step's brief, explicitly).
     if (boundaryText && boundaryText.trim().length < 2) {
       const warn = document.createElement('p');
       warn.className = 'notification error';
       warn.textContent = `${game.i18n!.localize('BINDERY.studio.buildSectionBoundarySuspicious' as never)} ("${boundaryText}")`;
       section.appendChild(warn);
     }
-    // [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] Granica
-    // dopasowujaca sie do tokenu SPOZA kolumny naglowka (typowo: kilkanascie
-    // wierszy prozy z sasiedniej lamy zassane do sekcji) jest sygnalem, ze
-    // cos jest nie tak, nawet gdy sama dlugosc tekstu granicy jest w porzadku
-    // (Z5 lapie WYLACZNIE przypadek pojedynczego znaku). Sprawdzenie wymaga
-    // tokenow strony (`#getBuildTokens`, asynchroniczne) — dopisywane do JUZ
-    // wyrenderowanego wiersza ostrzezenia, ten sam wzorzec co
-    // `#populateCanonicalKeyDatalist` nizej w tym pliku.
+    // [Bug reproduced live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] A boundary
+    // that matches a token OUTSIDE the header's column (typically: a dozen
+    // or so lines of prose from the neighboring column, sucked into the
+    // section) is a signal that something is wrong, even when the boundary
+    // text's length alone is fine (Z5 catches ONLY the single-character
+    // case). The check needs the page's tokens (`#getBuildTokens`,
+    // asynchronous) — appended to a warning row that's ALREADY rendered,
+    // the same pattern as `#populateCanonicalKeyDatalist` further down in
+    // this file.
     if (boundaryText) {
       const columnWarn = document.createElement('p');
       columnWarn.className = 'notification error';
@@ -2009,9 +2037,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       section.appendChild(columnWarn);
       void this.#checkBoundaryColumnMismatch(entry, columnWarn);
 
-      // [zgloszenie uzytkownika, "granica ustawiona na Sciapodzie zepsula
-      // Ataki Calhouna/Hansena"] Ten sam wzorzec renderowania co ostrzezenie
-      // o kolumnie powyzej — hidden <p>, wypelniany asynchronicznie.
+      // [user report, "boundary set on the Sciapod broke Calhoun's/Hansen's
+      // Attacks"] The same rendering pattern as the column warning above —
+      // a hidden <p>, filled in asynchronously.
       const genericityWarn = document.createElement('p');
       genericityWarn.className = 'notification error';
       genericityWarn.hidden = true;
@@ -2024,10 +2052,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       warn.textContent = game.i18n!.localize('BINDERY.studio.buildSectionNeedsItemPattern' as never);
       section.appendChild(warn);
     }
-    // [KROK-29 Z1] "Ksztalt pokazany zrozumiale, nie jako surowy regex" —
-    // WYLACZNIE gdy autor faktycznie klikal przyklady (dla recznie wpisanego
-    // pod "Zaawansowane" `itemPattern` nie ma z czego wywnioskowac ksztaltu,
-    // wiec nic tu sie nie pokazuje — pole samo w sobie zostaje dostepne tam).
+    // [Step 29 Z1] "Shape shown in a human-readable way, not as a raw
+    // regex" — ONLY when the author actually clicked examples (for a
+    // pattern typed by hand under "Advanced" there's nothing to infer the
+    // shape from, so nothing shows here — the field itself stays available
+    // there).
     const shape = this.#itemPatternShape.get(entry.id);
     if (shape) {
       const shapeRow = document.createElement('div');
@@ -2064,14 +2093,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] Granica
-   * dopasowujaca sie do tokenu SPOZA kolumny naglowka (dla ktorego zostala
-   * ustawiona) niemal na pewno oznacza, ze sekcja zassala tresc z sasiedniej
-   * lamy — ostrzez, zamiast pokazywac wynik jako poprawny (brief: "narzedzie
-   * mogloby to zauwazyc"). Uzywa `focus.page` (strona, na ktorej naglowek
-   * zostal kliknięty), NIE biezaco ogladanej strony — `terminateSectionBefore`
-   * to WSPOLNY regex dla calej ksiazki, ale sprawdzenie musi sie odbyc na
-   * KONKRETNEJ, znanej geometrii jednej strony.
+   * [Bug reproduced live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] A boundary that
+   * matches a token OUTSIDE the column of the header it was set for almost
+   * certainly means the section sucked in content from the neighboring
+   * column — warn instead of showing the result as correct (per the brief:
+   * "the tool could notice this"). Uses `focus.page` (the page where the
+   * header was clicked), NOT the page currently being viewed —
+   * `terminateSectionBefore` is a SHARED regex for the whole book, but the
+   * check must happen against the KNOWN, concrete geometry of one page.
    */
   async #checkBoundaryColumnMismatch(entry: PatternEntryDraft, warnEl: HTMLElement): Promise<void> {
     if (entry.pattern.kind !== 'sectionList' || !entry.pattern.terminateSectionBefore) return;
@@ -2097,52 +2126,52 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [zgloszenie uzytkownika, "Wrak.pdf": granica sekcji Ataki skalibrowana na
-   * Sciapodzie ("Chwyt i miażdżenie (manewr):" — WLASNY podnaglowek opisu
-   * JEGO ataku) zepsula Ataki Calhouna/Hansena — u nich ten tekst nigdy nie
-   * wystepuje, wiec sekcja nie miala gdzie sie zatrzymac i wchlonela cala
-   * ich liste Umiejetnosci jako falszywe pozycje ataku] `terminateSectionBefore`
-   * to JEDEN, wspolny regex dla WSZYSTKICH postaci w calej ksiazce (nie tylko
-   * tej, na ktorej autor akurat przeciaga granice) — token trafiony
-   * przeciagnieciem na JEDNEJ stronie moze byc idealnie trafny dla TEJ
-   * encji, a jednoczesnie kompletnie unikalny dla niej (podnaglowek jej
-   * WLASNEGO opisu, a nie generyczny naglowek typu "Umiejętności:", ktory
-   * powtarza sie identycznie po kazdej postaci). Sprawdza, czy ustawiona
-   * granica dopasowuje sie CHOCIAZ RAZ na KTOREJKOLWIEK innej stronie
-   * dokumentu — jesli nie trafia NIGDZIE poza strona, na ktorej zostala
-   * skalibrowana, to silny sygnal, ze jest zbyt specyficzna, zanim autor
-   * zapisze profil i odkryje to dopiero po zaimportowaniu innej postaci.
-   * Cache po (id wzorca + tekst granicy) — bez tego kazdy re-render panelu
-   * (kazde klikniecie na tej zakladce) powtarzalby przejscie po CALYM
-   * dokumencie od zera.
+   * [user report, "Wrak.pdf": the Attacks section boundary calibrated on the
+   * Sciapod ("Grapple and crush (maneuver):" — a subheading unique to
+   * ITS OWN attack description) broke Calhoun's/Hansen's Attacks — for
+   * them that text never occurs, so the section had nowhere to stop and
+   * swallowed their whole Skills list as fake attack items]
+   * `terminateSectionBefore` is ONE regex shared by ALL characters in the
+   * whole book (not just the one the author happens to be dragging the
+   * boundary on) — a token hit by a drag on ONE page can be a perfect match
+   * for THAT entity while also being completely unique to it (a subheading
+   * of its OWN description, rather than a generic header like "Skills:",
+   * which repeats identically after every character). Checks whether the
+   * set boundary matches AT LEAST ONCE on ANY other page of the document —
+   * if it matches NOWHERE outside the page it was calibrated on, that's a
+   * strong signal it's too specific, before the author saves the profile and
+   * only discovers it after importing a different character. Cached by
+   * (pattern id + boundary text) — without this, every panel re-render
+   * (every click on this tab) would repeat the pass over the WHOLE document
+   * from scratch.
    */
   #literalGenericityCache = new Map<string, boolean>();
 
   /**
-   * [KROK-37 Z2, rozszerzenie Kroku 36] Uogolniona wersja pierwszej wersji
-   * tej kontroli (WYLACZNIE `terminateSectionBefore`) — TEN SAM mechanizm
-   * (skanuj cala ksiazke, cache po wartosci) zastosowany do KAZDEGO pola
-   * wzorca przechowujacego literalny token wzieciony z materialu, nie tylko
-   * granicy sekcji: `sectionHeader`, `trailingWordsStopBefore`, i kazde
-   * kolejne tego rodzaju. Liczy, na ilu ROZNYCH stronach dokumentu podany
-   * regex trafia na choc jeden token — mniej niz dwie (tylko jedna strona,
-   * na ktorej autor go ustawil, albo wcale) jest sygnalem "prawdopodobnie
-   * zbyt specyficzne dla jednej encji/strony".
+   * [Step 37 Z2, an extension of Step 36] A generalized version of the first
+   * version of this check (`terminateSectionBefore` ONLY) — the SAME
+   * mechanism (scan the whole book, cache by value) applied to EVERY pattern
+   * field that stores a literal token taken from the material, not just the
+   * section boundary: `sectionHeader`, `trailingWordsStopBefore`, and any
+   * future field of this kind. Counts on how many DIFFERENT pages of the
+   * document the given regex matches at least one token — fewer than two
+   * (only the one page the author set it on, or none at all) is a signal
+   * that it's "probably too specific to a single entity/page".
    *
-   * [uproszczenie wzgledem pierwszej wersji] Nie wymaga znajomosci "strony
-   * kalibracji" (w Kroku 36 to byl `#sectionBoundaryFocus.page`, wykluczany
-   * z przeszukiwania) — liczenie WSZYSTKICH trafien (>=2, zamiast "trafienie
-   * GDZIEKOLWIEK POZA jedna znana strone") daje TEN SAM wynik dla pol
-   * pochodzacych z klikniecia (strona kalibracji zawsze trafia sama w sobie,
-   * wiec potrzeba >=1 wiecej = >=2 razem), a DODATKOWO dziala dla pol
-   * wpisywanych recznie bez zadnego sladu, ktora strona byla wzorcem
-   * (`trailingWordsStopBefore` — zwykly `<input>` pod "Zaawansowane", nie
-   * klikniecie na PDF-ie).
+   * [simplification relative to the first version] Doesn't need to know the
+   * "calibration page" (in Step 36 that was `#sectionBoundaryFocus.page`,
+   * excluded from the search) — counting ALL matches (>=2, instead of "a
+   * match ANYWHERE OTHER THAN one known page") gives the SAME result for
+   * fields that came from a click (the calibration page always matches
+   * itself, so you need >=1 more = >=2 total), and ADDITIONALLY works for
+   * fields typed in by hand with no trace of which page was the source
+   * (`trailingWordsStopBefore` — a plain `<input>` under "Advanced", not a
+   * click on the PDF).
    *
-   * `getCurrentValue` sprawdzane PO asynchronicznym skanie calego dokumentu
-   * — autor mogl w miedzyczasie zmienic wartosc / przelaczyc zakladke /
-   * usunac wzorzec; wynik z NIEAKTUALNEGO skanu nie moze nadpisac
-   * aktualnego stanu panelu.
+   * `getCurrentValue` is checked AFTER the asynchronous scan of the whole
+   * document — the author might have changed the value / switched tabs /
+   * removed the pattern in the meantime; a result from a STALE scan must not
+   * overwrite the panel's current state.
    */
   async #checkLiteralGenericity(cacheKeyPrefix: string, source: string, warnEl: HTMLElement, messageKey: string, getCurrentValue: () => string | undefined): Promise<void> {
     if (!this.#previewDocument || this.#previewDocument.pageCount <= 1) return;
@@ -2174,7 +2203,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!generic) warnEl.textContent = game.i18n!.localize(messageKey as never);
   }
 
-  /** [Krok 36] `terminateSectionBefore` — wlasny tekst komunikatu (mowi wprost o "granicy"), reszta deleguje do `#checkLiteralGenericity`. */
+  /** [Step 36] `terminateSectionBefore` — its own message text (speaks directly about the "boundary"), everything else delegates to `#checkLiteralGenericity`. */
   async #checkBoundaryGenericity(entry: PatternEntryDraft, warnEl: HTMLElement): Promise<void> {
     if (entry.pattern.kind !== 'sectionList' || !entry.pattern.terminateSectionBefore) return;
     await this.#checkLiteralGenericity(`terminateSectionBefore:${entry.id}`, entry.pattern.terminateSectionBefore, warnEl, 'BINDERY.studio.buildSectionBoundaryTooSpecific', () =>
@@ -2182,13 +2211,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     );
   }
 
-  // ---- [KROK-34 Z2] Zakladka "Notatki" — bloki prozy dolaczane geometrycznie ----
+  // ---- [Step 34 Z2] "Notes" tab — prose blocks attached geometrically ----
 
   /**
-   * [KROK-34 Z2] W odroznieniu od reszty zakladek (jeden wzorzec na slot),
-   * Notatki pokazuja LISTE niezaleznych blokow (`draft.notesPatterns`) plus
-   * przycisk dodania kolejnego — "Autor może wskazać więcej niż jeden [blok],
-   * z własną etykietą" (brief kroku 34).
+   * [Step 34 Z2] Unlike the rest of the tabs (one pattern per slot), Notes
+   * shows a LIST of independent blocks (`draft.notesPatterns`) plus a button
+   * to add another — "The author can point to more than one [block], each
+   * with its own label" (step 34's brief).
    */
   #buildNotesTabContent(): HTMLElement {
     const draft = this.#draft!;
@@ -2213,8 +2242,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       if (newEntry.pattern.kind === 'proseBlock') newEntry.pattern.label = game.i18n!.localize('BINDERY.studio.notesDefaultLabel' as never);
       draft.patterns.push(newEntry);
       draft.notesPatterns.push(newEntry.id);
-      // [Korekta wzorowana na innych zakladkach] Nowy blok od razu w trybie
-      // wskazywania — autor nie musi klikac "Wskaż przykład" osobno zaraz po dodaniu.
+      // [Correction modeled on the other tabs] A new block starts directly
+      // in pointing mode — the author doesn't have to click "Point to
+      // example" separately right after adding it.
       this.#notesPickPatternId = newEntry.id;
       this.#refreshBuildPanel();
     });
@@ -2222,7 +2252,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return wrap;
   }
 
-  /** [KROK-34 Z2] Jeden wiersz = jeden blok notatki: etykieta, przycisk wskazywania, usuwanie, status pomiaru, podglad per encja na biezacej stronie, "Zaawansowane" (limit dlugosci/promien wyszukiwania). */
+  /** [Step 34 Z2] One row = one note block: label, pointing button, delete, measurement status, per-entity preview on the current page, "Advanced" (length limit/search radius). */
   #buildNoteBlockRow(entry: PatternEntryDraft): HTMLElement {
     const row = document.createElement('div');
     if (entry.pattern.kind !== 'proseBlock') return row;
@@ -2287,14 +2317,15 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#numberInput(pattern.searchRadiusPt, (v) => (pattern.searchRadiusPt = v), { min: 1 }),
       ),
     );
-    // [ZGŁOSZENIE na zywo po Kroku 39, "Wrak.pdf" Badacze] Wlacz, gdy pola
-    // notatek ukladaja sie jedno pod drugim ze ZMIENNA dlugoscia miedzy nimi
-    // (np. rozna dlugosc biografii u roznych postaci przesuwa WSZYSTKIE
-    // kolejne pola) — patrz komentarz przy `chainFromPrevious` w `schema.ts`.
-    // Zmiana tego przelacznika wymaga PONOWNEGO klikniecia (`#onNoteTokenClick`
-    // liczy offset wzgledem INNEGO punktu odniesienia w zaleznosci od tej
-    // wartosci), wiec resetuje `measured`, zamiast zostawic stary pomiar,
-    // ktory po przelaczeniu wskazywalby zle miejsce.
+    // [Live report after Step 39, "Wrak.pdf" Investigators] Turn on when the
+    // note fields stack one under another with a VARIABLE gap between them
+    // (e.g. a biography of different length per character shifts ALL
+    // subsequent fields) — see the comment on `chainFromPrevious` in
+    // `schema.ts`. Changing this toggle requires clicking AGAIN
+    // (`#onNoteTokenClick` computes the offset relative to a DIFFERENT
+    // reference point depending on this value), so it resets `measured`
+    // instead of leaving the old measurement, which would point to the
+    // wrong place after toggling.
     details.appendChild(
       this.#checkboxInput(
         pattern.chainFromPrevious,
@@ -2306,12 +2337,13 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         game.i18n!.localize('BINDERY.studio.notesChainFromPrevious' as never),
       ),
     );
-    // [ZGŁOSZENIE na zywo, "zaznaczam tylko te dwa, a do nich wpisywane sa
-    // wszystkie informacje z tych akapitow"] Wlacz, gdy TEN blok ma zbierac
-    // WIECEJ niz do najblizszego podnaglowka — az do NASTEPNEGO naglowka
-    // TEGO SAMEGO stylu co klikniety przyklad (patrz `stopAtSameFontRole` w
-    // `schema.ts`). Nie wymaga ponownego pomiaru (nie zmienia PUNKTU
-    // odniesienia, tylko warunek zatrzymania), wiec `measured` zostaje.
+    // [Live report, "I only select these two, and all the information from
+    // those paragraphs gets written into them"] Turn on when THIS block
+    // should collect MORE than just up to the nearest subheading — all the
+    // way to the NEXT header of the SAME style as the clicked example (see
+    // `stopAtSameFontRole` in `schema.ts`). Doesn't require re-measuring
+    // (doesn't change the reference POINT, only the stop condition), so
+    // `measured` is left as-is.
     details.appendChild(
       this.#checkboxInput(
         pattern.stopAtSameFontRole,
@@ -2322,10 +2354,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         game.i18n!.localize('BINDERY.studio.notesStopAtSameFontRole' as never),
       ),
     );
-    // [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze, "Twoi przyjaciele" w osobnej
-    // kolumnie] Wlacz, gdy ten blok lezy w kolumnie NIEZALEZNEJ od dlugosci
-    // atakow/umiejetnosci — patrz `anchorGridOnly` w `schema.ts`. Zmienia
-    // punkt odniesienia, wiec (jak `chainFromPrevious`) resetuje `measured`.
+    // [Live report, "Wrak.pdf" Investigators, "Your friends" in a separate
+    // column] Turn on when this block sits in a column INDEPENDENT of the
+    // attacks/skills length — see `anchorGridOnly` in `schema.ts`. Changes
+    // the reference point, so (like `chainFromPrevious`) it resets `measured`.
     details.appendChild(
       this.#checkboxInput(
         pattern.anchorGridOnly,
@@ -2342,21 +2374,21 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return row;
   }
 
-  /** [KROK-34 Z2] Podglad tekstu, ktory TEN blok notatki znajduje dla kazdej encji na BIEZACEJ stronie — liczony WYLACZNIE na zadanie (nigdy automatycznie przy kazdym przerysowaniu, zeby nie petlic renderowania), przez PRAWDZIWY silnik (`analyzeProfilePage`, ten sam, ktory napedza pelny przebieg), nie wlasna, potencjalnie rozjezdzajaca sie kopie logiki dopasowania. */
-  // [ZGŁOSZENIE na żywo, "Historia Badacza łapie tylko pierwszy akapit,
-  // Twoi przyjaciele puste" — mimo poprawnie zmierzonego offsetu] Oba
-  // objawy mialy TA SAMA przyczyne: `stopAtSameFontRole` nie zostal
-  // zaznaczony — blok zaczynajacy sie na WLASNYM naglowku (`heading`)
-  // zatrzymuje sie na PIERWSZYM mniejszym podnaglowku (`accent`) w srodku
-  // (np. "Wygląd:"/kolejny wpis znajomego), zamiast przez niego przelecieć.
-  // Podglad juz POKAZYWAL prawdziwy (obciety/pusty) wynik od kroku 34 —
-  // problem byl WYLACZNIE w tym, ze nic nie tlumaczylo autorowi, CZEMU
-  // wynik jest taki krotki, ani gdzie szukac naprawy. Heurystyka: gdy
-  // znaleziony tekst jest ledwie dluzszy niz sama etykieta (czyli praktycznie
-  // sam naglowek, nic po nim) I `stopAtSameFontRole` jeszcze wylaczony —
-  // podpowiedz wprost, zamiast liczyc na to, ze autor sam zgadnie. Wspoldzielone
-  // przez podglad per-blok i odznake zakladki (`#computeTabBadge`), zeby oba
-  // zgadzaly sie co do tego, co znaczy "wyglada na obciete".
+  /** [Step 34 Z2] Preview of the text THIS note block finds for each entity on the CURRENT page — computed ONLY on request (never automatically on every redraw, to avoid a rendering loop), through the REAL engine (`analyzeProfilePage`, the same one that drives the full scan), not our own copy of the matching logic that could potentially drift out of sync. */
+  // [Live report, "Investigator History only catches the first paragraph,
+  // Your friends is empty" — despite a correctly measured offset] Both
+  // symptoms had the SAME cause: `stopAtSameFontRole` wasn't checked — a
+  // block starting at its OWN header (`heading`) stops at the FIRST smaller
+  // subheading (`accent`) partway through (e.g. "Appearance:"/the next
+  // acquaintance entry), instead of flying past it. The preview already
+  // SHOWED the real (truncated/empty) result since step 34 — the problem was
+  // ONLY that nothing explained to the author WHY the result was so short,
+  // or where to look to fix it. Heuristic: when the found text is barely
+  // longer than the label itself (i.e. practically just the header, nothing
+  // after it) AND `stopAtSameFontRole` is still off — hint at it directly,
+  // instead of relying on the author to guess. Shared between the per-block
+  // preview and the tab badge (`#computeTabBadge`), so both agree on what
+  // "looks truncated" means.
   static readonly #NOTE_TRUNCATION_MARGIN_CHARS = 15;
   #noteLooksTruncated(pattern: Extract<PatternDraft, { kind: 'proseBlock' }>, preview: { ordinal: number; text: string | null }[] | 'loading' | undefined): boolean {
     if (pattern.stopAtSameFontRole || !preview || preview === 'loading') return false;
@@ -2405,17 +2437,18 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-34 Z2] Waliduje BIEZACY szkic i liczy `analyzeProfilePage` WYLACZNIE
-   * dla biezacej strony — REALNY silnik, ale bez uruchamiania pelnego,
-   * wielostronicowego przebiegu (`#runFullScan`) tylko po to, zeby zobaczyc
-   * jeden podglad. Cichy powrot przy niepoprawnym szkicu — bledy walidacji i
-   * tak sa widoczne na zakladce "Sprawdz".
+   * [Step 34 Z2] Validates the CURRENT draft and runs `analyzeProfilePage`
+   * ONLY for the current page — the REAL engine, but without running the
+   * full, multi-page scan (`#runFullScan`) just to see one preview. Silently
+   * returns on an invalid draft — validation errors are visible on the
+   * "Check" tab anyway.
    *
-   * [Zmierzony na zywo blad] `#getBuildTokens` (Krok 23 Z6) CELOWO nie liczy
-   * `fontRole` — `proseBlock`/Krok-33 Z4 potrzebuja go do rozpoznania
-   * podnaglowkow, wiec podglad tutaj uzywa `getFontRoleAwareTokensForPage`
-   * (kosztowniejsze — pelna inwentaryzacja dokumentu — ale liczone WYLACZNIE
-   * na to klikniecie, nie przy kazdym przerysowaniu), patrz jej dokumentacja.
+   * [Bug reproduced live] `#getBuildTokens` (Step 23 Z6) DELIBERATELY
+   * doesn't compute `fontRole` — `proseBlock`/Step 33 Z4 need it to
+   * recognize subheadings, so the preview here uses
+   * `getFontRoleAwareTokensForPage` (more expensive — a full document
+   * inventory — but computed ONLY for this click, not on every redraw), see
+   * its documentation.
    */
   async #refreshNotePreview(patternId: string): Promise<void> {
     if (!this.#draft || !this.#pdfBuffer) return;
@@ -2437,10 +2470,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const { analyzeProfilePage, getFontRoleAwareTokensForPage } = await import('@bindery/core');
     const tokens = await getFontRoleAwareTokensForPage(this.#pdfBuffer, this.#state.currentPageNumber, { assetBaseUrl: ASSET_BASE_URL });
-    // [KROK-39 Z1/Z2] `result.profile` pochodzi z `draftToProfileInput(this.#draft)`
-    // (WYLACZNIE aktywna trasa, na korzeniu) — WYMUS trase `'npc'`, zeby
-    // `resolvePatternSetForRoute` rozwiazalo ja do TYCH wzorcow, niezaleznie
-    // od tego, ktora trasa jest faktycznie aktywna w edytorze (`#activeRoute`).
+    // [Step 39 Z1/Z2] `result.profile` comes from
+    // `draftToProfileInput(this.#draft)` (ONLY the active route, at the
+    // root) — FORCE the `'npc'` route, so `resolvePatternSetForRoute`
+    // resolves it to THESE patterns, regardless of which route is actually
+    // active in the editor (`#activeRoute`).
     const analysis = analyzeProfilePage(tokens, result.profile, this.#state.currentPageNumber, 'npc');
     const label = notePattern.label;
     this.#notesPreview.set(
@@ -2451,28 +2485,28 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-34 Z2] Klikniecie na zakladce "Notatki", WYLACZNIE gdy jakis blok
-   * czeka na wskazanie (`#notesPickPatternId`) — poza tym klikniecia na tej
-   * zakladce nic nie robia. Liczy `offset` (przesuniecie WZGLEDEM konca
-   * WLASNEJ tresci "wlascicielskiej" encji — `lastClaimedTokenBbox`, ta sama
-   * funkcja co prawdziwy silnik, patrz `proseBlock.ts`) i zapisuje go w
-   * szkicu; NIGDY nie zapamietuje literalnego tekstu (R2).
+   * [Step 34 Z2] A click on the "Notes" tab, ONLY when some block is waiting
+   * to be pointed at (`#notesPickPatternId`) — otherwise clicks on this tab
+   * do nothing. Computes `offset` (the shift RELATIVE to the end of the
+   * OWNING entity's OWN content — `lastClaimedTokenBbox`, the same function
+   * the real engine uses, see `proseBlock.ts`) and saves it into the draft;
+   * NEVER remembers the literal text (R2).
    *
-   * [Zmierzony na zywo blad, "Wrak.pdf" str. 24] `tok`/`allTokens` (parametry
-   * tej funkcji) pochodza z `#getBuildTokens` (klikalne prostokaty na PDF-ie)
-   * — CELOWO bez `fontRole` (Krok 23 Z6), wiec `matchSectionList`'s
-   * rozpoznawanie podnaglowkow (`fontRole === 'accent'`) i przez to CALY
-   * mechanizm Krok-33 Z4 (opisy pod atakami) milczaly, mimo poprawnego
-   * `offset` — zmierzone wprost: node'owy skrypt weryfikacyjny (Krok 34,
-   * `tokenizePage` z pelna inwentaryzacja) znajdowal notatke Sciapoda
-   * poprawnie, TA SAMA funkcja w Profile Studio (`#getBuildTokens`) — nie.
-   * Naprawa: `allTokens` (parametr) UZYWANY WYLACZNIE do namierzenia bboxa
-   * klikniętego tokenu (do niego fontRole jest bez znaczenia) — CALE
-   * dopasowanie geometrii liczone na SWIEZO pobranych, fontRole-aware
-   * tokenach (`getFontRoleAwareTokensForPage`), z dopasowaniem klikniętego
-   * tokenu PO BBOXIE (nie po `tok.tokenIndex` — dwie rozne tokenizacje moga
-   * dzielic/laczyc tokeny INACZEJ, wiec te same indeksy mogłyby wskazywac na
-   * rozne tokeny w kazdej z list).
+   * [Bug reproduced live, "Wrak.pdf" p. 24] `tok`/`allTokens` (this
+   * function's parameters) come from `#getBuildTokens` (the clickable
+   * rectangles on the PDF) — DELIBERATELY without `fontRole` (Step 23 Z6),
+   * so `matchSectionList`'s subheading recognition (`fontRole === 'accent'`)
+   * and, through it, the WHOLE Step-33 Z4 mechanism (descriptions under
+   * attacks) stayed silent, despite a correct `offset` — measured directly:
+   * a Node verification script (Step 34, `tokenizePage` with a full
+   * inventory) found the Sciapod's note correctly, the SAME function in
+   * Profile Studio (`#getBuildTokens`) did not. Fix: `allTokens` (the
+   * parameter) is used ONLY to locate the clicked token's bbox (fontRole
+   * doesn't matter for that) — the ENTIRE geometry matching is computed on
+   * FRESHLY fetched, fontRole-aware tokens (`getFontRoleAwareTokensForPage`),
+   * matching the clicked token BY BBOX (not by `tok.tokenIndex` — two
+   * different tokenizations can split/merge tokens DIFFERENTLY, so the same
+   * indices could point to different tokens in each list).
    */
   async #onNoteTokenClick(tok: IndexedSelectionToken, allTokens: readonly IndexedSelectionToken[]): Promise<void> {
     void allTokens;
@@ -2481,42 +2515,43 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const entry = this.#draft.patterns.find((e) => e.id === patternId);
     if (!entry || entry.pattern.kind !== 'proseBlock') return;
 
-    // Waliduje przez PRAWDZIWY schemat (`@bindery/core`), zeby dostac wzorce
-    // w ksztalcie, ktorego oczekuja `matchLabelledPairs`/`matchSectionList`
-    // (etykiety jako Record, nie lista draftu) — jedno zrodlo prawdy zamiast
-    // wlasnej, rownoleglej konwersji.
-    // [Zmierzony na zywo problem, zgloszenie uzytkownika "klikam, nic sie nie
-    // dzieje"] Wszystkie ponizsze wczesne wyjscia byly CALKOWICIE ciche —
-    // skopiowane z `#refreshNotePreview` (gdzie cichy powrot jest celowy,
-    // bo bledy walidacji i tak sa widoczne na zakladce "Sprawdz"), ale TU, w
-    // WLASCIWYM klikniciu mierzacym offset, brak jakiegokolwiek komunikatu
-    // wyglada jak calkowicie zepsuty przycisk — autor nie ma zadnego sposobu
-    // dowiedziec sie, ze np. szkic ma gdzie indziej blad walidacji, albo ze
-    // biezaca strona po prostu nie ma pasujacej siatki cech. Kazda galaz
-    // dostaje teraz wlasny, konkretny komunikat (`ui.notifications`).
+    // Validates through the REAL schema (`@bindery/core`), to get the
+    // patterns in the shape `matchLabelledPairs`/`matchSectionList` expect
+    // (labels as a Record, not the draft's list) — one source of truth
+    // instead of our own parallel conversion.
+    // [Problem reproduced live, user report "I click, nothing happens"] All
+    // the early returns below used to be COMPLETELY silent — copied from
+    // `#refreshNotePreview` (where a silent return is intentional, since
+    // validation errors are visible on the "Check" tab anyway), but HERE, in
+    // the actual click that measures the offset, having no message at all
+    // looks like a completely broken button — the author has no way to find
+    // out that, say, the draft has a validation error elsewhere, or that the
+    // current page simply has no matching trait grid. Every branch now gets
+    // its own, specific message (`ui.notifications`).
     const result = await validateActorProfileFile(draftToProfileInput(this.#draft));
     if (!result.ok) {
-      // [Zmierzony na zywo problem, zgloszenie uzytkownika: blad wystapil na
-      // szkicu, ktory — zapisany NATYCHMIAST przez ten sam `draftToProfileInput`
-      // ("Zapisz jako .json", zero walidacji/normalizacji po drodze) — po
-      // ponownym wczytaniu waliduje sie CZYSTO. Przyczyna zrodlowa pozostaje
-      // niezreprodukowana; zamiast zgadywac dalej, komunikat teraz NIESIE
-      // sam tresc bledu Zod (pierwszy z `result.issues`) plus pelna liste w
-      // konsoli (F12) — nastepnym razem da sie zdiagnozowac z PIERWSZEGO
-      // wystapienia, bez potrzeby odtwarzania przez zgadywanie.
+      // [Problem reproduced live, user report: the error occurred on a
+      // draft that — saved IMMEDIATELY through this same
+      // `draftToProfileInput` ("Save as .json", zero validation/
+      // normalization along the way) — validates CLEANLY after being
+      // reloaded. The root cause remains unreproduced; instead of
+      // guessing further, the message now CARRIES the actual Zod error text
+      // (the first of `result.issues`) plus the full list in the console
+      // (F12) — next time it'll be possible to diagnose from the FIRST
+      // occurrence, without having to reproduce it by guesswork.
       //
-      // [Zmierzony na zywo problem, zgloszenie uzytkownika: "dostaje warningi
-      // 'id: String must contain at least 1 character(s)'"] Ten SUROWY komunikat
-      // Zod jest bez znaczenia dla autora budujacego nowy profil od zera —
-      // `id`/`gameLine`/`language`/`title`/`publication` (5 pol ze `.min(...)`
-      // w `profileV2Schema`, patrz `schema.ts`) sa domyslnie puste
-      // (`createEmptyProfileDraft`) i NIE MAJA znaczenia dla samego
-      // dopasowania notatki — sa tylko metadanymi pliku. Gdy WSZYSTKIE
-      // biezace bledy naleza do tej piatki, komunikat wskazuje wprost, gdzie
-      // je uzupelnic (zwijany naglowek "Metadane i zakres stron" nad
-      // zakladkami), zamiast surowego tekstu walidatora.
+      // [Problem reproduced live, user report: "I get warnings 'id: String
+      // must contain at least 1 character(s)'"] This RAW Zod message means
+      // nothing to an author building a new profile from scratch —
+      // `id`/`gameLine`/`language`/`title`/`publication` (the 5 fields with
+      // `.min(...)` in `profileV2Schema`, see `schema.ts`) default to empty
+      // (`createEmptyProfileDraft`) and DON'T matter for the note matching
+      // itself — they're just file metadata. When ALL current errors belong
+      // to this set of five, the message points directly to where to fill
+      // them in (the collapsible "Metadata and page range" header above the
+      // tabs), instead of the raw validator text.
       const metadataIssue = ProfileStudio.#friendlyMetadataValidationMessage(result.issues);
-      console.warn('Bindery | Profile Studio: notatki, blad walidacji szkicu przy probie zmierzenia:', result.issues);
+      console.warn('Bindery | Profile Studio: notes, draft validation error while attempting to measure:', result.issues);
       ui.notifications?.warn(metadataIssue ?? `${game.i18n!.localize('BINDERY.studio.notesPickFailedInvalidProfile' as never)} (${result.issues[0] ?? '?'})`);
       return;
     }
@@ -2529,8 +2564,8 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const { matchLabelledPairs, matchSectionList, matchProseBlock, lastClaimedTokenBbox, lastClaimedTokenIndex, getFontRoleAwareTokensForPage } = await import('@bindery/core');
     const tokens = await getFontRoleAwareTokensForPage(this.#pdfBuffer, this.#state.currentPageNumber, { assetBaseUrl: ASSET_BASE_URL });
 
-    // Dopasowanie klikniętego tokenu w NOWO pobranej liscie po BBOXIE
-    // (najblizszy srodek) — patrz komentarz przy funkcji, dlaczego nie po indeksie.
+    // Matches the clicked token in the NEWLY fetched list BY BBOX (nearest
+    // center) — see the comment on this function for why not by index.
     let clickedIndex = -1;
     let bestDist = Infinity;
     const tcx = (tok.bbox.minX + tok.bbox.maxX) / 2;
@@ -2556,9 +2591,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
 
-    // "Wlascicielka" klikniecia: kotwica NAJBLIZSZA klikniętemu tokenowi W
-    // STRUMIENIU, ktora nie jest PO nim (ta sama zasada co reszta silnika —
-    // encja "posiada" wszystko od WLASNEJ kotwicy do poczatku NASTEPNEJ).
+    // The click's "owner": the anchor CLOSEST to the clicked token IN THE
+    // STREAM that isn't AFTER it (the same rule as the rest of the engine —
+    // an entity "owns" everything from its OWN anchor to the start of the
+    // NEXT one).
     const owningGrid = [...grids].reverse().find((g) => g.startIndex <= clickedIndex) ?? grids[0]!;
     const hardStopTokenIndices = grids.map((g) => g.startIndex);
 
@@ -2570,22 +2606,22 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const ownSkills = skillsMatches.filter((m) => m.headerTokenIndex >= owningGrid.startIndex).sort((a, b) => a.headerTokenIndex - b.headerTokenIndex)[0] ?? null;
 
     const fixedReferenceBbox = lastClaimedTokenBbox(tokens, { grid: owningGrid, attacks: ownAttacks, skills: ownSkills }, hardStopTokenIndices);
-    // [ZGŁOSZENIE na zywo, "Wrak.pdf" Badacze, "Twoi przyjaciele" w osobnej
-    // kolumnie, `anchorGridOnly`] Ta sama zasada co `chainFromPrevious`
-    // ponizej: klikniecie musi liczyc TAK SAMO, jak policzy silnik. Wariant
-    // BEZ atakow/umiejetnosci w punkcie odniesienia — patrz komentarz przy
-    // `anchorGridOnly` w `schema.ts`.
+    // [Live report, "Wrak.pdf" Investigators, "Your friends" in a separate
+    // column, `anchorGridOnly`] The same principle as `chainFromPrevious`
+    // below: the click has to compute the SAME way the engine will. The
+    // variant WITHOUT attacks/skills in the reference point — see the
+    // comment on `anchorGridOnly` in `schema.ts`.
     const fixedReferenceBboxGridOnly = lastClaimedTokenBbox(tokens, { grid: owningGrid }, hardStopTokenIndices);
     const fixedReferenceFor = (p: { anchorGridOnly?: boolean }) => (p.anchorGridOnly ? fixedReferenceBboxGridOnly : fixedReferenceBbox);
-    // [ZGŁOSZENIE na zywo po Kroku 39, "Wrak.pdf" Badacze, `chainFromPrevious`]
-    // Klikniecie MUSI liczyc offset WZGLEDEM TEGO SAMEGO punktu, ktorego
-    // silnik uzyje przy imporcie (`assembleStatblocksOnPage`) — inaczej
-    // zapisana wartosc dzialalaby na tej stronie (gdzie akurat kliknieto), ale
-    // nigdzie indziej. Gdy TEN wzorzec ma `chainFromPrevious`, powtarza wiec
-    // TU DOKLADNIE ten sam lancuch, co silnik: dopasowuje po kolei KAZDY
-    // wczesniejszy wzorzec `notesPatterns` na tej stronie (kazdy wzgledem
-    // WLASNEGO stalego/lancuchowego punktu, zaleznie od JEGO wlasnej flagi),
-    // koncowy bbox ostatniego udanego dopasowania jest punktem odniesienia.
+    // [Live report after Step 39, "Wrak.pdf" Investigators, `chainFromPrevious`]
+    // The click MUST compute the offset RELATIVE TO THE SAME point the
+    // engine will use on import (`assembleStatblocksOnPage`) — otherwise the
+    // saved value would work on this page (where it happened to be clicked),
+    // but nowhere else. When THIS pattern has `chainFromPrevious`, this code
+    // therefore replays EXACTLY the same chain the engine uses: it matches,
+    // in order, EVERY earlier `notesPatterns` pattern on this page (each
+    // relative to ITS OWN fixed/chained point, depending on ITS OWN flag),
+    // and the end bbox of the last successful match is the reference point.
     const referenceTokenIndex = lastClaimedTokenIndex(tokens, { grid: owningGrid, attacks: ownAttacks, skills: ownSkills }, hardStopTokenIndices);
     let referenceBbox = fixedReferenceFor(entry.pattern);
     if (entry.pattern.chainFromPrevious) {
@@ -2611,15 +2647,15 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     entry.pattern.offsetDxPt = Math.round((clickedToken.bbox.minX - referenceBbox.minX) * 100) / 100;
     entry.pattern.offsetDyPt = Math.round((clickedToken.bbox.minY - referenceBbox.minY) * 100) / 100;
     entry.pattern.measured = true;
-    // [zgloszenie uzytkownika, "klikam na Niewidzialność i sam dobiera nazwę"]
-    // Etykieta bloku to WOLNY TEKST WYSWIETLANY (nie bierze udzialu w
-    // dopasowaniu geometrycznym — R2 dotyczy WYLACZNIE offsetu), wiec
-    // podpowiedzenie jej z klikniętego tokenu nie lamie zasady "nigdy
-    // literalnej tresci" (ta zasada chroni MECHANIZM DOPASOWANIA, nie
-    // kosmetyczna nazwe widoczna tylko autorowi profilu). Podpowiadamy
-    // WYLACZNIE gdy autor jeszcze NIE nazwal bloku sam (puste albo wciaz
-    // domyslne "Opis"/"Description") — nie nadpisuje recznie wpisanej nazwy
-    // przy PONOWNYM klikniciu (np. poprawka offsetu).
+    // [user report, "I click on Invisibility and it picks the name itself"]
+    // The block's label is FREE, DISPLAYED TEXT (it doesn't participate in
+    // the geometric matching — R2 applies ONLY to the offset), so suggesting
+    // it from the clicked token doesn't break the "never literal content"
+    // rule (that rule protects the MATCHING MECHANISM, not a cosmetic name
+    // visible only to the profile's author). We suggest it ONLY when the
+    // author hasn't named the block themselves yet (empty, or still the
+    // default "Description") — it doesn't overwrite a manually typed name on
+    // a REPEATED click (e.g. an offset correction).
     const defaultLabel = game.i18n!.localize('BINDERY.studio.notesDefaultLabel' as never);
     if (!entry.pattern.label.trim() || entry.pattern.label === defaultLabel) {
       const suggested = clickedToken.text.replace(/:\s*$/, '').trim();
@@ -2631,12 +2667,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Jedna
-   * zakladka, DWA niezalezne tryby wskazywania — "Nazwa" i "Zawód/typ" sa
-   * dwoma aspektami TEJ SAMEJ encji, wskazywane zwykle jednym ciagiem klikniec
-   * (np. "John Calhoun" -> "kapitan jachtu"), wiec zostaja w jednej zakladce
-   * zamiast dwoch osobnych — w odroznieniu od Ataki/Umiejetnosci (dwie ODREBNE
-   * sekcje na stronie, kazda zasluguje na wlasna zakladke).
+   * [Report after step 30, "Separating the name from the type/occupation"]
+   * One tab, TWO independent pointing modes — "Name" and "Occupation/type"
+   * are two aspects of THE SAME entity, usually pointed at in a single
+   * sequence of clicks (e.g. "John Calhoun" -> "yacht captain"), so they
+   * stay on one tab instead of two separate ones — unlike Attacks/Skills
+   * (two SEPARATE sections on the page, each deserving its own tab).
    */
   #buildNameTabContent(): HTMLElement {
     const wrap = document.createElement('div');
@@ -2650,9 +2686,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     nameModeBtn.textContent = game.i18n!.localize('BINDERY.studio.nameSubModeName' as never);
     nameModeBtn.addEventListener('click', () => {
       this.#nameSubMode = 'name';
-      // Pelny render (nie `#refreshBuildPanel`) — zmiana trybu wplywa TEZ na
-      // znacznik zakladki "Nazwa" na pasku (`#computeTabBadge`), liczony w
-      // `_prepareContext`, nie tylko na sam panel budowania.
+      // A full render (not `#refreshBuildPanel`) — switching modes ALSO
+      // affects the "Name" tab's badge on the bar (`#computeTabBadge`),
+      // computed in `_prepareContext`, not just the build panel itself.
       void this.render();
     });
     modeRow.appendChild(nameModeBtn);
@@ -2688,16 +2724,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       summary.textContent = game.i18n!.localize('BINDERY.studio.advancedSettings' as never);
       details.appendChild(summary);
       details.appendChild(this.#buildFontRoleCandidateForm(entry.pattern));
-      // `nameConfidenceThreshold`/`namePlaceholder` dotycza WYLACZNIE rozwiazywania
-      // nazwy (`resolveEntityNames`) — `typeLabel` uzywa `attachNearest`, bez
-      // pojecia pewnosci/placeholdera (patrz `assembleStatblocks.ts`).
+      // `nameConfidenceThreshold`/`namePlaceholder` concern ONLY name
+      // resolution (`resolveEntityNames`) — `typeLabel` uses `attachNearest`,
+      // with no notion of confidence/placeholder (see `assembleStatblocks.ts`).
       if (!isTypeLabel) details.appendChild(this.#buildNameAssemblyFields());
       wrap.appendChild(details);
     }
     return wrap;
   }
 
-  /** [Korekta] `nameConfidenceThreshold`/`namePlaceholder` nie maja zadnego naturalnego odpowiednika "klikniecia" — zostaja pod Zaawansowane zakladki Nazwa, bo tematycznie tam naleza (dawniej: osobna sekcja `entityAssembly` w Edytorze). */
+  /** [Correction] `nameConfidenceThreshold`/`namePlaceholder` have no natural "click" equivalent — they stay under the Name tab's Advanced section, since that's where they belong thematically (formerly: a separate `entityAssembly` section in the Editor). */
   #buildNameAssemblyFields(): HTMLElement {
     const wrap = document.createElement('div');
     const draft = this.#draft!;
@@ -2711,7 +2747,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return wrap;
   }
 
-  /** [Korekta] Jeden wiersz reguly dolaczenia (strategia/dystans/Zmierz) dla WSKAZANEGO wzorca — bez listy/dropdownu "ktory wzorzec" (dawne `#buildAttachRuleRow`), bo w nowej architekturze kazdy slot ma DOKLADNIE jedna, automatycznie utworzona regule. */
+  /** [Correction] One attach-rule row (strategy/distance/Measure) for the GIVEN pattern — no "which pattern" list/dropdown (the old `#buildAttachRuleRow`), because in the new architecture every slot has EXACTLY one, automatically created rule. */
   #buildSingleAttachEditor(patternId: string): HTMLElement {
     const draft = this.#draft!;
     const wrap = document.createElement('div');
@@ -2740,10 +2776,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const anchorEntry = this.#findPattern(draft.anchor);
     const candidateEntry = this.#findPattern(patternId);
-    // [KROK-29 Z3, "przy okazji"] `fontRoleCandidate` (Nazwa) wlaczone od tego
-    // kroku — `measureAttachGeometry` (core) juz to obsluguje, wykluczenie
-    // bylo tylko tutaj (odkrycie #3 kroku 28: regula dolaczenia dla nazwy
-    // powstawala automatycznie ze STALYM, niezmierzonym `maxDistancePt`).
+    // [Step 29 Z3, "while we're at it"] `fontRoleCandidate` (Name) included
+    // as of this step — `measureAttachGeometry` (core) already supports it,
+    // the exclusion was only here (discovery #3 from step 28: the attach
+    // rule for the name used to be created automatically with a FIXED,
+    // unmeasured `maxDistancePt`).
     const canMeasure =
       this.#pdfBuffer !== null &&
       anchorEntry?.pattern.kind === 'labelledPairs' &&
@@ -2752,7 +2789,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return wrap;
   }
 
-  // ---- Panel calego dokumentu (zakladka "Sprawdz") -----------------------
+  // ---- Whole-document panel (the "Check" tab) -----------------------
 
   #mountDocumentPanel(doc: DocumentAnalysis | null): void {
     const container = this.element.querySelector<HTMLElement>('[data-list="studio-document"]');
@@ -2827,13 +2864,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       const td = document.createElement('td');
       td.textContent = String(p.matchCount);
       if (p.matchCount === 0) td.classList.add('bindery-studio-zero-count');
-      // [KROK-29 Z4, O3] "549 trafien przy trzech encjach pokazane tak samo
-      // neutralnie jak 3" — wzorzec `sectionList` (itemPattern) trafiajacy
-      // WIELOKROTNIE czesciej niz liczba encji jest PODEJRZANY, nie skuteczny
-      // (typowo zbyt luzny itemPattern lapiacy tez tresc spoza pozycji).
-      // WYLACZNIE `sectionList`: `fontRoleCandidate` z zalozenia ma wielu
-      // kandydatow na token (H2 kroku 12 — to WEJSCIE do parowania
-      // geometrycznego, nie wynik), wysoka liczba tam jest NORMALNA, nie podejrzana.
+      // [Step 29 Z4, O3] "549 matches for three entities shown just as
+      // neutrally as 3" — a `sectionList` pattern (itemPattern) matching
+      // MANY TIMES more often than the entity count is SUSPICIOUS, not
+      // effective (typically an itemPattern that's too loose and also
+      // catches content outside the items). `sectionList` ONLY:
+      // `fontRoleCandidate` by design has many token candidates (H2 from
+      // step 12 — that's the INPUT to geometric pairing, not the result), a
+      // high count there is NORMAL, not suspicious.
       if (this.#isSuspiciousMatchCount(p)) {
         td.classList.add('bindery-studio-suspicious-count');
         td.title = game.i18n!.localize('BINDERY.studio.suspiciousMatchCountHint' as never);
@@ -2849,17 +2887,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-29 Z4] `draft-1`…`draft-5` -> nazwy zakladek, ktorymi je zbudowano
-   * ("Cechy"/"Ataki"/...) — te same identyfikatory, ktore autor JUZ widzi na
-   * kartach zakladek. Wzorzec spoza piatki slotow (nie powinien wystapic w tym
-   * UI) po prostu zostaje swoim surowym id — bezpieczny brak dzialania, nie blad.
+   * [Step 29 Z4] `draft-1`…`draft-5` -> the names of the tabs they were
+   * built with ("Traits"/"Attacks"/...) — the same identifiers the author
+   * ALREADY sees on the tab cards. A pattern outside the five slots
+   * (shouldn't occur in this UI) simply falls back to its raw id — a safe
+   * no-op, not a bug.
    *
-   * [ZGŁOSZENIE po kroku 30] Nazwa/zawod sprawdzane OSOBNO, PRZED petla po
-   * `BUILD_TABS`, WPROST po `#activeNamePatternId`/`#activeTypeLabelPatternId`
-   * — `#patternIdForTab('name')` zwraca WYLACZNIE ten slot, ktory akurat jest
-   * aktywnym trybem (`#nameSubMode`), wiec uzycie go tutaj mylnie nie
-   * rozpoznaloby jednego z dwoch wzorcow, zaleznie od tego, ktory tryb autor
-   * akurat ogladal w chwili wywolania tej funkcji.
+   * [Report after step 30] Name/occupation are checked SEPARATELY, BEFORE
+   * the loop over `BUILD_TABS`, DIRECTLY via
+   * `#activeNamePatternId`/`#activeTypeLabelPatternId` —
+   * `#patternIdForTab('name')` returns ONLY whichever slot is the currently
+   * active mode (`#nameSubMode`), so using it here would incorrectly fail to
+   * recognize one of the two patterns, depending on which mode the author
+   * happened to be viewing at the moment this function was called.
    */
   #patternDisplayName(patternId: string): string {
     if (patternId === this.#activeNamePatternId) return game.i18n!.localize('BINDERY.studio.nameSubModeName' as never);
@@ -2879,15 +2919,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return p.matchCount > this.#docAnalysis.totalEntities * ProfileStudio.#SUSPICIOUS_MATCH_RATIO;
   }
 
-  /** [KROK-29 Z4, O3/O4] Lista znalezionych encji CALEGO dokumentu — dla kazdej: nazwa albo placeholder, strona, kategoria (kompletna/z brakami/nienazwana), czego brakuje, przejscie do strony jednym kliknieciem. Zastepuje dawne agregaty-per-strone ("3 · 1 ostrzezenie"), z ktorych trzeba bylo samemu wywnioskowac, o KTORE trzy encje chodzi. */
+  /** [Step 29 Z4, O3/O4] A list of entities found across the WHOLE document — for each: name or placeholder, page, category (complete/with gaps/unnamed), what's missing, jump to the page with one click. Replaces the old per-page aggregates ("3 · 1 warning"), where you had to figure out yourself WHICH three entities were meant. */
   #buildDocEntityList(doc: DocumentAnalysis): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'bindery-studio-entity-list';
     for (const page of doc.pages) {
-      // [KROK-39 Z1] Dawne `page.isPregen` (binarne "pomin") zastapione przez
-      // `route`+`routeSupported` — strona MOZE byc pominieta z DWOCH innych
-      // powodow niz dawniej (trasa `playerCharacter` bez sekcji wzorcow W TYM
-      // profilu), wiec komunikat teraz nazywa WPROST, ktorej trasy dotyczy.
+      // [Step 39 Z1] The old `page.isPregen` (a binary "skip") replaced by
+      // `route`+`routeSupported` — a page CAN be skipped for TWO reasons
+      // other than before (the `playerCharacter` route without a pattern
+      // section IN THIS profile), so the message now names DIRECTLY which
+      // route it concerns.
       if (!page.routeSupported) {
         const row = document.createElement('div');
         row.className = 'bindery-diagnostic-row';
@@ -2908,15 +2949,15 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     unnamed: 'entityCategoryUnnamed',
   } as const;
 
-  /** [KROK-29 Z4] Odrebne od `#buildEntityRow` (panel encji na zakladce strony, ZUPELNIE inny ksztalt wiersza) — nazwa `Doc` podkresla, ze to widok CALEGO dokumentu (zakladka "Sprawdz"), nie jednej strony. */
+  /** [Step 29 Z4] Separate from `#buildEntityRow` (the entity panel on the page tab, a COMPLETELY different row shape) — the `Doc` name emphasizes that this is a view of the WHOLE document (the "Check" tab), not a single page. */
   #buildDocEntityRow(page: number, route: PageRoute, entity: EntityAnalysis): HTMLElement {
-    // [KROK-29 Z4] Ta sama definicja "z brakami" co juz istniejace
+    // [Step 29 Z4] The same "has gaps" definition as the already-existing
     // `pageSummaries.warningCount`/`fullCount` (`aggregateDocumentAnalysis`,
-    // `@bindery/core`) — `outOfRange`, NIE `match === null` — zeby liczby w
-    // pasku podsumowania i kategorie w tej liscie NIGDY sobie nie przeczyly.
-    // `match === null` BEZ `outOfRange` (wzorzec w ogole nie skonfigurowany
-    // dla tego profilu — np. brak `skillsPattern`) to NIE brak, to po prostu
-    // "ta czesc nie dotyczy tego profilu".
+    // `@bindery/core`) — `outOfRange`, NOT `match === null` — so the numbers
+    // in the summary bar and the categories in this list NEVER contradict
+    // each other. `match === null` WITHOUT `outOfRange` (the pattern isn't
+    // configured for this profile at all — e.g. no `skillsPattern`) is NOT a
+    // gap, it's simply "this part doesn't apply to this profile".
     const hasGap = Boolean(entity.derived.outOfRange || entity.attacks.outOfRange || entity.skills.outOfRange);
     const category: 'complete' | 'partial' | 'unnamed' = entity.name.kind !== 'confident' ? 'unnamed' : hasGap ? 'partial' : 'complete';
 
@@ -2924,11 +2965,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     row.className = `bindery-diagnostic-row bindery-studio-entity-row bindery-studio-entity-row-${category}`;
 
     const nameText = entity.name.kind === 'confident' ? entity.name.text : entity.name.placeholder;
-    // [KROK-29 Z4] Role pojeciowe (Pochodne/Ataki/Umiejetnosci), NIE literalne
-    // id wzorca — `entity.derived`/`.attacks`/`.skills` sa wynikami REGUL
-    // dolaczenia, nie niosa ze soba `patternId` uzytego wzorca, a id w tym
-    // UI to zwykle wygenerowane "draft-N", nie nazwane klucze — `#patternDisplayName`
-    // tutaj nie mialoby czego znalezc.
+    // [Step 29 Z4] Conceptual roles (Derived/Attacks/Skills), NOT literal
+    // pattern ids — `entity.derived`/`.attacks`/`.skills` are the RESULTS of
+    // attach rules, they don't carry the `patternId` of the pattern used,
+    // and ids in this UI are usually generated "draft-N", not named keys —
+    // `#patternDisplayName` would have nothing to find here.
     const missing: BuildTab[] = [];
     if (entity.derived.match === null) missing.push('derived');
     if (entity.attacks.match === null) missing.push('attacks');
@@ -2943,10 +2984,10 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     pageEl.className = 'hint';
     pageEl.textContent = `${game.i18n!.localize('BINDERY.studio.pageLabel' as never)} ${page}`;
     header.appendChild(pageEl);
-    // [KROK-39 Z2] Znacznik trasy — "Sprawdz" miesza encje OBU tras w
-    // jednej liscie (auto-routowane per strona), wiec kazdy wiersz musi
-    // WPROST nazywac, ktorej trasy dotyczy (brief: "Podgląd i Sprawdź muszą
-    // pokazywać, której trasy dotyczą").
+    // [Step 39 Z2] Route tag — "Check" mixes entities from BOTH routes in
+    // one list (auto-routed per page), so every row must DIRECTLY name
+    // which route it concerns (per the brief: "Preview and Check must show
+    // which route they concern").
     const routeEl = document.createElement('span');
     routeEl.className = `bindery-studio-route-tag bindery-studio-route-tag-${route}`;
     routeEl.textContent = this.#routeLabel(route);
@@ -2967,17 +3008,18 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     row.addEventListener('click', () => {
       this.#state.currentPageNumber = page;
       this.#state.buildTab = 'grid';
-      // [KROK-39 Z2] Przelacz na trase TEJ encji — bez tego skok z listy
-      // calego dokumentu na strone innej trasy niz akurat edytowana od razu
-      // pokazywalby komunikat "trasa niezgodna" (`#mountEntityPanel`) zamiast
-      // encji, ktora autor WLASNIE kliknal.
+      // [Step 39 Z2] Switch to THIS entity's route — without this, jumping
+      // from the whole-document list to a page on a route other than the
+      // one currently being edited would immediately show a "route
+      // mismatch" message (`#mountEntityPanel`) instead of the entity the
+      // author JUST clicked.
       this.#switchRoute(route);
       void this.render();
     });
     return row;
   }
 
-  // ---- [KROK-24 Z3] Weryfikacja mapowan mechanika ------------------------
+  // ---- [Step 24 Z3] Mechanic-mapping verification ------------------------
 
   #buildMechanicalCheckSection(doc: DocumentAnalysis): HTMLElement {
     const section = document.createElement('div');
@@ -3103,7 +3145,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  // ---- Elementy formularza — male pomocnicze budowniczowie ----------------
+  // ---- Form elements — small helper builders ----------------
 
   #formRow(labelText: string, input: HTMLElement): HTMLElement {
     const row = document.createElement('label');
@@ -3125,16 +3167,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-29 Z2, O2/O2-ciag dalszy] Wspolna budowa pola regexowego (input albo
-   * textarea) — walidacja SKLADNI na biezaco (`input`), zapis do szkicu
-   * dopiero na `change` (utrata fokusu/Enter). Przestaje "milczec": bledny
-   * regex dostaje CZYTELNY komunikat POD polem (nie tylko czerwona ramka —
-   * autor nie ma konsoli DevTools), a `\\d` (zapis skopiowany z pliku JSON,
-   * gdzie kazdy ukosnik jest podwojony) dostaje wprost podpowiedz z
-   * przyciskiem naprawy, zamiast ciche `Nothing to repeat` gdzies indziej.
-   * Zwraca `{ el, input }` zamiast SAMEGO pola — `el` (input + komunikaty)
-   * idzie do `#formRow`, `input` zostaje do przypadkow, gdzie wywolujacy
-   * musi ustawic wartosc programowo (przycisk 📍).
+   * [Step 29 Z2, O2/O2-continued] Shared construction of a regex field
+   * (input or textarea) — SYNTAX validation live (`input`), saved to the
+   * draft only on `change` (losing focus/Enter). Stops "staying silent": an
+   * invalid regex gets a READABLE message BELOW the field (not just a red
+   * border — the author doesn't have a DevTools console), and `\\d` (text
+   * copied from a JSON file, where every backslash is doubled) gets a direct
+   * hint with a fix button, instead of a silent `Nothing to repeat` somewhere
+   * else. Returns `{ el, input }` instead of JUST the field — `el` (input +
+   * messages) goes to `#formRow`, `input` remains for cases where the caller
+   * has to set the value programmatically (the 📍 button).
    */
   #buildRegexField(value: string, onChange: (v: string) => void, opts: { multiline: boolean }): { el: HTMLElement; input: HTMLInputElement | HTMLTextAreaElement } {
     const wrap = document.createElement('div');
@@ -3243,9 +3285,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return select;
   }
 
-  // ---- [Korekta] Nagłówek trwały: metadane i zakres stron ----------------
+  // ---- [Correction] Persistent header: metadata and page range ----------------
 
-  /** [Korekta] "Zakres stron i metadane nie zasługują na własną zakładkę — idą do zwijanego nagłówka nad zakładkami." Dosłownie reużyty formularz metadanych sprzed korekty. */
+  /** [Correction] "Page range and metadata don't deserve their own tab — they go into a collapsible header above the tabs." The metadata form is literally reused as-is from before the correction. */
   #mountMetadataHeader(): void {
     const container = this.element.querySelector<HTMLElement>('[data-metadata-header]');
     if (!container || !this.#draft) return;
@@ -3253,7 +3295,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     container.appendChild(this.#buildMetadataSection());
   }
 
-  /** [zgloszenie uzytkownika] Ten sam formularz co `#mountMetadataHeader` (`#buildMetadataSection` — jedno zrodlo prawdy dla pol/walidacji), zamontowany w kontenerze ekranu metadanych zamiast zwijanego naglowka ekranu budowania. */
+  /** [user report] The same form as `#mountMetadataHeader` (`#buildMetadataSection` — one source of truth for the fields/validation), mounted in the metadata screen's container instead of the build screen's collapsible header. */
   #mountMetadataScreen(): void {
     const container = this.element.querySelector<HTMLElement>('[data-metadata-screen]');
     if (!container || !this.#draft) return;
@@ -3275,21 +3317,22 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#formRow(game.i18n!.localize('BINDERY.studio.fieldMinScore' as never), this.#numberInput(draft.fingerprintMinScore, (v) => (draft.fingerprintMinScore = v), { min: 0, max: 1, step: 0.05 })),
     );
 
-    // [KROK-37 Z3, odkrycie kroku 36] Checkboxy `provides` (Actors/Scenes/
-    // Images/Journals) CELOWO ukryte — pole istnieje w schemacie i jest
-    // nadal zapisywane do pliku (`draftToProfileInput`, `draft.provides`
-    // ponizej CELOWO nietkniete: domyslnie `['actors']` z
-    // `createEmptyProfileDraft`, albo wartosc wczytana z pliku dla
-    // istniejacych profili), ale nie jest podlaczone do ZADNEJ sciezki
-    // importu — `resolve()`/`buildCompatibilityBanner` (§6.8, `@bindery/core`)
-    // istnieja i sa przetestowane, lecz nigdzie w `packages/module` nie sa
-    // wolane. Checkbox, ktory nic nie robi, uczy autora, ze interfejs klamie
-    // — odznaczy "Scenes", zobaczy, ze sceny i tak powstaja, i przestanie
-    // ufac pozostalym ustawieniom. Przywroc formularz (byl tu: span+row
-    // czterech checkboxow nad `draft.provides`), gdy `resolve()` zostanie
-    // faktycznie podlaczone w ekranie przegladu — osobny, wiekszy zakres
-    // (baner niezgodnosci §6.5, cztery warianty `reason`), NIE robic tego
-    // przy okazji tego kroku.
+    // [Step 37 Z3, a discovery from step 36] The `provides` checkboxes
+    // (Actors/Scenes/Images/Journals) are DELIBERATELY hidden — the field
+    // exists in the schema and is still saved to the file
+    // (`draftToProfileInput`, `draft.provides` below is DELIBERATELY left
+    // untouched: defaults to `['actors']` from `createEmptyProfileDraft`, or
+    // the value loaded from the file for existing profiles), but it isn't
+    // wired up to ANY import path — `resolve()`/`buildCompatibilityBanner`
+    // (§6.8, `@bindery/core`) exist and are tested, but aren't called
+    // anywhere in `packages/module`. A checkbox that does nothing teaches
+    // the author that the interface lies — they'll uncheck "Scenes", see
+    // that scenes get created anyway, and stop trusting the other settings.
+    // Restore the form (it used to be here: a span+row of four checkboxes
+    // over `draft.provides`) once `resolve()` is actually wired up in the
+    // review screen — a separate, larger scope (the incompatibility banner,
+    // §6.5, four `reason` variants), do NOT do this as a side effect of
+    // this step.
 
     section.appendChild(
       this.#checkboxInput(
@@ -3347,8 +3390,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     draft.pageRanges.forEach((range, i) => {
       const row = document.createElement('div');
       row.className = 'bindery-studio-page-range-row';
-      // [KROK-28 Z5, "Nigdy -1 w interfejsie"] Wewnetrznie `-1` znaczy "do
-      // konca dokumentu" — w formularzu to po prostu PUSTE pole "do".
+      // [Step 28 Z5, "Never -1 in the interface"] Internally `-1` means "to
+      // the end of the document" — in the form that's simply an EMPTY "to"
+      // field.
       const fromInput = this.#numberInput(range[0], (v) => (draft.pageRanges[i]![0] = Math.max(1, Math.trunc(v))), { min: 1 });
       row.appendChild(this.#formRow(game.i18n!.localize('BINDERY.studio.pageRangeFrom' as never), fromInput));
       const toInput = document.createElement('input');
@@ -3397,12 +3441,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     wrap.appendChild(this.#checkboxInput(p.onRepeatedLabel, (v) => (p.onRepeatedLabel = v), game.i18n!.localize('BINDERY.studio.fieldOnRepeatedLabel' as never)));
     wrap.appendChild(this.#checkboxInput(p.allowTrailingWords, (v) => (p.allowTrailingWords = v), game.i18n!.localize('BINDERY.studio.fieldAllowTrailingWords' as never)));
     wrap.appendChild(this.#formRow('trailingWordsStopBefore', this.#regexInput(p.trailingWordsStopBefore ?? '', (v) => (p.trailingWordsStopBefore = v || undefined)).el));
-    // [KROK-37 Z2] `trailingWordsStopBefore` jest wpisywane recznie (brak
-    // klikniecia na PDF-ie, wiec brak znanej "strony kalibracji"), ale to
-    // WCIAZ literalny token wzieciony z materialu — ta sama kontrola co
-    // `sectionHeader`/`terminateSectionBefore`, dziala tu identycznie, bo
-    // `#checkLiteralGenericity` liczy TRAFIENIA W CALYM dokumencie, nie
-    // wymaga znajomosci, ktora strona byla wzorcem.
+    // [Step 37 Z2] `trailingWordsStopBefore` is typed in by hand (no click
+    // on the PDF, so no known "calibration page"), but it's STILL a literal
+    // token taken from the material — the same check as
+    // `sectionHeader`/`terminateSectionBefore` applies here identically,
+    // because `#checkLiteralGenericity` counts MATCHES across the WHOLE
+    // document, and doesn't need to know which page was the source.
     if (p.trailingWordsStopBefore) {
       const trailingWarn = document.createElement('p');
       trailingWarn.className = 'notification error';
@@ -3449,17 +3493,16 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     pickBtn.addEventListener('click', () => {
       this.#pickTarget = {
         description: game.i18n!.localize('BINDERY.studio.pickLabelHint' as never),
-        // [zgloszenie uzytkownika, "dodaje sie pole ale bez nazwy... pole
-        // pancerz jest puste"] Ten pin (formularz "Zaawansowane") ustawial
-        // WYLACZNIE `entry.label`, NIGDY `entry.canonicalKey` — w
-        // odroznieniu od domyslnego trybu budowania (`#onBuildTokenClick`
-        // -> `#addOrUpdateGridPair`), ktory od razu proponuje klucz. Autor
-        // widzial poprawnie wypelniona etykiete ("Pancerz:"), ale PUSTY
-        // klucz kanoniczny — bez klucza silnik nigdy nie zapisuje wartosci
-        // do zadnego pola na karcie, wiec pancerz zostawal pusty mimo
-        // poprawnie dodanej etykiety. Ten sam mechanizm podpowiedzi co tam,
-        // TYLKO gdy klucz jest jeszcze pusty (nie nadpisuje recznego wyboru
-        // autora).
+        // [user report, "the field gets added but without a name... the
+        // armor field is empty"] This pin (the "Advanced" form) used to set
+        // ONLY `entry.label`, NEVER `entry.canonicalKey` — unlike the
+        // default build mode (`#onBuildTokenClick` -> `#addOrUpdateGridPair`),
+        // which suggests a key right away. The author saw a correctly
+        // filled-in label ("Armor:"), but an EMPTY canonical key — without a
+        // key the engine never writes a value into any field on the sheet,
+        // so armor stayed empty despite the label being added correctly.
+        // The same suggestion mechanism as there, ONLY when the key is still
+        // empty (doesn't overwrite the author's manual choice).
         apply: (text) => {
           entry.label = text;
           labelInput.value = text;
@@ -3567,20 +3610,21 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-40 Z2, na prosbe uzytkownika po naprawie "pistolet trafia do
-   * melee"] Klikniecie przykladowej broni dystansowej (📍 przy
-   * `rangedKeywords`) -> slowo kluczowe do zapisania w profilu, zamiast
-   * recznego wpisywania. `text` to CALY klikniety token (`PickTarget.apply`
-   * dostaje wylacznie tekst, bez `collectRowText`/indeksu tokenu — ta sama
-   * granica co pozostale przyciski 📍 w tym pliku, patrz `pickSectionHeaderHint`
-   * powyzej) — w tej ksiazce (i zwykle w tego typu ukladach, patrz komentarz
-   * przy `PICKABLE_MAX_LENGTH`/`isAttacksOrSkillsTab` w `#mountPickableTokens`)
-   * to i tak CALA pozycja ataku w jednym tokenie pdf.js. Jesli `itemPattern`
-   * juz cos rozpoznaje, wyciaga z niego SAMA grupe `name` (dokladnie tak samo,
-   * jak zrobilby to prawdziwy import) zamiast calego wiersza z procentem i
-   * obrazeniami; potem odcina nawiasowy dopisek kalibru/podtypu ("Broń Palna
-   * (pistolet .22)" -> "Broń Palna"), zeby slowo kluczowe pasowalo do KAZDEJ
-   * broni tej kategorii, nie tylko do kliknietego przykladu.
+   * [Step 40 Z2, at the user's request after fixing "pistol matches as
+   * melee"] Clicking a ranged-weapon example (📍 next to `rangedKeywords`)
+   * -> a keyword to save in the profile, instead of typing it by hand.
+   * `text` is the WHOLE clicked token (`PickTarget.apply` only gets text,
+   * no `collectRowText`/token index — the same limitation as the other 📍
+   * buttons in this file, see `pickSectionHeaderHint` above) — in this book
+   * (and usually in layouts of this kind, see the comment on
+   * `PICKABLE_MAX_LENGTH`/`isAttacksOrSkillsTab` in `#mountPickableTokens`)
+   * that's the WHOLE attack item in one pdf.js token anyway. If
+   * `itemPattern` already recognizes something, it extracts JUST the `name`
+   * group from it (exactly the way a real import would) instead of the
+   * whole row with the percentage and damage; then it strips a
+   * parenthesized caliber/subtype suffix ("Firearm (.22 pistol)" ->
+   * "Firearm"), so the keyword matches EVERY weapon of that category, not
+   * just the clicked example.
    */
   #extractRangedKeyword(pattern: Extract<PatternDraft, { kind: 'sectionList' }>, text: string): string {
     let keyword = text.trim();
@@ -3589,7 +3633,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         const m = new RegExp(pattern.itemPattern, 'u').exec(keyword);
         if (m?.groups?.['name']) keyword = m.groups['name'];
       } catch {
-        // itemPattern jeszcze niepoprawny (w trakcie edycji) -- uzyj calego klikniecia jak jest, ponizej.
+        // itemPattern is not yet valid (mid-edit) -- use the whole click as-is, below.
       }
     }
     return keyword
@@ -3598,7 +3642,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       .trim();
   }
 
-  /** [KROK-29 Z2] `itemPattern` z podgladem liczby trafien w sekcji na BIEZACO OGLADANEJ stronie — jedyne pole, ktore autor musi umiec przeczytac samodzielnie (Z1), wiec dostaje najwiecej natychmiastowej informacji zwrotnej. */
+  /** [Step 29 Z2] `itemPattern` with a live preview of the match count in the section on the CURRENTLY VIEWED page — the only field the author has to be able to read on their own (Z1), so it gets the most immediate feedback. */
   #buildItemPatternField(p: Extract<PatternDraft, { kind: 'sectionList' }>): HTMLElement {
     const field = this.#regexTextarea(p.itemPattern, (v) => (p.itemPattern = v));
     const countEl = document.createElement('p');
@@ -3610,7 +3654,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return field.el;
   }
 
-  /** Liczy trafienia `candidateItemPattern` (WARTOSC Z POLA, jeszcze niezapisana do szkicu) w sekcji `p` na biezaco ogladanej stronie — `matchSectionList` z `@bindery/core`, ta sama funkcja co prawdziwy przebieg, zeby liczba byla PRAWDZIWA, nie przyblizona. */
+  /** Counts matches of `candidateItemPattern` (the VALUE FROM THE FIELD, not yet saved to the draft) within section `p` on the currently viewed page — `matchSectionList` from `@bindery/core`, the same function the real scan uses, so the count is REAL, not approximate. */
   async #updateItemPatternMatchCount(candidateItemPattern: string, p: Extract<PatternDraft, { kind: 'sectionList' }>, countEl: HTMLElement): Promise<void> {
     if (!candidateItemPattern || !p.sectionHeader) {
       countEl.textContent = '';
@@ -3658,7 +3702,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     return wrap;
   }
 
-  /** [KROK-29 Z3] Lista kluczy fontu wyuczonych klikniecim (zakladka "Nazwa") — edytowalna i usuwalna, jak kazde inne pole "Zaawansowane". Puste = brak wpisow, zero zmiany w opisie pola (DoD: "pole opcjonalne"). */
+  /** [Step 29 Z3] The list of font keys learned by clicking (the "Name" tab) — editable and removable, like any other "Advanced" field. Empty = no entries, no change to the field's description (DoD: "optional field"). */
   #buildRequireFontKeysList(p: Extract<PatternDraft, { kind: 'fontRoleCandidate' }>): HTMLElement {
     const section = document.createElement('div');
     section.className = 'bindery-studio-build-section';
@@ -3725,7 +3769,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const median = r.distances[Math.floor(r.distances.length / 2)]!;
     const distText = document.createElement('p');
     distText.className = 'hint';
-    distText.textContent = `${game.i18n!.localize('BINDERY.studio.measureDistances' as never)}: min ${min.toFixed(0)}pt · mediana ${median.toFixed(0)}pt · max ${max.toFixed(0)}pt`;
+    distText.textContent = `${game.i18n!.localize('BINDERY.studio.measureDistances' as never)}: min ${min.toFixed(0)}pt · median ${median.toFixed(0)}pt · max ${max.toFixed(0)}pt`;
     box.appendChild(distText);
 
     const suggestion = document.createElement('p');
@@ -3789,20 +3833,20 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       const result = await measureAttachGeometryForDocument(this.#pdfBuffer, anchorPattern, candidatePattern, { assetBaseUrl: ASSET_BASE_URL });
       this.#measurements.set(rule, { state: 'done', result });
     } catch (err) {
-      console.warn('Bindery | Profile Studio: pomiar geometrii nieudany:', err);
+      console.warn('Bindery | Profile Studio: geometry measurement failed:', err);
       this.#measurements.set(rule, { state: 'error', message: game.i18n!.localize('BINDERY.studio.measureFailed' as never) });
     }
     this.#renderMeasurementResult(resultBox, rule);
   }
 
-  // ---- [KROK-23 Z6] Punkt zaczepienia: klik na stronie wypelnia pole -----
+  // ---- [Step 23 Z6] Anchor point: a click on the page fills in a field -----
 
   /**
-   * [KROK-23 Z6, KROK-28] Dwa tryby klikniecia tokenu na PDF-ie: (1) jawny
-   * `#pickTarget` (📍 z formularza zaawansowanego) — klikniecie wypelnia TO
-   * KONKRETNE pole; (2) domyslny tryb budowania (`#draft` istnieje, brak (1),
-   * select-area WYLACZONE) — klikniecie to JEDYNA droga budowania profilu,
-   * kierowana AKTYWNA ZAKLADKA (`#onBuildTokenClick`).
+   * [Step 23 Z6, Step 28] Two modes for clicking a token on the PDF: (1) an
+   * explicit `#pickTarget` (📍 from the advanced form) — the click fills in
+   * THAT SPECIFIC field; (2) the default build mode (`#draft` exists, no
+   * (1), select-area OFF) — the click is the ONLY way to build the profile,
+   * routed by the ACTIVE TAB (`#onBuildTokenClick`).
    */
   async #mountPickableTokens(): Promise<void> {
     const buildModeActive = !this.#pickTarget && this.#draft !== null && !this.#state.isSelectAreaMode && this.#state.buildTab !== 'check';
@@ -3815,57 +3859,60 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const { pdfRectToScreen } = await import('@bindery/core');
     const [tokens, box] = await Promise.all([this.#getBuildTokens(this.#state.currentPageNumber), this.#previewDocument.getPageBox(this.#state.currentPageNumber)]);
 
-    // [zmierzony na zywo problem] Wskazywane pola sa ZAWSZE krotkim,
-    // pojedynczym tokenem — zaden realny cel wskazywania nie jest calym
-    // zdaniem prozy. Prog liczony w PRAWDZIWYCH znakach, hojny wzgledem
-    // najdluzszych realnych celow.
+    // [Problem observed live] Fields to point at are ALWAYS a short, single
+    // token — no real pointing target is a whole sentence of prose. The
+    // threshold is counted in ACTUAL characters, generous relative to the
+    // longest real-world targets.
     //
-    // [zmierzony na zywo blad, str. 23 "Wrak.pdf", Calhoun] WYJATEK: przy
-    // wybieraniu przykladow itemPattern (zakladka Ataki/Umiejetnosci)
-    // pojedyncza pozycja bywa GENUINE JEDNYM tokenem dluzszym niz ten prog —
-    // "Walka wręcz (Bijatyka) 30% (15/6), obrażenia 1K3+1K4 lub" to
-    // ZMIERZONE WPROST 56 znakow (jednorazowy skrypt w Node repliku jacy
-    // `getPageTextTokens`+`mergeTouchingTokens`, ta sama tokenizacja co
-    // produkcyjna `#getBuildTokens`, usuniety po uzyciu), pdf.js NIE
-    // rozbil tej linii na wiecej tokenow. Prog dlugosci ukrywalby TAKI token
-    // calkowicie z nakladki — nie dawalby drugorzednego, krotszego fragmentu
-    // do klikniecia w zastepstwie, po prostu nie byloby czym kliknac tej
-    // pozycji (zgloszone na zywo: "klikam Walka wręcz, nic sie nie dzieje" —
-    // dokladnie ten objaw: brak prostokata = klikniecie nigdy nie dociera do
-    // ZADNEGO listenera, wiec nawet ostrzezenia w `#addItemPatternExample`
-    // milcza, bo nigdy nie zostaja wywolane).
+    // [Bug reproduced live, p. 23 "Wrak.pdf", Calhoun] EXCEPTION: when
+    // picking itemPattern examples (the Attacks/Skills tab) a single item
+    // can genuinely be ONE token longer than this threshold — "Melee
+    // (Brawl) 30% (15/6), damage 1d3+1d4 or" was MEASURED DIRECTLY at 56
+    // characters (a one-off Node script replicating
+    // `getPageTextTokens`+`mergeTouchingTokens`, the same tokenization as
+    // the production `#getBuildTokens`, removed after use); pdf.js did NOT
+    // split this line into more tokens. A length threshold would hide SUCH
+    // a token completely from the overlay — it wouldn't provide a
+    // secondary, shorter fragment to click instead, there simply would be
+    // nothing to click for that item (reported live: "I click Melee,
+    // nothing happens" — exactly this symptom: no rectangle = the click
+    // never reaches ANY listener, so even the warnings in
+    // `#addItemPatternExample` stay silent, since they're never triggered).
     //
-    // [Naprawa zawezenia] Poprzednia wersja ograniczala ten wyjatek do
-    // WASKIEJ "fazy 3" (naglowek+granica juz ustawione, na TEJ SAMEJ stronie,
-    // z dopasowaniem `patternId` co do joty) — cztery niezalezne warunki na
-    // ZYWYM, mutowalnym stanie, ktorych zadnego nie dalo sie zweryfikowac na
-    // zywo w tej sesji (brak dostepu do uruchomionego Foundry). Kazdy z nich,
-    // gdyby akurat NIE byl spelniony w momencie przerysowania (a nie tylko w
-    // momencie klikniecia granicy — te dwa momenty dzieli asynchroniczne
-    // `await`), cicho przywracal filtr dlugosci i kasowal jedyny klikalny
-    // prostokat dla pozycji, ktora akurat trzeba kliknac. Wyjatek dziala
-    // wiec teraz dla CALEJ zakladki Ataki/Umiejetnosci, niezaleznie od fazy —
-    // koszt to nieco wiecej klikalnych (dluzszych) kandydatow widocznych juz
-    // przy wskazywaniu naglowka/granicy (fazy 1-2), zysk to brak zaleznosci
-    // od czterech warunkow scigajacych sie z asynchronicznym przerysowaniem.
+    // [Fix for the narrowing] The previous version limited this exception to
+    // a NARROW "phase 3" (header+boundary already set, on THIS SAME page,
+    // with an exact `patternId` match) — four independent conditions on
+    // LIVE, mutable state, none of which could be verified live in this
+    // session (no access to a running Foundry instance). Each of them, if it
+    // happened NOT to hold at the moment of the redraw (not just at the
+    // moment the boundary was clicked — these two moments are separated by
+    // an asynchronous `await`), would silently restore the length filter and
+    // wipe out the only clickable rectangle for the very item that needed to
+    // be clicked. The exception now applies to the WHOLE Attacks/Skills tab,
+    // regardless of phase — the cost is a few more clickable (longer)
+    // candidates already visible while pointing at the header/boundary
+    // (phases 1-2), the payoff is no dependency on four conditions racing
+    // against an asynchronous redraw.
     const isAttacksOrSkillsTab = this.#state.buildTab === 'attacks' || this.#state.buildTab === 'skills';
-    // [KROK-34 Z2, ta sama klasa bledu co PICKABLE_MAX_LENGTH powyzej — krok
-    // 32] Poczatek bloku notatki bywa CALYM zdaniem prozy ("Niewidzialność:
-    // zdolność przestaje działać..." to jeden token dluzszy niz 40 znakow) —
-    // prog dlugosci ukrywalby dokladnie te tokeny, ktore autor MA kliknac.
+    // [Step 34 Z2, the same class of bug as PICKABLE_MAX_LENGTH above —
+    // step 32] The start of a note block can be a WHOLE sentence of prose
+    // ("Invisibility: the ability stops working..." is one token longer
+    // than 40 characters) — a length threshold would hide exactly the
+    // tokens the author IS SUPPOSED to click.
     const PICKABLE_MAX_LENGTH = 40;
-    // [Zmierzony na zywo blad, zgloszenie uzytkownika: "Wiecej niz jedna
-    // mozliwa wartosc... ale zadnej podswietlonej nie mam"] Kandydat wartosci
-    // dla Pochodnych bywa DLUGIM, scalonym przez pdf.js tokenem — liczba PLUS
-    // opis w jednym ("5, niezwykle gruba skóra. Pamiętaj, że obrażenia..." —
-    // dokladnie ksztalt, ktory KROK-34 Z1 mial obslugiwac) — dluzszym niz
-    // `PICKABLE_MAX_LENGTH`. Bez wyjatku ten token byl calkowicie usuwany z
-    // nakladki (zero prostokata do klikniecia), mimo ze komunikat
-    // `#pendingValueChoice` wprost mowil "kliknij podswietlona" — podswietlic
-    // nie bylo czego. Ten sam blad co juz naprawiony dla fazy przykladow
-    // itemPattern i zakladki Notatek (`isAttacksOrSkillsTab`/`buildTab ===
-    // 'notes'` ponizej) — teraz wyjatek obejmuje TEZ czas trwania wyboru
-    // niejednoznacznej wartosci, niezaleznie od aktywnej zakladki.
+    // [Bug reproduced live, user report: "More than one possible value...
+    // but I don't have any highlighted"] A value candidate for Derived can
+    // be a LONG token merged by pdf.js — a number PLUS a description in one
+    // ("5, unusually thick skin. Remember that damage..." — exactly the
+    // shape Step 34 Z1 was supposed to handle) — longer than
+    // `PICKABLE_MAX_LENGTH`. Without the exception, this token used to be
+    // completely removed from the overlay (zero rectangle to click), even
+    // though the `#pendingValueChoice` message said outright "click the
+    // highlighted one" — there was nothing to highlight. The same bug
+    // already fixed for the itemPattern-examples phase and the Notes tab
+    // (`isAttacksOrSkillsTab`/`buildTab === 'notes'` below) — now the
+    // exception ALSO covers the duration of choosing an ambiguous value,
+    // regardless of the active tab.
     const lengthFilterExempt = isAttacksOrSkillsTab || this.#state.buildTab === 'notes' || !!this.#pendingValueChoice;
     const pickableTokens = lengthFilterExempt ? tokens : tokens.filter((t) => t.text.length <= PICKABLE_MAX_LENGTH);
     const pendingCandidateIndices = new Set(this.#pendingValueChoice?.candidates.map((c) => c.tokenIndex) ?? []);
@@ -3908,9 +3955,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-28 Z3, bez zmian od poprzedniej wersji] Zasięg aktywnej sekcji jako
-   * obszar na PDF-ie, z przeciagalna dolna krawedzia. Rysuje WYLACZNIE gdy
-   * przegladana strona to strona, na ktorej kliknieto naglowek.
+   * [Step 28 Z3, unchanged from the previous version] The active section's
+   * extent as an area on the PDF, with a draggable lower edge. Draws ONLY
+   * when the page being viewed is the page where the header was clicked.
    */
   async #mountSectionBoundaryOverlay(): Promise<void> {
     const svg = this.element.querySelector<SVGSVGElement>('[data-overlay]');
@@ -3931,11 +3978,11 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const { pdfRectToScreen, screenRectToPdf, matchSectionList, findColumnBand, isWithinColumnBand } = await import('@bindery/core');
     const unionRect = (a: Rect, b: Rect): Rect => ({ minX: Math.min(a.minX, b.minX), maxX: Math.max(a.maxX, b.maxX), minY: Math.min(a.minY, b.minY), maxY: Math.max(a.maxY, b.maxY) });
     const box = await this.#previewDocument.getPageBox(this.#state.currentPageNumber);
-    // [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] Obszar
-    // sekcji rysowany PELNA szerokoscia strony (`box.box.minX`/`maxX`) na
-    // stronie dwulamowej obejmowal OBIE kolumny naraz (O5 z kroku 29,
-    // potwierdzone jako dotyczace KAZDEJ strony dwulamowej, nie tylko
-    // "dwoch postaci obok siebie") — zawezone do kolumny naglowka.
+    // [Bug reproduced live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] The section's
+    // area, drawn at the FULL page width (`box.box.minX`/`maxX`), used to
+    // span BOTH columns at once on a two-column page (O5 from step 29,
+    // confirmed to affect EVERY two-column page, not only "two characters
+    // side by side") — narrowed to the header's column.
     const columnBand = findColumnBand(allTokens, headerToken.bbox);
     const extentMinX = columnBand?.minX ?? box.box.minX;
     const extentMaxX = columnBand?.maxX ?? box.box.maxX;
@@ -3944,13 +3991,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#docAnalysis?.pages[this.#state.currentPageNumber - 1]?.entities.flatMap((e) => e.regions.filter((r) => r.kind === 'grid').map((r) => r.bbox)) ?? [];
 
     /**
-     * [KROK-29 Z1, "natychmiastowy podglad na PDF-ie"] Ktore pozycje w
-     * sekcji `itemPattern` zlapal, a ktore nie — liczone przez PRAWDZIWY
-     * silnik dopasowan (`matchSectionList`, ta sama funkcja co produkcyjny
-     * przebieg), nie wlasna, potencjalnie rozjezdzajaca sie kopie logiki
-     * granicy sekcji. Puste/niepoprawne `itemPattern` (autor jeszcze nie
-     * kliknal zadnego przykladu, albo edytuje recznie pod "Zaawansowane")
-     * po prostu nie rysuje nic tutaj — nie przerywa reszty overlayu.
+     * [Step 29 Z1, "instant preview on the PDF"] Which items in the section
+     * `itemPattern` caught, and which it didn't — computed by the REAL
+     * matching engine (`matchSectionList`, the same function the production
+     * scan uses), not our own, potentially drifting copy of the section
+     * boundary logic. An empty/invalid `itemPattern` (the author hasn't
+     * clicked any example yet, or is editing it by hand under "Advanced")
+     * simply draws nothing here — it doesn't interrupt the rest of the
+     * overlay.
      */
     let matchedItemRects: Rect[] = [];
     const unmatchedItemRects: Rect[] = [];
@@ -3980,7 +4028,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
           flushRun();
         }
       } catch {
-        /* itemPattern niepoprawny (edytowany recznie) -- brak podgladu, reszta overlayu rysuje sie normalnie */
+        /* itemPattern is invalid (edited by hand) -- no preview, the rest of the overlay draws normally */
       }
     }
 
@@ -3989,29 +4037,30 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       const height = img.naturalHeight || img.clientHeight;
       if (!width || !height) return;
 
-      // [Zmierzony na zywo blad] `Rect` w tym projekcie zyje w przestrzeni PDF
-      // (Y ROSNIE W GORE strony — potwierdzone wprost w `directionalDistance`,
-      // `entityAssembly.ts`: kandydat "ponizej" ma MNIEJSZY Y niz kotwica).
-      // Poprzednia wersja mylila to z konwencja ekranu (Y rosnie w dol) —
-      // efekt zmierzony na str. 23 "Zew Cthulhu 7ed. Wrak.pdf": obszar sekcji
-      // "Walka" rysowal sie NAD naglowkiem (siatka cech Johna Calhouna) zamiast
-      // pod nim. `extentMinY` to DOLNA granica PDF (mniejszy Y = nizej na
-      // stronie) — domyslnie dol strony (`box.box.minY`), albo GORNA krawedz
-      // znalezionego tokenu granicznego (`found.bbox.maxY`) — `headerToken.bbox.minY`
-      // (WLASNA dolna krawedz naglowka, wiekszy Y niz cokolwiek pod nim) jest
-      // GORNA granica calego zakresu.
+      // [Bug reproduced live] `Rect` in this project lives in PDF space (Y
+      // INCREASES TOWARD THE TOP of the page — confirmed directly in
+      // `directionalDistance`, `entityAssembly.ts`: a "below" candidate has a
+      // SMALLER Y than the anchor). The previous version confused this with
+      // screen convention (Y increases downward) — the effect, measured on
+      // p. 23 "Zew Cthulhu 7ed. Wrak.pdf": the "Combat" section's area
+      // rendered ABOVE the header (John Calhoun's trait grid) instead of
+      // below it. `extentMinY` is the LOWER PDF boundary (smaller Y = lower
+      // on the page) — defaults to the bottom of the page (`box.box.minY`),
+      // or the TOP edge of the found boundary token (`found.bbox.maxY`) —
+      // `headerToken.bbox.minY` (the header's OWN lower edge, a larger Y
+      // than anything below it) is the UPPER boundary of the whole extent.
       let extentMinY = box.box.minY;
       if (pattern.terminateSectionBefore) {
         try {
           const re = new RegExp(pattern.terminateSectionBefore, 'u');
-          // [Zmierzony na zywo blad] Ten sam zakres kolumn co reszta tego
-          // podgladu — token PASUJACY do granicy, ale lezacy w SASIEDNIEJ
-          // kolumnie (np. przypadkowe dopasowanie w prozie), nie powinien
-          // "ciagnac" podgladu poza wlasna kolumne naglowka.
+          // [Bug reproduced live] The same column range as the rest of this
+          // preview — a token that MATCHES the boundary but lies in the
+          // NEIGHBORING column (e.g. an accidental match within prose)
+          // shouldn't "drag" the preview outside the header's own column.
           const found = allTokens.find((t) => t.tokenIndex > headerToken.tokenIndex && re.test(t.text) && isWithinColumnBand(t.bbox, columnBand));
           if (found) extentMinY = found.bbox.maxY;
         } catch {
-          /* regex niepoprawny (edytowany recznie pod "Zaawansowane") -- rysuj do konca strony, nie przerywaj */
+          /* regex is invalid (edited by hand under "Advanced") -- draw to the end of the page, don't interrupt */
         }
       }
 
@@ -4068,11 +4117,12 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
         };
         this.#mountBuildPanel();
 
-        // [Zmierzony na zywo blad, ta sama przyczyna co wyzej] Przeciagniecie
-        // W DOL na ekranie musi DAWAC MNIEJSZY Y w przestrzeni PDF (Y rosnie w
-        // gore strony) — dolna granica przeciagniecia to `box.box.minY` (sam
-        // dol strony), gorna to `headerToken.bbox.minY` (wlasna dolna krawedz
-        // naglowka — nie da sie przeciagnac granicy NAD naglowek).
+        // [Bug reproduced live, the same cause as above] Dragging DOWN on
+        // screen must PRODUCE A SMALLER Y in PDF space (Y increases toward
+        // the top of the page) — the lower drag boundary is `box.box.minY`
+        // (the very bottom of the page), the upper one is
+        // `headerToken.bbox.minY` (the header's own lower edge — you can't
+        // drag the boundary ABOVE the header).
         const onMove = (ev: PointerEvent): void => {
           const overlayPt = this.#svgToOverlayPoint(svg, ev.clientX, ev.clientY);
           const pdfPt = screenRectToPdf({ minX: overlayPt.x, maxX: overlayPt.x + 1, minY: overlayPt.y, maxY: overlayPt.y + 1 }, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
@@ -4083,14 +4133,14 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
           const redrawn = drawExtent(candidateY, overlapping);
           g.append(redrawn.rect, redrawn.handle);
         };
-        // [naprawa zgloszonego bledu — recenzja calego designu] `cleanup`
-        // usuwa WSZYSTKIE trzy nasluchiwacze (nie tylko te "spodziewane" dla
-        // danej sciezki) — bez tego przerwany gest (`pointercancel` zamiast
-        // `pointerup`) zostawial `onMove`/`onUp` na `svg` NA ZAWSZE (ten sam
-        // `svg` przetrwa wielokrotne montowanie nakladki), gdzie mogly
-        // pozniej "wystrzelic" z zupelnie niepowiazanego zdarzenia na tym
-        // samym elemencie (np. konczac inne przeciagniecie) i cicho
-        // przestawic te granice sekcji.
+        // [Fix for a reported bug — a review of the whole design] `cleanup`
+        // removes ALL THREE listeners (not just the ones "expected" for a
+        // given path) — without this, an interrupted gesture
+        // (`pointercancel` instead of `pointerup`) used to leave
+        // `onMove`/`onUp` on `svg` FOREVER (the same `svg` survives multiple
+        // overlay mounts), where they could later "fire" from a completely
+        // unrelated event on the same element (e.g. finishing a different
+        // drag) and silently move this section boundary.
         const cleanup = (): void => {
           svg.removeEventListener('pointermove', onMove);
           svg.removeEventListener('pointerup', onUp);
@@ -4122,19 +4172,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [KROK-28 Z3] Koniec przeciagniecia -> token GEOMETRYCZNIE najblizszy
-   * puszczonej krawedzi staje sie `terminateSectionBefore`. Brak tokenu
-   * ponizej usuwa granice -- sekcja czyta do konca strumienia, poprawna
-   * odpowiedz, nie blad.
+   * [Step 28 Z3] End of drag -> the token GEOMETRICALLY closest to the
+   * released edge becomes `terminateSectionBefore`. No token below removes
+   * the boundary -- the section reads to the end of the stream, a valid
+   * answer, not a bug.
    *
-   * [Zmierzony na zywo blad, str. 23 "Zew Cthulhu 7ed. Wrak.pdf"] "Geometrycznie
-   * najblizszy PO Y" bez znajomosci kolumn na stronie dwulamowej czesto
-   * oznacza token PROZY Z SASIEDNIEJ KOLUMNY (ta sama wysokosc, zupelnie inna
-   * tresc) zamiast prawdziwego naglowka konczacego sekcje we WLASNEJ kolumnie
-   * — zgloszone wprost jako blad, nie waski przypadek (O5 z kroku 29
-   * potwierdzone jako dotyczace KAZDEJ strony dwulamowej). Szukanie zawezone
-   * do `findColumnBand` naglowka sekcji — na stronie jednolamowej pasmo
-   * obejmuje cala tresc, zero zmiany zachowania.
+   * [Bug reproduced live, p. 23 "Zew Cthulhu 7ed. Wrak.pdf"] "Geometrically
+   * closest by Y" without knowing the columns on a two-column page often
+   * means a PROSE token FROM THE NEIGHBORING COLUMN (same height, completely
+   * different content) instead of the real header ending the section in ITS
+   * OWN column — reported directly as a bug, not an edge case (O5 from step
+   * 29 confirmed to affect EVERY two-column page). The search is narrowed to
+   * the section header's `findColumnBand` — on a single-column page the band
+   * covers all the content, zero change in behavior.
    */
   async #commitSectionBoundary(entry: PatternEntryDraft, headerTokenIndex: number, finalPdfY: number): Promise<void> {
     this.#boundaryDrag = null;
@@ -4149,40 +4199,40 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#refreshBuildPanel();
   }
 
-  // ---- [KROK-24 Z1] Inferencja wzorca z zaznaczenia myszą (Cechy/Pochodne) ---
+  // ---- [Step 24 Z1] Pattern inference from a mouse selection (Traits/Derived) ---
 
   /**
-   * [Zmierzony na zywo blad, "zaznaczam obszar, ale trafiam dużo niżej niż
-   * statblock", pogorszone po pierwszej (cofnietej) probie naprawy przez CSS]
-   * `svg.getBoundingClientRect()` odzwierciedla FAKTYCZNY, WYRENDEROWANY
-   * rozmiar CSS elementu `<svg>` — ktory NIE MUSI pokrywac sie z rozmiarem
-   * faktycznie wyswietlanego obrazu strony (`.bindery-page-image`), bo
-   * `.bindery-page-overlay { width:100%; height:100% }` liczy sie wzgledem
-   * `.bindery-page-canvas-wrap` (kontener `flex:1; overflow:auto` — jego
-   * wlasny rozmiar to dostepne miejsce w panelu, NIE wysokosc obrazu dla
-   * wysokiej, przewijanej strony PDF). Reszta kodu (`#mountOverlay`/
-   * `#mountPickableTokens`) naprawia to NADPISUJAC `svg.style.width/height`
-   * na `img.clientWidth/clientHeight` PRZED rysowaniem — ale TYLKO gdy akurat
-   * dziala (np. `#mountPickableTokens` jawnie NIC nie rysuje, gdy
-   * `isSelectAreaMode` jest wlaczone, czyli DOKLADNIE wtedy, gdy uzytkownik
-   * probuje uzyc "Zaznacz obszar"). Naprawa: WYMUS TO SAMO nadpisanie TUTAJ,
-   * przy KAZDYM przeliczeniu punktu — niezaleznie od tego, czy jakakolwiek
-   * inna funkcja rysujaca zdazyla to juz zrobic. Bezpieczne (`img.clientWidth`
-   * ejst zawsze poprawny, niezalezny od przewijania rodzica) i tanie
-   * (przypisanie identycznej wartosci stylu, ktore juz tam jest, nie
-   * wymusza dodatkowego przeplywu ukladu poza tym, co i tak nastapi przy
-   * odczycie `getBoundingClientRect()` ponizej).
+   * [Bug reproduced live, "I select an area, but I land much lower than the
+   * statblock", made worse after a first (reverted) attempted fix via CSS]
+   * `svg.getBoundingClientRect()` reflects the ACTUAL, RENDERED CSS size of
+   * the `<svg>` element — which doesn't necessarily match the size of the
+   * actually displayed page image (`.bindery-page-image`), because
+   * `.bindery-page-overlay { width:100%; height:100% }` is computed relative
+   * to `.bindery-page-canvas-wrap` (a `flex:1; overflow:auto` container —
+   * its own size is the available space in the panel, NOT the image height
+   * for a tall, scrollable PDF page). The rest of the code
+   * (`#mountOverlay`/`#mountPickableTokens`) fixes this by OVERWRITING
+   * `svg.style.width/height` with `img.clientWidth/clientHeight` BEFORE
+   * drawing — but ONLY when it actually runs (e.g. `#mountPickableTokens`
+   * explicitly draws NOTHING when `isSelectAreaMode` is on, which is
+   * EXACTLY when the user is trying to use "Select area"). Fix: FORCE the
+   * SAME override HERE, on EVERY point calculation — regardless of whether
+   * any other drawing function has already done it. Safe (`img.clientWidth`
+   * is always valid, independent of the parent's scroll position) and cheap
+   * (assigning the same style value that's already there doesn't force an
+   * extra layout pass beyond what will happen anyway when reading
+   * `getBoundingClientRect()` below).
    *
-   * [Drugi, glebszy zmierzony blad] Z TEGO SAMEGO powodu (`#mountPickableTokens`
-   * jawnie NIC nie rysuje w trybie `isSelectAreaMode`) `viewBox` tez mogl
-   * NIGDY nie zostac ustawiony na swiezym elemencie `<svg>` (po pelnym
-   * renderze, ktory tworzy go od nowa, bez atrybutow) — `vb.width/height`
-   * wtedy to `0`, a `scaleX/scaleY` ponizej cichy spada na fallback `1`
-   * zamiast prawdziwej skali (~4-5x miedzy pikselami CSS a natywnymi
-   * pikselami PDF), przez co PRAWIE KAZDE przeciagniecie mapowalo sie w
-   * ciasny obszar kolo lewego-gornego rogu strony w przestrzeni PDF —
-   * gorzej niz zwykle przesuniecie, bo to blad SKALI, nie tylko przesuniecia.
-   * Ustawiany rowniez tutaj, z tych samych, zawsze wiarygodnych
+   * [A second, deeper bug reproduced live] For the SAME reason
+   * (`#mountPickableTokens` explicitly draws NOTHING in `isSelectAreaMode`),
+   * `viewBox` could ALSO NEVER get set on a fresh `<svg>` element (after a
+   * full render, which recreates it from scratch, with no attributes) —
+   * `vb.width/height` would then be `0`, and `scaleX/scaleY` below silently
+   * falls back to `1` instead of the real scale (~4-5x between CSS pixels
+   * and native PDF pixels), causing ALMOST EVERY drag to map into a tight
+   * area near the top-left corner of the page in PDF space — worse than a
+   * regular offset, because this is a SCALE bug, not just an offset one.
+   * Also set here, from the same, always-reliable
    * `img.naturalWidth/naturalHeight`.
    */
   #svgToOverlayPoint(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } {
@@ -4249,21 +4299,23 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
       void this.#onAreaSelected(screenRect);
     };
     svg.addEventListener('pointerup', finishDrag);
-    // [naprawa zgloszonego bledu — recenzja calego designu] Brakowalo tego,
-    // co `#wireSelectDrag` w ReviewScreen.ts ma explicite (z komentarzem):
-    // przerwany gest (`pointercancel`, np. gestem systemowym) nigdy nie
-    // wywolywal `finishDrag`, wiec `#dragState` i tymczasowy `<rect>`
-    // zostawaly osierocone w DOM na zawsze (kolejny `pointerdown` nadpisywal
-    // `#dragState` bez usuniecia starego elementu).
+    // [Fix for a reported bug — a review of the whole design] This was
+    // missing what `#wireSelectDrag` in ReviewScreen.ts has explicitly
+    // (with a comment): an interrupted gesture (`pointercancel`, e.g. from a
+    // system gesture) never triggered `finishDrag`, so `#dragState` and the
+    // temporary `<rect>` were left orphaned in the DOM forever (the next
+    // `pointerdown` would overwrite `#dragState` without removing the old
+    // element).
     svg.addEventListener('pointercancel', finishDrag);
   }
 
   /**
-   * [Korekta] "Obrysowanie obszaru dziala tak samo, tylko hurtowo" — WYLACZNIE
-   * na zakladkach Cechy/Pochodne (sekcje buduje sie geometrycznie, Z3, nie
-   * hurtowym zaznaczeniem — patrz `canSelectArea` w `_prepareContext`).
-   * Zaznaczenie bez zadnej wykrytej pary po prostu nie daje propozycji —
-   * sekcje NIE sa juz zgadywane z "0 par" jak w poprzedniej wersji.
+   * [Correction] "Drawing an area works the same way, just in bulk" — ONLY
+   * on the Traits/Derived tabs (sections are built geometrically, Z3, not
+   * by bulk selection — see `canSelectArea` in `_prepareContext`). A
+   * selection with no detected pair simply produces no proposal — sections
+   * are NO LONGER guessed from "0 pairs" the way they were in the previous
+   * version.
    */
   async #onAreaSelected(screenRect: Rect): Promise<void> {
     if (!this.#pdfBuffer || !this.#previewDocument) return;
@@ -4278,7 +4330,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     const box = await this.#previewDocument.getPageBox(this.#state.currentPageNumber);
     const pdfRect = screenRectToPdf(screenRect, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
 
-    // [Ta sama naprawa co #getBuildTokens] scalone, "cale slowo" tokeny -- bulk zaznaczenie obszaru nie powinno cierpiec na to samo rozbicie co pojedyncze klikniecie.
+    // [The same fix as #getBuildTokens] merged, "whole word" tokens -- bulk area selection shouldn't suffer from the same splitting as a single click.
     const allTokens = await this.#getBuildTokens(this.#state.currentPageNumber);
     const selected = allTokens.filter((t) => {
       const cx = (t.bbox.minX + t.bbox.maxX) / 2;
@@ -4287,18 +4339,19 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     });
 
     const pairs = inferLabelledPairsFromTokens(selected);
-    // [Zmierzony na zywo zgloszony brak] `pairs.length === 0` ustawialo
-    // `null` -- panel po prostu czyscil sie bez sladu, wiec autor widzial
-    // TYLKO znikniecie prostokata przeciagania, bez zadnej informacji o tym,
-    // CO poszlo nie tak (brak tokenow w zaznaczeniu? sa tokeny, ale nie
-    // uklad "etykieta-wartosc"?). Propozycja jest teraz ZAWSZE ustawiana (z
-    // ewentualnie PUSTA lista par) — `#mountSelectionProposal` pokazuje
-    // czytelny komunikat zamiast ciszy, wraz z surowym podgladem zaznaczonego
-    // tekstu, zeby autor od razu widzial, czy w ogole trafil w tresc.
-    // [zgloszenie uzytkownika, "Pancerz" bez sugestii klucza w panelu
-    // zaznaczenia] Ta sama podpowiedz co przy pojedynczym klikniecu etykiety
-    // (`#addOrUpdateGridPair`) — poprzednio ZAWSZE `''`, autor musial wpisac
-    // recznie nawet dobrze znane pola (np. "Pancerz" -> "armour").
+    // [Gap reproduced live and reported] `pairs.length === 0` used to set
+    // `null` -- the panel would simply clear without a trace, so the author
+    // saw ONLY the drag rectangle disappearing, with no information about
+    // WHAT went wrong (no tokens in the selection? tokens present, but not
+    // in a "label-value" layout?). A proposal is now ALWAYS set (possibly
+    // with an EMPTY list of pairs) — `#mountSelectionProposal` shows a
+    // readable message instead of silence, along with a raw preview of the
+    // selected text, so the author can immediately see whether they hit any
+    // content at all.
+    // [user report, "Armor" with no key suggestion in the selection panel]
+    // The same suggestion as for a single label click (`#addOrUpdateGridPair`)
+    // — previously ALWAYS `''`, the author had to type in even well-known
+    // fields by hand (e.g. "Armor" -> "armour").
     const suggestedCanonicalKeys = await Promise.all(pairs.map((p) => this.#suggestCanonicalKey(p.label)));
     this.#selectionProposal = {
       slot,
@@ -4398,8 +4451,9 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     void (async () => {
       for (const p of checked) await this.#addOrUpdateGridPair(proposal.slot, p.label, p.value);
-      // `#addOrUpdateGridPair` sugeruje klucz kanoniczny automatycznie — nadpisz
-      // WYLACZNIE jesli autor recznie zmienil podpowiedz w checkliscie.
+      // `#addOrUpdateGridPair` suggests the canonical key automatically —
+      // overwrite it ONLY if the author manually changed the suggestion in
+      // the checklist.
       const entry = this.#findPattern(proposal.slot === 'grid' ? this.#activeGridPatternId : this.#activeDerivedPatternId);
       if (entry?.pattern.kind === 'labelledPairs') {
         for (const p of checked) {

@@ -8,49 +8,53 @@ import { buildTextLayout } from './text/buildTextLayout.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 
 /**
- * [KROK-8 Z4/Z5] Entry point analogiczny do `inspectDocument` (faza 1) —
- * WYLACZNIE tutaj (nie w `packages/module`) otwieramy pdf.js i sklejamy
- * inwentaryzacje z ekstrakcja obrazow. Powod architektoniczny, nie stylistyczny:
- * `pdfjs-dist` jest zewnetrzny (`external`) we WSZYSTKICH konfiguracjach Vite w
- * tym repo (ryzyko I3 — leniwe ladowanie), a przekierowanie goleg specyfikatora
- * na prawdziwa sciezke (`output.paths` w `vite.config.ts`) jest skonfigurowane
- * WYLACZNIE w `packages/core`. Bezposredni `import('pdfjs-dist/...')` z
- * `packages/module` zostawilby goly specyfikator w zbudowanym kodzie — to
- * DOKLADNIE ten sam blad co "bare-specifier incident" z fazy 1 (RAPORT-FAZA-1.md),
- * zlapany tutaj przez `check:imports` PRZED wdrozeniem na prawdziwy Foundry.
+ * [Step 8 Z4/Z5] Entry point analogous to `inspectDocument` (phase 1) —
+ * pdf.js is opened ONLY here (not in `packages/module`), and inventory is
+ * stitched together with image extraction. An architectural reason, not a
+ * stylistic one: `pdfjs-dist` is external (`external`) in ALL Vite
+ * configurations in this repo (risk I3 — lazy loading), and the bare
+ * specifier redirect to the real path (`output.paths` in `vite.config.ts`)
+ * is configured ONLY in `packages/core`. A direct `import('pdfjs-dist/...')`
+ * from `packages/module` would leave a bare specifier in the built code —
+ * this is EXACTLY the same bug as the "bare-specifier incident" from phase
+ * 1 (RAPORT-FAZA-1.md), caught here by `check:imports` BEFORE deployment
+ * to real Foundry.
  *
- * `browserRegionRenderer`/`browserImageEncoder` to standardowe API webowe
- * (OffscreenCanvas), nie Foundry — ich uzycie tutaj nie lamie A1 (granica
- * dotyczy globali Foundry: `game`/`Hooks`/`foundry`/`ui`/`canvas`/`CONFIG`,
- * nie ogolnie "kodu przegladarkowego").
+ * `browserRegionRenderer`/`browserImageEncoder` are standard web APIs
+ * (OffscreenCanvas), not Foundry — using them here does not break A1 (the
+ * boundary concerns Foundry globals: `game`/`Hooks`/`foundry`/`ui`/`canvas`/`CONFIG`,
+ * not "browser code" in general).
  *
- * [KROK-8, odkrycie — PRAWDZIWA przegladarka, nie Node] Ten sam wzorzec co
- * `tools/calibrate-images.ts` (dwa oddzielne `getDocument()`, inwentaryzacja +
- * ekstrakcja) rzuca w prawdziwym Foundry `TypeError: Cannot perform Construct
- * on a detached ArrayBuffer` przy DRUGIM wywolaniu, mimo ze kazde wywolanie
- * tworzylo "swiezy" `new Uint8Array(data)`. Przyczyna: w przegladarce pdf.js
- * uzywa PRAWDZIWEGO Workera i TRANSFERUJE (nie kopiuje) bufor danych do watku
- * workera przy pierwszym `getDocument()` — to ODLACZA (detach) oryginalny
- * `ArrayBuffer` w watku glownym, wiec KAZDY kolejny widok nad TYM SAMYM
- * bazowym buforem (nawet nowy `Uint8Array`) jest juz nieuzywalny. To INNY
- * mechanizm niz udokumentowany w KROK-4 "buffer-reuse DataCloneError" pod
- * Node (tam fake-worker tez transferuje, ale w ramach tego samego procesu —
- * blad byl w PONOWNYM UZYCIU tej samej instancji Uint8Array, nie w samym
- * transferze/detach). Naprawa: `data.slice(0)` PRZED kazdym `getDocument()` —
- * tworzy NIEZALEZNA kopie bajtow, wiec detach jednej kopii nie wplywa na
- * oryginalny `data` ani na kolejne kopie.
+ * [Step 8, discovery — a REAL browser, not Node] The same pattern as
+ * `tools/calibrate-images.ts` (two separate `getDocument()` calls,
+ * inventory + extraction) throws in real Foundry `TypeError: Cannot
+ * perform Construct on a detached ArrayBuffer` on the SECOND call, even
+ * though each call created a "fresh" `new Uint8Array(data)`. Cause: in the
+ * browser, pdf.js uses a REAL Worker and TRANSFERS (does not copy) the
+ * data buffer to the worker thread on the first `getDocument()` call —
+ * this DETACHES the original `ArrayBuffer` in the main thread, so EVERY
+ * subsequent view over the SAME underlying buffer (even a new
+ * `Uint8Array`) is already unusable. This is a DIFFERENT mechanism than
+ * the one documented in Step 4 "buffer-reuse DataCloneError" under Node
+ * (there the fake worker also transfers, but within the same process —
+ * the bug was in REUSING the same Uint8Array instance, not in the
+ * transfer/detach itself). Fix: `data.slice(0)` BEFORE every
+ * `getDocument()` call — creates an INDEPENDENT copy of the bytes, so
+ * detaching one copy doesn't affect the original `data` or subsequent
+ * copies.
  */
 
 export interface ExtractImagesFromDocumentOptions extends BuildImageExtractionOptions {
-  /** Katalog bazowy assetow pdf.js — patrz `InspectOptions.assetBaseUrl`. */
+  /** pdf.js asset base directory — see `InspectOptions.assetBaseUrl`. */
   assetBaseUrl: string;
 }
 
 async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
   pdfjs.GlobalWorkerOptions.workerSrc = `${assetBaseUrl}pdf.worker.mjs`;
   return pdfjs.getDocument({
-    // `data.slice(0)` — kopia NIEZALEZNA od `data`, patrz komentarz nad plikiem
-    // (przegladarka transferuje/odlacza bufor do watku Workera per wywolanie).
+    // `data.slice(0)` — a copy INDEPENDENT from `data`, see the comment
+    // above the file (the browser transfers/detaches the buffer to the
+    // Worker thread per call).
     data: new Uint8Array(data.slice(0)),
     wasmUrl: `${assetBaseUrl}wasm/`,
     standardFontDataUrl: `${assetBaseUrl}standard_fonts/`,
@@ -58,12 +62,13 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
 }
 
 /**
- * [KROK-9 Z2] Bboksy blokow `body` (potok tekstu) grupowane po stronie — jedyny
- * punkt gdzie potok tekstu (`buildTextLayout`+`buildPageLayouts`) i potok
- * obrazow (`buildImageExtraction`) faktycznie sie spotykaja, JAWNIE przez
- * zwracana mape, nie przez stan globalny (brief KROK-9 Z2). Trzeci `getDocument()`
- * (osobny od inwentaryzacji/ekstrakcji) — patrz komentarz nad plikiem: kazde
- * uzycie pdf.js w przegladarce potrzebuje WLASNEJ niezaleznej kopii bajtow.
+ * [Step 9 Z2] Bboxes of `body` blocks (text pipeline) grouped by page — the
+ * only point where the text pipeline (`buildTextLayout`+`buildPageLayouts`)
+ * and the image pipeline (`buildImageExtraction`) actually meet, EXPLICITLY
+ * via the returned map, not via global state (Step 9 Z2 brief). A third
+ * `getDocument()` call (separate from inventory/extraction) — see the
+ * comment above the file: every use of pdf.js in the browser needs its OWN
+ * independent copy of the bytes.
  */
 async function buildBodyBlockBoxesByPage(
   data: ArrayBuffer,
@@ -81,10 +86,11 @@ async function buildBodyBlockBoxesByPage(
     perPage: inv.perPage,
   });
 
-  // `body` I `caption` — patrz odkrycie w `classify.ts` przy
-  // `TEXT_COVERAGE_DECORATION_THRESHOLD`: flavor-text na dekoracyjnym tle
-  // czesto ma font o roli `caption` (mniejszy/inny niz glowny `body`), nie
-  // dlatego, ze to podpis obrazu, tylko dlatego, ze jest blisko obrazu.
+  // `body` AND `caption` — see the discovery in `classify.ts` at
+  // `TEXT_COVERAGE_DECORATION_THRESHOLD`: flavor text on a decorative
+  // background often has a font with the `caption` role (smaller/different
+  // from the main `body`), not because it's an image caption, but simply
+  // because it's close to an image.
   const byPage = new Map<number, Rect[]>();
   for (const b of blocks) {
     if (b.kind !== 'body' && b.kind !== 'caption') continue;

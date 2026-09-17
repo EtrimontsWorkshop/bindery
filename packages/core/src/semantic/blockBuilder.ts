@@ -7,12 +7,12 @@ import type { TextLine } from '../layout/lineCluster.js';
 import type { StreamAngle } from '../text/types.js';
 
 /**
- * Scalanie linii w bloki semantyczne + klasyfikacja `BlockKind` (KROK-6 Z6,
- * MDD §5.2). Zamyka faze 2. Granice bloku: interlinia powyzej wielokrotnosci
- * TYPOWEJ dla danego fontu (wyliczonej z rozkladu tej strony, nie ze stalej),
- * wciecie pierwszej linii, zmiana dominujacego klucza fontu, granica
- * kolumny/pasma, krawedz regionu wektorowego (U3 — pierwsze realne uzycie
- * regionow wektorowych, patrz RAPORT-KROK-5/6.md).
+ * Merging lines into semantic blocks + `BlockKind` classification (Step 6
+ * Z6, MDD §5.2). Closes phase 2. Block boundaries: line spacing above a
+ * multiple TYPICAL for the given font (computed from this page's
+ * distribution, not a constant), first-line indent, a change of the
+ * dominant font key, a column/stream boundary, the edge of a vector region
+ * (U3 — the first real use of vector regions, see RAPORT-KROK-5/6.md).
  */
 
 export type BlockKind =
@@ -37,7 +37,7 @@ export interface SemanticBlock {
   lines: TextLine[];
   rawText: string;
   headingLevel?: number;
-  /** Ktora regula zlapala ten blok — MDD wymaga tego wprost dla debugowalnosci. */
+  /** Which rule caught this block — the MDD directly requires this for debuggability. */
   matchedRuleId?: string;
 }
 
@@ -47,28 +47,28 @@ export interface ImageBBoxOnPage {
 
 export interface BlockBuilderInput {
   pageNumber: number;
-  /** Wynik Z4 (buildReadingOrder) — juz w poprawnej kolejnosci czytania, z columnIndex ustawionym. */
+  /** The result of Z4 (buildReadingOrder) — already in correct reading order, with columnIndex set. */
   orderedLines: readonly OrderedLine[];
   fontRoles: ReadonlyMap<string, FontRole>;
-  /** Regiony wektorowe TEJ strony (z InventoryResult, krok 4). */
+  /** Vector regions of THIS page (from InventoryResult, step 4). */
   vectors: readonly VectorRegion[];
-  /** Bboxy obrazow TEJ strony (z InventoryResult, uproszczone do samego bbox). */
+  /** Image bboxes of THIS page (from InventoryResult, simplified to just the bbox). */
   images: readonly ImageBBoxOnPage[];
-  /** lineId -> 'header'|'footer' z Z5 — TYLKO linie faktycznie potwierdzone jako biegnace. */
+  /** lineId -> 'header'|'footer' from Z5 — ONLY lines actually confirmed as running elements. */
   runningElementKindByLineId: ReadonlyMap<string, 'header' | 'footer'>;
-  /** Kolumny TEJ strony (Z3) — uzywane przez `sidebar` do sprawdzenia "na uboczu ukladu kolumnowego". */
+  /** Columns of THIS page (Z3) — used by `sidebar` to check "off to the side of the column layout". */
   columns: readonly ColumnRegion[];
 }
 
-/** Interlinia POWYZEJ tej wielokrotnosci mediany dzieli blok (P1-podobna zasada: prog z danych, nie stala). */
+/** Line spacing ABOVE this multiple of the median splits a block (a P1-like rule: a threshold from the data, not a constant). */
 const LINE_GAP_BREAK_MULTIPLIER = 1.8;
 const MIN_GAP_SAMPLES_FOR_MEDIAN = 3;
-/** Wciecie pierwszej linii POWYZEJ tego progu (pt) traktowane jako sygnal nowego bloku/akapitu. */
+/** First-line indent ABOVE this threshold (pt) treated as a signal of a new block/paragraph. */
 const INDENT_BREAK_THRESHOLD_PT = 8;
-/** 5+ kropek lub kropek srodkowych pod rzad — podpis wypunktowania kropkowego (spisy tresci/tabele). */
+/** 5+ dots or middle dots in a row — the signature of a dot-leader (tables of contents/tables). */
 const DOT_LEADER_RE = /[.·]{5,}/;
 const MAX_TABLE_LINE_LENGTH = 40;
-/** [KROK-9 Z1a] Odstep POWYZEJ tej wielokrotnosci typowej interlinii liczy sie jako izolacja pionowa (naglowek). */
+/** [Step 9 Z1a] A gap ABOVE this multiple of the typical line spacing counts as vertical isolation (a heading). */
 const ISOLATION_GAP_MULTIPLIER = 1.5;
 
 interface LineWithContext {
@@ -83,7 +83,7 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
 }
 
-/** Odleglosc miedzy dwie kolejnymi liniami wzdluz osi czytania (przyblizona z crossAxisPosition — dziala dla 0°/90°/180°/270°). */
+/** Distance between two consecutive lines along the reading axis (approximated from crossAxisPosition — works for 0°/90°/180°/270°). */
 function lineGap(a: TextLine, b: TextLine): number {
   return Math.abs(a.crossAxisPosition - b.crossAxisPosition);
 }
@@ -100,20 +100,20 @@ function computeTypicalGap(lines: readonly OrderedLine[]): number {
   return median(gaps);
 }
 
-/** Pozycja "wzdluz osi czytania w poprzek" (indent) — dla 0°/180° to X, przyblizone przez minX bboxa. */
+/** The "across the reading axis" position (indent) — for 0°/180° this is X, approximated by the bbox's minX. */
 function lineIndent(line: TextLine): number {
   return line.bbox.minX;
 }
 
 function shouldBreak(prev: LineWithContext, curr: LineWithContext, typicalGap: number): boolean {
-  if (prev.ordered.line.columnIndex !== curr.ordered.line.columnIndex) return true; // granica kolumny
-  if (prev.ordered.streamAngle !== curr.ordered.streamAngle) return true; // granica pasma/strumienia
-  if (prev.fontKey !== curr.fontKey) return true; // zmiana dominujacego klucza fontu
+  if (prev.ordered.line.columnIndex !== curr.ordered.line.columnIndex) return true; // column boundary
+  if (prev.ordered.streamAngle !== curr.ordered.streamAngle) return true; // stream boundary
+  if (prev.fontKey !== curr.fontKey) return true; // change of dominant font key
   if (typicalGap > 0) {
     const gap = lineGap(prev.ordered.line, curr.ordered.line);
-    if (gap > typicalGap * LINE_GAP_BREAK_MULTIPLIER) return true; // interlinia powyzej wielokrotnosci typowej
+    if (gap > typicalGap * LINE_GAP_BREAK_MULTIPLIER) return true; // line spacing above the typical multiple
   }
-  if (Math.abs(lineIndent(curr.ordered.line) - lineIndent(prev.ordered.line)) > INDENT_BREAK_THRESHOLD_PT) return true; // wciecie
+  if (Math.abs(lineIndent(curr.ordered.line) - lineIndent(prev.ordered.line)) > INDENT_BREAK_THRESHOLD_PT) return true; // indent
   return false;
 }
 
@@ -149,7 +149,7 @@ function isNearImage(bbox: Rect, images: readonly ImageBBoxOnPage[]): boolean {
   return images.some((img) => rectsOverlap(bbox, img.bbox) || nearby(bbox, img.bbox));
 }
 
-/** "Sasiedztwo" luzniejsze niz scisle nakladanie — podpis jest zwykle TUZ obok obrazu, nie na nim. */
+/** "Proximity" looser than strict overlap — a caption is usually RIGHT next to an image, not on top of it. */
 function nearby(a: Rect, b: Rect): boolean {
   const margin = 20;
   const expanded: Rect = { minX: b.minX - margin, minY: b.minY - margin, maxX: b.maxX + margin, maxY: b.maxY + margin };
@@ -174,10 +174,11 @@ function dominantFontKey(lines: readonly TextLine[]): string {
 }
 
 /**
- * [KROK-9 Z1a] Czy grupa (przed klasyfikacja) jest jednolinijkowa i otoczona
- * wyraznym pustym marginesem powyzej I ponizej wzdluz osi czytania (typowy
- * ksztalt naglowka) — brak sasiada w tej samej kolumnie/pasmie liczy sie jako
- * izolacja (gora kolumny/pasma, MDD §5.2 tabela regul dla `accent`).
+ * [Step 9 Z1a] Whether a group (before classification) is single-line and
+ * surrounded by a clear empty margin above AND below along the reading
+ * axis (the typical shape of a heading) — the absence of a neighbor in the
+ * same column/stream counts as isolation (top of the column/stream, MDD
+ * §5.2 rule table for `accent`).
  */
 function computeIsolationFlags(groups: readonly OrderedLine[][], typicalGap: number): boolean[] {
   function gapToNeighbor(from: number, step: 1 | -1, col: number, angle: StreamAngle, selfLine: TextLine): boolean {
@@ -189,7 +190,7 @@ function computeIsolationFlags(groups: readonly OrderedLine[][], typicalGap: num
       if (typicalGap <= 0) return true;
       return lineGap(selfLine, neighborLine) > typicalGap * ISOLATION_GAP_MULTIPLIER;
     }
-    return true; // brak sasiada w tej kolumnie/pasmie = gora/dol kolumny/pasma, traktowane jako izolacja
+    return true; // no neighbor in this column/stream = top/bottom of the column/stream, treated as isolation
   }
 
   return groups.map((group, i) => {
@@ -201,15 +202,15 @@ function computeIsolationFlags(groups: readonly OrderedLine[][], typicalGap: num
 }
 
 /**
- * [KROK-6, odkrycie na `samples/`] "Na uboczu ukladu kolumnowego" (brief, tabela
- * BlockKind) — blok NIE nakladajacy sie z zadna WYKRYTA kolumna (Z3). Bez tego
- * warunku kazdy blok wewnatrz jakiejkolwiek prawdziwej kolumny, ktory
- * przypadkiem nakladal sie na duzy dekoracyjny fill (tlo strony na cala
- * wysokosc, pospolite w realnych PDF-ach RPG), rowniez trafial do `sidebar` —
- * zmierzone na kilku plikach z `samples/`: `body` liczylo 0 blokow na calym
- * ~160-stronicowym dokumencie, `sidebar` >5000, bo "hasColumns" bylo prawie
- * zawsze prawdziwe (patrz komentarz przy jego wyliczeniu) i KAZDY blok
- * nakladal sie na jakis fill.
+ * [Step 6, discovery on `samples/`] "Off to the side of the column layout"
+ * (brief, BlockKind table) — a block that does NOT overlap ANY DETECTED
+ * column (Z3). Without this condition, every block inside any real column
+ * that happened to overlap a large decorative fill (a full-height page
+ * background, common in real RPG PDFs) also ended up as `sidebar` —
+ * measured on several `samples/` files: `body` counted 0 blocks across an
+ * entire ~160-page document, `sidebar` >5000, because "hasColumns" was
+ * almost always true (see the comment at its computation) and EVERY block
+ * overlapped some fill.
  */
 function isOffToTheSideOfColumns(bbox: Rect, columns: readonly ColumnRegion[]): boolean {
   if (columns.length === 0) return false;
@@ -253,12 +254,13 @@ function classify(
     return { kind: 'table', confidence: 0.4, matchedRuleId: 'Z6-short-regular-lines' };
   }
 
-  // [KROK-9 Z1a] `accent` skleja tytuly, stopki redakcyjne, podpisy ilustratorow
-  // i wyroznienia srodtekstowe (MDD §5.2, 459/648 blokow `unknown` na CP-RED
-  // mialo te role) — ponizsze reguly strukturalne daja jej szanse trafic gdzies
-  // indziej niz `unknown` PRZED sprawdzeniem `heading`/`body` po samej roli,
-  // zeby np. jednolinijkowy, izolowany blok `accent` na gorze kolumny zostal
-  // naglowkiem, zanim reszta funkcji w ogole go zobaczy.
+  // [Step 9 Z1a] `accent` lumps together titles, editorial footers,
+  // illustrator credits, and in-text highlights (MDD §5.2, 459/648 `unknown`
+  // blocks in CP-RED had this role) — the structural rules below give it a
+  // chance to land somewhere other than `unknown` BEFORE checking
+  // `heading`/`body` by role alone, so that e.g. a single-line, isolated
+  // `accent` block at the top of a column becomes a heading before the
+  // rest of the function even sees it.
   if ((role === 'caption' || role === 'accent') && isNearImage(bbox, images)) {
     return { kind: 'caption', confidence: role === 'caption' ? 0.65 : 0.55, matchedRuleId: 'Z9-caption-near-image' };
   }
@@ -275,13 +277,14 @@ function classify(
     return { kind: 'body', confidence: 0.5, matchedRuleId: 'Z9-accent-multiline-in-column-body' };
   }
 
-  // [KROK-6, odkrycie na `samples/`] Brief mowi "rola body, wiele linii", ale
-  // empirycznie WIEKSZOSC blokow o roli body ma DOKLADNIE 1 linie (krotkie
-  // akapity/kwestie dialogowe, granice bloku z wciecia/interlinii tna czesto
-  // do pojedynczych linii) — wymog >=2 linii wrzucal je do `unknown` (na
-  // Cienie_posrod_mgie.pdf: 2825 z 4562 blokow `unknown`, tj. 62%, mialo rola
-  // body i dokladnie 1 linie). Rola juz odroznia body od heading (KROK-4:
-  // osobne rankingi), liczba linii nie jest do tego potrzebna.
+  // [Step 6, discovery on `samples/`] The brief says "body role, multiple
+  // lines", but empirically MOST body-role blocks have EXACTLY 1 line
+  // (short paragraphs/dialogue lines, block boundaries from
+  // indent/line-spacing often cut down to single lines) — requiring >=2
+  // lines dumped them into `unknown` (on Cienie_posrod_mgie.pdf: 2825 out
+  // of 4562 `unknown` blocks, i.e. 62%, had the body role and exactly 1
+  // line). The role already distinguishes body from heading (Step 4:
+  // separate rankings), the line count is not needed for that.
   if (role === 'body') {
     return { kind: 'body', confidence: 0.8, matchedRuleId: 'Z6-body-role' };
   }
@@ -290,18 +293,18 @@ function classify(
 }
 
 /**
- * Buduje `SemanticBlock[]` z linii JEDNEJ strony juz w kolejnosci czytania
- * (Z4). Kolejnosc krokow: (1) grupuj po granicach kolumny/pasma/fontu/interlinii
- * /wciecia, (2) dodatkowo tnij po krawedziach regionow wektorowych (U3),
- * (3) klasyfikuj kazda grupe.
+ * Builds `SemanticBlock[]` from the lines of ONE page already in reading
+ * order (Z4). Order of steps: (1) group by column/stream/font/line-spacing
+ * /indent boundaries, (2) additionally split along vector-region edges
+ * (U3), (3) classify each group.
  */
 export function buildSemanticBlocks(input: BlockBuilderInput): SemanticBlock[] {
   const { pageNumber, fontRoles, vectors, images, runningElementKindByLineId, columns } = input;
   if (input.orderedLines.length === 0) return [];
 
-  // [KROK-11] Naglowek-prefiks srodakapitowy jest juz rozciety WCZESNIEJ, w
-  // `buildPageLayout.ts` (przed `splitSpanningLines`/`gutterRepair.ts`) — patrz
-  // `layout/lineEdgeSplit.ts`. Tutaj `orderedLines` przychodzi juz gotowe.
+  // [Step 11] A mid-paragraph heading prefix is already split EARLIER, in
+  // `buildPageLayout.ts` (before `splitSpanningLines`/`gutterRepair.ts`) —
+  // see `layout/lineEdgeSplit.ts`. Here `orderedLines` arrives already prepared.
   const orderedLines: readonly OrderedLine[] = input.orderedLines;
 
   const typicalGap = computeTypicalGap(orderedLines);
@@ -323,11 +326,12 @@ export function buildSemanticBlocks(input: BlockBuilderInput): SemanticBlock[] {
   if (current.length > 0) rawGroups.push(current);
 
   const groups = rawGroups.flatMap((g) => splitByVectorRegionEdges(g, vectors));
-  // [KROK-6, odkrycie] columnIndex=-1 oznacza "linia rozpinajaca/marginalia/poza
-  // wykryta kolumna" (Z2/Z4), NIE "druga kolumna" — musi byc odfiltrowane, inaczej
-  // KAZDA strona z choc jednym naglowkiem/linia rozpinajaca ponad jednokolumnowym
-  // tekstem (bardzo czeste) falszywie liczy sie jako "ma kolumny" (zmierzone na
-  // `samples/`: bez tego filtra `sidebar` dominowal kosztem `body` na kilku plikach).
+  // [Step 6, discovery] columnIndex=-1 means "spanning line/marginalia/outside
+  // any detected column" (Z2/Z4), NOT "a second column" — it must be
+  // filtered out, otherwise EVERY page with even one heading/spanning line
+  // over single-column text (very common) would falsely count as "has
+  // columns" (measured on `samples/`: without this filter, `sidebar`
+  // dominated at the expense of `body` on several files).
   const hasColumns = new Set(orderedLines.map((ol) => ol.line.columnIndex).filter((idx) => idx >= 0)).size > 1;
   const isolationFlags = computeIsolationFlags(groups, typicalGap);
 

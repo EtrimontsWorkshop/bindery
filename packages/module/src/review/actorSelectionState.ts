@@ -1,25 +1,27 @@
 import type { CIFActor, CIFDocument } from '@bindery/core';
 
 /**
- * [KROK-20 Z2] Model zaznaczenia/edycji zakladki aktorow — mirror
- * `ReviewSelection` (obrazy, KROK-11 Z4): CZYSTA prezentacja nad juz-gotowym
- * `CIFActor[]`, zero logiki decyzyjnej o tym CO jest poprawne (A1) — jedynie
- * "co jest zaznaczone" i "jakie nadpisania user wprowadzil przed zapisem".
+ * [Step 20 Z2] Selection/edit model for the Actors tab — mirrors
+ * `ReviewSelection` (images, Step 11 Z4): PURE presentation over an
+ * already-built `CIFActor[]`, zero decision logic about WHAT is correct
+ * (A1) — only "what is selected" and "what overrides the user made before
+ * saving".
  *
- * Domyslne zaznaczenie: `nameConfident === true` -> ZAZNACZONE (nazwa juz
- * pewna, gotowa do importu bez interwencji); placeholder -> WIDOCZNY,
- * ODZNACZONY, dopoki uzytkownik nie rozstrzygnie nazwy (S4/A10 — ten sam
- * wzorzec co obrazy o niskiej pewnosci).
+ * Default selection: `nameConfident === true` -> SELECTED (the name is
+ * already confident, ready to import without intervention); a placeholder
+ * -> VISIBLE, UNSELECTED, until the user resolves the name (S4/A10 — the
+ * same pattern as low-confidence images).
  */
 
 /**
- * [KROK-20 Z2] Klucze uzywane do wskaznika kompletnosci — DOKLADNIE te same
- * kanoniczne klucze, ktore `coc7Adapter.fromActor` faktycznie czyta
- * (`CHARACTERISTIC_KEY_MAP` + pola `attribs`). Nie istnieje jeszcze ogolny,
- * system-neutralny rejestr kanonicznych kluczy (MDD §5.4/§7 zapowiada go w
- * strukturze repo, ale nikt go nie zbudowal) — ten ekran, tak jak sam
- * adapter, na razie zna je wprost. To PODSUMOWANIE juz obliczonych danych
- * (ile z oczekiwanych pol faktycznie jest), nie NOWA decyzja klasyfikacyjna.
+ * [Step 20 Z2] Keys used for the completeness indicator — EXACTLY the same
+ * canonical keys that `coc7Adapter.fromActor` actually reads
+ * (`CHARACTERISTIC_KEY_MAP` + `attribs` fields). There isn't yet a general,
+ * system-neutral registry of canonical keys (MDD §5.4/§7 promises one in the
+ * repo structure, but nobody has built it) — this screen, just like the
+ * adapter itself, knows them directly for now. This is a SUMMARY of
+ * already-computed data (how many of the expected fields are actually
+ * present), not a NEW classification decision.
  */
 const COMPLETENESS_STAT_KEYS: readonly string[] = [
   'strength',
@@ -45,7 +47,7 @@ export interface ActorCompleteness {
   missingStatCount: number;
 }
 
-/** Pole liczy sie jako "obecne", gdy albo sparsowalo sie numerycznie, albo ma jakikolwiek surowy tekst (np. `db: "+1K4"` — string, nigdy `numeric`, ale WCIAZ prawdziwa wartosc, nie brak). */
+/** A field counts as "present" when it either parsed numerically or has any raw text at all (e.g. `db: "+1D4"` — a string, never `numeric`, but STILL a real value, not a gap). */
 function isStatPresent(stat: { raw: string; numeric?: number } | undefined): boolean {
   if (!stat) return false;
   return stat.numeric !== undefined || stat.raw.trim().length > 0;
@@ -66,15 +68,15 @@ export function computeActorCompleteness(actor: CIFActor): ActorCompleteness {
 
 export class ActorReviewSelection {
   #selected = new Map<string, boolean>();
-  /** Nazwa PO rozstrzygnieciu przez uzytkownika — pusty string = jeszcze nierozstrzygnieta (placeholder bez wyboru). */
+  /** Name AFTER user resolution — an empty string = not yet resolved (a placeholder with no choice made). */
   #resolvedName = new Map<string, string>();
-  /** `actorId -> (canonicalKey -> nadpisana wartosc surowa)`. */
+  /** `actorId -> (canonicalKey -> overridden raw value)`. */
   #statOverrides = new Map<string, Map<string, string>>();
-  /** `actorId -> zbior INDEKSOW atakow usunietych przez uzytkownika (nie mutujemy `CIFActor.attacks` wprost — `undo` przez ponowne kliknieciecie). */
+  /** `actorId -> set of attack INDICES removed by the user (we don't mutate `CIFActor.attacks` directly — `undo` is done by clicking again). */
   #removedAttacks = new Map<string, Set<number>>();
-  /** [KROK-35 Z1] `actorId -> CIFImage.id` wybranego tokenu — pusty string (domyslnie, brak wpisu) = "brak". WYLACZNIE obrazy z przeznaczeniem `token` (zakladka Obrazy) trafiaja na liste kandydatow — patrz `#buildActorImagePicker` w `ReviewScreen.ts`. */
+  /** [Step 35 Z1] `actorId -> CIFImage.id` of the selected token — an empty string (default, no entry) = "none". ONLY images with the `token` destination (Images tab) go into the candidate list — see `#buildActorImagePicker` in `ReviewScreen.ts`. */
   #tokenImageId = new Map<string, string>();
-  /** [KROK-35 Z2] `actorId -> CIFImage.id` NADPISANIA portretu pod "Ustawieniami zaawansowanymi" — brak wpisu (odroznione od pustego stringa) = portret podaza za tokenem (P1 decyzja produktowa: "Jedno wskazanie ustawia oba"). Pusty string jawnie zapisany = autor SWIADOMIE wybral "brak" portretu mimo ustawionego tokenu. */
+  /** [Step 35 Z2] `actorId -> CIFImage.id` of the portrait OVERRIDE under "Advanced settings" — no entry (distinct from an empty string) = the portrait follows the token (P1 product decision: "One pick sets both"). An explicitly stored empty string = the author DELIBERATELY chose "none" for the portrait despite a token being set. */
   #portraitImageIdOverride = new Map<string, string>();
 
   static fromDocument(document: CIFDocument): ActorReviewSelection {
@@ -93,7 +95,7 @@ export class ActorReviewSelection {
     if (this.#selected.has(id)) this.#selected.set(id, selected);
   }
 
-  /** Nazwa efektywna: nadpisanie uzytkownika (nawet puste, jesli jawnie wyczyszczone) albo nazwa pewna z CIF-u. */
+  /** Effective name: the user's override (even empty, if explicitly cleared) or the confident name from the CIF. */
   resolvedName(actor: CIFActor): string {
     const override = this.#resolvedName.get(actor.id);
     if (override !== undefined) return override;
@@ -114,7 +116,7 @@ export class ActorReviewSelection {
     map.set(canonicalKey, value);
     this.#statOverrides.set(actorId, map);
   }
-  /** Wartosc surowa DO UZYCIA (nadpisana albo oryginalna z CIF-u) — jedyne miejsce, ktore reszta ekranu/importu powinno czytac. */
+  /** The raw value TO USE (overridden or the original from the CIF) — the only place the rest of the screen/import should read from. */
   effectiveStatRaw(actor: CIFActor, canonicalKey: string): string {
     return this.statOverride(actor.id, canonicalKey) ?? actor.statistics[canonicalKey]?.raw ?? '';
   }
@@ -128,34 +130,34 @@ export class ActorReviewSelection {
     else set.add(attackIndex);
     this.#removedAttacks.set(actorId, set);
   }
-  /** Ataki PO usunieciach uzytkownika — jedyna lista, ktora `#runImport` powinien przekazac adapterowi. */
+  /** Attacks AFTER the user's removals — the only list `#runImport` should pass to the adapter. */
   effectiveAttacks(actor: CIFActor): CIFActor['attacks'] {
     return actor.attacks.filter((_, i) => !this.isAttackRemoved(actor.id, i));
   }
 
-  /** [KROK-35 Z1] Id obrazu wybranego jako token — pusty string = "brak" (jeszcze nie wybrano, albo jawnie wyczyszczone). */
+  /** [Step 35 Z1] Id of the image chosen as the token — an empty string = "none" (not yet chosen, or explicitly cleared). */
   tokenImageId(actorId: string): string {
     return this.#tokenImageId.get(actorId) ?? '';
   }
-  /** [zgloszenie uzytkownika, auto-podpowiedz tokenu] Odroznia "autor jeszcze nic nie wybral" od "autor jawnie wybral brak" (ten sam wzorzec co `hasCustomPortrait`) — bez tego auto-podpowiedz w `ReviewScreen.ts` nadpisywalaby ZA KAZDYM renderem swiadomy wybor "brak" z powrotem na zgadywana podpowiedz. */
+  /** [user report, auto-suggest token] Distinguishes "the author hasn't chosen anything yet" from "the author explicitly chose none" (the same pattern as `hasCustomPortrait`) — without this, the auto-suggestion in `ReviewScreen.ts` would overwrite the deliberate "none" choice back to a guessed suggestion on EVERY render. */
   hasTokenImageSelection(actorId: string): boolean {
     return this.#tokenImageId.has(actorId);
   }
   setTokenImageId(actorId: string, imageId: string): void {
     this.#tokenImageId.set(actorId, imageId);
   }
-  /** [KROK-35 Z2] Portret efektywny: nadpisanie "Zaawansowane" jesli autor je jawnie ustawil, inaczej DOKLADNIE ten sam obraz co token (P1: "Jedno wskazanie ustawia oba"). */
+  /** [Step 35 Z2] Effective portrait: the "Advanced" override if the author explicitly set it, otherwise EXACTLY the same image as the token (P1: "One pick sets both"). */
   portraitImageId(actorId: string): string {
     return this.#portraitImageIdOverride.get(actorId) ?? this.tokenImageId(actorId);
   }
-  /** Czy portret ma WLASNE, od tokenu niezalezne przypisanie ("Zaawansowane" rozwiniete i uzyte) — steruje widocznoscia kontrolki nadpisania w UI. */
+  /** Whether the portrait has its OWN assignment, independent of the token ("Advanced" expanded and used) — controls the visibility of the override control in the UI. */
   hasCustomPortrait(actorId: string): boolean {
     return this.#portraitImageIdOverride.has(actorId);
   }
   setPortraitImageId(actorId: string, imageId: string): void {
     this.#portraitImageIdOverride.set(actorId, imageId);
   }
-  /** Cofniecie nadpisania — portret znowu podaza za tokenem. */
+  /** Undo the override — the portrait follows the token again. */
   clearCustomPortrait(actorId: string): void {
     this.#portraitImageIdOverride.delete(actorId);
   }
@@ -179,13 +181,13 @@ function parseNumericLike(raw: string): number | undefined {
 }
 
 /**
- * [KROK-20 Z2] `CIFActor` PO nadpisaniach uzytkownika (nazwa/wartosci/usuniete
- * ataki) — jedyna wersja, ktora powinna trafic do `coc7Adapter.fromActor`,
- * czy to do PODGLADU notatek w tym ekranie, czy do FAKTYCZNEGO importu
- * (`#runImport`). Czysta funkcja — zero mutacji oryginalnego `CIFActor`
- * (nowy obiekt), zeby "Cofnij" (ponowne kliknieciecie usunietego ataku) i
- * nawigacja `provenance` (ktora czyta oryginalny `actor.provenance`) nadal
- * dzialaly na nietknietych danych zrodlowych.
+ * [Step 20 Z2] `CIFActor` AFTER the user's overrides (name/values/removed
+ * attacks) — the only version that should reach `coc7Adapter.fromActor`,
+ * whether for the notes PREVIEW on this screen or for the ACTUAL import
+ * (`#runImport`). A pure function — zero mutation of the original
+ * `CIFActor` (a new object), so that "Undo" (clicking a removed attack
+ * again) and `provenance` navigation (which reads the original
+ * `actor.provenance`) keep working on untouched source data.
  */
 export function applyActorOverrides(actor: CIFActor, selection: ActorReviewSelection): CIFActor {
   const name = selection.resolvedName(actor) || actor.name;

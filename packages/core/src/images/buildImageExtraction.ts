@@ -15,11 +15,11 @@ import { computeTargetLongEdgePx } from './renderResolution.js';
 import { computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
 
 /**
- * Orkiestracja fazy 3 (KROK-7): klasyfikacja (Z1) -> strategia (Z2) ->
- * ekstrakcja (Z4, render regionu Z3 gdy trzeba) -> finalizacja (Z5), z
- * dyscyplina pamieci i determinizmu (Z6). Mirror wzorca `buildPageLayout.ts`
- * z kroku 6: jeden entry point spinajacy wszystkie Z-zadania w jeden przebieg
- * per dokument.
+ * Phase-3 orchestration (Step 7): classification (Z1) -> strategy (Z2) ->
+ * extraction (Z4, region render Z3 when needed) -> finalization (Z5), with
+ * memory and determinism discipline (Z6). Mirrors the pattern of
+ * `buildPageLayout.ts` from step 6: a single entry point tying all the
+ * Z-tasks together into one pass per document.
  */
 
 export interface InventoryForImages {
@@ -35,26 +35,26 @@ export interface PdfDocumentLikeForImages {
 
 export interface BuildImageExtractionOptions {
   /**
-   * [KROK-8 Z3] Uzywane JAKO PUNKT WYJSCIA, NIE jako jedyna rozdzielczosc renderu
-   * regionu — patrz `renderResolution.ts`. Nadal jedyna rozdzielczosc dla
-   * regionow czysto wektorowych (brak obrazu, "wartosc z ustawien" z briefu).
+   * [Step 8 Z3] Used AS A STARTING POINT, NOT as the sole region-render
+   * resolution — see `renderResolution.ts`. Still the only resolution for
+   * purely vector regions (no image, the "value from settings" from the brief).
    */
   targetLongEdgePx?: number;
-  /** Twardy sufit rozdzielczosci renderu regionu (KROK-8 Z3) — chroni przed absurdalnym rozmiarem pliku z rozkladowki o bardzo wysokiej natywnej rozdzielczosci zasobow. */
+  /** Hard ceiling on region-render resolution (Step 8 Z3) — guards against an absurd file size from a spread with very high native resource resolution. */
   maxLongEdgePx?: number;
   outputFormat?: OutputFormat;
   outputQuality?: number;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
-  /** `objId` obrazow sasiadujacych z blokiem `statblock`/`heading` (krok 6) — sygnal `portrait` w Z5. */
+  /** `objId` of images adjacent to a `statblock`/`heading` block (step 6) — `portrait` signal in Z5. */
   nearStatblockOrHeadingObjIds?: ReadonlySet<string>;
-  /** [KROK-9 Z2] Bboksy blokow `body` (potok tekstu) per strona — patrz `classify.ts`. Polaczenie potoku tekstu z potokiem obrazow, JAWNE przez ten parametr. */
+  /** [Step 9 Z2] Bboxes of `body` blocks (text flow) per page — see `classify.ts`. Links the text flow to the image flow, EXPLICITLY via this parameter. */
   bodyBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
-  /** [na zyczenie uzytkownika] Patrz komentarz przy `treatFullBleedAsContent` w `schema.ts` — omija `Z1-full-bleed-background`/`Z9-high-body-text-coverage` dla obrazow pod pelnym spadem. Domyslnie wylaczone. */
+  /** [at the user's request] See the comment on `treatFullBleedAsContent` in `schema.ts` — bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images. Off by default. */
   treatFullBleedAsContent?: boolean;
-  /** [na zyczenie uzytkownika, EKSPERYMENTALNE] Patrz komentarz przy `autoCropUniformMargins` w `schema.ts` i `cropUniformMargins.ts`. Bez znaczenia, gdy `treatFullBleedAsContent` jest wylaczone. Domyslnie wylaczone. */
+  /** [at the user's request, EXPERIMENTAL] See the comment on `autoCropUniformMargins` in `schema.ts` and `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
   autoCropUniformMargins?: boolean;
-  /** [na zyczenie uzytkownika] Patrz komentarz przy `brightenAutoCroppedImages` w `schema.ts` i `brightenImage.ts`. Bez znaczenia, gdy dany obraz nie zostal faktycznie przyciety przez `autoCropUniformMargins`. Domyslnie wylaczone. */
+  /** [at the user's request] See the comment on `brightenAutoCroppedImages` in `schema.ts` and `brightenImage.ts`. No effect when a given image wasn't actually cropped by `autoCropUniformMargins`. Off by default. */
   brightenAutoCroppedImages?: boolean;
 }
 
@@ -66,54 +66,57 @@ export interface BuildImageExtractionResult {
   diagnostics: Diagnostic[];
 }
 
-/** Rozsadny domyslny cel dla scen/handoutow — konfigurowalny per wywolanie, do kalibracji na `samples/`. */
+/** Reasonable default target for scenes/handouts — configurable per call, for calibration against `samples/`. */
 const DEFAULT_TARGET_LONG_EDGE_PX = 2048;
-/** Twardy sufit domyslny (KROK-8 Z3, brief) — konfigurowalny przez `maxLongEdgePx`. */
+/** Default hard ceiling (Step 8 Z3, brief) — configurable via `maxLongEdgePx`. */
 const DEFAULT_MAX_LONG_EDGE_PX = 4096;
-/** Ten sam prog co `LARGE_AREA_CONTENT_THRESHOLD` w `classify.ts` — spojnosc miedzy "duzy obraz = tresc" i "duzy wektor bez obrazu = mapa rysowana". */
+/** Same threshold as `LARGE_AREA_CONTENT_THRESHOLD` in `classify.ts` — consistency between "large image = content" and "large vector with no image = a drawn map". */
 const LARGE_VECTOR_AREA_THRESHOLD = 0.4;
 /**
- * [KROK-8 Z1] Zabezpieczenie DRUGIEGO RZEDU (nie glowny mechanizm — patrz
- * `groupIntoUnits`): klaster (>1 czlonek) o unii bboksow powyzej tego udzialu
- * powierzchni strony jest wymuszany na `undecided`, niezaleznie od klasyfikacji
- * reprezentanta. Wartosc z briefu KROK-8 ("np. 85%") — swiadomie WYSOKI prog,
- * bo GLOWNA naprawa (klastrowanie WYLACZNIE kandydatow content/undecided,
- * przeliczone od zera) juz eliminuje typowy przypadek (lancuch kafli tla
- * zbudowany z wpisow `decoration`/`mask`). To zabezpieczenie lapie tylko
- * rzadszy przypadek: gesty lancuch MALYCH, ale indywidualnie `content`/
- * `undecided` fragmentow, ktory i tak rozciaga sie niemal na cala strone.
+ * [Step 8 Z1] a SECOND-ORDER safeguard (not the main mechanism — see
+ * `groupIntoUnits`): a cluster (>1 member) whose union of bboxes exceeds this
+ * share of the page area is forced to `undecided`, regardless of the
+ * representative's classification. Value from the Step 8 brief ("e.g. 85%")
+ * — deliberately HIGH, because the MAIN fix (clustering EXCLUSIVELY
+ * content/undecided candidates, recomputed from scratch) already eliminates
+ * the typical case (a chain of background tiles made of `decoration`/`mask`
+ * entries). This safeguard only catches a rarer case: a dense chain of SMALL
+ * but individually `content`/`undecided` fragments that still ends up
+ * spanning nearly the entire page.
  */
 const CLUSTER_AREA_SAFEGUARD_THRESHOLD = 0.85;
 
 /**
- * [KROK-16 Z2, naprawa zgloszonego bledu na zywo] Dwa kandydaty "niezaleznie
- * duzi" (>= tego udzialu powierzchni strony, kazdy z osobna — prawdopodobnie
- * gotowe, samodzielne obrazy tresci, nie fragmenty jednej kompozycji) laczone
- * w JEDNA "kotwice" tylko jesli ich nakladanie (`overlapRatio` — powierzchnia
- * przeciecia / powierzchnia MNIEJSZEGO z nich) osiaga ten prog. Male elementy
- * (ponizej progu powierzchni) NIGDY nie sa "kotwicami" — nadal laczone luznym
- * `rectsOverlap`, jak zawsze (patrz `partitionCandidatesIntoGroups`), bo
- * praktycznie NIGDY nie osiagaja tego progu powierzchni pojedynczo (fixture
- * `extract-cluster`: ikony 60x60/40x40pt to <1% strony kazda).
+ * [Step 16 Z2, fix for a live-reported bug] Two "independently large"
+ * candidates (>= this share of the page area, each on its own — likely
+ * finished, standalone content images, not fragments of one composition) are
+ * merged into a SINGLE "anchor" only if their overlap (`overlapRatio` —
+ * intersection area / area of the SMALLER one) reaches this threshold. Small
+ * elements (below the area threshold) are NEVER "anchors" — they're still
+ * merged with the loose `rectsOverlap` as always (see
+ * `partitionCandidatesIntoGroups`), because they practically NEVER reach this
+ * area threshold individually (fixture `extract-cluster`: 60x60/40x40pt icons
+ * are <1% of the page each).
  *
- * [KROK-43 Z3, zweryfikowane na materiale gestym graficznie po audycie
- * stalych — patrz `RAPORT-KROK-43.md`] Obie stale strojone pod JEDEN
- * konkretny zgloszony przypadek (str. 13/14 z kroku 16), nigdy systematycznie
- * skalibrowane — sprawdzone na `sample/Archiwa_Imperium.pdf` (380 obrazow/97
- * stron, do 18 obrazow na jednej stronie — "Obcy" niedostepny w sample/,
- * `WRAK.pdf` odrzucony jako material testowy: eksportuje KAZDA strone jako
- * jeden plaski raster, wiec nie cwiczy klastrowania wielu obrazow wcale).
- * Przemiatanie OBU stalych niezaleznie w CALYM sensownym zakresie
+ * [Step 43 Z3, verified on graphically dense material after a constants
+ * audit — see `RAPORT-KROK-43.md`] Both constants were tuned for ONE
+ * specific reported case (p. 13/14 from step 16), never systematically
+ * calibrated — checked against `sample/Archiwa_Imperium.pdf` (380 images/97
+ * pages, up to 18 images on a single page — "Obcy" not available in
+ * sample/, `WRAK.pdf` rejected as test material: it exports EVERY page as a
+ * single flat raster, so it doesn't exercise multi-image clustering at all).
+ * Sweeping BOTH constants independently across their FULL reasonable range
  * (`INDEPENDENT_IMAGE_AREA_THRESHOLD`: 0.01-0.9; `EDGE_TOUCH_MAX_OVERLAP_RATIO`:
- * 0.01-0.9) dalo STABILNY wynik — liczba grup wachala sie tylko w waskim
- * pasmie (186-212 z 262 kandydatow), najwiekszy pojedynczy klaster pozostaje
- * identyczny (11 czlonkow) na calym zakresie obu parametrow — ZERO urwiska,
- * zero eksplozji do jednego megaklastra, zero rozpadu na same singletony.
- * Istniejace zloty testy regresji z kroku 16 (`extract-independent-touching`,
- * `extract-anchor-loose-fragment`, `extract-shared-resource-multipage`) nadal
- * zielone. Wniosek: wartosci startowe (0,1 / 0,2) leza bezpiecznie w SRODKU
- * szerokiego plateau — brak dowodu, ze sa zle, wiec ZOSTAJA NIEZMIENIONE
- * (zmiana bez powodu jest gorsza niz jej brak).
+ * 0.01-0.9) produced a STABLE result — the group count only varies within a
+ * narrow band (186-212 out of 262 candidates), the single largest cluster
+ * stays identical (11 members) across the whole range of both parameters —
+ * ZERO cliff, zero explosion into one mega-cluster, zero collapse into pure
+ * singletons. The existing golden regression tests from step 16
+ * (`extract-independent-touching`, `extract-anchor-loose-fragment`,
+ * `extract-shared-resource-multipage`) still pass. Conclusion: the starting
+ * values (0.1 / 0.2) sit safely in the MIDDLE of a wide plateau — there's no
+ * evidence they're wrong, so they STAY UNCHANGED (changing something without
+ * a reason is worse than not changing it).
  */
 const INDEPENDENT_IMAGE_AREA_THRESHOLD = 0.1;
 const EDGE_TOUCH_MAX_OVERLAP_RATIO = 0.2;
@@ -123,45 +126,46 @@ function isAnchorCandidate(c: ClassifiedImage): boolean {
 }
 
 /**
- * [KROK-16 Z2, druga iteracja naprawy] Pierwsza wersja tej naprawy (pojedyncza
- * bramka na `clusterByOverlap`, blokujaca WYLACZNIE bezposrednie polaczenie
- * dwoch "kotwic") naprawila `img_p15_1`+`img_p15_2` (str. 16, stykajace sie
- * BEZPOSREDNIO), ale NIE `img_p13_1`+`img_p13_2` (str. 14) — zgloszone przez
- * uzytkownika jako nadal nie dzialajace. Przyczyna: klastrowanie jest
- * PRZECHODNIE (union-find) — dwie "kotwice" A i B, ktorych bramka blokuje
- * BEZPOSREDNIE polaczenie, i tak koncza w JEDNYM klastrze, jesli kazda z nich
- * NIEZALEZNIE naklada sie na trzeci, MALY element C (bramka nie blokuje par
- * gdzie choc jeden czlonek jest maly, wiec A-C i B-C laczy sie normalnie, a A-C-B
- * daje A i B w jednym klastrze mimo ze A-B samo w sobie bylo zablokowane).
- * Zaobserwowane wprost: `img_p13_3`/`img_p13_4` (kazdy ~1.5% strony) leza W STREFIE
- * NAKLADANIA `img_p13_1` (26.9%) i `img_p13_2` (10.2%), mostkujac je z powrotem.
+ * [Step 16 Z2, second iteration of the fix] The first version of this fix (a
+ * single gate on `clusterByOverlap`, blocking ONLY the direct merge of two
+ * "anchors") fixed `img_p15_1`+`img_p15_2` (p. 16, touching DIRECTLY), but
+ * NOT `img_p13_1`+`img_p13_2` (p. 14) — reported by the user as still not
+ * working. Cause: clustering is TRANSITIVE (union-find) — two anchors A and
+ * B, whose gate blocks a DIRECT merge, still end up in ONE cluster if each of
+ * them INDEPENDENTLY overlaps a third, SMALL element C (the gate doesn't
+ * block pairs where at least one member is small, so A-C and B-C merge
+ * normally, and A-C-B puts A and B in one cluster even though A-B itself was
+ * blocked). Observed directly: `img_p13_3`/`img_p13_4` (each ~1.5% of the
+ * page) sit IN THE OVERLAP ZONE of `img_p13_1` (26.9%) and `img_p13_2`
+ * (10.2%), bridging them back together.
  *
- * Naprawa: DWUETAPOWE partycjonowanie zamiast plaskiego `clusterByOverlap` z
- * bramka. (1) Wydziel "kotwice" (>= progu powierzchni) i sklastruj WYLACZNIE
- * je, wymagajac silnego nakladania (`overlapRatio >= EDGE_TOUCH_MAX_OVERLAP_RATIO`)
- * do polaczenia — dwie kotwice stykajace sie slabo NIGDY nie trafiaja w jedna
- * grupe kotwic, niezaleznie od tego, ile malych elementow je "mostkuje".
- * (2) Kazdy MALY (nie-kotwica) element dolaczany jest do TEJ JEDNEJ grupy
- * kotwic, z ktora ma NAJWIEKSZE pole przeciecia (nie do wszystkich, z ktorymi
- * sie styka) — `img_p13_3` naklada sie na `img_p13_2` w ~91% wlasnej
- * powierzchni, a na `img_p13_1` tylko w ~9%, wiec trafia WYLACZNIE do grupy
- * `img_p13_2`. (3) Male elementy bez zadnego nakladania z kotwica na tej
- * stronie klastrowane sa miedzy soba po staremu (luzny `rectsOverlap`, zero
- * zmian) — zachowuje pierwotny mechanizm sklejania lancucha kafli (krok 7/8,
- * `img_p7_6`) na stronach BEZ zadnej kotwicy.
+ * Fix: TWO-STAGE partitioning instead of a flat gated `clusterByOverlap`.
+ * (1) Split out the "anchors" (>= the area threshold) and cluster ONLY them,
+ * requiring strong overlap (`overlapRatio >= EDGE_TOUCH_MAX_OVERLAP_RATIO`)
+ * to merge — two anchors touching weakly NEVER end up in one anchor group,
+ * no matter how many small elements "bridge" them. (2) Every SMALL
+ * (non-anchor) element is attached to the ONE anchor group with which it has
+ * the LARGEST intersection area (not to all it touches) — `img_p13_3`
+ * overlaps `img_p13_2` across ~91% of its own area, but `img_p13_1` only
+ * ~9%, so it goes EXCLUSIVELY into `img_p13_2`'s group. (3) Small elements
+ * with no overlap with any anchor on that page are clustered among
+ * themselves the old way (loose `rectsOverlap`, no change) — preserving the
+ * original tile-chain-gluing mechanism (step 7/8, `img_p7_6`) on pages WITH
+ * NO anchor at all.
  */
 /**
- * [na zyczenie uzytkownika, po naprawie klasyfikacji "Wrak"] Obraz wymuszony na
- * `content` WYLACZNIE dlatego, ze jest tlem pod pelnym spadem z tekstem na
- * wierzchu (`Z1-full-bleed-forced-content`, patrz `classify.ts`) MUSI zostac
- * WYLACZONY z klastrowania ponizej, inaczej cel calej flagi ("czysty obraz bez
- * tekstu") jest udaremniony: jego bbox z DEFINICJI "zawiera" (rectsOverlap i
- * overlapRatio ~1.0 wzgledem mniejszego) KAZDY inny obraz/wektor na tej samej
- * stronie, wiec zwykla logika kotwic (`isAnchorCandidate`/`EDGE_TOUCH_MAX_OVERLAP_RATIO`)
- * polaczylaby go z KAZDYM innym kandydatem w JEDNA jednostke, wymuszajac
- * `clusterMemberCount > 1` -> `region-render` CALEJ strony (z tekstem) zamiast
- * `direct` (surowy zasob, bez tekstu) — zmierzone wprost na eksporcie
- * uzytkownika: strona zamiast czystej ilustracji.
+ * [at the user's request, after the "Wrak" classification fix] An image
+ * forced to `content` SOLELY because it's a full-bleed background with text
+ * on top (`Z1-full-bleed-forced-content`, see `classify.ts`) MUST be
+ * EXCLUDED from the clustering below, otherwise the whole point of the flag
+ * ("a clean image with no text") is defeated: its bbox by DEFINITION
+ * "contains" (rectsOverlap and overlapRatio ~1.0 relative to the smaller
+ * one) EVERY other image/vector on the same page, so the normal anchor logic
+ * (`isAnchorCandidate`/`EDGE_TOUCH_MAX_OVERLAP_RATIO`) would merge it with
+ * EVERY other candidate into ONE unit, forcing `clusterMemberCount > 1` ->
+ * `region-render` of the WHOLE page (with text) instead of `direct` (raw
+ * asset, no text) — measured directly on a user export: a page instead of a
+ * clean illustration.
  */
 function isForcedFullBleedContent(c: ClassifiedImage): boolean {
   return c.reason === 'Z1-full-bleed-forced-content';
@@ -213,18 +217,20 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
         bestAnchor = a;
       }
     }
-    // [KROK-16 Z2, trzecia iteracja naprawy] Sam fakt "jakiegokolwiek" nakladania
-    // z najlepsza kotwica NIE WYSTARCZA — zaobserwowane wprost: `img_p13_4`
-    // (~1.5% strony) stykal sie z jedyna kotwica na stronie (`img_p13_1`, 26.9%)
-    // WYLACZNIE waskim naroznikiem (overlapRatio wzgledem WLASNEJ powierzchni
-    // ~9%), a mimo to jego bbox rozciagal sie ~200pt POZA kotwice — dolaczenie go
-    // i tak odtwarzalo niemal identyczny, zbyt szeroki union bbox co przed
-    // naprawa (bo `img_p13_2`, dekoracja miedzy nimi, zostala juz poprawnie
-    // wykluczona z kandydatow, ale JEJ MIEJSCE zajal `img_p13_4`). Wymagany ten
-    // sam prog co przy laczeniu dwoch kotwic (`overlapRatio >= EDGE_TOUCH_MAX_OVERLAP_RATIO`,
-    // liczony wzgledem MNIEJSZEGO z dwoch — tu prawie zawsze samego elementu C) —
-    // ponizej progu element idzie do wspolnego klastrowania reszty (albo staje
-    // sie wlasna, osobna, mala jednostka), NIE zostaje wciagniety w kotwice.
+    // [Step 16 Z2, third iteration of the fix] The mere fact of "some"
+    // overlap with the best anchor is NOT ENOUGH — observed directly:
+    // `img_p13_4` (~1.5% of the page) touched the only anchor on the page
+    // (`img_p13_1`, 26.9%) EXCLUSIVELY at a narrow corner (overlapRatio
+    // relative to its OWN area ~9%), yet its bbox extended ~200pt BEYOND the
+    // anchor — attaching it still reproduced a near-identical, overly wide
+    // union bbox as before the fix (because `img_p13_2`, the decoration
+    // between them, had already been correctly excluded from the candidates,
+    // but ITS PLACE was taken by `img_p13_4`). The same threshold as for
+    // merging two anchors is required (`overlapRatio >= EDGE_TOUCH_MAX_OVERLAP_RATIO`,
+    // computed relative to the SMALLER of the two — here almost always
+    // element C itself) — below the threshold, the element goes into the
+    // shared clustering of the rest (or becomes its own separate, small
+    // unit), and is NOT pulled into the anchor.
     if (bestAnchor && overlapRatio(bestAnchor.entry.occurrences[0]!.bbox, bboxC) >= EDGE_TOUCH_MAX_OVERLAP_RATIO) {
       anchorGroups.get(groupKeyOfAnchor.get(bestAnchor)!)!.push(c);
     } else {
@@ -253,42 +259,44 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
 }
 
 function checkAborted(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new DOMException('buildImageExtraction przerwane przez AbortSignal', 'AbortError');
+  if (signal?.aborted) throw new DOMException('buildImageExtraction aborted by AbortSignal', 'AbortError');
 }
 
 interface ExtractionUnit {
-  /** `null` = region czysto wektorowy (mapa rysowana), brak obrazu do wyciagniecia. */
+  /** `null` = a purely vector region (a drawn map), no image to extract. */
   representativeEntry: ImageEntry | null;
   memberEntries: readonly ImageEntry[];
   page: number;
   bbox: Rect;
   clusterMemberCount: number;
   classification: ImageClassification;
-  /** [KROK-11 Z4] Patrz `ClassifiedImage.confidence` — pewnosc reprezentanta klastra, ewentualnie obnizona przy wymuszeniu `undecided` (patrz `IMAGE_CLUSTER_AREA_OVERREACH` nizej). */
+  /** [Step 11 Z4] See `ClassifiedImage.confidence` — the cluster representative's confidence, possibly lowered when `undecided` is forced (see `IMAGE_CLUSTER_AREA_OVERREACH` below). */
   confidence: number;
-  /** [na zyczenie uzytkownika] `reason` reprezentanta — uzywane WYLACZNIE do wykrycia `Z1-full-bleed-forced-content` (decyzja o probie `autoCropUniformMargins`), NIE do niczego innego. */
+  /** [at the user's request] The representative's `reason` — used EXCLUSIVELY to detect `Z1-full-bleed-forced-content` (the decision to try `autoCropUniformMargins`), for nothing else. */
   reason: string;
 }
 
 /**
- * Grupuje kandydatow (content/undecided) po klastrach nakladajacych sie
- * bboksow (Z2: klaster = JEDNA jednostka ekstrakcji, nie N). Bbox jednostki to
- * UNIA wszystkich wystapien wszystkich czlonkow — tak, zeby render regionu
- * (gdy strategia tego wymaga) objal cala kompozycje, nie tylko jeden jej element.
+ * Groups candidates (content/undecided) into clusters of overlapping bboxes
+ * (Z2: a cluster = ONE extraction unit, not N). A unit's bbox is the UNION of
+ * all occurrences of all members — so that a region render (when the
+ * strategy requires it) covers the whole composition, not just one element
+ * of it.
  *
- * [KROK-8 Z1, odkrycie] Klastrowanie jest PRZELICZONE OD ZERA tutaj, na
- * PRZEFILTROWANYM zbiorze kandydatow (`clusterByOverlap`), a NIE odczytane z
- * `entry.clusterId` — to pole jest policzone w `imageRegistry.ts` (KROK-4/5) na
- * WSZYSTKICH wystapieniach, WLACZNIE z przyszla dekoracja/maska. Filtrowanie
- * WYNIKU takiego pre-computed klastrowania (po prostu odrzucenie czlonkow
- * decoration/mask z gotowej grupy) NIE rozbija lancucha, ktory te wlasnie
- * wpisy zmostkowaly — dwa genuinie osobne, oddalone od siebie obrazy tresci
- * polaczone WYLACZNIE przez lancuch malych, nakladajacych sie kafli dekoracji
- * miedzy nimi zostalyby w JEDNEJ grupie nawet po odrzuceniu tych kafli z listy
- * czlonkow. Zaobserwowane wprost: `img_p7_6` z `Wrath_&_Glory` (RAPORT-KROK-7.md)
- * — cala strona tekstu wyrenderowana jako "obraz". Przeliczenie od zera na
- * samych kandydatach sprawia, ze usuniecie mostkujacej dekoracji/maski Z GRAFU
- * naprawde rozbija lancuch, nie tylko filtruje jego czlonkow z wyniku.
+ * [Step 8 Z1, discovery] Clustering is RECOMPUTED FROM SCRATCH here, on the
+ * FILTERED set of candidates (`clusterByOverlap`), and NOT read from
+ * `entry.clusterId` — that field is computed in `imageRegistry.ts` (Step 4/5)
+ * over ALL occurrences, INCLUDING future decoration/mask entries. Filtering
+ * the RESULT of such pre-computed clustering (simply dropping decoration/mask
+ * members from the finished group) does NOT break the chain that those very
+ * entries bridged — two genuinely separate, distant content images connected
+ * EXCLUSIVELY by a chain of small, overlapping decoration tiles between them
+ * would remain in ONE group even after dropping those tiles from the member
+ * list. Observed directly: `img_p7_6` from `Wrath_&_Glory` (RAPORT-KROK-7.md)
+ * — an entire page of text rendered as an "image". Recomputing from scratch
+ * on the candidates alone means that removing the bridging decoration/mask
+ * FROM THE GRAPH actually breaks the chain, not just filters its members out
+ * of the result.
  */
 function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: ReadonlyMap<number, Rect>, diagnostics: Diagnostic[]): ExtractionUnit[] {
   const groups = partitionCandidatesIntoGroups(candidates);
@@ -296,23 +304,23 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
   return groups.map((group) => {
     const representative = group.reduce((best, cur) => (cur.entry.maxRelativeArea > best.entry.maxRelativeArea ? cur : best));
     const page = representative.entry.occurrences[0]!.page;
-    // [KROK-16 Z2, czwarta iteracja naprawy] Unia TYLKO wystapien NA TEJ SAMEJ
-    // stronie co jednostka — zaobserwowane wprost: `g_d0_img_p7_8` (jeden
-    // zasob PDF uzyty w 5 RUZNYCH miejscach na 5 RUZNYCH stronach, 8/9/15/16/19,
-    // NIE "ten sam element w tej samej pozycji" — to zwykle wspoldzielona
-    // ikona/znacznik uzyty kontekstowo w roznych miejscach). Dawna wersja
-    // unowala bboksy WSZYSTKICH wystapien encji, WLACZNIE z tymi na INNYCH
-    // stronach — bbox jednostki renderowanej na stronie 8 obejmowal wiec tez
-    // wspolrzedne z wystapien na stronach 9/15/16/19, dajac bezsensowna, ale
-    // przypadkowo duza (~48% strony) unie, ktora przy renderze REGIONU na
-    // stronie 8 lapala niemal cala tresc tej strony (obserwowane: cala strona
-    // statbloku wyekstrahowana jako "obraz"). Blad byl UTAJONY od kroku 7/8 —
-    // wczesniej KAZDY wpis obecny na >=2 skorelowanych stronach byl twardo
-    // `decoration` (nigdy nie wchodzil do kandydatow), wiec ta sciezka kodu
-    // nigdy nie byla cwiczona na prawdziwym multi-page wpisie. Krok 15 Z3
-    // (prog podniesiony do 5 stron + miekki fallback do `undecided` zamiast
-    // `decoration`) po raz pierwszy wpuscil taki wpis do ekstrakcji, ujawniajac
-    // usypiony blad.
+    // [Step 16 Z2, fourth iteration of the fix] Union ONLY of occurrences ON
+    // THE SAME page as the unit — observed directly: `g_d0_img_p7_8` (one PDF
+    // resource used in 5 DIFFERENT places on 5 DIFFERENT pages, 8/9/15/16/19,
+    // NOT "the same element in the same position" — this is typically a
+    // shared icon/marker used contextually in different places). The old
+    // version unioned the bboxes of ALL occurrences of the entity, INCLUDING
+    // those on OTHER pages — the bbox of the unit rendered on page 8 thus
+    // also included coordinates from occurrences on pages 9/15/16/19, giving
+    // a nonsensical but accidentally large (~48% of the page) union, which,
+    // when region-rendering on page 8, caught nearly all of that page's
+    // content (observed: an entire statblock page extracted as an "image").
+    // The bug was LATENT since step 7/8 — previously EVERY entry present on
+    // >=2 correlated pages was hard-classified `decoration` (never entering
+    // the candidates), so this code path had never been exercised on a real
+    // multi-page entry. Step 15 Z3 (threshold raised to 5 pages + soft
+    // fallback to `undecided` instead of `decoration`) let such an entry into
+    // extraction for the first time, surfacing the dormant bug.
     const bbox = group
       .flatMap((c) => c.entry.occurrences.filter((o) => o.page === page).map((o) => o.bbox))
       .reduce<Rect | null>((acc, b) => (acc ? unionRect(acc, b) : b), null)!;
@@ -320,9 +328,9 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
     let confidence = representative.confidence;
     let reason = representative.reason;
 
-    // Zabezpieczenie drugiego rzedu (patrz komentarz przy stalej) — tylko dla
-    // FAKTYCZNYCH klastrow (>1 czlonek); pojedynczy obraz zajmujacy cala
-    // strone to prawdopodobnie prawdziwa mapa/scena, nie efekt uboczny klastrowania.
+    // Second-order safeguard (see the comment on the constant) — only for
+    // ACTUAL clusters (>1 member); a single image occupying the whole page
+    // is probably a genuine map/scene, not a clustering side effect.
     const pageBox = pageBoxByPage.get(page);
     if (group.length > 1 && pageBox && relativeArea(bbox, pageBox) > CLUSTER_AREA_SAFEGUARD_THRESHOLD) {
       if (classification !== 'undecided') {
@@ -334,10 +342,11 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
         });
       }
       classification = 'undecided';
-      // [KROK-11 Z4] Wymuszenie 'undecided' unieważnia oryginalny `reason`/`confidence`
-      // reprezentanta — ten klaster nie jest juz "duzy obszar bez maski", tylko
-      // "wymuszony bezpiecznik", wiec dostaje ta sama niska pewnosc co
-      // `Z1-no-strong-signal` (najslabsza kategoria `undecided`).
+      // [Step 11 Z4] Forcing 'undecided' invalidates the representative's
+      // original `reason`/`confidence` — this cluster is no longer "a large
+      // area with no mask", but a "forced safeguard", so it gets the same
+      // low confidence as `Z1-no-strong-signal` (the weakest `undecided`
+      // category).
       confidence = confidenceForReason('Z1-no-strong-signal');
       reason = 'Z1-no-strong-signal';
     }
@@ -356,11 +365,11 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
 }
 
 /**
- * Strony BEZ jakiegokolwiek obrazu, ale z duzym regionem wektorowym (fill/stroke
- * prostokatny — `walkOperators` nie wykrywa dowolnych sciezek, tylko
- * osiowo-zorientowane prostokaty, patrz `vectorRegistry.ts`) to kandydat na
- * "mape rysowana wektorowo" — jedyny sposob na wyciagniecie czegokolwiek to
- * render calego regionu (Z2/Z3), bo nie ma obrazu do ekstrakcji bezposredniej.
+ * Pages with NO image at all, but with a large vector region (rectangular
+ * fill/stroke — `walkOperators` doesn't detect arbitrary paths, only
+ * axis-aligned rectangles, see `vectorRegistry.ts`) are a candidate for "a
+ * vector-drawn map" — the only way to extract anything is to render the
+ * whole region (Z2/Z3), since there's no image for direct extraction.
  */
 function findVectorOnlyUnits(vectors: readonly VectorRegion[], pagesWithAnyImage: ReadonlySet<number>): ExtractionUnit[] {
   const bigVectorsByPage = new Map<number, VectorRegion[]>();
@@ -388,7 +397,7 @@ function findVectorOnlyUnits(vectors: readonly VectorRegion[], pagesWithAnyImage
   return units;
 }
 
-/** Placeholder `ImageEntry` dla jednostek bez prawdziwego obrazu (region czysto wektorowy) — potrzebny, zeby `finalizeImages` mialo na czym pracowac. */
+/** Placeholder `ImageEntry` for units with no real image (a purely vector region) — needed so `finalizeImages` has something to work with. */
 function syntheticVectorOnlyEntry(pageNumber: number, bbox: Rect): ImageEntry {
   return {
     objId: null,
@@ -410,7 +419,7 @@ export async function buildImageExtraction(
   opts: BuildImageExtractionOptions = {},
 ): Promise<BuildImageExtractionResult> {
   const { signal, onProgress } = opts;
-  checkAborted(signal); // musi byc sprawdzone TERAZ, nie dopiero w petli po stronach — dokument bez jednostek do przetworzenia (petla nigdy sie nie wykona) inaczej cicho zignorowalby juz-przerwany sygnal.
+  checkAborted(signal); // must be checked NOW, not only inside the per-page loop — a document with no units to process (the loop never runs) would otherwise silently ignore an already-aborted signal.
   const autoCropUniformMargins = opts.autoCropUniformMargins ?? false;
   const brightenAutoCroppedImages = opts.brightenAutoCroppedImages ?? false;
   const targetLongEdgePx = opts.targetLongEdgePx ?? DEFAULT_TARGET_LONG_EDGE_PX;
@@ -423,11 +432,12 @@ export async function buildImageExtraction(
   const classified = classifyImages(inventory.images, pageBoxByPage, bodyBlockBoxesByPage, {
     treatFullBleedAsContent: opts.treatFullBleedAsContent ?? false,
   });
-  // [KROK-43 Z1, naprawa "cicha utrata" po audycie stalych] `Z13-extreme-aspect-ratio-undecided`
-  // (patrz `classify.ts`) laduje w `undecided`, nie `decoration` — widoczny w
-  // przegladzie, ale uzytkownik powinien wiedziec DLACZEGO obraz tam trafil
-  // (proporcje, nie "brak jakiegokolwiek sygnalu"), stad wlasny Diagnostic
-  // zamiast cichej zmiany klasyfikacji.
+  // [Step 43 Z1, fix for "silent loss" found in a constants audit]
+  // `Z13-extreme-aspect-ratio-undecided` (see `classify.ts`) lands in
+  // `undecided`, not `decoration` — visible in the review screen, but the
+  // user should know WHY the image ended up there (aspect ratio, not "no
+  // signal at all"), hence its own Diagnostic instead of a silent
+  // classification change.
   for (const c of classified) {
     if (c.reason !== 'Z13-extreme-aspect-ratio-undecided') continue;
     diagnostics.push({
@@ -446,8 +456,8 @@ export async function buildImageExtraction(
   for (const entry of inventory.images) for (const occ of entry.occurrences) pagesWithAnyImage.add(occ.page);
   const vectorOnlyUnits = findVectorOnlyUnits(inventory.vectors, pagesWithAnyImage);
 
-  // Kolejnosc DETERMINISTYCZNA, niezalezna od kolejnosci wejscia: strona rosnaco,
-  // wewnatrz strony po objId (regiony wektorowe, bez objId, na koncu kazdej strony).
+  // DETERMINISTIC order, independent of input order: page ascending, within
+  // a page by objId (vector regions, with no objId, at the end of each page).
   const allUnits = [...imageUnits, ...vectorOnlyUnits].sort((a, b) => {
     if (a.page !== b.page) return a.page - b.page;
     return (a.representativeEntry?.objId ?? '￿').localeCompare(b.representativeEntry?.objId ?? '￿');
@@ -464,21 +474,21 @@ export async function buildImageExtraction(
   let done = 0;
   const total = allUnits.length;
 
-  // [Z6] Sekwencyjnie, strona po stronie — NIGDY Promise.all na wielu stronach
-  // (ten sam wzorzec co `inventory.ts`, MDD §12). `page.cleanup()` po kazdej
-  // stronie (zmierzone w kroku 4: -58% szczytowego RSS).
+  // [Z6] Sequentially, page by page — NEVER Promise.all across multiple
+  // pages (same pattern as `inventory.ts`, MDD §12). `page.cleanup()` after
+  // every page (measured in step 4: -58% peak RSS).
   for (const pageNumber of [...unitsByPage.keys()].sort((a, b) => a - b)) {
     checkAborted(signal);
     const page = await doc.getPage(pageNumber);
     try {
-      // [U3, KROK-7 odkrycie] `page.objs`/`page.commonObjs` sa puste dopoki
-      // `getOperatorList()` (lub render) nie przetworzy tej strony — ta strona
-      // jest ze SWIEZEGO otwarcia dokumentu (`doc`), niezaleznego od tego
-      // uzytego do inwentaryzacji, wiec jej `page.objs` NIGDY nie zostalo
-      // zapelnione. Bez tego wywolania KAZDA probka `extractDirect` (nawet dla
-      // najprostszego, pojedynczego obrazu) fallowala do renderu regionu,
-      // mimo ze `has()` powinno zwrocic `true` — ten sam wzorzec co
-      // `buildTextLayout.ts` (getOperatorList PRZED getTextContent).
+      // [U3, Step 7 discovery] `page.objs`/`page.commonObjs` are empty until
+      // `getOperatorList()` (or a render) has processed this page — this page
+      // comes from a FRESH document open (`doc`), independent of the one used
+      // for the inventory pass, so its `page.objs` was NEVER populated.
+      // Without this call, EVERY `extractDirect` attempt (even for the
+      // simplest, single image) fell back to a region render, even though
+      // `has()` should have returned `true` — the same pattern as
+      // `buildTextLayout.ts` (getOperatorList BEFORE getTextContent).
       await page.getOperatorList();
       checkAborted(signal);
       for (const unit of unitsByPage.get(pageNumber)!) {
@@ -492,12 +502,12 @@ export async function buildImageExtraction(
           });
           const objIdForExtraction = decision.strategy === 'direct' ? unit.representativeEntry!.objId : null;
 
-          // [KROK-8 Z3] Rozdzielczosc renderu regionu WYNIKA z natywnej
-          // rozdzielczosci zasobow w regionie, nie ze stalej — patrz
-          // `renderResolution.ts`. Bez znaczenia dla strategii `direct`
-          // (ekstrakcja bezposrednia zawsze zwraca pelna rozdzielczosc
-          // zrodlowa, `targetLongEdgePx` jest tam ignorowane, Z4) — sondujemy
-          // wylacznie wtedy, gdy faktycznie renderujemy region.
+          // [Step 8 Z3] Region-render resolution is DERIVED from the native
+          // resolution of the resources in the region, not from a constant —
+          // see `renderResolution.ts`. Irrelevant for the `direct` strategy
+          // (direct extraction always returns the full source resolution,
+          // `targetLongEdgePx` is ignored there, Z4) — we probe only when
+          // we're actually rendering a region.
           let effectiveTargetLongEdgePx = targetLongEdgePx;
           if (decision.strategy === 'region-render') {
             const intrinsicLongEdgesPx: number[] = [];
@@ -524,46 +534,48 @@ export async function buildImageExtraction(
           );
           diagnostics.push(...extractResult.diagnostics);
 
-          // [na zyczenie uzytkownika, EKSPERYMENTALNE] Przyciecie pustego marginesu
-          // — WYLACZNIE dla jednostek ujawnionych przez `Z1-full-bleed-forced-content`
-          // (patrz `cropUniformMargins.ts`), NIE dla zwyklej tresci juz poprawnie
-          // wyodrebnionej przez sama strukture PDF-a (ta ma juz wlasciwy bbox,
-          // przycinanie jej pikseli byloby bezcelowe i ryzykowne).
+          // [at the user's request, EXPERIMENTAL] Cropping the empty margin —
+          // EXCLUSIVELY for units revealed by `Z1-full-bleed-forced-content`
+          // (see `cropUniformMargins.ts`), NOT for ordinary content already
+          // correctly extracted by the PDF's own structure (which already
+          // has the right bbox — cropping its pixels would be pointless and
+          // risky).
           let image = extractResult.image;
           if (autoCropUniformMargins && unit.reason === 'Z1-full-bleed-forced-content') {
             const bounds = detectContentBounds(image);
             if (bounds) {
               image = cropDecodedImage(image, bounds);
-              // [na zyczenie uzytkownika] WYLACZNIE dla obrazow faktycznie
-              // przycietych na tej linii (`bounds` niepuste) — patrz
-              // uzasadnienie w `brightenImage.ts`. Obraz, dla ktorego
-              // `detectContentBounds` zwrocilo `null` (nic sensownego do
-              // przyciecia), NIE przechodzi przez ta transformacje.
+              // [at the user's request] EXCLUSIVELY for images actually
+              // cropped on this line (`bounds` non-empty) — see the
+              // rationale in `brightenImage.ts`. An image for which
+              // `detectContentBounds` returned `null` (nothing sensible to
+              // crop) does NOT go through this transformation.
               if (brightenAutoCroppedImages) image = brightenCroppedImage(image, AUTOCROP_BRIGHTEN);
             }
           }
 
-          // [Z6, budzet pamieci] hash + encode NATYCHMIAST; `extractResult.image`
-          // (surowy RGBA, do 48MB dla 4000x3000) NIE jest przechowywany dalej —
-          // tylko hash + wymiary + juz-skompresowane bajty trafiaja do `prepared`.
+          // [Z6, memory budget] hash + encode IMMEDIATELY; `extractResult.image`
+          // (raw RGBA, up to 48MB for 4000x3000) is NOT kept around further —
+          // only the hash + dimensions + already-compressed bytes go into `prepared`.
           const contentHash = await computeContentHash(image);
-          // [KROK-8 Z2] Liczone TYLKO dla kandydatow 'content' — 'undecided' nie
-          // podlega tej reklasyfikacji (patrz `finalize.ts`), wiec oszczedzamy
-          // dodatkowy przebieg po pikselach tam, gdzie i tak nie zostanie uzyty.
+          // [Step 8 Z2] Computed ONLY for 'content' candidates — 'undecided'
+          // is not subject to this reclassification (see `finalize.ts`), so
+          // we save an extra pixel pass where it wouldn't be used anyway.
           const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(image) : undefined;
-          // [KROK-17] Sugestia siatki — NIE ograniczone do 'content' (w
-          // odroznieniu od `luminanceStdDev` powyzej): 'undecided' rowniez moze
-          // trafic na scene reczna decyzja uzytkownika (Z4, ReviewScreen), a
-          // koszt liczenia jest pomijalny wzgledem juz i tak wykonanego decode.
+          // [Step 17] Grid suggestion — NOT limited to 'content' (unlike
+          // `luminanceStdDev` above): 'undecided' can also end up on stage by
+          // the user's manual decision (Z4, ReviewScreen), and the cost of
+          // computing it is negligible relative to the decode already
+          // performed anyway.
           const suggestedGrid = detectGrid(image) ?? undefined;
           const encoded = await encoder.encode(image, { format: opts.outputFormat, quality: opts.outputQuality });
 
           const entryForFinalize = unit.representativeEntry ?? syntheticVectorOnlyEntry(pageNumber, unit.bbox);
-          // [KROK-11 Z4] Region czysto wektorowy wymuszony na 'content' (linia
-          // wyzej) to swiadoma, pewna decyzja (udany render mapy rysowanej
-          // wektorowo) — dostaje wysoka pewnosc, NIE nisza pewnosc `undecided`
-          // odziedziczona z `unit.confidence` (ktora opisywala co innego:
-          // "brak obrazu do wyciagniecia wprost").
+          // [Step 11 Z4] A purely vector region forced to 'content' (line
+          // above) is a deliberate, confident decision (a successful render
+          // of a vector-drawn map) — it gets high confidence, NOT the lower
+          // `undecided` confidence inherited from `unit.confidence` (which
+          // described something else: "no image to extract directly").
           const confidence = unit.representativeEntry ? unit.confidence : confidenceForReason('Z1-large-relative-area');
           prepared.push({
             entry: entryForFinalize,

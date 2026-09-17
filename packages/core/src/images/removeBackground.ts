@@ -2,73 +2,74 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { featherAlpha } from './featherAlpha.js';
 
 /**
- * [KROK-42 Z1, "token bez przezroczystosci lezy NA mapie, nie W niej"]
- * Usuwa teksturowane tlo strony wokol ilustracji przeznaczonej na token —
- * klasyczne "wypelnianie od rogow z tolerancja" z edytorow obrazu: zaklada,
- * ze WSZYSTKIE 4 rogi obrazu naleza do tla (prawie zawsze prawda dla
- * ilustracji osadzonej na stronie podrecznika — sama tresc rzadko dotyka
- * WSZYSTKICH czterech rogow naraz), rozlewa sie (BFS, nie rekurencja — zero
- * ryzyka przepelnienia stosu na duzych obrazach) po sasiednich pikselach o
- * kolorze w promieniu `tolerance` od WLASNEGO ziarna KAZDEGO rogu (cztery
- * niezalezne zrodla, nie jeden globalny kolor — tlo bywa gradientowe/z
- * winieta, jeden referencyjny kolor z jednego rogu nie pasowalby do
- * pozostalych, ten sam duch co `cropUniformMargins.ts`'s "wlasna srednia
- * linii, nie jeden globalny kolor").
+ * [Step 42 Z1, "a token with no transparency sits ON the map, not IN it"]
+ * Removes the textured page background around an illustration meant for a
+ * token — the classic "corner flood fill with tolerance" from image
+ * editors: assumes ALL 4 image corners belong to the background (almost
+ * always true for an illustration embedded on a rulebook page — the content
+ * itself rarely touches ALL four corners at once), spreads (BFS, not
+ * recursion — zero risk of stack overflow on large images) across
+ * neighboring pixels whose color is within `tolerance` of EACH corner's OWN
+ * seed (four independent sources, not one global color — the background can
+ * be gradiented/vignetted, a single reference color from one corner wouldn't
+ * match the others, the same spirit as `cropUniformMargins.ts`'s "each
+ * line's own average, not one global color").
  */
 
 export interface RemoveBackgroundOptions {
-  /** Maks. odchylenie kanalu RGB od koloru-ziarna (tego rogu, z ktorego rozlewa sie dany piksel), zeby piksel liczyl sie jako "to samo tlo". */
+  /** Max deviation of an RGB channel from the seed color (the corner a given pixel is spreading from) for a pixel to count as "the same background". */
   tolerance: number;
-  /** Promien wygladzenia granicy usunietego tla (patrz `featherAlpha.ts`) w pikselach. */
+  /** Radius for smoothing the removed-background boundary (see `featherAlpha.ts`) in pixels. */
   featherPx: number;
-  /** [zabezpieczenie] Jesli wypelnienie objeloby WIECEJ niz ten udzial calkowitej powierzchni (0-1), przerwij i NIC nie usuwaj — znaczy to, ze tlo NIE jest jednolite (obraz w wiekszosci "tlem" wg tolerancji = falszywe rozpoznanie), a nie ze token faktycznie ma tak duzo tla do usuniecia. */
+  /** [safeguard] If the fill would cover MORE than this share of the total area (0-1), abort and remove NOTHING — this means the background is NOT uniform (an image mostly "background" by tolerance = a false detection), not that the token genuinely has that much background to remove. */
   maxAreaFraction: number;
   /**
-   * [ZGLOSZENIE-doklikniecie-tla Z1, "kapelusz laczacy sie z cialem tworzy
-   * zamknieta kieszen tla"] Dodatkowe punkty startowe rozlewu, PONAD 4 rogi —
-   * wskazane recznie przez uzytkownika piksele w obszarach tla
-   * NIEPOLACZONYCH z brzegiem obrazu. Klasyczne ograniczenie kazdego
-   * "wypelniania od rogow" (magic wand): obszar tla odciety od brzegu przez
-   * tresc (kieszen pod rondem kapelusza, miedzy ramieniem a tulowiem) jest
-   * nieosiagalny z ZADNEGO rogu, niezaleznie od tolerancji — to nie usterka
-   * implementacji, tylko geometria problemu. Kazdy dodatkowy punkt rozlewa
-   * sie TYM SAMYM mechanizmem/tolerancja co rogi, do WSPOLNEGO `visited` —
-   * `maxAreaFraction` liczone NARASTAJACO nad SUMA wszystkich rozlan (rogi +
-   * wszystkie dodatkowe punkty), nie osobno per punkt, zeby wielokrotne
-   * dokliknieia nie mogly w sumie "przeciekowo" usunac wiecej niz limit
-   * pozwala. Wspolrzedne poza obrazem sa pomijane (bezpieczny brak efektu, nie blad).
-   * Domyslnie puste — bez zmiany dotychczasowego zachowania.
+   * [background-click-in report Z1, "a hat merging with the body creates a
+   * closed pocket of background"] Additional flood-fill seed points, BEYOND
+   * the 4 corners — pixels manually pointed out by the user in background
+   * areas NOT CONNECTED to the image's edge. The classic limitation of any
+   * "corner flood fill" (magic wand): a background area cut off from the
+   * edge by content (a pocket under a hat brim, between an arm and torso) is
+   * unreachable from ANY corner, regardless of tolerance — this isn't an
+   * implementation flaw, just the geometry of the problem. Each extra point
+   * spreads with the SAME mechanism/tolerance as the corners, into a SHARED
+   * `visited` set — `maxAreaFraction` is computed CUMULATIVELY over the SUM
+   * of all fills (corners + all extra points), not separately per point, so
+   * multiple clicks can't collectively "leak" more removal than the limit
+   * allows. Coordinates outside the image are skipped (a safe no-op, not an
+   * error). Empty by default — no change to prior behavior.
    */
   extraSeeds?: ReadonlyArray<{ x: number; y: number }>;
 }
 
 export interface RemoveBackgroundResult {
-  /** Oryginal (`aborted: true`) albo obraz z usunietym tlem (alfa=0 w tle, wygladzona granica). */
+  /** The original (`aborted: true`) or the image with background removed (alpha=0 in the background, smoothed boundary). */
   image: DecodedImage;
-  /** Udzial powierzchni (0-1) faktycznie usuniety — miarodajny NAWET gdy `aborted` (pokazuje, o ile przekroczono limit). */
+  /** Share of area (0-1) actually removed — meaningful EVEN when `aborted` (shows by how much the limit was exceeded). */
   removedFraction: number;
-  /** `true` = `maxAreaFraction` przekroczone, `image` to NIEZMIENIONY oryginal. */
+  /** `true` = `maxAreaFraction` exceeded, `image` is the UNCHANGED original. */
   aborted: boolean;
 }
 
 /**
- * [Skalibrowane na prawdziwym portrecie z `sample/ZewCthulhu-WRAK.pdf` (str.
- * 26, "Isaac Klein"), patrz `RAPORT-KROK-42.md` po metode] Ilustracje
- * malarskie/szkicowe (typowy styl portretow NPC w podrecznikach) czesto maja
- * MIEKKIE, stopniowo cieniowane przejscie od tla do tresci (brak ostrej
- * krawedzi) — na tym konkretnym obrazie kazda tolerancja >=16 lapala sie
- * lancuchowo przez cale zdjecie (removedFraction skakalo z ~0.40 przy
- * tolerance=12 do ~0.97 przy tolerance=16, patrz historia kalibracji ponizej)
- * i usuwala WIEKSZOSC portretu, nie tylko tlo. Plaskie/jasne tlo stron
- * podrecznika (cel tej funkcji) potrzebuje duzo mniejszej tolerancji niz
- * zakladano pierwotnie (32) — 8-12 dawalo czysty wynik (tlo usuniete, szorstka
- * malarska ramka portretu zachowana) na tym obrazie, z wyraznym urwiskiem tuz
- * powyzej. `tolerance: 10` wybrane jako srodek tego bezpiecznego plateau, z
- * zapasem po obu stronach (4 zostawialo widoczny cienki rabek tla, 16 juz
- * katastroficznie nadpisywalo tresc). `maxAreaFraction: 0.6` (bez zmian) jest
- * WLASNIE zabezpieczeniem NA WYPADEK takiego "przeciekniecia" — gdyby
- * lancuchowe rozlanie na jakims obrazie przekroczylo 60% powierzchni, funkcja
- * PRZERYWA i zwraca oryginal (patrz test "jednolite tlo... PRZERYWA").
+ * [Calibrated on a real portrait from `sample/ZewCthulhu-WRAK.pdf` (p. 26,
+ * "Isaac Klein"), see `RAPORT-KROK-42.md` for the method] Painted/sketched
+ * illustrations (the typical style of NPC portraits in rulebooks) often have
+ * a SOFT, gradually shaded transition from background to content (no sharp
+ * edge) — on this specific image, any tolerance >=16 chain-spread across the
+ * whole picture (removedFraction jumped from ~0.40 at tolerance=12 to ~0.97
+ * at tolerance=16, see the calibration history below) and removed MOST of
+ * the portrait, not just the background. A flat/bright rulebook page
+ * background (this function's target) needs a much smaller tolerance than
+ * originally assumed (32) — 8-12 gave a clean result (background removed,
+ * the portrait's rough painted border preserved) on this image, with a
+ * clear cliff just above it. `tolerance: 10` was chosen as the middle of
+ * this safe plateau, with margin on both sides (4 left a visible thin sliver
+ * of background, 16 already catastrophically overwrote content).
+ * `maxAreaFraction: 0.6` (unchanged) is PRECISELY the safeguard IN CASE of
+ * such a "leak" — if the chain fill on some image exceeded 60% of the area,
+ * the function ABORTS and returns the original (see the test "uniform
+ * background... ABORTS").
  */
 export const DEFAULT_REMOVE_BACKGROUND: RemoveBackgroundOptions = { tolerance: 10, featherPx: 2, maxAreaFraction: 0.6 };
 
@@ -80,16 +81,16 @@ function colorDistance(rgba: Uint8ClampedArray, idxA: number, idxB: number): num
 }
 
 /**
- * [decyzja projektowa] Tolerancja liczona wzgledem BEZPOSREDNIEGO sasiada,
- * ktory "odkryl" dany piksel (ostatni juz zaakceptowany piksel w lancuchu),
- * NIE wzgledem stalego koloru-ziarna rogu — standardowe zachowanie "magic
- * wand"/"contiguous flood" z edytorow obrazu. Tlo strony podrecznika czesto
- * ma DELIKATNY gradient/winiete (cieniowanie ku krawedziom, tekstura
- * "postarzanego papieru") — porownanie do STALEGO rogu zatrzymywaloby
- * rozlew przedwczesnie na granicy gradientu, mimo ze caly obszar to WCIAZ
- * jednolite tlo; lancuchowe porownanie pozwala na STOPNIOWY dryf koloru na
- * duzym obszarze (kazdy pojedynczy krok maly), a jednoczesnie wciaz
- * odrzuca OSTRY skok (prawdziwa krawedz ilustracji).
+ * [design decision] Tolerance is computed relative to the DIRECT neighbor
+ * that "discovered" a given pixel (the last already-accepted pixel in the
+ * chain), NOT relative to a constant corner seed color — the standard
+ * "magic wand"/"contiguous flood" behavior from image editors. A rulebook
+ * page background often has a SUBTLE gradient/vignette (shading toward the
+ * edges, an "aged paper" texture) — comparing against a CONSTANT corner
+ * would stop the spread prematurely at the gradient's edge, even though the
+ * whole area is STILL uniform background; chained comparison allows a
+ * GRADUAL color drift over a large area (each individual step small), while
+ * still rejecting a SHARP jump (a genuine illustration edge).
  */
 
 export function removeBackground(image: DecodedImage, opts: RemoveBackgroundOptions = DEFAULT_REMOVE_BACKGROUND): RemoveBackgroundResult {
@@ -112,9 +113,9 @@ export function removeBackground(image: DecodedImage, opts: RemoveBackgroundOpti
   const extraSeeds = opts.extraSeeds ?? [];
   const seeds: Array<[number, number]> = [...corners, ...extraSeeds.map((s): [number, number] => [Math.round(s.x), Math.round(s.y)])];
   for (const [cx, cy] of seeds) {
-    if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue; // [ZGLOSZENIE-doklikniecie-tla Z1] wspolrzedna dokliknieta poza obrazem — bezpieczny brak efektu
+    if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue; // [background-click-in report Z1] a clicked coordinate outside the image — safe no-op
     const seedPos = cy * width + cx;
-    if (visited[seedPos]) continue; // ten sam rog/punkt moze byc juz odwiedzony przez rozlew z INNEGO ziarna (male obrazy: width lub height == 1; dokliknieie w juz-usuniety obszar)
+    if (visited[seedPos]) continue; // the same corner/point may already be visited via a fill from ANOTHER seed (small images: width or height == 1; a click into an already-removed area)
     visited[seedPos] = 1;
     queue[queueTail++] = seedPos;
     removedCount++;

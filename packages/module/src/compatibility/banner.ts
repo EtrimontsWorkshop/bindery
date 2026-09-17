@@ -1,28 +1,29 @@
 import type { Resolution } from '@bindery/core';
 
 /**
- * [KROK-19 Z2] Baner niezgodnosci — MDD §6.8. Wymaganie: baner W OKNIE, nie
- * `ui.notifications` (ktore znika po 5s — niezgodnosc to stan trwaly).
+ * [Step 19 Z2] Incompatibility banner — MDD §6.8. Requirement: the banner
+ * lives IN THE WINDOW, not in `ui.notifications` (which disappears after 5s
+ * — incompatibility is a persistent state).
  *
- * Ta funkcja jest CZYSTA (zero `game.i18n`/Foundry) tak, zeby dalo sie ja
- * zweryfikowac skryptem w Node, tak jak `coc7Adapter.fromActor` (Z1) —
- * zwraca klucze i18n + parametry, NIE gotowy tekst. Warstwa renderujaca
- * (szablon/`_prepareContext` w ApplicationV2) wywoluje `game.i18n.format(key,
- * params)` na kazdym polu.
+ * This function is PURE (zero `game.i18n`/Foundry) so that it can be
+ * verified with a script in Node, the same way `coc7Adapter.fromActor` (Z1)
+ * is — it returns i18n keys + parameters, NOT ready-made text. The
+ * rendering layer (the template/`_prepareContext` in ApplicationV2) calls
+ * `game.i18n.format(key, params)` on each field.
  *
- * Trzy wymagania funkcjonalne z §6.8 sa widoczne w ksztalcie zwracanego
- * viewmodelu:
- * 1. `detected`/`activeSystem` — co wykryto i z jaka pewnoscia.
- * 2. `stillAvailableKey` — czego banner NIE blokuje.
- * 3. `showChangeProfile: true` zawsze (wyjscie awaryjne zawsze dostepne).
+ * Three functional requirements from §6.8 are visible in the shape of the
+ * returned viewmodel:
+ * 1. `detected`/`activeSystem` — what was detected and with what confidence.
+ * 2. `stillAvailableKey` — what the banner does NOT block.
+ * 3. `showChangeProfile: true` always (an emergency exit is always available).
  */
 
 export interface CompatibilityBannerContext {
-  /** Etykieta wykrytego profilu (np. `profile.title`), do wstawienia w komunikat. */
+  /** Label of the detected profile (e.g. `profile.title`), to insert into the message. */
   detectedProfileLabel: string;
-  /** Wynik detekcji profilu, 0..1 — wyswietlany jako procent. */
+  /** Profile detection score, 0..1 — displayed as a percentage. */
   detectionScore: number;
-  /** Etykieta aktywnego systemu swiata (np. `game.system.title`). */
+  /** Label of the world's active system (e.g. `game.system.title`). */
   activeSystemLabel: string;
 }
 
@@ -37,11 +38,11 @@ export interface CompatibilityBannerViewModel {
   activeSystemKey: string;
   activeSystemParams: Record<string, string>;
   stillAvailableKey: string;
-  /** Tylko dla `no-adapter`/`version-mismatch`/`no-text-layer` — akcja naprawcza z tabeli §6.8. */
+  /** Only for `no-adapter`/`version-mismatch`/`no-text-layer` — the corrective action from the §6.8 table. */
   actionKey: string | null;
-  /** `[Zmień wykryty profil]` — zawsze dostepne przy niezgodnosci (wyjscie awaryjne, wymaganie #3 z §6.8). */
+  /** `[Change detected profile]` — always available on incompatibility (emergency exit, requirement #3 from §6.8). */
   showChangeProfile: boolean;
-  /** `[Importuj pozostałe]` — dostepne, gdy jest cokolwiek neutralnego do zaimportowania. */
+  /** `[Import the rest]` — available when there's anything neutral to import. */
   showImportRest: boolean;
 }
 
@@ -62,9 +63,10 @@ const HIDDEN: CompatibilityBannerViewModel = {
 };
 
 export function buildCompatibilityBanner(resolution: Resolution, ctx: CompatibilityBannerContext): CompatibilityBannerViewModel {
-  // `full`/`generic`/`ambiguous` nie sa niezgodnoscia — `ambiguous` dostaje
-  // WLASNY ekran wyboru profilu (poza zakresem tego banera), `full`/`generic`
-  // nie blokuja niczego, wiec baner o niezgodnosci by tu wprowadzal w blad.
+  // `full`/`generic`/`ambiguous` are not incompatibility — `ambiguous` gets
+  // its OWN profile-selection screen (out of scope for this banner),
+  // `full`/`generic` block nothing, so an incompatibility banner here would
+  // be misleading.
   if (resolution.kind !== 'partial') return HIDDEN;
 
   const confidence = String(Math.round(ctx.detectionScore * 100));
@@ -143,7 +145,7 @@ export function buildCompatibilityBanner(resolution: Resolution, ctx: Compatibil
       };
     default: {
       const exhaustiveCheck: never = resolution.reason;
-      throw new Error(`Nieznany powod niezgodnosci: ${String(exhaustiveCheck)}`);
+      throw new Error(`Unknown incompatibility reason: ${String(exhaustiveCheck)}`);
     }
   }
 }

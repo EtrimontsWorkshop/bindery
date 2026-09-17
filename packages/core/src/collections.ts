@@ -1,15 +1,15 @@
 /**
- * Grupowanie po skwantyzowanej pozycji — jeden wspolny mechanizm zamiast trzech
- * niezaleznie zaimplementowanych (KROK-6 Z1d): `collectGapSamples` (KROK-5 Z2,
- * per linia bazowa), `mergeWords` (KROK-5 Z4, per linia bazowa),
- * `correlateImagesByBBox` (KROK-5 Z6.2, per skwantowany bbox).
+ * Grouping by quantized position — one shared mechanism instead of three
+ * independently implemented (Step 6 Z1d): `collectGapSamples` (Step 5 Z2,
+ * per baseline), `mergeWords` (Step 5 Z4, per baseline),
+ * `correlateImagesByBBox` (Step 5 Z6.2, per quantized bbox).
  *
- * Nie ma jednego uniwersalnego KROKU kwantyzacji — tolerancja tekstu (pochodna
- * rozmiaru fontu, patrz `baselineTolerance`) i tolerancja obrazow (stala 0.5pt)
- * sa z natury rozne domeny. Wspolna jest wylacznie mechanika grupowania; kazde
- * miejsce wywolania dostarcza WLASNA, jawna funkcje kwantyzacji (`keyOf`) —
- * to jest "jawny parametr kwantyzacji" z briefu, widoczny przy wywolaniu,
- * nie ukryty wewnatrz wspolnej funkcji.
+ * There is no single universal quantization STEP — text tolerance (derived
+ * from font size, see `baselineTolerance`) and image tolerance (a constant
+ * 0.5pt) are inherently different domains. Only the grouping mechanics are
+ * shared; each call site supplies its OWN, explicit quantization function
+ * (`keyOf`) — this is the "explicit quantization parameter" from the
+ * brief, visible at the call site, not hidden inside the shared function.
  */
 export function groupByQuantizedPosition<T>(items: readonly T[], keyOf: (item: T) => string): Map<string, T[]> {
   const groups = new Map<string, T[]>();

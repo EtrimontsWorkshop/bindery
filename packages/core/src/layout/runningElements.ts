@@ -2,13 +2,13 @@ import { groupByQuantizedPosition } from '../collections.js';
 import type { TextLine } from './lineCluster.js';
 
 /**
- * Naglowki/stopki biegnace (KROK-6 Z5) — wykrywane przez POWTARZALNOSC miedzy
- * stronami (wzorzec A8: wymaga widoku calego dokumentu, jak Z2/Z5-KROK5).
+ * Running headers/footers (Step 6 Z5) — detected by REPETITION across
+ * pages (pattern A8: requires a whole-document view, like Z2/Z5-Step5).
  *
- * NIGDY nie dopasowuj po dokladnym tekscie — numer strony sie zmienia, a to
- * najczestszy element biegnacy. Dopasowanie po KONIUNKCJI: pasmo pionowe +
- * klucz fontu + PODOBNA (nie identyczna) szerokosc/pozycja pozioma + obecnosc
- * na >= 60% stron w zakresie.
+ * NEVER match on exact text — the page number changes, and that's the most
+ * common running element. Matching is by CONJUNCTION: vertical band +
+ * font key + SIMILAR (not identical) width/horizontal position + presence
+ * on >= 60% of pages in the range.
  */
 
 export interface RunningElementMatch {
@@ -20,20 +20,20 @@ export interface RunningElementMatch {
 export interface PageForRunningElements {
   pageNumber: number;
   pageHeight: number;
-  /** Linie strumienia PODSTAWOWEGO (0°) tej strony — naglowki/stopki biegnace sa poziome. */
+  /** Lines of this page's PRIMARY stream (0°) — running headers/footers are horizontal. */
   primaryLines: readonly TextLine[];
 }
 
 export interface RunningElementOptions {
-  /** Pasmo gorne: y > tejWartosci * wysokosc strony = kandydat na naglowek. */
+  /** Top band: y > this value * page height = header candidate. */
   headerBandFraction?: number;
-  /** Pasmo dolne: y < tejWartosci * wysokosc strony = kandydat na stopke. */
+  /** Bottom band: y < this value * page height = footer candidate. */
   footerBandFraction?: number;
-  /** Minimalny odsetek stron w zakresie, na ktorych sygnatura musi wystapic. */
+  /** Minimum fraction of pages in the range on which the signature must appear. */
   minPageFraction?: number;
-  /** Tolerancja pozycji poziomej (pt) — naglowki sa zwykle wyrownane identycznie. */
+  /** Horizontal position tolerance (pt) — headers are usually aligned identically. */
   positionTolerancePt?: number;
-  /** Tolerancja szerokosci (pt) — WIEKSZA niz pozycji: numer strony zmienia liczbe cyfr (np. "9" vs "10"). */
+  /** Width tolerance (pt) — LARGER than position: the page number changes digit count (e.g. "9" vs "10"). */
   widthTolerancePt?: number;
 }
 
@@ -54,10 +54,10 @@ function quantize(v: number, tolerance: number): number {
 }
 
 /**
- * Wykrywa naglowki/stopki biegnace na CALYM dokumencie (lub przekazanym
- * zakresie stron — brief: "w zakresie", nie zawsze caly dokument). Zwraca
- * dopasowania do OZNACZENIA (`BlockKind: 'header'|'footer'` w Z6) — nigdy nie
- * usuwa linii z modelu.
+ * Detects running headers/footers across the WHOLE document (or a given
+ * page range — per the brief: "within a range", not always the whole
+ * document). Returns matches for TAGGING (`BlockKind: 'header'|'footer'`
+ * in Z6) — never removes lines from the model.
  */
 export function detectRunningElements(
   pages: readonly PageForRunningElements[],

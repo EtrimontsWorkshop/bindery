@@ -1,15 +1,16 @@
 /**
- * [KROK-14 Z4] Tworzy JEDNOSTRONICOWY `JournalEntry` z pojedynczym obrazem
- * jako handout — sciezka `destination: 'journal'` z ekranu przegladu (faza 9),
- * dla obrazow, ktore NIE sa juz osadzone w zadnej stronie journala z fazy 8
- * (te obsluguje `createJournalFromCIF.ts`). Celowo NIE reuzywa
- * `createJournalsFromCIF` — ten potok oczekuje juz-zbudowanego HTML strony z
- * `blocksToHtml.ts`, tutaj wejsciem jest goly obraz bez tekstu towarzyszacego.
+ * [Step 14 Z4] Creates a SINGLE-PAGE `JournalEntry` with a single image as a
+ * handout — the `destination: 'journal'` path from the review screen (phase
+ * 9), for images that are NOT already embedded in any phase-8 journal page
+ * (those are handled by `createJournalFromCIF.ts`). Deliberately does NOT
+ * reuse `createJournalsFromCIF` — that pipeline expects already-built page
+ * HTML from `blocksToHtml.ts`, whereas here the input is a bare image with
+ * no accompanying text.
  */
 export interface CreateJournalHandoutFromImageInput {
   name: string;
   imagePath: string;
-  /** [KROK-11 Z6] Id folderu `JournalEntry` (patrz `ensureFolder.ts`) — `undefined` = korzen. */
+  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 

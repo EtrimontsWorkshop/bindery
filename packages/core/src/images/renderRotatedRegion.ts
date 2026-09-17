@@ -4,13 +4,13 @@ import { rotateAndCropImage } from './rotateCrop.js';
 import { computeRenderPlan, transformPoint, type PdfPageForRender, type RegionRenderer, type RenderRegionOptions } from './regionRenderer.js';
 
 /**
- * [zgloszenie uzytkownika, "Zaznacz i wytnij" — mozliwosc obrocenia
- * zaznaczonego obszaru] Prostokat NIEROWNOLEGLY do osi, we WSPOLRZEDNYCH PDF
- * (Y w gore) — patrz `RotatedRect` w `pageOverlayGeometry.ts` (ten sam
- * ksztalt danych, ale tamten typ zyje w pliku o geometrii EKRANU/nakladki,
- * nie chcemy stad zaleznosci w niewlasciwa strone; `packages/module` sam
- * konwertuje ekran->PDF przez `screenRotatedRectToPdf` PRZED wywolaniem
- * tego, wiec ten plik dostaje juz gotowy prostokat w PDF-owych jednostkach).
+ * [user report, "Select and Crop" — the ability to rotate the selected
+ * area] A NON-axis-aligned rectangle, in PDF COORDINATES (Y up) — see
+ * `RotatedRect` in `pageOverlayGeometry.ts` (the same data shape, but that
+ * type lives in a file about SCREEN/overlay geometry, and we don't want a
+ * dependency from here in the wrong direction; `packages/module` itself
+ * converts screen->PDF via `screenRotatedRectToPdf` BEFORE calling this, so
+ * this file receives an already-ready rectangle in PDF units).
  */
 export interface RotatedPdfRegion {
   centerX: number;
@@ -21,36 +21,38 @@ export interface RotatedPdfRegion {
 }
 
 /**
- * Renderuje obrocony region PDF-a do prostego, "wyprostowanego" obrazu — BEZ
- * modyfikowania samego renderu pdf.js (`renderer.renderRegion` ponizej to
- * DOKLADNIE ta sama, juz sprawdzona funkcja co przy zwyklym, nieobroconym
- * "Zaznacz i wytnij"). Dwa kroki:
+ * Renders a rotated PDF region into a plain, "straightened" image — WITHOUT
+ * modifying the pdf.js render itself (`renderer.renderRegion` below is
+ * EXACTLY the same, already-proven function used for a normal, unrotated
+ * "Select and Crop"). Two steps:
  *
- * 1. Wylicz OTOCZKE (bbox rownolegly do osi) obroconego prostokata i wyrenderuj
- *    JA normalnie — to, co widac na tym wiekszym kawalku strony, jest tresciowo
- *    wystarczajace, zeby wyciac z niego dowolnie obrocony prostokat w srodku.
- * 2. `rotateAndCropImage` (czysta funkcja pikselowa, `rotateCrop.ts`) wycina i
- *    "prostuje" wlasciwy, obrocony prostokat z tej wiekszej bitmapy.
+ * 1. Compute the ENVELOPE (axis-aligned bbox) of the rotated rectangle and
+ *    render IT normally — what's visible in this larger page fragment is
+ *    content-wise sufficient to cut an arbitrarily rotated rectangle out of
+ *    its middle.
+ * 2. `rotateAndCropImage` (a pure pixel function, `rotateCrop.ts`) cuts out
+ *    and "straightens" the actual rotated rectangle from this larger bitmap.
  *
- * Srodek/kat obroconego prostokata sa przeliczane na PIKSELE tej WIEKSZEJ
- * bitmapy przez te sama technike co `screenRotatedRectToPdf`/`rotateAndCropImage`
- * juz uzywaja: przeksztalc 4 prawdziwe rogi (tu: z PDF-a na piksele bitmapy),
- * wyprowadz srodek/wymiary/kat z ICH pozycji — zero osobnej, recznie
- * odwracanej algebry na samym kacie.
+ * The rotated rectangle's center/angle are converted into PIXELS of this
+ * LARGER bitmap using the same technique that
+ * `screenRotatedRectToPdf`/`rotateAndCropImage` already use: transform the 4
+ * real corners (here: from PDF to bitmap pixels), derive center/
+ * dimensions/angle from THEIR positions — zero separate, manually-inverted
+ * algebra on the angle itself.
  *
- * [naprawa zgloszonego bledu — recenzja calego designu] Przeliczenie PDF ->
- * piksele bitmapy MUSI uzywac DOKLADNIE tej samej transformacji, ktorej uzyl
- * `renderer.renderRegion` do wyprodukowania `source` — czyli prawdziwej
- * macierzy pdf.js `page.getViewport({scale}).transform` (ktora sama
- * uwzglednia `page.rotate`, patrz `regionRenderer.ts`), NIE naiwnego
- * skalowania+odbicia Y liczonego wprost z `bbox`. Ta druga formula byla
- * poprawna WYLACZNIE dla stron z `rotate === 0` (co jest prawda dla
- * wszystkich 9 plikow w `samples/` tego projektu, stad blad byl niewidoczny
- * do tej pory) — na stronie z realna rotacja dawalaby zle wspolrzedne bez
- * zadnego bledu/ostrzezenia. `computeRenderPlan` to CZYSTA, deterministyczna
- * funkcja tego samego `bbox`/`targetLongEdgePx` co render wyzej uzyl, wiec
- * ponowne jej wywolanie tutaj zwraca DOKLADNIE ten sam `scale`/`offsetX/Y`
- * (a `plan.outWidth/outHeight` sa z definicji rowne `source.width/height`).
+ * [fix for a reported bug — a full design review] The PDF -> bitmap-pixel
+ * conversion MUST use EXACTLY the same transform that
+ * `renderer.renderRegion` used to produce `source` — i.e. the real pdf.js
+ * matrix `page.getViewport({scale}).transform` (which itself accounts for
+ * `page.rotate`, see `regionRenderer.ts`), NOT a naive scale+Y-flip computed
+ * directly from `bbox`. That second formula was correct ONLY for pages with
+ * `rotate === 0` (which is true for all 9 files in this project's
+ * `samples/`, which is why the bug went unnoticed until now) — on a page
+ * with real rotation it would give wrong coordinates with no error/warning
+ * at all. `computeRenderPlan` is a PURE, deterministic function of the same
+ * `bbox`/`targetLongEdgePx` the render above used, so calling it again here
+ * returns EXACTLY the same `scale`/`offsetX/Y` (and `plan.outWidth/outHeight`
+ * are by definition equal to `source.width/height`).
  */
 export async function renderRotatedRegion(page: PdfPageForRender, region: RotatedPdfRegion, renderer: RegionRenderer, opts: RenderRegionOptions): Promise<DecodedImage> {
   const hw = region.width / 2;
@@ -69,10 +71,10 @@ export async function renderRotatedRegion(page: PdfPageForRender, region: Rotate
   const ys = pdfCorners.map((p) => p[1]);
   const bbox: Rect = { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
 
-  // Rozdzielczosc renderu OTOCZKI skalowana tak, zeby WLASCIWA (mniejsza)
-  // selekcja i tak wyjdzie w okolicach `opts.targetLongEdgePx` po przycieciu
-  // — inaczej duza otoczka wokol waskiego, mocno obroconego prostokata
-  // dawalaby niepotrzebnie niska rozdzielczosc samej selekcji.
+  // Envelope render resolution scaled so that the ACTUAL (smaller) selection
+  // still comes out around `opts.targetLongEdgePx` after cropping —
+  // otherwise a large envelope around a narrow, heavily rotated rectangle
+  // would give an unnecessarily low resolution for the selection itself.
   const bboxLongEdge = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY);
   const regionLongEdge = Math.max(region.width, region.height);
   const bboxTargetLongEdgePx = regionLongEdge > 0 && bboxLongEdge > 0 ? opts.targetLongEdgePx * (bboxLongEdge / regionLongEdge) : opts.targetLongEdgePx;

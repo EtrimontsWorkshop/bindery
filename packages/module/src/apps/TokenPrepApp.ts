@@ -10,26 +10,28 @@ import {
   type DecodedImage,
   type TokenMaskShape,
 } from '@bindery/core';
+import { MODULE_ID, type TokenPrepDefaults } from '../settings.js';
 
 /**
- * TokenPrepApp (KROK-42, "token jako produkt") — okno `ApplicationV2` osobne
- * od `ReviewScreen` (wzorem `GridPicker.ts`), otwierane przyciskiem
- * "Przygotuj token" WYLACZNIE dla obrazow z przeznaczeniem `token`. Zero
- * automatyki w tle: kazdy krok (usuniecie tla, kadr+zoom, maska, ramka)
- * dzieje sie na ZYWO w podgladzie, zatwierdzenie koduje DOKLADNIE to, co
- * widac. Mechanizm przypisania tokenu do aktora (krok 35,
- * `uploadedTokenImagePathById` w `ReviewScreen.ts`) pozostaje NIETKNIETY —
- * ten panel wylacznie PODMIENIA bajty/wymiary/format obrazu PRZED tym, jak
- * `#runImport` je wgra, dokladnie jak dzis robi to `#resizeImage`/`#rotateImage`.
+ * TokenPrepApp (Step 42, "token as a product") — an `ApplicationV2` window
+ * separate from `ReviewScreen` (following the pattern of `GridPicker.ts`),
+ * opened by the "Prepare token" button EXCLUSIVELY for images with the
+ * `token` destination. Zero automation in the background: every step
+ * (background removal, crop+zoom, mask, frame) happens LIVE in the preview,
+ * confirming encodes EXACTLY what's visible. The mechanism that assigns a
+ * token to an actor (step 35, `uploadedTokenImagePathById` in
+ * `ReviewScreen.ts`) stays UNTOUCHED — this panel ONLY REPLACES the image's
+ * bytes/dimensions/format BEFORE `#runImport` uploads them, exactly the way
+ * `#resizeImage`/`#rotateImage` do today.
  *
- * Pipeline (ten sam co w `redraw()` na podgladzie i przy zatwierdzeniu, tylko
- * inna docelowa rozdzielczosc — brak rozjazdu podglad/wynik): zrodlo ->
- * (opcjonalnie) `removeBackground` na CALYM zrodlowym obrazie (rogi = tlo,
- * patrz `removeBackground.ts` — najbardziej niezawodne, gdy dziala na
- * NIEPRZYCIETYM jeszcze obrazie, gdzie rogi naprawde sa tlem strony) ->
- * `rotateAndCropImage` (kadr+zoom w kwadrat, `rotationRad=0` — obrot
- * obrazu to osobna, juz istniejaca funkcja w wierszu obrazu) -> `applyTokenMask`
- * -> `applyBuiltInFrame`/`compositeCustomFrame`.
+ * Pipeline (the same one used in `redraw()` for the preview and on confirm,
+ * just a different target resolution — no preview/result drift): source ->
+ * (optionally) `removeBackground` over the WHOLE source image (corners =
+ * background, see `removeBackground.ts` — most reliable when run on the
+ * NOT-YET-CROPPED image, where the corners really are the page background)
+ * -> `rotateAndCropImage` (crop+zoom into a square, `rotationRad=0` —
+ * rotating the image is a separate, already-existing function in the image
+ * row) -> `applyTokenMask` -> `applyBuiltInFrame`/`compositeCustomFrame`.
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -40,11 +42,12 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const BUILT_IN_FRAME_THICKNESS: Record<'thin' | 'thick', number> = { thin: 0.05, thick: 0.12 };
 /**
- * [KROK-42 Z3, "dyspozycja aktora NIEDOSTEPNA w momencie przygotowania tokenu"]
- * `disposition` nigdzie nie jest czytana przed zapisem aktora (patrz
- * `coc7.ts`, na stale `1`) — zgodnie z furtka z briefu ("jesli disposition
- * niedostepne, zostaw kolor domyslny") ramka wbudowana dostaje JEDEN,
- * neutralny domyslny kolor zamiast probowac zgadywac przyjazny/wrogi/neutralny.
+ * [Step 42 Z3, "actor disposition UNAVAILABLE at token-prep time"]
+ * `disposition` is never read anywhere before the actor is saved (see
+ * `coc7.ts`, hardcoded `1`) — per the escape hatch from the brief ("if
+ * disposition is unavailable, leave the default color"), the built-in frame
+ * gets ONE neutral default color instead of trying to guess
+ * friendly/hostile/neutral.
  */
 const DEFAULT_FRAME_COLOR = '#8a6d3b';
 const CHECKER_CELL_PX = 10;
@@ -57,7 +60,7 @@ export interface PrepareTokenInput {
   format: string;
   width: number;
   height: number;
-  /** Wartosc startowa przelacznika "usun tlo" — patrz `images.removeTokenBackgroundDefault` w `schema.ts` (`@bindery/core`). */
+  /** Starting value of the "remove background" toggle — see `images.removeTokenBackgroundDefault` in `schema.ts` (`@bindery/core`). */
   removeBackgroundDefault: boolean;
 }
 
@@ -77,6 +80,20 @@ async function decodeToBitmap(bytes: Uint8Array, format: string): Promise<ImageB
   return createImageBitmap(blob);
 }
 
+/** [Set as default] `game.settings` only stores JSON-able values — the custom frame's bytes travel as base64. */
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
     id: 'bindery-token-prep',
@@ -91,6 +108,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     actions: {
       confirm: TokenPrepApp.#onConfirm,
       cancel: TokenPrepApp.#onCancel,
+      setDefault: TokenPrepApp.#onSetDefault,
     },
   };
 
@@ -104,22 +122,22 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #resolve: ((value: PrepareTokenResult | null) => void) | null = null;
 
   #source: DecodedImage | null = null;
-  /** [wydajnosc] `removeBackground` niezalezne od kadru/zoomu — cache po tolerancji+wersji ziaren, zeby przeciaganie podgladu (pan/zoom) NIE przeliczalo flood-fill na calym zrodle w kazdej klatce. */
+  /** [performance] `removeBackground` is independent of crop/zoom — cached by tolerance+seed version, so that dragging the preview (pan/zoom) does NOT recompute the flood-fill over the whole source on every frame. */
   #bgRemovedCache: { tolerance: number; seedsVersion: number; image: DecodedImage } | null = null;
   #customFrameBytes: Uint8Array | null = null;
 
   /**
-   * [ZGLOSZENIE-doklikniecie-tla Z1, "kapelusz laczacy sie z cialem tworzy
-   * zamknieta kieszen tla"] Punkty dodane recznie przez uzytkownika, we
-   * WSPOLRZEDNYCH PELNEGO ZRODLA (nie podgladu/kadru — stabilne niezaleznie
-   * od pozniejszej zmiany zoomu/panoramy), przekazywane jako `extraSeeds` do
-   * `removeBackground`. `#seedsVersion` rosnie przy kazdej zmianie (dodanie/
-   * cofniecie) — klucz cache'u obok tolerancji, bo `removeBackground` samo w
-   * sobie nie wie o zawartosci tej tablicy.
+   * [REPORT-click-to-add-background Z1, "a hat touching the body creates a
+   * closed background pocket"] Points added manually by the user, in FULL
+   * SOURCE COORDINATES (not preview/crop coordinates — stable regardless of
+   * later zoom/pan changes), passed as `extraSeeds` to `removeBackground`.
+   * `#seedsVersion` increments on every change (add/undo) — a cache key
+   * alongside tolerance, because `removeBackground` itself doesn't know
+   * about the contents of this array.
    */
   #clickSeeds: Array<{ x: number; y: number }> = [];
   #seedsVersion = 0;
-  /** Tryb "dokliknij tlo" — gdy aktywny, klikniecie (bez przeciagniecia) na podgladzie dodaje ziarno zamiast przesuwac kadr. */
+  /** "Click to add background" mode — when active, a click (without dragging) on the preview adds a seed instead of panning the crop. */
   #clickToAddMode = false;
 
   #shape: TokenMaskShape = 'circle';
@@ -141,6 +159,25 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     super(options);
     this.#input = input;
     this.#removeBg = input.removeBackgroundDefault;
+
+    // [Set as default] Once the user has clicked this button, their saved
+    // set of settings wins over ALL the built-in initial values ABOVE —
+    // including the profile's suggestion (`input.removeBackgroundDefault`)
+    // — this is an explicit, deliberate decision made via the button, not a
+    // default profile heuristic.
+    const saved = game.settings!.get(MODULE_ID, 'tokenPrepDefaults');
+    if (saved.enabled) {
+      this.#shape = saved.shape as TokenMaskShape;
+      this.#removeBg = saved.removeBackground;
+      this.#tolerance = saved.removeBackgroundTolerance;
+      this.#frame = saved.frame as FrameChoice;
+      this.#frameColor = saved.frameColor;
+      this.#outputSize = saved.outputSize as OutputSize;
+      this.#format = saved.format as 'webp' | 'png';
+      if (saved.frame === 'custom' && saved.frameCustomImage) {
+        this.#customFrameBytes = base64ToBytes(saved.frameCustomImage);
+      }
+    }
   }
 
   static async prepare(input: PrepareTokenInput): Promise<PrepareTokenResult | null> {
@@ -182,7 +219,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const root = this.element;
     const canvas = root.querySelector<HTMLCanvasElement>('canvas.bindery-token-prep-canvas');
     if (!canvas) {
-      console.warn('Bindery | TokenPrepApp: brak <canvas> w wyrenderowanym DOM');
+      console.warn('Bindery | TokenPrepApp: missing <canvas> in the rendered DOM');
       return;
     }
     this.#canvas = canvas;
@@ -195,7 +232,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#centerX = this.#source.width / 2;
         this.#centerY = this.#source.height / 2;
       } catch (err) {
-        console.warn('Bindery | TokenPrepApp: dekodowanie obrazu zrodlowego nieudane:', err);
+        console.warn('Bindery | TokenPrepApp: decoding the source image failed:', err);
         ui.notifications?.error(game.i18n!.localize('BINDERY.review.resizeFailed' as never));
         return;
       }
@@ -211,7 +248,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const drag = this.#dragState;
       if (!drag || drag.pointerId !== e.pointerId) return;
       if (Math.abs(e.clientX - drag.startClientX) > CLICK_MOVE_THRESHOLD_PX || Math.abs(e.clientY - drag.startClientY) > CLICK_MOVE_THRESHOLD_PX) drag.moved = true;
-      // [ZGLOSZENIE-doklikniecie-tla Z1] W trybie "dokliknij tlo" przeciaganie NIE przesuwa kadru — samo klikniecie (patrz `endDrag`) dodaje ziarno, zeby przypadkowy mikroruch myszy miedzy pointerdown/up nie przesunal kadru pod uzytkownikiem.
+      // [REPORT-click-to-add-background Z1] In "click to add background" mode, dragging does NOT pan the crop — a plain click (see `endDrag`) adds a seed, so an accidental micro-movement of the mouse between pointerdown/up doesn't shift the crop under the user.
       if (this.#clickToAddMode) return;
       const scale = this.#currentScale(PREVIEW_PX);
       this.#centerX = drag.startCenterX - (e.clientX - drag.startClientX) * scale;
@@ -299,14 +336,15 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * Pikseli ZRODLA na piksel WYJSCIA przy biezacym zoomie — kadr wypelnia
-   * caly kwadrat przy zoom=1, wieksze wartosci przyblizaja. `outputEdgePx`
-   * PARAMETREM (nie zawsze `PREVIEW_PX`) — `#compose` woła to z docelowa
-   * rozdzielczoscia zapisu (256-1024), NIE z rozdzielczoscia podgladu, inaczej
-   * finalny zapis mialby INNY kadr/zoom niz to, co widac na podgladzie
-   * (zmierzony na zywo blad pierwszej wersji: mnozenie JUZ policzonej skali
-   * "dla PREVIEW_PX" przez `outputSize/PREVIEW_PX` zamiast `PREVIEW_PX/outputSize`
-   * dawalo skale zaburzona kwadratem stosunku rozdzielczosci).
+   * SOURCE pixels per OUTPUT pixel at the current zoom — the crop fills the
+   * whole square at zoom=1, larger values zoom in. `outputEdgePx` is a
+   * PARAMETER (not always `PREVIEW_PX`) — `#compose` calls this with the
+   * target save resolution (256-1024), NOT the preview resolution, otherwise
+   * the final save would have a DIFFERENT crop/zoom than what's shown in the
+   * preview (bug measured live in the first version: multiplying the scale
+   * already computed "for PREVIEW_PX" by `outputSize/PREVIEW_PX` instead of
+   * `PREVIEW_PX/outputSize` gave a scale distorted by the square of the
+   * resolution ratio).
    */
   #currentScale(outputEdgePx: number): number {
     if (!this.#source) return 1;
@@ -341,7 +379,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return result.image;
   }
 
-  /** Skladany pipeline: kadr+zoom -> maska -> ramka, przy dowolnej docelowej rozdzielczosci (podglad i finalny zapis dziela ten sam kod). */
+  /** Composed pipeline: crop+zoom -> mask -> frame, at any target resolution (the preview and the final save share the same code). */
   async #compose(outputSize: number): Promise<DecodedImage> {
     const base = this.#backgroundRemoved();
     const cropped = rotateAndCropImage(base, {
@@ -368,7 +406,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const frameImage: DecodedImage = { width: outputSize, height: outputSize, rgba: new Uint8ClampedArray(imageData.data) };
         return compositeCustomFrame(masked, frameImage);
       } catch (err) {
-        console.warn('Bindery | TokenPrepApp: nie udalo sie zastosowac wlasnej ramki:', err);
+        console.warn('Bindery | TokenPrepApp: failed to apply the custom frame:', err);
         return masked;
       }
     }
@@ -385,7 +423,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!this.#source || !this.#canvas) return;
     const seq = ++this.#redrawSeq;
     const composed = await this.#compose(PREVIEW_PX);
-    if (seq !== this.#redrawSeq) return; // [race] nowsze wywolanie #redraw juz w toku — porzuc przestarzaly wynik
+    if (seq !== this.#redrawSeq) return; // [race] a newer #redraw call is already in flight — discard the stale result
     const ctx = this.#canvas.getContext('2d');
     if (!ctx) return;
     for (let y = 0; y < PREVIEW_PX; y += CHECKER_CELL_PX) {
@@ -409,9 +447,33 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#resolve = null;
         void this.close();
       } catch (err) {
-        console.warn('Bindery | TokenPrepApp: zapis tokenu nieudany:', err);
+        console.warn('Bindery | TokenPrepApp: saving the token failed:', err);
         ui.notifications?.error(game.i18n!.localize('BINDERY.review.resizeFailed' as never));
       }
+    })();
+  }
+
+  /**
+   * [Set as default] Saves the panel's CURRENT (not yet confirmed) settings
+   * as the starting point for every subsequent `TokenPrepApp` opening in
+   * this world — does not close the window or encode a token; the user can
+   * keep fine-tuning this particular token after clicking it.
+   */
+  static #onSetDefault(this: TokenPrepApp): void {
+    void (async () => {
+      const payload: TokenPrepDefaults = {
+        enabled: true,
+        shape: this.#shape,
+        removeBackground: this.#removeBg,
+        removeBackgroundTolerance: this.#tolerance,
+        frame: this.#frame,
+        frameColor: this.#frameColor,
+        frameCustomImage: this.#frame === 'custom' && this.#customFrameBytes ? bytesToBase64(this.#customFrameBytes) : null,
+        outputSize: this.#outputSize,
+        format: this.#format,
+      };
+      await game.settings!.set(MODULE_ID, 'tokenPrepDefaults', payload);
+      ui.notifications?.info(game.i18n!.localize('BINDERY.tokenPrep.setDefaultSaved' as never));
     })();
   }
 
@@ -428,7 +490,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 }
 
-/** Otwiera panel przygotowania tokenu, zwraca gotowe bajty/format/wymiary albo `null` (anulowano). */
+/** Opens the token-preparation panel, returns the finished bytes/format/dimensions or `null` (cancelled). */
 export async function prepareToken(input: PrepareTokenInput): Promise<PrepareTokenResult | null> {
   return TokenPrepApp.prepare(input);
 }

@@ -2,25 +2,25 @@ import type { SemanticBlock } from '../semantic/blockBuilder.js';
 import { flattenOutline, type ResolvedOutlineNode } from './outline.js';
 
 /**
- * Hierarchia journali z zakladek PDF + fallback po naglowkach (KROK-9 Z4).
+ * Journal hierarchy from PDF bookmarks + heading-based fallback (Step 9 Z4).
  *
- * [decyzja architektoniczna] Foundry v14 `JournalEntry` ma WYLACZNIE plaska
- * kolekcje `pages` (`common/documents/journal-entry.mjs`: `pages: new
- * fields.EmbeddedCollectionField(...)`) — ZERO zagniezdzania JournalEntry w
- * JournalEntry. Zakladki PDF czesto maja glebokosc >2 (zmierzone na
- * `samples/`: Za_lini_wroga.pdf ma glebokosc 5!). Mapowanie: NAJPLYTSZY
- * poziom obecny w znacznikach -> `JournalEntry`, kolejny poziom -> `JournalEntryPage`,
- * WSZYSTKO glebsze NIE tworzy kolejnej struktury — zostaje zwyklym blokiem
- * `heading` w tresci strony (Z5 nada mu <h3>/<h4>/... wedlug wlasnego poziomu),
- * dokladnie jak prawdziwy, drukowany podrecznik: rozdzial -> sekcja -> zwykly
- * srodtytul w tekscie.
+ * [architectural decision] Foundry v14's `JournalEntry` has ONLY a flat
+ * `pages` collection (`common/documents/journal-entry.mjs`: `pages: new
+ * fields.EmbeddedCollectionField(...)`) — ZERO nesting of JournalEntry
+ * inside JournalEntry. PDF bookmarks often have depth >2 (measured on
+ * `samples/`: Za_lini_wroga.pdf has depth 5!). Mapping: the SHALLOWEST
+ * level present in the markers -> `JournalEntry`, the next level ->
+ * `JournalEntryPage`, EVERYTHING deeper does NOT create another structure —
+ * it stays as a plain `heading` block in the page content (Z5 assigns it
+ * <h3>/<h4>/... based on its own level), exactly like a real, printed
+ * manual: chapter -> section -> plain subheading in the text.
  */
 
 export interface SectionMarker {
   title: string;
-  /** 1 = najplytszy poziom obecny w tym zestawie znacznikow. */
+  /** 1 = the shallowest level present in this set of markers. */
   level: number;
-  /** Indeks (w PLASKIEJ, juz uporzadkowanej liscie blokow calego dokumentu) pierwszego bloku nalezacego do tej sekcji. */
+  /** Index (in the FLAT, already-ordered list of blocks of the whole document) of the first block belonging to this section. */
   startBlockIndex: number;
 }
 
@@ -36,12 +36,13 @@ export interface JournalDraft {
 }
 
 /**
- * [KROK-9 Z4] Znaczniki z drzewa zakladek — kazdy rozwiazany wezel (majacy
- * `pageNumber`) mapowany na indeks PIERWSZEGO bloku na tej stronie lub dalej
- * (>=, bo strona docelowa moze nie miec zadnych blokow tekstu — np. sama mapa/
- * okladka — wtedy sekcja zaczyna sie od nastepnego dostepnego bloku, degradacja
- * A7, nie blad). Wezly nierozwiazywalne (`pageNumber === null`, np. link
- * zewnetrzny) sa POMIJANE, nie failuja calego importu.
+ * [Step 9 Z4] Markers from the bookmark tree — each resolved node (having a
+ * `pageNumber`) is mapped to the index of the FIRST block on that page or
+ * later (>=, because the target page may have no text blocks at all — e.g.
+ * a pure map/cover page — in which case the section starts at the next
+ * available block, an A7 degradation, not an error). Unresolvable nodes
+ * (`pageNumber === null`, e.g. an external link) are SKIPPED, they do not
+ * fail the whole import.
  */
 export function outlineToMarkers(nodes: readonly ResolvedOutlineNode[], blocks: readonly SemanticBlock[]): SectionMarker[] {
   const resolved = flattenOutline(nodes).filter((n): n is ResolvedOutlineNode & { pageNumber: number } => n.pageNumber !== null);
@@ -53,7 +54,7 @@ export function outlineToMarkers(nodes: readonly ResolvedOutlineNode[], blocks: 
   return withIndex.sort((a, b) => a.startBlockIndex - b.startBlockIndex);
 }
 
-/** Poziom naglowka z rankingu rozmiaru fontu dominujacego DANEGO bloku wsrod WSZYSTKICH blokow `heading` calego dokumentu — im wiekszy font, tym nizszy (bardziej "gorny") poziom. Brak `SemanticBlock.headingLevel` faktycznie wypelnionego gdziekolwiek indziej w kodzie (zweryfikowane grepem) — musi byc obliczone tutaj. */
+/** Heading level from the ranking of the dominant font size of a GIVEN block among ALL `heading` blocks of the whole document — the larger the font, the lower (more "top-level") the level. `SemanticBlock.headingLevel` is not actually populated anywhere else in the code (verified by grep) — it must be computed here. */
 export function assignHeadingLevels(blocks: readonly SemanticBlock[]): Map<string, number> {
   const headingBlocks = blocks.filter((b) => b.kind === 'heading');
   const sizes = new Set<number>();
@@ -68,14 +69,14 @@ export function assignHeadingLevels(blocks: readonly SemanticBlock[]): Map<strin
   return result;
 }
 
-/** Fallback (brak outline, Z4b): znaczniki z blokow `heading` samych, poziom z rankingu rozmiaru fontu. */
+/** Fallback (no outline, Z4b): markers from `heading` blocks alone, level from the font-size ranking. */
 export function headingsToMarkers(blocks: readonly SemanticBlock[]): SectionMarker[] {
   const levelByBlockId = assignHeadingLevels(blocks);
   const markers: SectionMarker[] = [];
   blocks.forEach((b, i) => {
     if (b.kind !== 'heading') return;
     markers.push({
-      title: b.rawText.trim() || `Sekcja ${markers.length + 1}`,
+      title: b.rawText.trim() || `Section ${markers.length + 1}`,
       level: levelByBlockId.get(b.id) ?? 1,
       startBlockIndex: i,
     });
@@ -84,10 +85,11 @@ export function headingsToMarkers(blocks: readonly SemanticBlock[]): SectionMark
 }
 
 /**
- * Buduje drzewo journal/strona z plaskiej listy blokow + znacznikow (z outline
- * LUB z fallbacku — ten sam mechanizm dla obu, patrz `outlineToMarkers`/
- * `headingsToMarkers`). Brak znacznikow w ogole -> caly dokument to JEDEN
- * journal z JEDNA strona (fallback ostateczny, brief: "fallback musi dzialac").
+ * Builds the journal/page tree from the flat list of blocks + markers
+ * (from the outline OR from the fallback — the same mechanism for both,
+ * see `outlineToMarkers`/`headingsToMarkers`). No markers at all -> the
+ * whole document is ONE journal with ONE page (final fallback, brief:
+ * "the fallback must work").
  */
 export function buildJournalDrafts(blocks: readonly SemanticBlock[], markers: readonly SectionMarker[], fallbackTitle: string): JournalDraft[] {
   if (blocks.length === 0) return [];
@@ -99,8 +101,8 @@ export function buildJournalDrafts(blocks: readonly SemanticBlock[], markers: re
   const journalMarkers = markers.filter((m) => m.level === minLevel);
   const pageLevel = minLevel + 1;
 
-  // Blokow PRZED pierwszym journal-markerem (np. strona tytulowa bez wlasnej
-  // zakladki) NIE gubimy (A3) — trafiaja do syntetycznego journala na poczatku.
+  // Blocks BEFORE the first journal marker (e.g. a title page without its
+  // own bookmark) are NOT lost (A3) — they go into a synthetic journal at the start.
   const firstJournalStart = journalMarkers[0]!.startBlockIndex;
   const drafts: JournalDraft[] = [];
   if (firstJournalStart > 0) {
@@ -125,7 +127,7 @@ function buildOneJournal(
 ): JournalDraft {
   const pageMarkers = allMarkers.filter((m) => m.level === pageLevel && m.startBlockIndex >= rangeStart && m.startBlockIndex < rangeEnd);
 
-  // Brak podziomu (np. outline plaski, glebokosc 1) -> caly journal to JEDNA strona.
+  // No sub-level (e.g. flat outline, depth 1) -> the whole journal is ONE page.
   if (pageMarkers.length === 0) {
     const pages = [{ title, headingLevel: 1, blocks: allBlocks.slice(rangeStart, rangeEnd) }].filter((p) => p.blocks.length > 0);
     return { title, pages };
@@ -133,10 +135,10 @@ function buildOneJournal(
 
   const pages: JournalPageDraft[] = [];
   for (let i = 0; i < pageMarkers.length; i++) {
-    // Blok znacznika JOURNALA samego (np. tytul "Czesc I") i ewentualna tresc
-    // MIEDZY nim a pierwszym znacznikiem strony NIE dostaja wlasnej, osobnej
-    // (czesto niemal pustej) strony — doklejane do PIERWSZEJ prawdziwej strony
-    // (i===0 zaczyna od `rangeStart`, nie od wlasnego indeksu markera).
+    // The block of the JOURNAL marker itself (e.g. title "Part I") and any
+    // content BETWEEN it and the first page marker do NOT get their own,
+    // separate (often nearly empty) page — they are appended to the FIRST
+    // real page (i===0 starts at `rangeStart`, not at its own marker index).
     const start = i === 0 ? rangeStart : pageMarkers[i]!.startBlockIndex;
     const end = pageMarkers[i + 1]?.startBlockIndex ?? rangeEnd;
     pages.push({ title: pageMarkers[i]!.title, headingLevel: 2, blocks: allBlocks.slice(start, end) });

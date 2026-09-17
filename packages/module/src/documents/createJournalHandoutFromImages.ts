@@ -1,13 +1,13 @@
 /**
- * [KROK-19, zgloszony na zywo brak] Tworzy JEDEN `JournalEntry` z WIELOMA
- * stronami typu `image` — jedna strona na obraz, w podanej kolejnosci.
- * Odpowiednik `createJournalHandoutFromImage.ts` (pojedynczy obraz = jeden
- * journal), ale dla uzytkownika, ktory chce reczne grupowanie ("zaznaczasz 5
- * i przypisujesz do jednego journala") — np. handouty posegregowane
- * rozdzialami ksiazki, wedlug uznania MG. Sam mechanizm grupowania (jaki
- * obraz do jakiej grupy) zyje w `ReviewSelection` (czysta prezentacja, brak
- * logiki decyzyjnej tutaj — A1/check:boundary); ta funkcja WYLACZNIE tworzy
- * dokument z juz-gotowej listy stron.
+ * [Step 19, gap reported live] Creates ONE `JournalEntry` with MULTIPLE
+ * `image`-type pages — one page per image, in the given order. The
+ * counterpart to `createJournalHandoutFromImage.ts` (single image = one
+ * journal), but for a user who wants manual grouping ("select 5 and assign
+ * them to one journal") — e.g. handouts sorted by book chapter, at the GM's
+ * discretion. The grouping mechanism itself (which image goes to which
+ * group) lives in `ReviewSelection` (pure presentation, no decision logic
+ * here — A1/check:boundary); this function ONLY creates a document from an
+ * already-prepared page list.
  */
 export interface JournalHandoutImagePage {
   name: string;
@@ -17,7 +17,7 @@ export interface JournalHandoutImagePage {
 export interface CreateJournalHandoutFromImagesInput {
   name: string;
   pages: readonly JournalHandoutImagePage[];
-  /** [KROK-11 Z6] Id folderu `JournalEntry` (patrz `ensureFolder.ts`) — `undefined` = korzen. */
+  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 

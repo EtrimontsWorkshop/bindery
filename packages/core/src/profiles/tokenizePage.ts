@@ -5,39 +5,44 @@ import { splitMergedLabelValueTokens, stripStrayLeadingColonTokens } from './inf
 import type { ProfileToken } from './types.js';
 
 /**
- * [KROK-22] Wydzielone z `buildActorsForDocument.ts` (tam byla to prywatna
- * `tokensForPage`) — Profile Studio (`analyzeProfileDocument.ts`) potrzebuje
- * DOKLADNIE tej samej tokenizacji, zeby diagnostyka widziala te same tokeny
- * co prawdziwy potok statblokow, nie wlasna, potencjalnie rozjezdzajaca sie
- * kopie. Duck-typed `PdfPageLike` — ten sam wzorzec co
+ * [Step 22] Extracted from `buildActorsForDocument.ts` (there it was a private
+ * `tokensForPage`) — Profile Studio (`analyzeProfileDocument.ts`) needs
+ * EXACTLY the same tokenization, so diagnostics see the same tokens
+ * as the real statblock pipeline, not its own, potentially diverging
+ * copy. Duck-typed `PdfPageLike` — the same pattern as
  * `buildActorsForDocument.ts`/`inventory/inventory.ts`.
  *
- * [KROK-29, rozwazone i ODRZUCONE, naprawione w KROK-30 Z5] Scalanie slow
- * rozbitych przez pdf.js na styku znaku diakrytycznego (str. 23 "Zew Cthulhu
- * 7ed. Wrak.pdf": Hansen dostawal kandydata na nazwe "J" zamiast "Jørgen
- * Hansen"). Pierwsza proba (krok 29, `mergeTouchingTokens` z
- * `inferPatternFromSelection.ts`, wolane globalnie) zlapala REGRESJE na
- * synteycznym `buildActorsForDocument.test.ts`: wartosc "40" (dlugosc <=2
- * znaki, krotki fragment wedlug tamtego kryterium) zlaczyla sie z sasiednia
- * etykieta "WYG", bo jedynym warunkiem obok geometrii byla dlugosc jednej ze
- * stron — bezpieczne dla klikniecia POJEDYNCZEGO tokenu w UI (jego jedyny
- * dotychczasowy konsument), za szerokie dla WSZYSTKICH tokenow calego
- * dokumentu, gdzie krotkie wartosci liczbowe sa powszechne.
+ * [Step 29, considered and REJECTED, fixed in Step 30 Z5] Merging words
+ * split by pdf.js at a diacritic-character boundary (p. 23 "Zew Cthulhu
+ * 7ed. Wrak.pdf": a statblock heading's personal name got a name candidate
+ * of just its bare ASCII initial, instead of the full name, because the
+ * accented remainder landed in a separate token). The first attempt (step
+ * 29, `mergeTouchingTokens` from
+ * `inferPatternFromSelection.ts`, called globally) caught a REGRESSION in the
+ * synthetic `buildActorsForDocument.test.ts`: a short numeric value (length <=2
+ * characters, a short fragment under that criterion) merged with the neighboring
+ * short attribute-abbreviation label next to it, because the only condition besides geometry was the length of one of
+ * the two sides — safe for clicking a SINGLE token in the UI (its only
+ * consumer up to that point), too broad for ALL tokens of an entire
+ * document, where short numeric values are common.
  *
- * [KROK-30 Z5, precyzyjniejsze kryterium z briefu] `mergeDiacriticSplitTokens`
- * ponizej dodaje DWA dodatkowe warunki ponad geometrie (styk bez odstepu, ten
- * sam wiersz): drugi token musi zaczynac sie od znaku SPOZA ASCII (sygnatura
- * prawdziwego rozbicia diakrytykiem — "ørgen" zaczyna sie od "ø", zwykla
- * etykieta typu "WYG" nie), i oba tokeny musza dzielic ta sama `fontRole`.
- * Zmierzone wprost na realnych danych (ta sama str. 23): "J" i "ørgen Hansen,"
- * maja RÓZNE `fontKey` (pdf.js uzyl dwoch roznych zasobow fontu dla jednego
- * wizualnie skladanego slowa — stad w ogole rozbicie), ALE ta sama `fontRole`
- * ('heading', bo oba sa pogrubionym naglowkiem) — kryterium z briefu
- * ("ten sam klucz fontu") NIE zadzialaloby na tym konkretnym przypadku,
- * dlatego uzyta jest `fontRole` (grubsza, bardziej stabilna klasyfikacja z
- * inwentaryzacji), nie `fontKey`. Regresyjny przypadek "40"+"WYG" ma RÓZNE
- * `fontRole` (`body` kontra `accent`) I "WYG" zaczyna sie od ASCII — oba
- * warunki niezaleznie go wykluczaja.
+ * [Step 30 Z5, more precise criterion from the brief] `mergeDiacriticSplitTokens`
+ * below adds TWO extra conditions on top of geometry (touching with no gap, the
+ * same line): the second token must start with a NON-ASCII character (the
+ * signature of a genuine diacritic split — the accented remainder of a
+ * split name starts with a non-ASCII letter, an ordinary short label does
+ * not), and both tokens must share the same `fontRole`.
+ * Measured directly on real data (that same p. 23): the bare initial and
+ * the accented remainder of the name
+ * have DIFFERENT `fontKey` (pdf.js used two different font resources for one
+ * visually-composed word — hence the split in the first place), BUT the same `fontRole`
+ * ('heading', since both are a bold heading) — the criterion from the brief
+ * ("the same font key") would NOT have worked on this specific case,
+ * which is why `fontRole` is used (the coarser, more stable classification from
+ * inventory), not `fontKey`. The regression case (a short number plus a
+ * short attribute label) has DIFFERENT
+ * `fontRole` (`body` vs `accent`) AND the attribute label starts with ASCII — both
+ * conditions independently exclude it.
  */
 const DIACRITIC_MERGE_GAP_PT = 1;
 const DIACRITIC_MERGE_SHORT_FRAGMENT_MAX_LENGTH = 2;
@@ -98,17 +103,19 @@ export function tokenizePage(
     const w = item.width ?? 0;
     tokens.push({ text: str.trim(), bbox: { minX: x, maxX: x + w, minY: y, maxY: y + (size || 10) }, fontRole, fontKey: fontKey ?? undefined, page: pageNumber });
   }
-  // [KROK-42, zmierzony na zywo blad] Odwrotny problem od `mergeDiacriticSplitTokens`
-  // powyzej: na niektorych PDF-ach pdf.js samo SKLEJA etykiete i wartosc
-  // siatki cech w jeden TextItem ("S 40"), gdy sa wydrukowane bez dwukropka
-  // i ciasno. `splitMergedLabelValueTokens` (`inferPatternFromSelection.ts`,
-  // uzywana TEZ przez `ProfileStudio.ts`'s `#getBuildTokens`, zeby oba
-  // miejsca widzialy ten sam podzial) rozdziela je z powrotem — patrz
-  // komentarz przy jej definicji.
+  // [Step 42, bug measured live] The opposite problem from `mergeDiacriticSplitTokens`
+  // above: on some PDFs pdf.js itself MERGES the label and value of an
+  // attribute grid into one TextItem (a short all-caps attribute abbreviation
+  // immediately followed by its numeric value), when they are printed without a colon
+  // and tightly spaced. `splitMergedLabelValueTokens` (`inferPatternFromSelection.ts`,
+  // ALSO used by `ProfileStudio.ts`'s `#getBuildTokens`, so both
+  // places see the same split) splits them back apart — see
+  // the comment at its definition.
   //
-  // [KROK-43, zmierzony na zywo blad] `stripStrayLeadingColonTokens`
-  // (ten sam plik, ten sam wspoldzielony mechanizm) usuwa dwukropek, ktory
-  // pdf.js czasem zostawia na POCZATKU wartosci zamiast na koncu etykiety —
-  // patrz komentarz przy jej definicji ("Pancerz" / ": Brak.").
+  // [Step 43, bug measured live] `stripStrayLeadingColonTokens`
+  // (same file, same shared mechanism) removes a colon that
+  // pdf.js sometimes leaves at the START of a value instead of at the end of a label —
+  // see the comment at its definition (a bold mini-label immediately
+  // followed by its plain-text value with a leading colon).
   return splitMergedLabelValueTokens(stripStrayLeadingColonTokens(mergeDiacriticSplitTokens(tokens)));
 }

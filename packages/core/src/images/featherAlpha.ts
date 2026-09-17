@@ -1,22 +1,22 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [KROK-42 Z1/Z2, "wygladzenie krawedzi, zeby nie bylo postrzepionej sylwetki"]
- * Rozmycie WYLACZNIE kanalu alfa (RGB bez zmian) — separowalny box blur
- * (przebieg poziomy, potem pionowy na wyniku pierwszego) zamiast pelnego
- * kwadratowego jadra: O(width*height*radius) zamiast O(width*height*radius^2),
- * bezpieczne dla obrazow liczonych w milionach pikseli.
+ * [Step 42 Z1/Z2, "smooth the edges so there's no jagged silhouette"] Blurs
+ * ONLY the alpha channel (RGB unchanged) — a separable box blur (a
+ * horizontal pass, then a vertical pass on the first pass's result) instead
+ * of a full square kernel: O(width*height*radius) instead of
+ * O(width*height*radius^2), safe for images with millions of pixels.
  *
- * Wspolna dla DWOCH miejsc, ktore inaczej duplikowalyby TEN SAM box-blur:
- * `removeBackground.ts` (Z1, wygladza granice miedzy usunietym tlem a
- * zachowana trescia) i `tokenMask.ts` (Z2, wygladza twardy geometryczny brzeg
- * maski koła/kwadratu-zaokraglonego/heksu).
+ * Shared by TWO places that would otherwise duplicate the SAME box blur:
+ * `removeBackground.ts` (Z1, smooths the boundary between removed
+ * background and preserved content) and `tokenMask.ts` (Z2, smooths the
+ * hard geometric edge of a circle/rounded-square/hex mask).
  *
- * Daleko od jakiejkolwiek granicy alfa jest juz jednolita (0 albo 255) —
- * rozmycie jednolitego obszaru samo w sobie nie zmienia wartosci (srednia z
- * samych zer to zero, srednia z samych 255 to 255), wiec efekt jest
- * WYLACZNIE widoczny w waskim pasmie wokol faktycznych krawedzi, bez potrzeby
- * osobnego wykrywania "gdzie jest granica".
+ * Far from any boundary, alpha is already uniform (0 or 255) — blurring a
+ * uniform area doesn't change its value on its own (the average of all
+ * zeros is zero, the average of all 255s is 255), so the effect is ONLY
+ * visible in a narrow band around actual edges, with no need to separately
+ * detect "where the boundary is".
  */
 export function featherAlpha(image: DecodedImage, radiusPx: number): DecodedImage {
   const r = Math.round(radiusPx);

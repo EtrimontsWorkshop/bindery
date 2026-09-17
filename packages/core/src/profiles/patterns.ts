@@ -3,99 +3,106 @@ import type { ProfileToken } from './types.js';
 import type { LabelledPairsPattern, SectionListPattern } from './schema.js';
 
 /**
- * [KROK-18 Z2] Silnik wzorcow nad surowym strumieniem tokenow — implementacja
- * `Bindery-MDD-v2.1.md` §5.5. Dwa rodzaje wzorcow zaimplementowane tutaj:
- * `labelledPairs` (siatka cech / blok pochodnych) i `sectionList` (ATAKI).
- * `fontRoleCandidate` (kandydat na nazwe encji) i parowanie geometryczne
- * (`entityAssembly`) to KROK-18 Z3 — celowo poza tym plikiem.
+ * [Step 18 Z2] The pattern engine over the raw token stream — an implementation of
+ * `Bindery-MDD-v2.1.md` §5.5. Two kinds of patterns implemented here:
+ * `labelledPairs` (attribute grid / derived-stats block) and `sectionList` (ATTACKS).
+ * `fontRoleCandidate` (entity-name candidate) and geometric pairing
+ * (`entityAssembly`) are Step 18 Z3 — deliberately kept out of this file.
  *
- * `labelledPairs` uogolnia `collectGrids` ze spike'u kroku 13
- * (`spike/statblocks2/parse2.mjs`, H1) — TA sama logika (zbior etykiet,
- * dowolna kolejnosc, zamkniecie przy powtorzonej etykiecie), ale sterowana
- * konfiguracja profilu zamiast zaszytej na sztywno listy `CHAR_LABELS`.
+ * `labelledPairs` generalizes `collectGrids` from the step-13 spike
+ * (`spike/statblocks2/parse2.mjs`, H1) — the SAME logic (a set of labels,
+ * any order, closing on a repeated label), but driven by profile
+ * configuration instead of the hardcoded `CHAR_LABELS` list.
  */
 
 /**
- * [KROK-21 Z3, zmierzony na zywo problem] Znak wodny DriveThruRPG
- * ("Imię Nazwisko (Order #12345678)") — zweryfikowany na WSZYSTKICH 6
- * plikach `samples/` (identyczny format na kazdej sprawdzonej stronie
- * kazdego pliku). To cecha DYSTRYBUTORA, nie konkretnej publikacji ani
- * jezyka — zyje w silniku (stosowana ZAWSZE, niezaleznie od tego, co autor
- * profilu wpisal we WLASNY `terminateSectionBefore`/`trailingWordsStopBefore`), nie w kazdym profilu z
- * osobna, zeby nie trzeba bylo pamietac o niej przy kazdym nowym profilu.
- * Dotyczy KAZDEGO pliku kupionego na DriveThruRPG — wiekszosci materialu
- * uzytkownikow (krok 21, odkrycie #3 z RAPORT-KROK-20.md).
+ * [Step 21 Z3, problem measured live] The DriveThruRPG watermark
+ * (a buyer's full name followed by an order number in parentheses,
+ * e.g. an "(Order #...)" suffix) — verified across ALL 6
+ * `samples/` files (identical format on every checked page of
+ * every file). This is a feature of the DISTRIBUTOR, not of a specific publication or
+ * language — it lives in the engine (applied ALWAYS, regardless of what a
+ * profile author put in their OWN `terminateSectionBefore`/`trailingWordsStopBefore`), not in each profile
+ * individually, so nobody has to remember it for every new profile.
+ * Applies to EVERY file bought on DriveThruRPG — most of users'
+ * material (step 21, discovery #3 from RAPORT-KROK-20.md).
  */
 export const VENDOR_WATERMARK_PATTERN = /\(Order #\d+\)/;
 
 /**
- * [KROK-19 Z0, doprecyzowane w Z4] Gorna granica dla `allowTrailingWords` —
- * patrz komentarz przy jej uzyciu w `matchLabelledPairs`. Liczona w
- * PRAWDZIWYCH SLOWACH (dzielonych po bialych znakach WEWNATRZ kazdego
- * tokenu), NIE w tokenach — zmierzone wprost jako niewystarczajace, gdy
- * liczono tokeny: pdf.js czasem laczy caly wiersz przypisu w JEDEN TextItem
- * (np. "Zmniejszona liczba PW ze względu na wcześniejszy atak, jaki" to
- * JEDEN token, 10 prawdziwych slow) — limit "6 tokenow" pozwalal wtedy
- * polknac ~20 slow niepowiazanej prozy w JEDNEJ-DWóCH iteracjach.
+ * [Step 19 Z0, refined in Z4] Upper bound for `allowTrailingWords` —
+ * see the comment at its use site in `matchLabelledPairs`. Counted in
+ * REAL WORDS (split on whitespace INSIDE each
+ * token), NOT in tokens — measured directly as insufficient when
+ * tokens were counted: pdf.js sometimes merges an entire footnote line into ONE TextItem
+ * (e.g. a multi-clause footnote sentence explaining a temporary stat
+ * reduction after an earlier event is
+ * ONE token, 10 real words) — the "6 tokens" limit then allowed
+ * swallowing ~20 words of unrelated prose in ONE OR TWO iterations.
  */
 const MAX_TRAILING_WORDS = 4;
 
 export interface LabelledPairMatchEntry {
-  /** Etykieta z PDF-a (klucz `pattern.labels`). */
+  /** The label from the PDF (a key of `pattern.labels`). */
   label: string;
-  /** Klucz kanoniczny (wartosc `pattern.labels[label]`). */
+  /** The canonical key (the value of `pattern.labels[label]`). */
   canonicalKey: string;
   value: string;
   tokenIndex: number;
   /**
-   * [KROK-33 Z1, zmierzony na zywo brak, Sciapod str. 24] Wartosc konczaca sie
-   * gola gwiazdka ("Ruch: 7/9*") bywa przypisem stojacym NIE tuz po wartosci
-   * (co juz obsluguje `allowTrailingWords`), tylko na WLASNYM WIERSZU po calym
-   * BLOKU par (np. "MO: +5K6 Krzepa: 6 Ruch: 7/9* PM: 8" — jeden wiersz, potem
-   * "*Pływanie" na kolejnym). Wypelnione WYLACZNIE gdy dokladnie JEDNA para w
-   * tym dopasowaniu ma wartosc konczaca sie gola gwiazdka — przy wielu
-   * kandydatach nie da sie jednoznacznie przypisac, ktoremu przypisowi
-   * odpowiada ktora gwiazdka (A10, nie zgaduj).
+   * [Step 33 Z1, gap measured live, p. 24] A value ending in a
+   * bare asterisk (e.g. a movement field like "7/9*") is sometimes a footnote that stands NOT right after the value
+   * (which `allowTrailingWords` already handles), but on ITS OWN LINE after the
+   * WHOLE BLOCK of pairs (e.g. a row combining a damage-bonus field, a
+   * build field, a movement field with two alternative speeds ending in
+   * the asterisk, and a magic-points field, all on one line, followed by a
+   * starred footnote label on the next line). Filled in ONLY when exactly ONE pair in
+   * this match has a value ending in a bare asterisk — with multiple
+   * candidates there's no way to unambiguously assign which footnote
+   * corresponds to which asterisk (A10, don't guess).
    */
   footnoteText?: string;
   /**
-   * [KROK-34 Z1, zmierzony na zywo brak, Sciapod str. 24 "Wrak.pdf"] Wartosc
-   * bywa JEDNYM tokenem pdf.js niosacym ZARAZEM liczbe I dalszy opis w tym
-   * samym wierszu ("Pancerz: 5, niezwykle gruba skóra. Pamiętaj..." — cale to
-   * po dwukropku to JEDEN token) — bez rozdzielenia trafialoby to WPROST do
-   * pola liczbowego adaptera (np. `armor.value`), ktore nie parsuje takiego
-   * ciagu jako liczby, wiec pole zostawalo puste (A13, ten sam mechanizm co
-   * blad Ruchu 8/7 z kroku 30/33: adapter wylacza automatyke systemu TYLKO
-   * przy sparsowanej wartosci). Wypelnione WYLACZNIE gdy `value` zaczyna sie
-   * od liczby (opcjonalnie z gola gwiazdka) i PO NIEJ nastepuje separator
-   * (przecinek/srednik/dwukropek) ALBO biala spacja i cokolwiek jeszcze —
-   * `value` zostaje wtedy PRZYCIETA do samej liczby, reszta trafia tutaj
-   * (A3 — nic nie ginie w ciszy). Wartosc CZYSTO opisowa bez wiodacej liczby
-   * ("brak", "2-punktowa gruba skóra") NIE jest dzielona — trafia do `value`
-   * w calosci, tak jak dotychczas (drugie kryterium kroku 34: opis nie moze
-   * zniknac, gdy nie ma liczby do wydzielenia).
+   * [Step 34 Z1, gap measured live, p. 24, "Wrak.pdf"] A value
+   * sometimes ends up as ONE pdf.js token carrying BOTH a number AND further description on the
+   * same line (e.g. an armor field whose value is a number, then a clause
+   * describing an unusual defensive trait, then a further reminder
+   * sentence — everything
+   * after the colon is ONE token) — without splitting, this would land DIRECTLY in
+   * the adapter's numeric field (e.g. `armor.value`), which doesn't parse such
+   * a string as a number, so the field would end up empty (A13, the same mechanism as
+   * the Move 8/7 bug from step 30/33: the adapter disables the system's automation ONLY
+   * when the value was successfully parsed). Filled in ONLY when `value` starts
+   * with a number (optionally with a bare asterisk) followed by a separator
+   * (comma/semicolon/colon) OR whitespace and something further —
+   * `value` is then TRIMMED down to just the number, with the rest landing here
+   * (A3 — nothing disappears silently). A PURELY descriptive value with no leading number
+   * (e.g. a bare "none"-style answer, or a short phrase describing a trait
+   * with no number at all) is NOT split — it lands in `value`
+   * in full, as before (step 34's second criterion: a description must not
+   * disappear just because there's no number to extract).
    */
   descriptionText?: string;
 }
 
 export interface LabelledPairsMatch {
   pairs: LabelledPairMatchEntry[];
-  /** Indeks PIERWSZEGO tokenu etykiety w strumieniu wejsciowym. */
+  /** Index of the FIRST label token in the input stream. */
   startIndex: number;
-  /** Indeks PIERWSZY PO ostatnim skonsumowanym tokenie (exclusive). */
+  /** Index of the FIRST token AFTER the last one consumed (exclusive). */
   endIndex: number;
   bbox: Rect;
 }
 
-/** Czy token wyglada jak kolejna etykieta z `pattern.labels` (uzywane przez `allowTrailingWords`, zeby nie polykac kolejnej pary). */
+/** Whether a token looks like another label from `pattern.labels` (used by `allowTrailingWords`, to avoid swallowing the next pair). */
 function looksLikeLabel(text: string, labels: Readonly<Record<string, string>>): boolean {
   return Object.prototype.hasOwnProperty.call(labels, text);
 }
 
 /**
- * Zbiera WSZYSTKIE dopasowania `labelledPairs` w strumieniu tokenow. Zbior
- * etykiet, DOWOLNA kolejnosc i liczba (S2, H1 kroku 12/13) — nie zaklada
- * ktora etykieta jest pierwsza ani ile ich bedzie (miedzy `minPairs` a
+ * Collects ALL `labelledPairs` matches in the token stream. A set of
+ * labels, in ANY order and count (S2, H1 from step 12/13) — it doesn't assume
+ * which label comes first or how many there will be (between `minPairs` and
  * `maxPairs`).
  */
 export function matchLabelledPairs(tokens: readonly ProfileToken[], pattern: LabelledPairsPattern): LabelledPairsMatch[] {
@@ -126,23 +133,27 @@ export function matchLabelledPairs(tokens: readonly ProfileToken[], pattern: Lab
 
       let valueText = valueTok.text;
       let consumedThrough = j + 2;
-      // [S1] "12/12" + "latając" — absorbuj tokeny opisowe PO wartosci, dopoki
-      // nie natrafimy na kolejna etykiete (albo koniec strumienia).
+      // [S1] a speed value followed by a short descriptive qualifier (e.g.
+      // a movement rate followed by a word describing the mode of travel)
+      // — absorb descriptive tokens AFTER the value, until
+      // we hit the next label (or the end of the stream).
       if (pattern.allowTrailingWords) {
         const stopRe = pattern.trailingWordsStopBefore ? new RegExp(pattern.trailingWordsStopBefore, 'u') : null;
         let k = j + 2;
         let absorbedWords = 0;
-        // [KROK-19 Z0, naprawa zmierzonego bledu; Z4, doprecyzowane] Bez
-        // gornej granicy: gdy ostatnia para bloku nie ma juz ZADNEJ etykiety
-        // PO sobie na stronie (np. ostatni blok pochodnych przed proza
-        // konczaca strone), "slowo koncowe" polykalo dosloWNIE reszte strony
-        // do konca tokenow — zmierzone wprost na str. 30 (`Punkty Magii`
-        // wchlonelo >1000 znakow dalszej prozy). Limit liczy PRAWDZIWE SLOWA
-        // (nie tokeny — pdf.js czasem laczy caly wiersz przypisu w JEDEN
-        // token, patrz komentarz przy `MAX_TRAILING_WORDS`), a CALY kandydujacy
-        // token jest odrzucany (nie czesciowo obcinany), jesli przekroczylby
-        // limit — zapobiega wchlonieciu polowy zdania. MDD-owy przypadek
-        // uzycia to JEDNO slowo opisowe ("12/12" + "latając").
+        // [Step 19 Z0, fix for a measured bug; Z4, refined] Without an
+        // upper bound: when a block's last pair no longer has ANY label
+        // AFTER it on the page (e.g. the last derived-stats block before prose
+        // ending the page), the "trailing word" would swallow LITERALLY the rest of the page
+        // to the end of the tokens — measured directly on p. 30 (a
+        // derived-stat label's value absorbed >1000 characters of further
+        // prose). The limit counts REAL WORDS
+        // (not tokens — pdf.js sometimes merges a whole footnote line into ONE
+        // token, see the comment at `MAX_TRAILING_WORDS`), and the WHOLE candidate
+        // token is rejected (not partially trimmed) if it would exceed the
+        // limit — this prevents swallowing half a sentence. The MDD's use
+        // case is ONE descriptive word (a speed value followed by a
+        // single movement-style qualifier).
         while (k < tokens.length && !looksLikeLabel(tokens[k]!.text, pattern.labels) && !(stopRe && stopRe.test(tokens[k]!.text)) && !VENDOR_WATERMARK_PATTERN.test(tokens[k]!.text)) {
           const candidateWords = tokens[k]!.text.trim().split(/\s+/).filter(Boolean).length;
           if (absorbedWords + candidateWords > MAX_TRAILING_WORDS) break;
@@ -154,55 +165,62 @@ export function matchLabelledPairs(tokens: readonly ProfileToken[], pattern: Lab
         }
       }
 
-      // [KROK-34 Z1] Rozdzielenie "5, opis" -> value="5" + descriptionText="opis"
-      // -- PO absorpcji slow opisowych powyzej, zeby dzialalo niezaleznie od
-      // `allowTrailingWords` (dziala rowniez, gdy CALY tekst byl JUZ jednym,
-      // scalonym przez pdf.js tokenem -- dokladnie przypadek Sciapoda).
+      // [Step 34 Z1] Splitting a value like "5, further description" ->
+      // value="5" + descriptionText="further description"
+      // -- AFTER absorbing descriptive words above, so it works independently of
+      // `allowTrailingWords` (it also works when the WHOLE text was ALREADY one
+      // token merged by pdf.js -- exactly this kind of case).
       //
-      // Liczba (opcjonalnie z gola gwiazdka jak przy `footnoteText`) NA
-      // POCZATKU wartosci, po ktorej idzie separator (przecinek/srednik/
-      // dwukropek, z dowolnymi bialymi znakami wokol), a PO NIM jeszcze jakis
-      // tekst. Celowo NIE lapie samej liczby ("45"), liczby zlepionej BEZ
-      // separatora z dalszym tekstem ("2-punktowa" — ma zostac WHOLE jako
-      // wartosc opisowa), zapisu N/M ("7/9*" — Ruch, `/` nie jest separatorem
-      // z listy) — ani [regresja zlapana testem "12/12"+"latając" ->
-      // "12 unosząc się w powietrzu"] liczby oddzielonej od dalszego tekstu
-      // SAMA SPACJA bez zadnego znaku interpunkcyjnego: to jest dokladnie
-      // ksztalt, ktory `allowTrailingWords` juz celowo doklejal jako CZESC
-      // wartosci opisowej (Ruch "12 latający" — cale to JEST wartoscia, nie
-      // liczba+opis do rozdzielenia). Wymog znaku interpunkcyjnego odroznia
-      // "opis doklejony do etykiety w tym samym tokenie" (Pancerz, gdzie
-      // przecinek naprawde stoi w zrodle) od "opis doklejony PRZEZ silnik"
-      // (allowTrailingWords, gdzie separatora nigdy nie ma).
+      // A number (optionally with a bare asterisk as with `footnoteText`) AT THE
+      // START of the value, followed by a separator (comma/semicolon/
+      // colon, with arbitrary whitespace around it), and AFTER THAT some further
+      // text. Deliberately does NOT catch a bare number ("45"), a number glued WITHOUT
+      // a separator to further text (e.g. a hyphenated descriptive value like
+      // "2-point" describing a trait — meant to stay WHOLE as a
+      // descriptive value), an N/M notation (e.g. a movement value like
+      // "7/9*", `/` is not a separator
+      // on the list) — nor [a regression caught by the test: a speed value
+      // followed by a movement qualifier being mis-split into a bare number
+      // plus an unrelated descriptive phrase] a number separated from further text by
+      // A BARE SPACE with no punctuation mark at all: that is exactly the
+      // shape that `allowTrailingWords` already deliberately appends as PART of
+      // the descriptive value (e.g. a speed value plus a one-word movement
+      // qualifier — the whole thing IS the value, not a
+      // number+description to be split). Requiring a punctuation mark distinguishes
+      // "a description glued to the label in the same token" (e.g. an armor
+      // field, where
+      // the comma is genuinely present in the source) from "a description glued on BY THE ENGINE"
+      // (allowTrailingWords, where there is never a separator).
       //
-      // [KROK-34, obejscie falszywego alarmu check:boundary] Ta stala BYLA
-      // module-scope (`const VALUE_WITH_DESCRIPTION` na gorze pliku) — esbuild
-      // zmapowal ja na skrocona nazwe "ui" (dokladnie ten sam, juz udokumentowany
-      // w `scripts/check-boundary.mjs` falszywy alarm co `isReferenceReportGreen`
-      // z kroku 17: minifikator przydziela krotkie nazwy wg pozycji/czestosci w
-      // ZASIEGU, nie wedlug tresci zrodlowej nazwy), a `ui.test(...)` pasowal do
-      // wzorca "restricted-word + kropka". Zadeklarowana LOKALNIE (inny budzet
-      // nazw minifikacji niz zasieg modulu) zamiast zmieniac logike silnika.
+      // [Step 34, workaround for a check:boundary false positive] This constant WAS
+      // module-scope (`const VALUE_WITH_DESCRIPTION` at the top of the file) — esbuild
+      // mapped it to the short name "ui" (exactly the same false positive, already documented
+      // in `scripts/check-boundary.mjs`, as `isReferenceReportGreen`
+      // from step 17: the minifier assigns short names by position/frequency within
+      // its SCOPE, not by the source name's content), and `ui.test(...)` matched the
+      // "restricted-word + dot" pattern. Declared LOCALLY (a different minification-name
+      // budget than module scope) instead of changing the engine's logic.
       const valueWithDescriptionPattern = /^(\d+\*?)\s*[,;:]\s*(\S[\s\S]*)$/u;
       const splitMatch = valueWithDescriptionPattern.exec(valueText.trim());
       let descriptionText = splitMatch?.[2]?.trim();
       if (splitMatch) valueText = splitMatch[1]!;
 
-      // [zgloszenie uzytkownika, "Pancerz jest niepełny"] `descriptionText`
-      // powyzej lapie WYLACZNIE tekst ze WLASNEGO tokenu wartosci — ale zdanie
-      // opisowe bywa PRZELAMANE na kolejny fizyczny wiersz PDF-a (osobny token
-      // pdf.js, inny Y), zmierzone wprost na Sciapodzie str. 24: "Pancerz: 5,
-      // niezwykle gruba skóra. Pamiętaj, że obrażenia" (jeden token) +
-      // "zadawane srebrną bronią ignorują pancerz." (KOLEJNY token, 5 prawdziwych
-      // slow — za dlugo dla `allowTrailingWords`/`MAX_TRAILING_WORDS` powyzej,
-      // ktory CELOWO odrzuca cale takie tokeny, zeby chronic przed dawnym
-      // bledem "Punkty Magii polkely >1000 znakow prozy"). Kontynuacja TUTAJ
-      // jest waska i bezpieczna: uruchamia sie WYLACZNIE gdy `descriptionText`
-      // juz istnieje (a wiec zdanie NAPRAWDE bylo w toku) i JESZCZE nie
-      // konczy sie kropka/wykrzyknikiem/pytajnikiem, zatrzymuje sie na
-      // PIERWSZYM takim tokenie (koniec zdania), na kolejnej etykiecie tego
-      // wzorca albo na znaku wodnym dystrybutora — z twardym gornym limitem
-      // (`guard`) na wypadek zdania bez zadnej koncowej interpunkcji.
+      // [user report, an in-game field read as incomplete] `descriptionText`
+      // above catches ONLY text from the value's OWN token — but a descriptive
+      // sentence sometimes gets BROKEN onto the next physical PDF line (a separate pdf.js
+      // token, different Y), measured directly on p. 24: an armor field's
+      // number, trait description, and the start of a further rule-reminder
+      // sentence (one token) + the remainder of that reminder sentence (the
+      // NEXT token, 5 real
+      // words — too long for `allowTrailingWords`/`MAX_TRAILING_WORDS` above,
+      // which DELIBERATELY rejects whole tokens like this, to guard against the earlier
+      // derived-stat-value-absorbing-a-huge-block-of-prose bug). The continuation HERE
+      // is narrow and safe: it only kicks in when `descriptionText`
+      // already exists (so the sentence was GENUINELY in progress) and does NOT
+      // yet end with a period/exclamation mark/question mark, stops at the
+      // FIRST such token (end of sentence), at the next label of this
+      // pattern, or at the distributor watermark — with a hard upper bound
+      // (`guard`) in case of a sentence with no terminating punctuation at all.
       if (descriptionText && !/[.!?]$/.test(descriptionText)) {
         let k = consumedThrough;
         let guard = 0;
@@ -222,10 +240,10 @@ export function matchLabelledPairs(tokens: readonly ProfileToken[], pattern: Lab
       j = consumedThrough;
     }
 
-    // [KROK-33 Z1] Przypis stojacy na WLASNYM wierszu tuz PO calym bloku par
-    // (patrz komentarz `footnoteText` przy `LabelledPairMatchEntry`) — token
-    // NIE jest juz etykieta+wartoscia (petla wyzej wlasnie dlatego sie
-    // zatrzymala), wiec sprawdzany OSOBNO, PO zbudowaniu wszystkich par.
+    // [Step 33 Z1] A footnote standing on ITS OWN LINE right AFTER the whole block of pairs
+    // (see the `footnoteText` comment on `LabelledPairMatchEntry`) — the token
+    // is NO LONGER a label+value (which is exactly why the loop above
+    // stopped), so it is checked SEPARATELY, AFTER building all the pairs.
     const footnoteToken = tokens[j];
     if (footnoteToken && /^\*\S/.test(footnoteToken.text.trim())) {
       const starredPairs = pairs.filter((p) => /\*$/.test(p.value.trim()));
@@ -251,51 +269,53 @@ export function matchLabelledPairs(tokens: readonly ProfileToken[], pattern: Lab
 }
 
 export interface SectionListItemMatch {
-  /** Nazwane grupy z `itemPattern` (np. `name`, `toHit`) — puste jesli wzorzec ich nie definiuje. */
+  /** Named groups from `itemPattern` (e.g. `name`, `toHit`) — empty if the pattern doesn't define any. */
   groups: Record<string, string>;
   raw: string;
   startTokenIndex: number;
   endTokenIndex: number;
   bbox: Rect;
-  /** [KROK-40] `true`, gdy grupa `name` zawiera (case-insensitive) ktoras z `pattern.rangedKeywords`. */
+  /** [Step 40] `true` when the `name` group contains (case-insensitive) any of `pattern.rangedKeywords`. */
   ranged: boolean;
 }
 
 export interface SectionListMatch {
   headerTokenIndex: number;
   items: SectionListItemMatch[];
-  /** Indeks PIERWSZY PO ostatnim tokenie nalezacym do tej sekcji (naglowek nastepnej sekcji albo koniec strumienia). */
+  /** Index of the FIRST token AFTER the last one belonging to this section (the next section's header, or the end of the stream). */
   endIndex: number;
 }
 
 /**
- * Zbiera dopasowania `sectionList` (np. blok ATAKI). Laczy tokeny sekcji w
- * jeden bufor tekstowy (sledzac, ktory token dostarczyl kazdy znak), potem
- * dopasowuje `itemPattern` globalnie do bufora — odpornosc na to, ze
- * pojedyncza pozycja ataku bywa rozbita na wiele tokenow pdf.js, bez
- * zakladania linii/kolumn (S1).
+ * Collects `sectionList` matches (e.g. the ATTACKS block). Joins the section's tokens into
+ * one text buffer (tracking which token supplied each character), then
+ * matches `itemPattern` against the buffer globally — resilient to a
+ * single attack entry being split across many pdf.js tokens, without
+ * assuming any lines/columns (S1).
  *
- * @param hardStopTokenIndices [KROK-20 Z2, zmierzony na zywo blad] Indeksy
- * tokenow poczatkow INNYCH encji na stronie (typowo `LabelledPairsMatch.
- * startIndex` kotwicy `entityAssembly.anchor`, patrz `assembleStatblocks.ts`)
- * — bufor sekcji NIGDY nie przekracza najblizszego z nich. Bez tego: gdy dwie
- * postacie stoja obok siebie w strumieniu tokenow BEZ dzielacego naglowka
- * kolokrotkowego (`terminateSectionBefore`) miedzy koncem ATAKI jednej a poczatkiem
- * siatki cech drugiej — co zdarza sie naprawde (str. 55 "nie czas na krzyk":
- * trzy przykladowe postacie w rzad, kazda wlasna siatka+ATAKI, bez kolejnych
- * naglowkow miedzy nimi) — bufor lecial AZ do NASTEPNEGO wystapienia `ATAKI`
- * (czyli WLASNEGO naglowka DRUGIEJ postaci), polykajac calkowicie jej nazwe,
- * siatke cech i pochodne jako "opis obrazen" OSTATNIEJ pozycji ataku
- * pierwszej postaci (zmierzone: `Unik 22%` dostawal w `damage` >100 znakow
- * cudzej siatki). Opcjonalny — bez niego zachowanie identyczne jak wczesniej.
+ * @param hardStopTokenIndices [Step 20 Z2, bug measured live] Token
+ * indices of the starts of OTHER entities on the page (typically the
+ * `LabelledPairsMatch.startIndex` of `entityAssembly.anchor`, see `assembleStatblocks.ts`)
+ * — the section buffer NEVER goes past the nearest one. Without this: when two
+ * characters stand side by side in the token stream WITHOUT a section-dividing
+ * heading (`terminateSectionBefore`) between the end of one's ATTACKS and the start of the
+ * other's attribute grid — which really happens (p. 55, one of the sample
+ * adventures: three sample characters in a row, each with its own
+ * grid+ATTACKS, with no
+ * headers between them) — the buffer would run ALL THE WAY to the NEXT occurrence of `ATTACKS`
+ * (i.e. the SECOND character's OWN header), swallowing that character's name,
+ * attribute grid, and derived stats whole as the "damage description" of the FIRST
+ * character's LAST attack entry (measured: a dodge-skill percentage value
+ * would get >100 characters
+ * of someone else's grid in `damage`). Optional — without it, behavior is identical to before.
  */
 export function matchSectionList(tokens: readonly ProfileToken[], pattern: SectionListPattern, hardStopTokenIndices?: readonly number[]): SectionListMatch[] {
   const headerRe = new RegExp(pattern.sectionHeader);
-  // [KROK-18 Z2, naprawiony blad] Flaga `u` konieczna: `\p{L}` (litery
-  // dowolnego jezyka) w `itemPattern` — jak w profilu PL z tego kroku — bez
-  // niej NIE jest interpretowane jako unicode property escape (JS je wtedy
-  // czyta jako literalny znak `p` + `{L}`), wiec dopasowanie po prostu nigdy
-  // sie nie udaje, bez zadnego bledu/wyjatku sygnalizujacego przyczyne.
+  // [Step 18 Z2, fixed bug] The `u` flag is required: `\p{L}` (letters of
+  // any language) in `itemPattern` — as in the PL profile from this step — without
+  // it is NOT interpreted as a unicode property escape (JS then reads it
+  // as the literal character `p` + `{L}`), so the match simply never
+  // succeeds, with no error/exception signaling the cause.
   const itemRe = new RegExp(pattern.itemPattern, 'gu');
   const matches: SectionListMatch[] = [];
   const sortedHardStops = hardStopTokenIndices ? [...hardStopTokenIndices].sort((a, b) => a - b) : undefined;
@@ -310,22 +330,22 @@ export function matchSectionList(tokens: readonly ProfileToken[], pattern: Secti
     const hardStop = sortedHardStops?.find((idx) => idx > headerTokenIndex);
 
     let buffer = '';
-    // charToToken[c] = indeks tokenu, ktory dostarczyl znak `buffer[c]`.
+    // charToToken[c] = index of the token that supplied character `buffer[c]`.
     const charToToken: number[] = [];
     let j = headerTokenIndex + 1;
 
-    // [KROK-19 Z1, naprawiony blad #2] Pomin naglowek KOLUMNY tabeli (np. "%"
-    // + "obrażenia" jako osobne tokeny) miedzy naglowkiem sekcji a pierwsza
-    // prawdziwa pozycja. Pierwsza wersja zakladala, ze naglowek kolumny jest
-    // BEZPOSREDNIO po naglowku sekcji — zmierzone wprost jako falszywe: w tej
-    // ksiazce miedzy nimi stoi zmiennej dlugosci preambula ("Ataki w rundzie:"
-    // + liczba, czasem z dopiskiem w nawiasie), wiec petla "kontynuuj tylko
-    // dopoki kolejny token pasuje" zatrzymywala sie natychmiast na "Ataki w
-    // rundzie:" i nigdy nie docierala do "%"/"obrażenia". Naprawa: szukaj
-    // OSTATNIEGO tokenu pasujacego do wzorca w ograniczonym oknie (nie musi
-    // byc przylegajacy do naglowka sekcji), potem pomin wszystko AZ DO NIEGO
-    // wlacznie. Brak dopasowania w oknie -> nic nie pomijaj (strona bez tej
-    // preambuly, jak w izolowanych testach jednostkowych).
+    // [Step 19 Z1, fixed bug #2] Skip the table COLUMN header (e.g. a
+    // percent sign and a "damage" column label as separate tokens) between the section header and the first
+    // real entry. The first version assumed the column header comes
+    // DIRECTLY after the section header — measured directly as false: in this
+    // book there is a variable-length preamble between them (an "attacks
+    // per round" label plus a number, sometimes with a parenthetical note), so the loop "keep going
+    // only while the next token matches" stopped immediately at that
+    // preamble label and never reached the percent-sign/damage column header. Fix: search for the
+    // LAST token matching the pattern within a bounded window (it doesn't have to
+    // be adjacent to the section header), then skip everything UP TO AND
+    // INCLUDING it. No match in the window -> skip nothing (a page without this
+    // preamble, as in isolated unit tests).
     if (pattern.skipAfterHeader) {
       const skipRe = new RegExp(pattern.skipAfterHeader, 'u');
       const SKIP_SEARCH_LIMIT = 10;
@@ -353,7 +373,7 @@ export function matchSectionList(tokens: readonly ProfileToken[], pattern: Secti
         continue;
       }
       const prefix = buffer.length === 0 || pendingHyphen ? '' : ' ';
-      if (prefix) charToToken.push(-1); // separator - nie nalezy do zadnego tokenu
+      if (prefix) charToToken.push(-1); // separator - does not belong to any token
       for (let c = 0; c < text.length; c++) charToToken.push(j);
       buffer += prefix + text;
       pendingHyphen = false;
@@ -363,14 +383,14 @@ export function matchSectionList(tokens: readonly ProfileToken[], pattern: Secti
 
     const items: SectionListItemMatch[] = [];
     for (const m of buffer.matchAll(itemRe)) {
-      // [KROK-34, zmierzony na zywo blad] `itemPattern` pusty (albo kazdy inny,
-      // ktory moze dopasowac zero znakow) daje dopasowanie na KAZDEJ pozycji
-      // bufora — setki pozycji bez zadnej tresci/grupy, ktore dalej w potoku
-      // (`skillsFrom`/`attacksFrom`) staja sie pustymi nazwami. Schemat
-      // (`schema.ts`) juz odrzuca pusty `itemPattern` przy wczytaniu profilu —
-      // to dodatkowa, silnikowa siatka bezpieczenstwa dla draftu W TRAKCIE
-      // edycji w Profile Studio (jeszcze niewalidowanego), zeby podglad na
-      // zywo nigdy nie zalal sie tymi samymi smieciami.
+      // [Step 34, bug measured live] An empty `itemPattern` (or any other pattern
+      // that can match zero characters) matches at EVERY position of the
+      // buffer — hundreds of entries with no content/groups, which further down the pipeline
+      // (`skillsFrom`/`attacksFrom`) turn into empty names. The schema
+      // (`schema.ts`) already rejects an empty `itemPattern` when a profile loads —
+      // this is an additional, engine-level safety net for a draft CURRENTLY BEING
+      // edited in Profile Studio (not yet validated), so the live preview
+      // never gets flooded with the same junk.
       if (m[0].length === 0) continue;
       const start = m.index!;
       const end = start + m[0].length - 1;
