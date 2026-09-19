@@ -267,6 +267,7 @@
       "destinationToken": "Token (save only)",
       "destinationUnassigned": "Unassigned images",
       "prepareToken": "Prepare token…",
+      "thumbnailOpenTitle": "Click to preview this image and erase parts of it",
       "destinationApply": "Set for selected",
       "journalGroupLabel": "Journal group",
       "journalGroupPlaceholder": "e.g. \"Chapter 1\"",
@@ -339,6 +340,24 @@
       "offsetY": "Vertical offset",
       "confirm": "Use this grid",
       "cancel": "Cancel"
+    },
+    "imageErase": {
+      "title": "Image preview and erase",
+      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes.",
+      "toolView": "View",
+      "toolBrush": "Brush",
+      "toolRect": "Rectangle",
+      "toolPick": "Pick color",
+      "eraseTo": "Erase to:",
+      "eraseTransparent": "Transparent",
+      "eraseColor": "Solid color",
+      "brushSize": "Brush size",
+      "zoom": "Zoom",
+      "undo": "Undo",
+      "reset": "Restore original",
+      "save": "Apply changes",
+      "cancel": "Cancel",
+      "failed": "Couldn't edit this image."
     },
     "tokenPrep": {
       "title": "Prepare token",

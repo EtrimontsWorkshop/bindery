@@ -267,6 +267,7 @@
       "destinationToken": "Token (tylko zapis)",
       "destinationUnassigned": "Nieprzydzielone obrazy",
       "prepareToken": "Przygotuj token…",
+      "thumbnailOpenTitle": "Kliknij, aby zobaczyć podgląd obrazu i wymazać jego fragmenty",
       "destinationApply": "Ustaw zaznaczonym",
       "journalGroupLabel": "Grupa journala",
       "journalGroupPlaceholder": "np. \"Rozdział 1\"",
@@ -339,6 +340,24 @@
       "offsetY": "Przesunięcie pionowe",
       "confirm": "Użyj tej siatki",
       "cancel": "Anuluj"
+    },
+    "imageErase": {
+      "title": "Podgląd obrazu i wymazywanie",
+      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany.",
+      "toolView": "Podgląd",
+      "toolBrush": "Pędzel",
+      "toolRect": "Prostokąt",
+      "toolPick": "Pobierz kolor",
+      "eraseTo": "Wymaż do:",
+      "eraseTransparent": "Przezroczystości",
+      "eraseColor": "Jednolitego koloru",
+      "brushSize": "Rozmiar pędzla",
+      "zoom": "Powiększenie",
+      "undo": "Cofnij",
+      "reset": "Przywróć oryginał",
+      "save": "Zatwierdź zmiany",
+      "cancel": "Anuluj",
+      "failed": "Nie udało się edytować tego obrazu."
     },
     "tokenPrep": {
       "title": "Przygotuj token",

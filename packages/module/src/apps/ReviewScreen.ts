@@ -14,6 +14,7 @@ import { coc7Adapter, type Coc7ActorPayload } from '../adapters/coc7.js';
 import { ensureFolder } from '../documents/ensureFolder.js';
 import { pickGrid, type GridConfig } from './GridPicker.js';
 import { prepareToken } from './TokenPrepApp.js';
+import { eraseImage } from './ImageEraseApp.js';
 import { STATBLOCKS_ENABLED } from '../features.js';
 import { localizeMessage } from '../i18n.js';
 
@@ -262,6 +263,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   #diagnosticGroups: DiagnosticGroup[] = [];
   #diagnosticList: VirtualList<DiagnosticGroup> | null = null;
   #thumbnailUrls = new Map<string, string>();
+  /** The enlarged thumbnail shown while hovering an image row's thumbnail (appended to `document.body`, so the virtualized list can't clip it). */
+  #thumbPreviewEl: HTMLElement | null = null;
   /**
    * [Bug fix, reported: "after 36 rotations of 10°, the image should return
    * to its original state (360°), but it shrinks with every rotation"]
@@ -497,6 +500,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
+    this.#hideThumbPreview();
 
     // [At the user's request, the same pattern as Profile Studio] Navigation
     // SOLELY via ◄/► buttons was cumbersome on long documents — a numeric
@@ -563,6 +567,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   override async close(options?: object): Promise<this> {
+    this.#hideThumbPreview();
     this.#imageList?.destroy();
     this.#sceneList?.destroy();
     this.#journalList?.destroy();
@@ -1242,6 +1247,84 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
+   * Shows a large, non-interactive preview of an image next to its row
+   * thumbnail. The size is computed from the image's own dimensions (not from
+   * the loaded `<img>`), so positioning doesn't depend on decode timing. The
+   * popup is removed on mouse leave, on any wheel scroll (the virtualized
+   * list rebuilds rows under a stationary cursor, so `mouseleave` isn't
+   * reliable there) and when the window closes or re-renders.
+   */
+  #showThumbPreview(url: string, anchor: HTMLElement, imageWidth: number, imageHeight: number): void {
+    this.#hideThumbPreview();
+    const margin = 12;
+    const maxW = Math.min(640, window.innerWidth * 0.5);
+    const maxH = Math.min(720, window.innerHeight - margin * 2 - 10);
+    const scale = Math.min(maxW / Math.max(1, imageWidth), maxH / Math.max(1, imageHeight), 4);
+    const width = Math.max(1, Math.round(imageWidth * scale));
+    const height = Math.max(1, Math.round(imageHeight * scale));
+
+    const popup = document.createElement('div');
+    popup.className = 'bindery bindery-thumb-preview';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = '';
+    img.width = width;
+    img.height = height;
+    popup.appendChild(img);
+
+    const rect = anchor.getBoundingClientRect();
+    const boxW = width + 10;
+    const boxH = height + 10;
+    const fitsRight = rect.right + margin + boxW <= window.innerWidth - margin;
+    const left = fitsRight ? rect.right + margin : Math.max(margin, rect.left - margin - boxW);
+    const top = Math.min(Math.max(margin, rect.top + rect.height / 2 - boxH / 2), Math.max(margin, window.innerHeight - margin - boxH));
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
+
+    document.body.appendChild(popup);
+    this.#thumbPreviewEl = popup;
+    window.addEventListener('wheel', () => this.#hideThumbPreview(), { once: true, passive: true, capture: true });
+  }
+
+  #hideThumbPreview(): void {
+    this.#thumbPreviewEl?.remove();
+    this.#thumbPreviewEl = null;
+  }
+
+  /**
+   * Opens `ImageEraseApp` (a large preview with erase tools) on the CURRENT
+   * image bytes; when the user applies changes it replaces the
+   * bytes/dimensions/format — the same replacement pattern as
+   * `#prepareToken`/`#resizeImage`, see there.
+   */
+  async #openImageEditor(image: CIFImage): Promise<void> {
+    if (this.#isCropping) return;
+    const entry = this.#data.imageBytesById.get(image.id);
+    if (!entry) return;
+    this.#isCropping = true;
+    try {
+      const result = await eraseImage({ bytes: entry.bytes, format: entry.format });
+      if (!result) return;
+      image.width = result.width;
+      image.height = result.height;
+      image.format = result.format;
+      this.#imageRotationState.delete(image.id);
+      const oldThumbUrl = this.#thumbnailUrls.get(image.id);
+      if (oldThumbUrl) {
+        URL.revokeObjectURL(oldThumbUrl);
+        this.#thumbnailUrls.delete(image.id);
+      }
+      (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
+      await this.render();
+    } catch (err) {
+      console.warn('Bindery | image erase failed:', err);
+      ui.notifications?.error(game.i18n!.localize('BINDERY.imageErase.failed' as never));
+    } finally {
+      this.#isCropping = false;
+    }
+  }
+
+  /**
    * [Step 42, "token as a product"] Opens `TokenPrepApp` on the CURRENT
    * image bytes (`this.#data.imageBytesById`, NOT the PDF — background
    * removal, crop/zoom, mask and frame work on already-cropped content,
@@ -1567,6 +1650,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       thumb.className = 'bindery-row-thumb';
       thumb.src = thumbUrl;
       thumb.alt = '';
+      thumb.title = game.i18n!.localize('BINDERY.review.thumbnailOpenTitle' as never);
+      // Hovering enlarges the thumbnail for a quick look; clicking opens the
+      // full preview window, which also offers the erase tools.
+      thumb.addEventListener('mouseenter', () => this.#showThumbPreview(thumbUrl, thumb, image.width, image.height));
+      thumb.addEventListener('mouseleave', () => this.#hideThumbPreview());
+      thumb.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        this.#hideThumbPreview();
+        void this.#openImageEditor(image);
+      });
       thumbSlot.appendChild(thumb);
     }
     row.appendChild(thumbSlot);

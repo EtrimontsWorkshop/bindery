@@ -1,3 +1,10 @@
+## [0.2.0]
+
+### Added
+
+- **Image preview on hover:** hovering an image thumbnail in the review list shows an enlarged preview, so you can check the image without opening anything.
+- **Image preview and erase window:** clicking a thumbnail opens a large preview with erase tools — brush, rectangle, and a color picker (eyedropper). Unwanted parts (for example text captured together with an illustration) can be erased to transparency or painted over with a solid color. Includes zoom, brush size, undo, and restore original; applying the changes replaces the image in the import.
+
 ## [0.1.1]
 
 ### Added
