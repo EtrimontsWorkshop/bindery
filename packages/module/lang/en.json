@@ -260,7 +260,6 @@
       "actorsNoProfile": "This import had no character profile loaded, so no NPC/monster stat blocks were recognized. Close this screen, load a profile file in the import window (\"Character profile\" section), and run the import again.",
       "selectAll": "Select all",
       "selectNone": "Select none",
-      "selectOnlyContent": "Select content only",
       "destinationLabel": "Destination",
       "destinationScene": "Scene",
       "destinationJournal": "Journal (handout)",
@@ -327,6 +326,7 @@
       "colDestination": "destination",
       "footerHintEmpty": "Select at least one thing to import (an image, scene, journal, or actor) to continue",
       "footerHintReady": "Ready to import: {n}",
+      "footerHintUnassigned": "The selected images have no destination yet — set Scene, Journal or Token for them to be able to import",
       "journalGroupHintShort": "Journal images with the same group name land in a single multi-page journal.",
       "selectedPanelLabel": "to selected",
       "diagnosticsEmpty": "No issues"

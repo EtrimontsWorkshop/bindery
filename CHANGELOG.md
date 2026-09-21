@@ -1,3 +1,15 @@
+## [0.2.2]
+
+### Changed
+
+- **Removed the "Select content only" button** from the image list.
+- **Bulk actions act only on the active tab:** "Select all", "Select none" and the top "set destination/journal group for selected" now affect only the images of the tab you are looking at (source + destination). Previously selected images sitting in other tabs (for example tokens or journals) were silently moved too.
+
+### Fixed
+
+- **Images without a destination no longer count as ready to import:** selecting only "Unassigned" images keeps the "Next" button disabled and the footer explains that a Scene, Journal or Token has to be set first.
+- **"Next" button and the "Ready to import" hint now update immediately** when you tick or untick images or actors. Before, deselecting everything left the button enabled (and the import created nothing), and selecting one image again left it disabled until you changed the page.
+
 ## [0.2.1]
 
 ### Added

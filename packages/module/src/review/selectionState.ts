@@ -170,9 +170,9 @@ export class ReviewSelection {
     if (this.#imageDestinations.has(id)) this.#imageDestinations.set(id, destination);
   }
   /** [Step 14 Z4] Bulk operation "set for all SELECTED images" — see the Z4 brief. */
-  setDestinationForSelected(destination: ImageDestination): void {
+  setDestinationForSelected(destination: ImageDestination, scope?: ReadonlySet<string>): void {
     for (const [id, selected] of this.#images) {
-      if (selected) this.#imageDestinations.set(id, destination);
+      if (selected && (!scope || scope.has(id))) this.#imageDestinations.set(id, destination);
     }
   }
 
@@ -184,10 +184,10 @@ export class ReviewSelection {
     if (this.#imageJournalGroups.has(id)) this.#imageJournalGroups.set(id, group.trim());
   }
   /** [Step 19] Bulk operation "set the journal group for all SELECTED images" — mirrors `setDestinationForSelected`. */
-  setJournalGroupForSelected(group: string): void {
+  setJournalGroupForSelected(group: string, scope?: ReadonlySet<string>): void {
     const trimmed = group.trim();
     for (const [id, selected] of this.#images) {
-      if (selected) this.#imageJournalGroups.set(id, trimmed);
+      if (selected && (!scope || scope.has(id))) this.#imageJournalGroups.set(id, trimmed);
     }
   }
   setScene(id: string, selected: boolean): void {
@@ -206,6 +206,12 @@ export class ReviewSelection {
     for (const v of this.#images.values()) if (v) n++;
     return n;
   }
+  /** Selected images that actually have a destination — an "Unassigned" image is skipped by the import, so it must not count as something to import. */
+  get selectedAssignedImageCount(): number {
+    let n = 0;
+    for (const [id, v] of this.#images) if (v && this.imageDestination(id) !== 'unassigned') n++;
+    return n;
+  }
   get selectedSceneCount(): number {
     let n = 0;
     for (const v of this.#scenes.values()) if (v) n++;
@@ -217,15 +223,12 @@ export class ReviewSelection {
     return n;
   }
 
-  selectAllImages(): void {
-    for (const id of this.#images.keys()) this.#images.set(id, true);
+  /** Bulk (de)selection; `scope` limits it to those image ids (the images of the active tab) — without it, every image is affected. */
+  selectAllImages(scope?: ReadonlySet<string>): void {
+    for (const id of this.#images.keys()) if (!scope || scope.has(id)) this.#images.set(id, true);
   }
-  selectNoImages(): void {
-    for (const id of this.#images.keys()) this.#images.set(id, false);
-  }
-  /** Select ONLY `content` images (deselect the rest) — a bulk operation from the Z4 brief. */
-  selectOnlyContentImages(document: CIFDocument): void {
-    for (const image of document.images) this.#images.set(image.id, image.classification === 'content');
+  selectNoImages(scope?: ReadonlySet<string>): void {
+    for (const id of this.#images.keys()) if (!scope || scope.has(id)) this.#images.set(id, false);
   }
 
   setAllJournals(selected: boolean): void {

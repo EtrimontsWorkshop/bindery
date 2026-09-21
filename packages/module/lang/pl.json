@@ -260,7 +260,6 @@
       "actorsNoProfile": "Ten import nie miał wczytanego profilu postaci, więc żadne statbloki NPC/potworów nie zostały rozpoznane. Zamknij ten ekran, wczytaj plik profilu w oknie importu (sekcja „Profil postaci”) i uruchom import ponownie.",
       "selectAll": "Zaznacz wszystko",
       "selectNone": "Odznacz wszystko",
-      "selectOnlyContent": "Zaznacz tylko treść",
       "destinationLabel": "Przeznaczenie",
       "destinationScene": "Scena",
       "destinationJournal": "Journal (handout)",
@@ -327,6 +326,7 @@
       "colDestination": "przeznaczenie",
       "footerHintEmpty": "Zaznacz co najmniej jedną rzecz do importu (obraz, scenę, dziennik lub aktora), żeby przejść dalej",
       "footerHintReady": "Gotowe do importu: {n}",
+      "footerHintUnassigned": "Zaznaczone obrazy nie mają jeszcze przeznaczenia — ustaw Scenę, Journal lub Token, żeby móc importować",
       "journalGroupHintShort": "Obrazy „Journal” o tej samej nazwie grupy trafiają do jednego journala z wieloma stronami.",
       "selectedPanelLabel": "zaznaczonym",
       "diagnosticsEmpty": "Brak uwag"

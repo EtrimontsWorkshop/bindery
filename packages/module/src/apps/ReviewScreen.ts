@@ -109,7 +109,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       switchImageDestTab: ReviewScreen.#onSwitchImageDestTab,
       selectAllImages: ReviewScreen.#onSelectAllImages,
       selectNoImages: ReviewScreen.#onSelectNoImages,
-      selectOnlyContent: ReviewScreen.#onSelectOnlyContent,
       selectAllJournals: ReviewScreen.#onSelectAllJournals,
       selectNoJournals: ReviewScreen.#onSelectNoJournals,
       selectAllActors: ReviewScreen.#onSelectAllActors,
@@ -465,6 +464,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       hasActorProfile: doc.actors !== undefined,
       diagnosticGroupCount: this.#diagnosticGroups.length,
       selectedImageCount: this.#selection.selectedImageCount,
+      importableImageCount: this.#selection.selectedAssignedImageCount,
+      hasUnassignedSelection: this.#selection.selectedImageCount > this.#selection.selectedAssignedImageCount,
       selectedSceneCount: this.#selection.selectedSceneCount,
       selectedJournalCount: this.#selection.selectedJournalCount,
       selectedActorCount: this.#actorSelection.selectedCount,
@@ -476,7 +477,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       // proceed, even though `selectedActorCount` was > 0. The sum of ALL
       // FOUR independent categories ("is there ANYTHING at all to import"),
       // not just images.
-      totalSelectedCount: this.#selection.selectedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount + this.#actorSelection.selectedCount,
+      totalSelectedCount: this.#totalSelectedCount(),
       currentPageNumber: this.#currentPageNumber,
       pageCount: this.#data.previewDocument.pageCount,
       canGoPrevPage: this.#currentPageNumber > 1,
@@ -1836,16 +1837,17 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return row;
   }
 
+  /** Ids of the images in the ACTIVE tab (source + destination sub-tab) — what the bulk buttons above the list are allowed to touch. Images sitting in other tabs are not visible, so they must not be changed silently. */
+  #activeTabImageIds(): Set<string> {
+    return new Set(this.#visibleImages().map((i) => i.id));
+  }
+
   static #onSelectAllImages(this: ReviewScreen): void {
-    this.#selection.selectAllImages();
+    this.#selection.selectAllImages(this.#activeTabImageIds());
     void this.render();
   }
   static #onSelectNoImages(this: ReviewScreen): void {
-    this.#selection.selectNoImages();
-    void this.render();
-  }
-  static #onSelectOnlyContent(this: ReviewScreen): void {
-    this.#selection.selectOnlyContentImages(this.#data.document);
+    this.#selection.selectNoImages(this.#activeTabImageIds());
     void this.render();
   }
 
@@ -1871,14 +1873,18 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    * "Apply" without typing anything into that field).
    */
   static #onApplyBulkSettings(this: ReviewScreen): void {
+    // [User request] The bulk menu acts ONLY on the selected images of the
+    // active tab — computed BEFORE the destination changes (which moves images
+    // to another tab), and reused for the journal group below.
+    const scope = this.#activeTabImageIds();
     const select = this.element.querySelector<HTMLSelectElement>('[data-select="bulkDestination"]');
     if (select) {
       this.#bulkDestinationValue = select.value as ImageDestination;
-      this.#selection.setDestinationForSelected(this.#bulkDestinationValue);
+      this.#selection.setDestinationForSelected(this.#bulkDestinationValue, scope);
     }
     const input = this.element.querySelector<HTMLInputElement>('[data-input="bulkJournalGroup"]');
     if (input && input.value.trim() !== '') {
-      this.#selection.setJournalGroupForSelected(input.value);
+      this.#selection.setJournalGroupForSelected(input.value, scope);
       this.#bulkJournalGroupValue = '';
     }
     void this.render();
@@ -1918,7 +1924,38 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    * render. `data-count="images"` on the correct `<span>` (see the
    * template) is the only place that actually shows this counter.
    */
+  /** Everything currently selected for import — images, scenes, journals and actors. */
+  #totalSelectedCount(): number {
+    return this.#selection.selectedAssignedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount + this.#actorSelection.selectedCount;
+  }
+
+  /**
+   * [Bug fix, user report] The footer ("Ready to import: N" + the Next button)
+   * was rendered only on a full `render()`, so ticking/unticking a checkbox
+   * left it stale: after deselecting everything Next stayed enabled (and the
+   * import created nothing), and after selecting one image again it stayed
+   * disabled until the page changed. Called from every selection change that
+   * doesn't re-render.
+   */
+  /** "Ready to import: N", or — when something is selected but nothing can be imported — why (selected images without a destination). */
+  #footerHintText(total: number): string {
+    if (total > 0) return game.i18n!.format('BINDERY.review.footerHintReady' as never, { n: String(total) });
+    if (this.#selection.selectedImageCount > 0) return game.i18n!.localize('BINDERY.review.footerHintUnassigned' as never);
+    return game.i18n!.localize('BINDERY.review.footerHintEmpty' as never);
+  }
+
+  #refreshFooter(): void {
+    const total = this.#totalSelectedCount();
+    const hint = this.element.querySelector<HTMLElement>('.bindery-footer-hint');
+    if (hint) {
+      hint.textContent = this.#footerHintText(total);
+    }
+    const next = this.element.querySelector<HTMLButtonElement>('button[data-action="proceedToTarget"]');
+    if (next) next.disabled = total === 0;
+  }
+
   async #refreshHeaderCounts(): Promise<void> {
+    this.#refreshFooter();
     const el = this.element.querySelector<HTMLElement>('[data-count="images"]');
     if (!el) return;
     el.textContent = `${this.#selection.selectedImageCount} / ${this.#data.document.images.length} ${game.i18n!.localize('BINDERY.review.images' as never)}`;
@@ -2396,6 +2433,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   /** [Bug fix — see `#refreshHeaderCounts`, the same bug, the same `.bindery-review-counts` relic.] */
   async #refreshActorHeaderCounts(): Promise<void> {
+    this.#refreshFooter();
     const el = this.element.querySelector<HTMLElement>('[data-count="actors"]');
     if (!el || this.#tab !== 'actors') return;
     el.textContent = `${game.i18n!.localize('BINDERY.review.selectedCount' as never)}: ${this.#actorSelection.selectedCount}/${(this.#data.document.actors ?? []).length}`;
@@ -2593,6 +2631,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   static #onProceedToTarget(this: ReviewScreen): void {
+    if (this.#totalSelectedCount() === 0) return;
     this.#step = 'target';
     void this.render();
   }

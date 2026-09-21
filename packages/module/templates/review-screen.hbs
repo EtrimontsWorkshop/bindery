@@ -60,7 +60,6 @@
           <div class="bindery-review-bulkops">
             <button type="button" class="bindery-btn bindery-btn--ghost" data-action="selectAllImages">{{localize "BINDERY.review.selectAll"}}</button>
             <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectNoImages">{{localize "BINDERY.review.selectNone"}}</button>
-            <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectOnlyContent">{{localize "BINDERY.review.selectOnlyContent"}}</button>
           </div>
 
           <div class="bindery-selected-panel">
@@ -230,7 +229,7 @@
           </div>
           {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy obrazy i (jesli sa) aktorow, jedyne aktywne sciezki. }}
           <p class="hint">
-            {{localize "BINDERY.review.targetSummary"}}: {{selectedImageCount}} {{localize "BINDERY.review.images"}}
+            {{localize "BINDERY.review.targetSummary"}}: {{importableImageCount}} {{localize "BINDERY.review.images"}}
             {{#if actorCount}} · {{selectedActorCount}} {{localize "BINDERY.review.actors"}}{{/if}}
           </p>
           {{#if isImporting}}
@@ -278,6 +277,8 @@
         <span class="bindery-footer-hint">
           {{#if totalSelectedCount}}
             {{localize "BINDERY.review.footerHintReady" n=totalSelectedCount}}
+          {{else if hasUnassignedSelection}}
+            {{localize "BINDERY.review.footerHintUnassigned"}}
           {{else}}
             {{localize "BINDERY.review.footerHintEmpty"}}
           {{/if}}
