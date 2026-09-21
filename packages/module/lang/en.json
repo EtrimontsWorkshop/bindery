@@ -343,7 +343,7 @@
     },
     "imageErase": {
       "title": "Image preview and erase",
-      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes.",
+      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes. \"Undo\" reverts only the last step (Ctrl+Z); \"Restore original\" reverts everything.",
       "toolView": "View",
       "toolBrush": "Brush",
       "toolRect": "Rectangle",
@@ -354,6 +354,7 @@
       "brushSize": "Brush size",
       "zoom": "Zoom",
       "undo": "Undo",
+      "redo": "Redo",
       "reset": "Restore original",
       "save": "Apply changes",
       "cancel": "Cancel",

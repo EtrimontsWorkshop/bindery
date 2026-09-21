@@ -30,12 +30,30 @@ async function openDoc(buf: Buffer): Promise<PdfDocumentLikeForImages> {
   return doc as unknown as PdfDocumentLikeForImages;
 }
 
-async function run(buf: Buffer) {
+// These synthetic fixtures use flat-color rectangles as stand-ins for real
+// images, so the "hide single-color images" rule is off by default here — the
+// tests below are about geometric classification. It's switched on explicitly
+// in the test that covers the rule itself.
+async function run(buf: Buffer, opts: { hideBackgroundImages?: boolean } = {}) {
   const invDoc = await openDoc(buf);
   const inv = await buildInventory(invDoc as never);
   const doc = await openDoc(buf);
-  return buildImageExtraction(doc, inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 512 });
+  return buildImageExtraction(doc, inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 512, hideBackgroundImages: false, ...opts });
 }
+
+describe('single-color images are hidden from the auto-detected list', () => {
+  it('the flat-color background forced to content is hidden when the rule is on, and stays content when it is off', async () => {
+    const buf = buildExtractBleedWithContentSibling();
+    const invDoc = await openDoc(buf);
+    const inv = await buildInventory(invDoc as never);
+    // A body-text box covering the whole page supplies the second signal the full-bleed rules need (same trick as the tests below).
+    const bodyBlockBoxesByPage = new Map(inv.perPage.map((p) => [p.pageNumber, [p.box]]));
+    const runWith = async (hideBackgroundImages: boolean) =>
+      buildImageExtraction(await openDoc(buf), inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 512, bodyBlockBoxesByPage, treatFullBleedAsContent: true, hideBackgroundImages });
+    const visible = (r: Awaited<ReturnType<typeof runWith>>) => r.images.filter((img) => img.classification === 'content' || img.classification === 'undecided').length;
+    expect(visible(await runWith(true))).toBeLessThan(visible(await runWith(false)));
+  });
+});
 
 describe('extract-single-clean: rozdzielczosc wyniku rowna zrodlowej', () => {
   it('ekstrakcja bezposrednia, 200x150px dokladnie, nie przeskalowane', async () => {
@@ -229,6 +247,7 @@ describe('extract-bleed-with-content-sibling: [na zyczenie uzytkownika] tlo wymu
       targetLongEdgePx: 512,
       bodyBlockBoxesByPage,
       treatFullBleedAsContent: true,
+      hideBackgroundImages: false,
     });
 
     // [regresja kluczowa] Bez izolacji `Z1-full-bleed-forced-content` w

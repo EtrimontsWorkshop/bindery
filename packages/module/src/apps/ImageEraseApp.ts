@@ -22,8 +22,9 @@ type Tool = 'view' | 'brush' | 'rect' | 'pick';
 type EraseTo = 'transparent' | 'color';
 
 const MAX_FIT_UPSCALE = 8;
-const MAX_UNDO_STEPS = 20;
-const UNDO_MEMORY_BUDGET_BYTES = 160_000_000;
+const MAX_UNDO_STEPS = 100;
+/** Total pixel memory kept for undo + redo history; the oldest steps are dropped beyond it. */
+const HISTORY_MEMORY_BUDGET_BYTES = 200_000_000;
 
 export interface EraseImageInput {
   bytes: Uint8Array;
@@ -42,6 +43,20 @@ interface Point {
   y: number;
 }
 
+/** One history entry stores only the pixels of the region an edit touched (not the whole canvas), so long histories stay cheap even for large images. */
+interface HistoryStep {
+  x: number;
+  y: number;
+  data: ImageData;
+}
+
+interface Box {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
     id: 'bindery-image-erase',
@@ -57,6 +72,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       save: ImageEraseApp.#onSave,
       cancel: ImageEraseApp.#onCancel,
       undo: ImageEraseApp.#onUndo,
+      redo: ImageEraseApp.#onRedo,
       reset: ImageEraseApp.#onReset,
     },
   };
@@ -75,7 +91,10 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #ctx: CanvasRenderingContext2D | null = null;
   #cursorRing: HTMLElement = document.createElement('div');
   #selectionBox: HTMLElement = document.createElement('div');
-  #undoStack: ImageData[] = [];
+  #undoStack: HistoryStep[] = [];
+  #redoStack: HistoryStep[] = [];
+  /** The edit in progress: the whole canvas as it was before it started, plus the bounding box painted so far. */
+  #pending: { before: ImageData; box: Box | null } | null = null;
   #dirty = false;
   /** Number of applied edit steps still in effect (also counts steps trimmed off the undo stack), so undoing everything can restore `#dirty = false`. */
   #editCount = 0;
@@ -119,6 +138,8 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       brushMax: this.#brushMax(),
       zoom: this.#zoom,
       canUndo: this.#undoStack.length > 0,
+      canRedo: this.#redoStack.length > 0,
+      undoCount: this.#undoStack.length,
     };
   }
 
@@ -178,6 +199,20 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#applyZoom();
     });
     this.#updateUndoButtonState();
+
+    // Ctrl/Cmd+Z undoes the last step, Ctrl/Cmd+Shift+Z (or Ctrl+Y) redoes it.
+    // The stage is focusable and gets focus when the user paints, so the
+    // shortcut works right after an edit without hijacking Foundry's own
+    // shortcuts elsewhere.
+    root.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === 'INPUT') return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) ImageEraseApp.#onUndo.call(this);
+      else if ((key === 'z' && e.shiftKey) || key === 'y') ImageEraseApp.#onRedo.call(this);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    });
   }
 
   #brushMax(): number {
@@ -231,12 +266,13 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     canvas.addEventListener('pointerdown', (e: PointerEvent) => {
       if (this.#tool === 'view' || !this.#ctx) return;
       canvas.setPointerCapture(e.pointerId);
+      this.#work.parentElement?.focus({ preventScroll: true });
       const p = this.#toImagePoint(e);
       if (this.#tool === 'pick') {
         this.#pickColorAt(p);
         return;
       }
-      this.#pushUndo();
+      if (this.#tool === 'brush') this.#beginStep();
       if (this.#tool === 'brush') {
         this.#strokeLast = p;
         this.#paintDot(p);
@@ -262,6 +298,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#rectStart = null;
         this.#selectionBox.style.display = 'none';
       }
+      if (this.#strokeLast) this.#commitStep();
       this.#strokeLast = null;
     };
     canvas.addEventListener('pointerup', end);
@@ -320,6 +357,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #paintDot(p: Point): void {
+    this.#extendBox(p.x, p.y, p.x, p.y, this.#brushSize / 2 + 2);
     this.#withEraseStyle((ctx) => {
       ctx.beginPath();
       ctx.arc(p.x, p.y, this.#brushSize / 2, 0, Math.PI * 2);
@@ -328,6 +366,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #paintLine(from: Point, to: Point): void {
+    this.#extendBox(Math.min(from.x, to.x), Math.min(from.y, to.y), Math.max(from.x, to.x), Math.max(from.y, to.y), this.#brushSize / 2 + 2);
     this.#withEraseStyle((ctx) => {
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
@@ -341,13 +380,11 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const y = Math.max(0, Math.round(Math.min(a.y, b.y)));
     const w = Math.min(this.#work.width, Math.round(Math.max(a.x, b.x))) - x;
     const h = Math.min(this.#work.height, Math.round(Math.max(a.y, b.y))) - y;
-    if (w < 1 || h < 1) {
-      this.#undoStack.pop();
-      this.#editCount--;
-      this.#updateUndoButtonState();
-      return;
-    }
+    if (w < 1 || h < 1) return;
+    this.#beginStep();
+    this.#extendBox(x, y, x + w, y + h, 0);
     this.#withEraseStyle((ctx) => ctx.fillRect(x, y, w, h));
+    this.#commitStep();
   }
 
   #pickColorAt(p: Point): void {
@@ -365,38 +402,101 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  #pushUndo(): void {
-    const ctx = this.#ctx;
-    if (!ctx) return;
-    const bytesPerSnapshot = this.#work.width * this.#work.height * 4;
-    const limit = Math.max(2, Math.min(MAX_UNDO_STEPS, Math.floor(UNDO_MEMORY_BUDGET_BYTES / bytesPerSnapshot)));
-    this.#undoStack.push(ctx.getImageData(0, 0, this.#work.width, this.#work.height));
+  #beginStep(): void {
+    if (!this.#ctx) return;
+    this.#pending = { before: this.#ctx.getImageData(0, 0, this.#work.width, this.#work.height), box: null };
+  }
+
+  #extendBox(x0: number, y0: number, x1: number, y1: number, pad: number): void {
+    if (!this.#pending) return;
+    const box: Box = {
+      x0: Math.max(0, Math.floor(x0 - pad)),
+      y0: Math.max(0, Math.floor(y0 - pad)),
+      x1: Math.min(this.#work.width, Math.ceil(x1 + pad)),
+      y1: Math.min(this.#work.height, Math.ceil(y1 + pad)),
+    };
+    const cur = this.#pending.box;
+    this.#pending.box = cur ? { x0: Math.min(cur.x0, box.x0), y0: Math.min(cur.y0, box.y0), x1: Math.max(cur.x1, box.x1), y1: Math.max(cur.y1, box.y1) } : box;
+  }
+
+  /** Finishes the edit in progress: keeps only the pre-edit pixels of the touched region as an undo step. */
+  #commitStep(): void {
+    const pending = this.#pending;
+    this.#pending = null;
+    if (!pending?.box) return;
+    const { x0, y0, x1, y1 } = pending.box;
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (w < 1 || h < 1) return;
+    const crop = new ImageData(w, h);
+    const rowBytes = w * 4;
+    const stride = pending.before.width * 4;
+    for (let row = 0; row < h; row++) {
+      const from = (y0 + row) * stride + x0 * 4;
+      crop.data.set(pending.before.data.subarray(from, from + rowBytes), row * rowBytes);
+    }
+    this.#undoStack.push({ x: x0, y: y0, data: crop });
+    this.#redoStack = [];
     this.#editCount++;
-    while (this.#undoStack.length > limit) this.#undoStack.shift();
+    this.#trimHistory();
     this.#updateUndoButtonState();
   }
 
+  #trimHistory(): void {
+    const total = (): number => [...this.#undoStack, ...this.#redoStack].reduce((sum, step) => sum + step.data.data.byteLength, 0);
+    while (this.#undoStack.length > MAX_UNDO_STEPS || (this.#undoStack.length > 1 && total() > HISTORY_MEMORY_BUDGET_BYTES)) this.#undoStack.shift();
+  }
+
   #updateUndoButtonState(): void {
-    const btn = this.element?.querySelector<HTMLButtonElement>('button[data-action="undo"]');
-    if (btn) btn.disabled = this.#undoStack.length === 0;
+    const setup = (action: 'undo' | 'redo', count: number): void => {
+      const btn = this.element?.querySelector<HTMLButtonElement>(`button[data-action="${action}"]`);
+      if (!btn) return;
+      btn.disabled = count === 0;
+      btn.textContent = `${btn.dataset['label'] ?? ''}${count > 0 ? ` (${count})` : ''}`;
+    };
+    setup('undo', this.#undoStack.length);
+    setup('redo', this.#redoStack.length);
+  }
+
+  /** Swaps a history step with the current pixels of the same region: applies it and returns what it replaced (for the opposite stack). */
+  #swapStep(step: HistoryStep): HistoryStep | null {
+    const ctx = this.#ctx;
+    if (!ctx) return null;
+    const replaced = ctx.getImageData(step.x, step.y, step.data.width, step.data.height);
+    ctx.putImageData(step.data, step.x, step.y);
+    return { x: step.x, y: step.y, data: replaced };
   }
 
   static #onUndo(this: ImageEraseApp): void {
-    const snapshot = this.#undoStack.pop();
-    if (snapshot && this.#ctx) {
-      this.#ctx.putImageData(snapshot, 0, 0);
+    const step = this.#undoStack.pop();
+    const inverse = step ? this.#swapStep(step) : null;
+    if (inverse) {
+      this.#redoStack.push(inverse);
       this.#editCount = Math.max(0, this.#editCount - 1);
       this.#dirty = this.#editCount > 0;
     }
     this.#updateUndoButtonState();
   }
 
+  static #onRedo(this: ImageEraseApp): void {
+    const step = this.#redoStack.pop();
+    const inverse = step ? this.#swapStep(step) : null;
+    if (inverse) {
+      this.#undoStack.push(inverse);
+      this.#editCount++;
+      this.#dirty = true;
+    }
+    this.#updateUndoButtonState();
+  }
+
   static #onReset(this: ImageEraseApp): void {
     if (!this.#ctx || !this.#source) return;
-    this.#pushUndo();
+    this.#beginStep();
+    this.#extendBox(0, 0, this.#work.width, this.#work.height, 0);
     this.#ctx.clearRect(0, 0, this.#work.width, this.#work.height);
     this.#ctx.drawImage(this.#source, 0, 0);
     this.#dirty = true;
+    this.#commitStep();
   }
 
   static #onSave(this: ImageEraseApp): void {

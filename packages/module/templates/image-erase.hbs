@@ -26,13 +26,14 @@
     </div>
 
     <div class="bindery-image-erase-group">
-      <button type="button" data-action="undo" {{#unless canUndo}}disabled{{/unless}}>{{localize "BINDERY.imageErase.undo"}}</button>
+      <button type="button" data-action="undo" data-label="{{localize "BINDERY.imageErase.undo"}}" {{#unless canUndo}}disabled{{/unless}}>{{localize "BINDERY.imageErase.undo"}}{{#if canUndo}} ({{undoCount}}){{/if}}</button>
+      <button type="button" data-action="redo" data-label="{{localize "BINDERY.imageErase.redo"}}" {{#unless canRedo}}disabled{{/unless}}>{{localize "BINDERY.imageErase.redo"}}</button>
       <button type="button" data-action="reset">{{localize "BINDERY.imageErase.reset"}}</button>
     </div>
   </div>
 
   <div class="bindery-image-erase-viewport" data-viewport>
-    <div class="bindery-image-erase-stage" data-stage></div>
+    <div class="bindery-image-erase-stage" data-stage tabindex="-1"></div>
   </div>
 
   <div class="bindery-image-erase-buttons">

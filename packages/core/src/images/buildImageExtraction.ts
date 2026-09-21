@@ -9,7 +9,7 @@ import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
 import { extractDirect, probeIntrinsicLongEdgePx, type PdfPageForExtract } from './extract.js';
-import { computeContentHash, computeLuminanceStdDev, finalizeImages, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
+import { computeContentHash, computeLuminanceStdDev, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
 import { computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
@@ -54,6 +54,8 @@ export interface BuildImageExtractionOptions {
   treatFullBleedAsContent?: boolean;
   /** [at the user's request, EXPERIMENTAL] See the comment on `autoCropUniformMargins` in `schema.ts` and `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
   autoCropUniformMargins?: boolean;
+  /** [User request] Hide single-color and smooth-background images from the auto-detected list (see `UNIFORM_COLOR_MIN_FRACTION` and `SMOOTH_BACKGROUND_COARSE_MAX` in `finalize.ts`). On by default; only geometry-focused tests with flat-color stand-in images turn it off. */
+  hideBackgroundImages?: boolean;
   /** [at the user's request] See the comment on `brightenAutoCroppedImages` in `schema.ts` and `brightenImage.ts`. No effect when a given image wasn't actually cropped by `autoCropUniformMargins`. Off by default. */
   brightenAutoCroppedImages?: boolean;
 }
@@ -421,6 +423,7 @@ export async function buildImageExtraction(
   const { signal, onProgress } = opts;
   checkAborted(signal); // must be checked NOW, not only inside the per-page loop — a document with no units to process (the loop never runs) would otherwise silently ignore an already-aborted signal.
   const autoCropUniformMargins = opts.autoCropUniformMargins ?? false;
+  const hideBackgroundImages = opts.hideBackgroundImages ?? true;
   const brightenAutoCroppedImages = opts.brightenAutoCroppedImages ?? false;
   const targetLongEdgePx = opts.targetLongEdgePx ?? DEFAULT_TARGET_LONG_EDGE_PX;
   const maxLongEdgePx = opts.maxLongEdgePx ?? DEFAULT_MAX_LONG_EDGE_PX;
@@ -562,6 +565,9 @@ export async function buildImageExtraction(
           // is not subject to this reclassification (see `finalize.ts`), so
           // we save an extra pixel pass where it wouldn't be used anyway.
           const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(image) : undefined;
+          // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
+          const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(image) : undefined;
+          const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(image) : undefined;
           // [Step 17] Grid suggestion — NOT limited to 'content' (unlike
           // `luminanceStdDev` above): 'undecided' can also end up on stage by
           // the user's manual decision (Z4, ReviewScreen), and the cost of
@@ -586,6 +592,8 @@ export async function buildImageExtraction(
             width: image.width,
             height: image.height,
             luminanceStdDev,
+            uniformColorFraction,
+            smoothness,
             suggestedGrid,
             payload: encoded,
           });

@@ -343,7 +343,7 @@
     },
     "imageErase": {
       "title": "Podgląd obrazu i wymazywanie",
-      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany.",
+      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany. „Cofnij” cofa tylko ostatni krok (Ctrl+Z), a „Przywróć oryginał” — wszystko.",
       "toolView": "Podgląd",
       "toolBrush": "Pędzel",
       "toolRect": "Prostokąt",
@@ -354,6 +354,7 @@
       "brushSize": "Rozmiar pędzla",
       "zoom": "Powiększenie",
       "undo": "Cofnij",
+      "redo": "Ponów",
       "reset": "Przywróć oryginał",
       "save": "Zatwierdź zmiany",
       "cancel": "Anuluj",

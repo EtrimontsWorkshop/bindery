@@ -1,3 +1,16 @@
+## [0.2.1]
+
+### Added
+
+- **Redo and keyboard shortcuts in the image erase window:** a "Redo" button, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z (or Ctrl+Y) to redo. The Undo button shows how many steps can be undone.
+
+### Changed
+
+- **Cleaner auto-detected image list:** single-color images (for example a blank white rectangle, allowing tiny deviations) and long, narrow images (typically frames and borders) are no longer offered in the review list. Anything still needed can be cut out with "Select & cut" on the page preview.
+- **Paper and page backgrounds are hidden too:** smooth backgrounds (a soft parchment/paper texture or a page wash, with no edges or shapes) are no longer offered in the review list, even when the importer wasn't sure about them. Detection was checked on a real adventure PDF: all 15 background images were hidden and none of the 35 illustrations, maps, portraits, or pencil sketches (the other 8 images were narrow frame strips, hidden by the long-and-narrow rule).
+- **Erase history:** undo steps now store only the region that changed, so long histories (up to 100 steps) work even on large images.
+- **Module title** is now "Bindery — PDF Asset Importer" in Foundry, matching the repository.
+
 ## [0.2.0]
 
 ### Added

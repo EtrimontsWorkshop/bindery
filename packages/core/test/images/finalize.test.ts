@@ -4,6 +4,8 @@ import {
   closeCorrelationByHash,
   computeContentHash,
   computeLuminanceStdDev,
+  computeSmoothnessMetrics,
+  computeUniformColorFraction,
   finalizeImages,
   type PreparedEntryForFinalize,
 } from '../../src/images/finalize.js';
@@ -93,6 +95,84 @@ describe('computeLuminanceStdDev', () => {
   });
 });
 
+describe('computeUniformColorFraction', () => {
+  it('is 1 for a single-color image', () => {
+    expect(computeUniformColorFraction(image(100, 100, 255))).toBe(1);
+  });
+
+  it('tolerates tiny deviations from the dominant color (compression noise)', () => {
+    const img = image(100, 100, 250);
+    for (let p = 0; p < 100 * 100; p += 3) img.rgba[p * 4] = 245; // 5 levels off on the red channel
+    expect(computeUniformColorFraction(img)).toBe(1);
+  });
+
+  it('is low for a half black / half white image', () => {
+    const img = image(100, 100, 255);
+    for (let p = 0; p < 5000; p++) {
+      img.rgba[p * 4] = 0;
+      img.rgba[p * 4 + 1] = 0;
+      img.rgba[p * 4 + 2] = 0;
+    }
+    expect(computeUniformColorFraction(img)).toBeLessThan(0.6);
+  });
+
+  it('a sparse line drawing on white (a few percent ink) stays well below the hiding fraction', () => {
+    const img = image(200, 200, 255);
+    for (let y = 0; y < 200; y += 20) for (let x = 0; x < 200; x++) for (let c = 0; c < 3; c++) img.rgba[(y * 200 + x) * 4 + c] = 0;
+    expect(computeUniformColorFraction(img)).toBeLessThan(0.99);
+  });
+});
+
+describe('computeSmoothnessMetrics', () => {
+  /** A soft radial vignette (bright center, darker edges) plus mild pixel noise, like a scanned paper background. */
+  function vignette(width: number, height: number, noise: number): DecodedImage {
+    const img = image(width, height, 255);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const dx = (x / width - 0.5) * 2;
+        const dy = (y / height - 0.5) * 2;
+        const v = 250 - 45 * Math.min(1, dx * dx + dy * dy) + (Math.random() - 0.5) * 2 * noise;
+        const i = (y * width + x) * 4;
+        img.rgba[i] = v;
+        img.rgba[i + 1] = v + 6;
+        img.rgba[i + 2] = v + 5;
+      }
+    }
+    return img;
+  }
+
+  it('a noisy paper vignette is smooth at both scales', () => {
+    const m = computeSmoothnessMetrics(vignette(1200, 900, 4));
+    expect(m.coarseGradient).toBeLessThan(3.2);
+    expect(m.fineGradient).toBeLessThan(6); // noise raises the fine measure — the coarse one is what stays low
+  });
+
+  it('a clean vignette is below both hiding thresholds', () => {
+    const m = computeSmoothnessMetrics(vignette(1200, 900, 0));
+    expect(m.coarseGradient).toBeLessThan(3.2);
+    expect(m.fineGradient).toBeLessThan(1.5);
+  });
+
+  it('thin dark lines on white (line art) are NOT smooth', () => {
+    const img = image(1200, 900, 255);
+    for (let y = 0; y < 900; y += 30) for (let x = 0; x < 1200; x++) for (let c = 0; c < 3; c++) img.rgba[(y * 1200 + x) * 4 + c] = 20;
+    for (let x = 0; x < 1200; x += 30) for (let y = 0; y < 900; y++) for (let c = 0; c < 3; c++) img.rgba[(y * 1200 + x) * 4 + c] = 20;
+    const m = computeSmoothnessMetrics(img);
+    expect(m.coarseGradient >= 3.2 || m.fineGradient >= 1.5).toBe(true);
+  });
+
+  it('artwork drawn ONLY in the alpha channel (a pencil sketch on a transparent page) is not ignored', () => {
+    const img = image(600, 600, 0); // fully transparent black
+    for (let y = 100; y < 500; y++) for (let x = 0; x < 600; x++) if ((x + y) % 24 < 3) img.rgba[(y * 600 + x) * 4 + 3] = 200; // diagonal strokes
+    const m = computeSmoothnessMetrics(img);
+    expect(m.fineGradient).toBeGreaterThan(1.5);
+  });
+
+  it('images too small to measure at block level are never reported as smooth', () => {
+    expect(computeSmoothnessMetrics(image(4, 4, 200)).coarseGradient).toBe(Infinity);
+  });
+});
+
 describe('closeCorrelationByHash', () => {
   it('liczy closedByBBox z wpisow majacych correlatedWith', () => {
     const a = entry({ objId: 'a' });
@@ -178,6 +258,45 @@ describe('classifyTargetKind', () => {
 });
 
 describe('finalizeImages', () => {
+  it('[user request] hides a single-color image from the auto-detected list, even with a strong content signal', async () => {
+    const p = await prepared(entry({ objId: 'blank' }), image(500, 500, 255), { confidence: 0.9, uniformColorFraction: 1 });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('decoration');
+  });
+
+  it('[user request] hides a single-color image classified as undecided too', async () => {
+    const p = await prepared(entry({ objId: 'blank-undecided' }), image(500, 500, 255), { classification: 'undecided', confidence: 0.4, uniformColorFraction: 0.998 });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('decoration');
+  });
+
+  it('[user request] keeps an image that is mostly one color but has real content (below the uniform fraction)', async () => {
+    const p = await prepared(entry({ objId: 'sparse-map' }), image(500, 500, 255), { confidence: 0.9, uniformColorFraction: 0.97 });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('content');
+  });
+
+  it('[user request] hides a smooth paper background (both gradients low), even when classified undecided or with a strong content signal', async () => {
+    const smooth = { coarseGradient: 1.7, fineGradient: 0.6 };
+    const strong = await prepared(entry({ objId: 'bg-strong' }), image(900, 900, 200), { confidence: 0.9, smoothness: smooth });
+    const undecided = await prepared(entry({ objId: 'bg-undecided' }), image(900, 900, 201), { classification: 'undecided', confidence: 0.4, smoothness: smooth });
+    expect(finalizeImages([strong, undecided], new Set()).images.map((i) => i.classification)).toEqual(['decoration', 'decoration']);
+  });
+
+  it('[user request] keeps an image that is smooth at only ONE scale (a faint sketch: low coarse but real fine detail)', async () => {
+    const p = await prepared(entry({ objId: 'faint-sketch' }), image(900, 900, 200), { classification: 'undecided', confidence: 0.2, smoothness: { coarseGradient: 2.5, fineGradient: 2.9 } });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('[user request] hides a long, narrow image (a typical frame/border strip) — content or undecided', async () => {
+    const wide = await prepared(entry({ objId: 'strip-wide' }), image(1200, 100, 128), { confidence: 0.9 });
+    const tall = await prepared(entry({ objId: 'strip-tall' }), image(100, 900, 128), { classification: 'undecided', confidence: 0.4 });
+    const result = finalizeImages([wide, tall], new Set());
+    expect(result.images.map((i) => i.classification)).toEqual(['decoration', 'decoration']);
+  });
+
+  it('[user request] keeps an image just below the long-and-narrow ratio', async () => {
+    const p = await prepared(entry({ objId: 'banner' }), image(1000, 200, 128), { confidence: 0.9 }); // 5:1
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('content');
+  });
+
   it('[KROK-43 Z1, naprawa "cicha utrata"] reklasyfikuje content ponizej 100px na undecided (NIE decoration — bez kalibracji ani szansy na przeglad), z Diagnostic', async () => {
     const p = await prepared(entry({ objId: 'tiny' }), image(50, 50, 10));
     const diagnostics: Diagnostic[] = [];
