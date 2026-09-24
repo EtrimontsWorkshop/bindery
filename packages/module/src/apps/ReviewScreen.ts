@@ -125,7 +125,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static override PARTS = {
     main: {
-      template: 'modules/bindery/templates/review-screen.hbs',
+      template: 'modules/bindery-pdf-importer/templates/review-screen.hbs',
       // [User report, "clicking an image scrolls the list back to the top"]
       // Clicking a row on a page other than the one currently shown
       // (`#buildImageRow`) and many other actions (select all/none, apply

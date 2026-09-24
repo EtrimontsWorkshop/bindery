@@ -16,7 +16,7 @@ export interface DocumentSummary {
 export interface InspectOptions {
   /**
    * pdf.js asset base directory, with a trailing slash.
-   * In Foundry: 'modules/bindery/lib/'. In Node tests: path to node_modules/pdfjs-dist.
+   * In Foundry: 'modules/bindery-pdf-importer/lib/'. In Node tests: path to node_modules/pdfjs-dist.
    */
   assetBaseUrl: string;
 }

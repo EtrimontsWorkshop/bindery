@@ -74,7 +74,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static override PARTS = {
     main: {
-      template: 'modules/bindery/templates/wizard.hbs',
+      template: 'modules/bindery-pdf-importer/templates/wizard.hbs',
       // [user report, "scrolling down jumps back to the top"] The review
       // build progress (`onProgress` below) calls `this.render()` ONCE PER
       // PAGE — ApplicationV2 (`HandlebarsApplicationMixin`) replaces the

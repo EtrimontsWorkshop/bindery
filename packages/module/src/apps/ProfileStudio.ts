@@ -210,7 +210,7 @@ export class ProfileStudio extends HandlebarsApplicationMixin(ApplicationV2) {
   };
 
   static override PARTS = {
-    main: { template: 'modules/bindery/templates/profile-studio.hbs' },
+    main: { template: 'modules/bindery-pdf-importer/templates/profile-studio.hbs' },
   };
 
   #state: StudioState = {

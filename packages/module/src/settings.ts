@@ -2,7 +2,14 @@ import { ImportWizard } from './apps/ImportWizard.js';
 import { ProfileStudioLauncher } from './apps/ProfileStudioLauncher.js';
 import { STATBLOCKS_ENABLED } from './features.js';
 
-export const MODULE_ID = 'bindery';
+// [User request] Renamed from 'bindery' — that id was already taken in
+// Foundry's official package directory by an unrelated module. Changing this
+// makes Foundry treat this as a DIFFERENT module: existing installs under the
+// old id keep their own settings (upload path, remembered grid, etc.), which
+// do not carry over — there is no migration, since the two ids never
+// coexisted for the same install in practice (this repo's public release
+// never got submitted to the directory under the old id).
+export const MODULE_ID = 'bindery-pdf-importer';
 
 /** Base path of pdf.js assets relative to the Foundry web server root (risk I1/I3). */
 export const ASSET_BASE_URL = `modules/${MODULE_ID}/lib/`;

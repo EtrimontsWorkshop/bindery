@@ -79,7 +79,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static override PARTS = {
     main: {
-      template: 'modules/bindery/templates/image-erase.hbs',
+      template: 'modules/bindery-pdf-importer/templates/image-erase.hbs',
     },
   };
 

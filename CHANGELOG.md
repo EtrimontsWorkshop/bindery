@@ -1,3 +1,9 @@
+## [0.2.3]
+
+### Changed
+
+- **Package ID renamed to `bindery-pdf-importer`** (from `bindery`) — the old id was already taken by an unrelated module in Foundry's official package directory, which blocked submission. **This makes Foundry treat it as a different module.** Existing installs under the old id are not migrated automatically: after updating, reinstall using the new manifest URL and reconfigure the upload path/settings once. The repository and its URL are unchanged.
+
 ## [0.2.2]
 
 ### Changed

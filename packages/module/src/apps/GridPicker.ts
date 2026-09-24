@@ -89,7 +89,7 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static override PARTS = {
     main: {
-      template: 'modules/bindery/templates/grid-picker.hbs',
+      template: 'modules/bindery-pdf-importer/templates/grid-picker.hbs',
     },
   };
 

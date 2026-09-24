@@ -114,7 +114,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static override PARTS = {
     main: {
-      template: 'modules/bindery/templates/token-prep.hbs',
+      template: 'modules/bindery-pdf-importer/templates/token-prep.hbs',
     },
   };
 

@@ -3,21 +3,21 @@ import type { ImportTargets, LastActorProfile, TokenPrepDefaults } from './setti
 
 declare module 'fvtt-types/configuration' {
   interface ModuleConfig {
-    bindery: {
+    'bindery-pdf-importer': {
       api: BinderyAPI;
     };
   }
 
   interface RequiredModules {
-    bindery: true;
+    'bindery-pdf-importer': true;
   }
 
   interface SettingConfig {
-    'bindery.legalNoticeAcknowledged': boolean;
-    'bindery.uploadPath': string;
-    'bindery.lastGridConfig': { size: number; offsetX: number; offsetY: number };
-    'bindery.importTargets': ImportTargets;
-    'bindery.lastActorProfile': LastActorProfile;
-    'bindery.tokenPrepDefaults': TokenPrepDefaults;
+    'bindery-pdf-importer.legalNoticeAcknowledged': boolean;
+    'bindery-pdf-importer.uploadPath': string;
+    'bindery-pdf-importer.lastGridConfig': { size: number; offsetX: number; offsetY: number };
+    'bindery-pdf-importer.importTargets': ImportTargets;
+    'bindery-pdf-importer.lastActorProfile': LastActorProfile;
+    'bindery-pdf-importer.tokenPrepDefaults': TokenPrepDefaults;
   }
 }

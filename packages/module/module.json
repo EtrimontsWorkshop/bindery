@@ -1,8 +1,8 @@
 {
-  "id": "bindery",
+  "id": "bindery-pdf-importer",
   "title": "Bindery — PDF Asset Importer",
   "description": "Import maps, handouts, and images from PDFs you own.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "compatibility": {
     "minimum": "14",
     "verified": "14"
