@@ -35,14 +35,6 @@
           <span class="bindery-tab-spacer"></span>
           <span class="bindery-tab-count">{{imageCount}}</span>
         </button>
-        {{! [KROK-44 Z1] Ukryte za `statblocksEnabled` — patrz `features.ts`. }}
-        {{#if statblocksEnabled}}
-        <button type="button" role="tab" aria-selected="{{isTabActors}}" data-action="switchTab" data-tab="actors" class="bindery-tab {{#if isTabActors}}active{{/if}}{{#unless hasActorProfile}} bindery-tab-muted{{/unless}}">
-          <span>{{localize "BINDERY.review.tabActors"}}</span>
-          <span class="bindery-tab-spacer"></span>
-          {{#if hasActorProfile}}<span class="bindery-tab-count">{{actorCount}}</span>{{/if}}
-        </button>
-        {{/if}}
         <button type="button" role="tab" aria-selected="{{isTabDiagnostics}}" data-action="switchTab" data-tab="diagnostics" class="bindery-tab {{#if isTabDiagnostics}}active{{/if}}">
           <span>{{localize "BINDERY.review.tabDiagnostics"}}</span>
           <span class="bindery-tab-spacer"></span>
@@ -137,48 +129,6 @@
           </div>
         {{/if}}
 
-        {{#if statblocksEnabled}}
-        {{#if isTabActors}}
-          {{#if hasActorProfile}}
-            <div class="bindery-review-bulkops">
-              <button type="button" class="bindery-btn bindery-btn--ghost" data-action="selectAllActors">{{localize "BINDERY.review.selectAll"}}</button>
-              <button type="button" class="bindery-btn bindery-btn--secondary" data-action="selectNoActors">{{localize "BINDERY.review.selectNone"}}</button>
-              <span class="bindery-review-bulkops-spacer"></span>
-              <span class="bindery-footer-hint" data-count="actors">{{localize "BINDERY.review.selectedCount"}}: {{selectedActorCount}}/{{actorCount}}</span>
-            </div>
-            <div class="bindery-review-split">
-              <div class="bindery-review-preview">
-                <div class="bindery-page-canvas-wrap">
-                  {{#if currentPageImageUrl}}
-                    <img class="bindery-page-image" src="{{currentPageImageUrl}}" alt="" />
-                    <svg class="bindery-page-overlay" data-overlay></svg>
-                  {{else}}
-                    <p class="hint">{{localize "BINDERY.review.pageLoading"}}</p>
-                  {{/if}}
-                </div>
-                <div class="bindery-page-nav">
-                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="prevPage" {{#unless canGoPrevPage}}disabled{{/unless}}>◄</button>
-                  <input type="number" class="bindery-page-nav-input" data-input="pageNumber" min="1" max="{{pageCount}}" value="{{currentPageNumber}}" {{#unless pageCount}}disabled{{/unless}} />
-                  <span class="bindery-page-nav-count">/ {{pageCount}}</span>
-                  <button type="button" class="bindery-btn bindery-btn--icon" data-action="nextPage" {{#unless canGoNextPage}}disabled{{/unless}}>►</button>
-                  <span class="bindery-page-zoom">
-                    <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomOut" {{#unless canZoomOut}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomOut'}}">−</button>
-                    <span class="bindery-page-nav-count" data-zoom-readout>{{zoomPercent}}%</span>
-                    <button type="button" class="bindery-btn bindery-btn--icon" data-action="zoomIn" {{#unless canZoomIn}}disabled{{/unless}} title="{{localize 'BINDERY.review.zoomIn'}}">+</button>
-                  </span>
-                </div>
-              </div>
-              <div class="bindery-review-list" data-list="actors"></div>
-            </div>
-          {{else}}
-            <div class="bindery-review-empty-state">
-              <h3>{{localize "BINDERY.review.actorsNoProfileTitle"}}</h3>
-              <p>{{localize "BINDERY.review.actorsNoProfile"}}</p>
-            </div>
-          {{/if}}
-        {{/if}}
-        {{/if}}
-
         {{#if isTabScenes}}
           <div class="bindery-review-list bindery-review-list-full" data-list="scenes"></div>
         {{/if}}
@@ -213,12 +163,6 @@
             <label>{{localize "BINDERY.review.journalFolderLabel"}}</label>
             <input type="text" name="journalFolder" value="{{targets.journalFolder}}" placeholder="{{localize "BINDERY.review.folderRootPlaceholder"}}" />
           </div>
-          {{#if actorCount}}
-            <div class="form-group">
-              <label>{{localize "BINDERY.review.actorFolderLabel"}}</label>
-              <input type="text" name="actorFolder" value="{{targets.actorFolder}}" placeholder="{{localize "BINDERY.review.folderRootPlaceholder"}}" />
-            </div>
-          {{/if}}
           <div class="form-group">
             <label>{{localize "BINDERY.review.imagePathLabel"}}</label>
             <input type="text" name="imagePath" value="{{targets.imagePath}}" />
@@ -227,10 +171,9 @@
             <label>{{localize "BINDERY.review.namePrefixLabel"}}</label>
             <input type="text" name="namePrefix" value="{{targets.namePrefix}}" placeholder="{{localize "BINDERY.review.namePrefixPlaceholder"}}" />
           </div>
-          {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy obrazy i (jesli sa) aktorow, jedyne aktywne sciezki. }}
+          {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy tylko obrazy, jedyna aktywna sciezka. }}
           <p class="hint">
             {{localize "BINDERY.review.targetSummary"}}: {{importableImageCount}} {{localize "BINDERY.review.images"}}
-            {{#if actorCount}} · {{selectedActorCount}} {{localize "BINDERY.review.actors"}}{{/if}}
           </p>
           {{#if isImporting}}
             <p class="hint">{{localize "BINDERY.review.importing"}}</p>

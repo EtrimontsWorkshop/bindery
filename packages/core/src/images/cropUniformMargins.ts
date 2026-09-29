@@ -12,8 +12,8 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  * STRUCTURE (it's one resource, not two), so the only way is to analyze the
  * PIXELS of the already-decoded image.
  *
- * Deliberately EXPERIMENTAL and opt-in (`images.autoCropUniformMargins`, see
- * `schema.ts`) — this is a heuristic, not structure parsing: pages where the
+ * Deliberately EXPERIMENTAL and opt-in (`autoCropUniformMargins`, see
+ * `buildImageExtraction.ts`) — this is a heuristic, not structure parsing: pages where the
  * illustration fills nearly the whole canvas (e.g. a ship cross-section
  * spread, Wrak.pdf p. 11) are meant to deliberately NOT be cropped, because
  * their edges are already part of the content themselves (texture, frame),

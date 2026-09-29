@@ -1,22 +1,17 @@
-import type { CIFDocument, CIFImage, CIFScene, CIFJournal, CIFActor, AdapterResult, Diagnostic, PreviewDocument, Rect, RotatedRect, RegionCrop } from '@bindery/core';
+import type { CIFDocument, CIFImage, CIFScene, CIFJournal, Diagnostic, PreviewDocument, Rect, RotatedRect, RegionCrop } from '@bindery/core';
 import { classifyTargetKind, pdfRectToScreen, screenRotatedRectToPdf, rotatedRectBounds, inscribedRotatedRectScale, DEFAULT_WEBP_QUALITY } from '@bindery/core';
 import { MODULE_ID, type ImportTargets } from '../settings.js';
 import { ReviewSelection, defaultImageDestination, sortImagesForReview, type ImageDestination } from '../review/selectionState.js';
-import { ActorReviewSelection, computeActorCompleteness, applyActorOverrides } from '../review/actorSelectionState.js';
 import { VirtualList } from '../review/VirtualList.js';
 import { uploadImage } from '../documents/uploadImages.js';
 import { createSceneFromImage } from '../documents/createSceneFromImage.js';
 import { createJournalsFromCIF, type CIFJournalForCreation } from '../documents/createJournalFromCIF.js';
 import { createJournalHandoutFromImage } from '../documents/createJournalHandoutFromImage.js';
 import { createJournalHandoutFromImages } from '../documents/createJournalHandoutFromImages.js';
-import { createActorsFromAdapterResults } from '../documents/createActors.js';
-import { coc7Adapter, type Coc7ActorPayload } from '../adapters/coc7.js';
 import { ensureFolder } from '../documents/ensureFolder.js';
 import { pickGrid, type GridConfig } from './GridPicker.js';
 import { prepareToken } from './TokenPrepApp.js';
 import { eraseImage } from './ImageEraseApp.js';
-import { STATBLOCKS_ENABLED } from '../features.js';
-import { localizeMessage } from '../i18n.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -38,7 +33,7 @@ const MIN_GRID_SUGGESTION_CONFIDENCE = 0.4;
  */
 const SCENES_JOURNALS_FROM_CIF_ENABLED = false;
 
-type ReviewTab = 'images' | 'scenes' | 'journals' | 'actors' | 'diagnostics';
+type ReviewTab = 'images' | 'scenes' | 'journals' | 'diagnostics';
 type ReviewStep = 'review' | 'target' | 'summary';
 /** [User request, "two tabs: automatic and manual"] Image source — PURELY a presentational split of the Images tab list, not a new `CIFImage` field: `manual` is recognized by the `id` prefix (`manual-crop-`, see `#createManualCrop`). */
 type ImageSourceTab = 'auto' | 'manual';
@@ -65,8 +60,6 @@ export interface ReviewScreenData {
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>;
   previewDocument: PreviewDocument;
   fileName: string;
-  /** [Step 42 Z1] Starting value of the "remove background" toggle in `TokenPrepApp` — see `images.removeTokenBackgroundDefault` in `schema.ts` (`@bindery/core`). */
-  removeTokenBackgroundDefault?: boolean;
 }
 
 export interface ReviewScreenResult {
@@ -111,8 +104,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       selectNoImages: ReviewScreen.#onSelectNoImages,
       selectAllJournals: ReviewScreen.#onSelectAllJournals,
       selectNoJournals: ReviewScreen.#onSelectNoJournals,
-      selectAllActors: ReviewScreen.#onSelectAllActors,
-      selectNoActors: ReviewScreen.#onSelectNoActors,
       applyBulkSettings: ReviewScreen.#onApplyBulkSettings,
       prevPage: ReviewScreen.#onPrevPage,
       nextPage: ReviewScreen.#onNextPage,
@@ -143,7 +134,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       // screen, not just Images.
       scrollable: [
         '[data-list="images"]',
-        '[data-list="actors"]',
         '[data-list="scenes"]',
         '[data-list="journals"]',
         '[data-list="diagnostics"]',
@@ -294,21 +284,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    */
   #listScrollTop: Record<string, number> = {};
 
-  // ---- [Step 20 Z2] Actors tab --------------------------------------
-  #actorSelection: ActorReviewSelection;
-  /** [Step 20 Z3] Id of the actor highlighted by a click on the list OR on the bbox overlay — mirrors `#highlightedImageId`. */
-  #highlightedActorId: string | null = null;
-  /**
-   * [Step 20 Z2] `coc7Adapter.fromActor` computed OVER THE DATA BEING
-   * REVIEWED (user overrides already applied via `applyActorOverrides`) —
-   * SOLELY for the `notes`/`issues` PREVIEW on this screen (A3/A10: "unparsed
-   * fields stay visible, never hidden"). `#runImport` computes its OWN,
-   * independent result right before saving (on the freshest `#actorSelection`
-   * state) — this map is PURELY a display cache, never the source of truth
-   * for the import.
-   */
-  #actorAdapterPreview = new Map<string, AdapterResult<Coc7ActorPayload>>();
-
   #targets: ImportTargets;
   #isImporting = false;
   #importError: string | null = null;
@@ -319,16 +294,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     super();
     this.#data = data;
     this.#selection = ReviewSelection.fromDocument(data.document);
-    this.#actorSelection = ActorReviewSelection.fromDocument(data.document);
     this.#rebuildJournalRows();
     this.#rebuildDiagnosticGroups();
-    this.#rebuildActorAdapterPreview();
     const stored = game.settings!.get(MODULE_ID, 'importTargets') as ImportTargets;
-    // [Step 19 Z3] `actorFolder` can be `undefined` in settings saved
-    // BEFORE this step (the old default object didn't have this field) —
-    // this screen doesn't (yet) manage actors, so a defensive fallback is
-    // enough, so as not to break `ImportTargets` on older worlds.
-    this.#targets = { sceneFolder: stored.sceneFolder, journalFolder: stored.journalFolder, actorFolder: stored.actorFolder ?? '', namePrefix: stored.namePrefix };
+    this.#targets = { sceneFolder: stored.sceneFolder, journalFolder: stored.journalFolder, namePrefix: stored.namePrefix };
   }
 
   #rebuildJournalRows(): void {
@@ -340,25 +309,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       });
     }
     this.#journalRows = rows;
-  }
-
-  /**
-   * [Step 20 Z2] Recomputes the PREVIEW `notes`/`issues` for ALL actors,
-   * over the data AFTER user overrides (`applyActorOverrides`) — called
-   * after every edit of a name/value/attack, so the notes list in the row
-   * reflects what the user JUST changed (A3/A10: an actor hiding its own
-   * uncertainty is "faster to review and less safe" — MDD P6, a warning
-   * stated explicitly in this step).
-   */
-  #rebuildActorAdapterPreview(): void {
-    this.#actorAdapterPreview.clear();
-    for (const actor of this.#data.document.actors ?? []) {
-      const patched = applyActorOverrides(actor, this.#actorSelection);
-      const ctx = { folderId: null, imagePathResolver: () => null, language: null, profileId: null };
-      // `coc7Adapter` is typed as `SystemAdapter` (contract §5.6, `fromActor` returns `AdapterResult<object>`)
-      // — a safe cast to the concrete shape of OUR OWN implementation (`coc7.ts`), the same as `createActors.ts` already does.
-      this.#actorAdapterPreview.set(actor.id, coc7Adapter.fromActor(patched, ctx) as AdapterResult<Coc7ActorPayload>);
-    }
   }
 
   #rebuildDiagnosticGroups(): void {
@@ -424,16 +374,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       step3Done: this.#step === 'summary',
       step3Active: this.#step === 'target',
       step3Future: this.#step === 'review',
-      // [Step 44 Z1] See `features.ts` — the first public release covers
-      // images only. The Actors tab is hidden in the template
-      // (`{{#if statblocksEnabled}}`), so `this.#tab` can never actually
-      // become `'actors'` via the UI, but the context passes the flag
-      // through explicitly anyway instead of relying on that indirectly.
-      statblocksEnabled: STATBLOCKS_ENABLED,
       isTabImages: this.#tab === 'images',
       isTabScenes: this.#tab === 'scenes',
       isTabJournals: this.#tab === 'journals',
-      isTabActors: this.#tab === 'actors',
       isTabDiagnostics: this.#tab === 'diagnostics',
       // [User request, "two tabs: automatic and manual" + Scene/Journal/Token
       // sub-tabs] See `#visibleImages`/`ImageSourceTab`/`ImageDestTab` — PURE
@@ -454,29 +397,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       imageCount: doc.images.length,
       sceneCount: doc.scenes.length,
       journalCount: doc.journals.length,
-      actorCount: doc.actors?.length ?? 0,
-      // [Step 21 Z1] `doc.actors === undefined` means no profile was passed
-      // when building this document (see `buildCIFFromDocument`, `profile`
-      // is optional) — distinct from "there was a profile, but it found
-      // nothing" (`doc.actors === []`, `hasActorProfile` is `true` then).
-      // The distinction is needed so the Actors tab can explain to the user
-      // WHAT happened instead of just showing an empty list for no reason.
-      hasActorProfile: doc.actors !== undefined,
       diagnosticGroupCount: this.#diagnosticGroups.length,
       selectedImageCount: this.#selection.selectedImageCount,
       importableImageCount: this.#selection.selectedAssignedImageCount,
       hasUnassignedSelection: this.#selection.selectedImageCount > this.#selection.selectedAssignedImageCount,
       selectedSceneCount: this.#selection.selectedSceneCount,
       selectedJournalCount: this.#selection.selectedJournalCount,
-      selectedActorCount: this.#actorSelection.selectedCount,
-      // [User request, "can't import an NPC without a token, the Next button
-      // is greyed out"] The "Next" button on the review screen was gated
-      // SOLELY on the `selectedImageCount` condition (see
-      // `review-screen.hbs`) — an author wanting to import ONLY actors
-      // (without selecting any image as token/scene/journal) had no way to
-      // proceed, even though `selectedActorCount` was > 0. The sum of ALL
-      // FOUR independent categories ("is there ANYTHING at all to import"),
-      // not just images.
       totalSelectedCount: this.#totalSelectedCount(),
       currentPageNumber: this.#currentPageNumber,
       pageCount: this.#data.previewDocument.pageCount,
@@ -494,7 +420,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       summaryEntries: this.#summaryEntries,
       summaryHasIssues: this.#summaryDiagnostics.length > 0,
       _sortedImages: sortedImages,
-      _actors: doc.actors ?? [],
     };
   }
 
@@ -552,10 +477,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#mountSceneList();
       } else if (this.#tab === 'journals') {
         this.#mountJournalList();
-      } else if (this.#tab === 'actors') {
-        void this.#ensurePageImage(this.#currentPageNumber);
-        this.#mountActorList(context._actors as CIFActor[]);
-        void this.#mountActorOverlay(context._actors as CIFActor[]);
       } else if (this.#tab === 'diagnostics') {
         this.#mountDiagnosticList(this.element.querySelector<HTMLElement>('[data-list="diagnostics"]'));
       }
@@ -1344,7 +1265,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         format: entry.format,
         width: image.width,
         height: image.height,
-        removeBackgroundDefault: this.#data.removeTokenBackgroundDefault ?? false,
+        removeBackgroundDefault: false,
       });
       if (!result) return;
       image.width = result.width;
@@ -1547,7 +1468,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     for (const btn of this.element.querySelectorAll<HTMLButtonElement>('[data-action="zoomOut"]')) btn.disabled = percent <= ReviewScreen.#MIN_ZOOM;
     for (const btn of this.element.querySelectorAll<HTMLButtonElement>('[data-action="zoomIn"]')) btn.disabled = percent >= ReviewScreen.#MAX_ZOOM;
     if (this.#tab === 'images') void this.#redrawOverlay();
-    else if (this.#tab === 'actors') void this.#redrawActorOverlay();
   }
 
   /**
@@ -1924,9 +1844,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    * render. `data-count="images"` on the correct `<span>` (see the
    * template) is the only place that actually shows this counter.
    */
-  /** Everything currently selected for import — images, scenes, journals and actors. */
+  /** Everything currently selected for import — images, scenes and journals. */
   #totalSelectedCount(): number {
-    return this.#selection.selectedAssignedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount + this.#actorSelection.selectedCount;
+    return this.#selection.selectedAssignedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount;
   }
 
   /**
@@ -1967,532 +1887,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     for (const row of rows) {
       row.classList.toggle('bindery-row-highlighted', row.dataset['imageId'] === this.#highlightedImageId);
     }
-  }
-
-  // ---- [Step 20 Z2] Actor list -----------------------------------------
-
-  /**
-   * [Step 21, bug measured live] Without virtualization — deliberately,
-   * unlike images/scenes/journals/diagnostics (`VirtualList`, which
-   * EXPLICITLY assumes "no variable-height rows", see its own comment). An
-   * actor row is inherently of variable height (an optional row of name
-   * candidates, a wrapping trait list, a wrapping attack list, a variable
-   * number of adapter notes) — a fixed `rowHeightPx` in `VirtualList` caused
-   * the content of longer rows (e.g. "Hands" from p. 56: 5 attacks + several
-   * notes) to be visually covered by the NEXT row (absolute positioning +
-   * enforced height), even though the underlying data was complete the
-   * whole time — the created Actor had all 4 attacks correctly, only the
-   * EDITOR didn't show them. The number of actors in a real book is dozens,
-   * not the thousands of images that `VirtualList` actually has to handle
-   * (its own goal: "2500 items without stuttering") — plain,
-   * non-virtualized rendering is the correct trade-off here, not a
-   * temporary workaround.
-   */
-  #mountActorList(actors: CIFActor[]): void {
-    const container = this.element.querySelector<HTMLElement>('[data-list="actors"]');
-    if (!container) return;
-    container.innerHTML = '';
-    for (const actor of actors) container.appendChild(this.#buildActorRow(actor));
-    // [User request, "I pick an image from the list, it jumps back to the
-    // top"] The same problem as `VirtualList` (see the rationale next to
-    // `initialScrollTop` there), even though this list is NOT virtualized:
-    // the container is EMPTY in the Handlebars template, so Foundry's own
-    // `scrollable` tries to restore `scrollTop` BEFORE the rows above even
-    // exist — setting scroll on an empty container gets clamped to 0 by the
-    // browser. So we restore it OURSELVES, AFTER filling it.
-    container.scrollTop = this.#listScrollTop['actors'] ?? 0;
-    container.addEventListener('scroll', () => (this.#listScrollTop['actors'] = container.scrollTop));
-  }
-
-  /** Stat row with abbreviated labels (`STR`,`APP`,...) — see `CHARACTERISTIC_KEY_MAP`/derivedBlock in `adapters/coc7.ts`. The canonical key is longer than the standard CoC7 character-sheet abbreviation (e.g. "strength" vs "STR") — a reverse map SOLELY for labeling inputs on this screen, not for any decision. */
-  static readonly #STAT_SHORT_LABELS: Readonly<Record<string, string>> = {
-    strength: 'STR',
-    charisma: 'APP',
-    constitution: 'CON',
-    willpower: 'POW',
-    size: 'SIZ',
-    education: 'EDU',
-    dexterity: 'DEX',
-    intelligence: 'INT',
-    sanity: 'SAN',
-    hitPoints: 'HP',
-    damageBonus: 'DB',
-    build: 'Build',
-    movement: 'Move',
-    magicPoints: 'MP',
-  };
-
-  #buildActorRow(actor: CIFActor): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'bindery-review-row bindery-actor-row';
-    row.dataset['actorId'] = actor.id;
-    if (actor.id === this.#highlightedActorId) row.classList.add('bindery-row-highlighted');
-
-    const completeness = computeActorCompleteness(actor);
-    const preview = this.#actorAdapterPreview.get(actor.id);
-
-    const line1 = document.createElement('div');
-    line1.className = 'bindery-actor-row-line1';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'bindery-check';
-    checkbox.checked = this.#actorSelection.isSelected(actor.id);
-    checkbox.addEventListener('change', () => {
-      this.#actorSelection.setSelected(actor.id, checkbox.checked);
-      void this.#refreshActorHeaderCounts();
-    });
-    line1.appendChild(checkbox);
-
-    // [DoD Z2] Name resolution — the text field is always editable (a
-    // confident name starts pre-filled, a placeholder starts EMPTY, forcing
-    // a deliberate choice), plus shortcut buttons for each candidate from
-    // `nameCandidates` (S4/A10 — "one click, not a form", Z2 brief).
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.className = 'bindery-row-name-input bindery-actor-name-input';
-    nameInput.placeholder = actor.nameConfident ? actor.name : game.i18n!.localize('BINDERY.review.actorUnresolvedNamePlaceholder' as never);
-    nameInput.value = this.#actorSelection.resolvedName(actor);
-    if (!this.#actorSelection.isNameResolved(actor)) nameInput.classList.add('bindery-actor-name-unresolved');
-    nameInput.addEventListener('click', (ev) => ev.stopPropagation());
-    nameInput.addEventListener('change', () => {
-      this.#actorSelection.setResolvedName(actor.id, nameInput.value);
-      nameInput.classList.toggle('bindery-actor-name-unresolved', !this.#actorSelection.isNameResolved(actor));
-      this.#rebuildActorAdapterPreview();
-      this.#refreshActorRowNotes(actor.id);
-      void this.#refreshActorHeaderCounts();
-    });
-    line1.appendChild(nameInput);
-
-    const completenessBadge = document.createElement('span');
-    completenessBadge.className = 'bindery-actor-completeness';
-    completenessBadge.dataset['complete'] = completeness.missingStatCount === 0 && completeness.hasAttacks ? '1' : '0';
-    completenessBadge.textContent = `${completeness.presentStatCount}/${completeness.expectedStatCount}${completeness.hasAttacks ? '' : ' · ' + game.i18n!.localize('BINDERY.review.actorNoAttacks' as never)}`;
-    completenessBadge.dataset['tooltip'] = game.i18n!.localize('BINDERY.review.actorCompletenessTooltip' as never);
-    line1.appendChild(completenessBadge);
-
-    const pageLink = document.createElement('span');
-    pageLink.className = 'bindery-actor-page-link';
-    pageLink.textContent = `p. ${actor.provenance.pageNumber}`;
-    line1.appendChild(pageLink);
-    row.appendChild(line1);
-
-    row.appendChild(this.#buildActorImageSection(actor));
-
-    // Name candidates — SOLELY while the name is still unresolved (they disappear after resolution, so as not to clutter the row).
-    if (actor.nameCandidates && actor.nameCandidates.length > 0 && !this.#actorSelection.isNameResolved(actor)) {
-      const candidatesRow = document.createElement('div');
-      candidatesRow.className = 'bindery-actor-candidates';
-      const label = document.createElement('span');
-      label.textContent = game.i18n!.localize('BINDERY.review.actorCandidatesLabel' as never) + ':';
-      candidatesRow.appendChild(label);
-      for (const candidate of actor.nameCandidates) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'bindery-actor-candidate-btn';
-        btn.textContent = candidate;
-        btn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          this.#actorSelection.setResolvedName(actor.id, candidate);
-          nameInput.value = candidate;
-          nameInput.classList.remove('bindery-actor-name-unresolved');
-          this.#rebuildActorAdapterPreview();
-          void this.render();
-        });
-        candidatesRow.appendChild(btn);
-      }
-      row.appendChild(candidatesRow);
-    }
-
-    // [DoD Z2] Characteristic/derived values — an editable input per key ACTUALLY present on this actor (generic, not a hardcoded field list).
-    const statsRow = document.createElement('div');
-    statsRow.className = 'bindery-actor-stats';
-    for (const [key, stat] of Object.entries(actor.statistics)) {
-      const field = document.createElement('label');
-      field.className = 'bindery-actor-stat-field';
-      const shortLabel = ReviewScreen.#STAT_SHORT_LABELS[key] ?? key;
-      const labelSpan = document.createElement('span');
-      labelSpan.textContent = shortLabel;
-      field.appendChild(labelSpan);
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = this.#actorSelection.effectiveStatRaw(actor, key);
-      input.title = stat.sourceLabel;
-      input.addEventListener('click', (ev) => ev.stopPropagation());
-      input.addEventListener('change', () => {
-        this.#actorSelection.setStatOverride(actor.id, key, input.value);
-        this.#rebuildActorAdapterPreview();
-        this.#refreshActorRowNotes(actor.id);
-      });
-      field.appendChild(input);
-      statsRow.appendChild(field);
-    }
-    row.appendChild(statsRow);
-
-    // [DoD Z2] Attacks — name/to-hit/damage + a remove button (restorable by clicking again — `toggleAttackRemoved`).
-    if (actor.attacks.length > 0) {
-      const attacksRow = document.createElement('div');
-      attacksRow.className = 'bindery-actor-attacks';
-      actor.attacks.forEach((attack, index) => {
-        const chip = document.createElement('span');
-        chip.className = 'bindery-actor-attack-chip';
-        if (this.#actorSelection.isAttackRemoved(actor.id, index)) chip.classList.add('bindery-actor-attack-removed');
-        const text = document.createElement('span');
-        text.textContent = `${attack.name}${attack.toHit ? ' ' + attack.toHit + '%' : ''}${attack.damage ? ' ' + attack.damage : ''}`;
-        chip.appendChild(text);
-        const removeBtn = document.createElement('button');
-        removeBtn.type = 'button';
-        removeBtn.className = 'bindery-actor-attack-remove';
-        removeBtn.textContent = this.#actorSelection.isAttackRemoved(actor.id, index) ? '↺' : '×';
-        removeBtn.dataset['tooltip'] = this.#actorSelection.isAttackRemoved(actor.id, index)
-          ? game.i18n!.localize('BINDERY.review.actorAttackRestore' as never)
-          : game.i18n!.localize('BINDERY.review.actorAttackRemove' as never);
-        removeBtn.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          this.#actorSelection.toggleAttackRemoved(actor.id, index);
-          chip.classList.toggle('bindery-actor-attack-removed');
-          removeBtn.textContent = this.#actorSelection.isAttackRemoved(actor.id, index) ? '↺' : '×';
-          this.#rebuildActorAdapterPreview();
-          this.#refreshActorRowNotes(actor.id);
-        });
-        chip.appendChild(removeBtn);
-        attacksRow.appendChild(chip);
-      });
-      row.appendChild(attacksRow);
-    }
-
-    // [DoD Z2, A3/A10] Adapter `notes` — VISIBLE, never hidden. A container with its own data attribute, so `#refreshActorRowNotes` can replace it without rebuilding the whole row.
-    const notesBox = document.createElement('div');
-    notesBox.className = 'bindery-actor-notes';
-    notesBox.dataset['actorNotesFor'] = actor.id;
-    this.#renderActorNotesInto(notesBox, preview);
-    row.appendChild(notesBox);
-
-    row.addEventListener('click', (ev) => {
-      if (ev.target instanceof HTMLElement && (ev.target.closest('input') || ev.target.closest('button'))) return;
-      this.#highlightedActorId = actor.id;
-      if (this.#currentPageNumber === actor.provenance.pageNumber) {
-        this.#refreshActorRowHighlights();
-        void this.#redrawActorOverlay();
-      } else {
-        this.#currentPageNumber = actor.provenance.pageNumber;
-        void this.render();
-      }
-    });
-
-    return row;
-  }
-
-  /**
-   * [Step 35 Z1/Z2] Actor token+portrait — SOLELY a choice from the list of
-   * images with the `token` destination (Images tab), zero automatic
-   * geometric matching (`images.associateWithEntity` from the profile, MDD
-   * §5.5, deliberately unused — a product decision from step 35). The list
-   * is NOT restricted to the actor's page (brief: "the author may want any
-   * of them"). An empty list explains why it's empty (the same pattern as
-   * the empty Actors tab without a profile, step 21), instead of showing an
-   * empty dropdown.
-   */
-  #buildActorImageSection(actor: CIFActor): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'bindery-actor-image-section';
-
-    // [User request, "an image with the checkbox unchecked could still be
-    // chosen as a token, but never reached the import"] `imageDestination
-    // === 'token'` by itself is NOT enough — an image with an unchecked
-    // checkbox (Images tab) NEVER reaches `uploadedTokenImagePathById` (see
-    // `#runImport`, the loop over `doc.images`: `if (!isImageSelected)
-    // continue`), so choosing it here would end up as a token with no image
-    // on the sheet (the adapter degrades with a warning, but the author
-    // might not notice that warning). Better not to offer a choice that
-    // won't work anyway.
-    const candidates = this.#data.document.images
-      .filter((img) => this.#selection.isImageSelected(img.id) && this.#selection.imageDestination(img.id) === 'token')
-      .sort((a, b) => a.provenance.pageNumber - b.provenance.pageNumber);
-
-    if (candidates.length === 0) {
-      const hint = document.createElement('span');
-      hint.className = 'bindery-actor-image-empty-hint hint';
-      hint.textContent = game.i18n!.localize('BINDERY.review.actorTokenEmptyHint' as never);
-      wrap.appendChild(hint);
-      return wrap;
-    }
-
-    // [User request, "auto-suggest by page number", then "this suggested
-    // token looks wrong" — measured case: suggested p. 3 for an actor from
-    // p. 23] When the author hasn't chosen ANYTHING yet
-    // (`hasTokenImageSelection` — distinguishes this from an explicit
-    // "none"), suggest the candidate CLOSEST to the actor's own statblock
-    // page — BUT only when "closest" actually means CLOSE (the same
-    // content layout of the book, e.g. a portrait on the adjacent
-    // page/spread), not "least-far in the whole book". Without a threshold,
-    // when the whole document has only a few images marked as token,
-    // "closest" could point at something 20 pages away — geometrically
-    // UNRELATED to this character (exactly the reported case), a worse
-    // suggestion than no suggestion at all (A10 — don't guess when the
-    // signal is weak).
-    const TOKEN_SUGGESTION_MAX_PAGE_DISTANCE = 2;
-    if (!this.#actorSelection.hasTokenImageSelection(actor.id)) {
-      const nearest = candidates.reduce((best, img) =>
-        Math.abs(img.provenance.pageNumber - actor.provenance.pageNumber) < Math.abs(best.provenance.pageNumber - actor.provenance.pageNumber) ? img : best,
-      );
-      if (Math.abs(nearest.provenance.pageNumber - actor.provenance.pageNumber) <= TOKEN_SUGGESTION_MAX_PAGE_DISTANCE) {
-        this.#actorSelection.setTokenImageId(actor.id, nearest.id);
-      }
-    }
-
-    const tokenField = document.createElement('div');
-    tokenField.className = 'bindery-actor-image-field';
-    const tokenLabel = document.createElement('span');
-    tokenLabel.className = 'bindery-actor-image-field-label';
-    tokenLabel.textContent = game.i18n!.localize('BINDERY.review.actorTokenLabel' as never);
-    tokenField.appendChild(tokenLabel);
-    tokenField.appendChild(
-      this.#buildImagePicker(candidates, this.#actorSelection.tokenImageId(actor.id), (imageId) => {
-        this.#actorSelection.setTokenImageId(actor.id, imageId);
-      }),
-    );
-    wrap.appendChild(tokenField);
-
-    // [Z2, "Separating the portrait and the token"] Under "Advanced
-    // settings" — collapsed by default and WITHOUT its own assignment (the
-    // portrait follows the token, P1), expanded automatically when the
-    // author has ALREADY separated them earlier (e.g. after editing an
-    // earlier row and re-rendering the whole list).
-    const details = document.createElement('details');
-    details.className = 'bindery-studio-advanced-details';
-    details.open = this.#actorSelection.hasCustomPortrait(actor.id);
-    const summary = document.createElement('summary');
-    summary.textContent = game.i18n!.localize('BINDERY.review.actorAdvancedSettings' as never);
-    details.appendChild(summary);
-
-    const toggleLabel = document.createElement('label');
-    toggleLabel.className = 'bindery-actor-portrait-toggle';
-    const toggleCheckbox = document.createElement('input');
-    toggleCheckbox.type = 'checkbox';
-    toggleCheckbox.className = 'bindery-check';
-    toggleCheckbox.checked = this.#actorSelection.hasCustomPortrait(actor.id);
-    const toggleText = document.createElement('span');
-    toggleText.textContent = game.i18n!.localize('BINDERY.review.actorSeparatePortraitToggle' as never);
-    toggleLabel.appendChild(toggleCheckbox);
-    toggleLabel.appendChild(toggleText);
-    details.appendChild(toggleLabel);
-
-    const portraitField = document.createElement('div');
-    portraitField.className = 'bindery-actor-image-field';
-    portraitField.style.display = toggleCheckbox.checked ? '' : 'none';
-    const portraitLabel = document.createElement('span');
-    portraitLabel.className = 'bindery-actor-image-field-label';
-    portraitLabel.textContent = game.i18n!.localize('BINDERY.review.actorPortraitLabel' as never);
-    portraitField.appendChild(portraitLabel);
-    details.appendChild(portraitField);
-
-    // [Z2] The portrait preview is only built once the override is enabled —
-    // while it follows the token, there's no OWN state worth its own widget
-    // (see `portraitImageId` in `ActorReviewSelection`).
-    const mountPortraitPicker = (): void => {
-      const existing = portraitField.querySelector('.bindery-actor-image-picker');
-      existing?.remove();
-      portraitField.appendChild(
-        this.#buildImagePicker(candidates, this.#actorSelection.portraitImageId(actor.id), (imageId) => {
-          this.#actorSelection.setPortraitImageId(actor.id, imageId);
-        }),
-      );
-    };
-    if (toggleCheckbox.checked) mountPortraitPicker();
-
-    toggleCheckbox.addEventListener('click', (ev) => ev.stopPropagation());
-    toggleCheckbox.addEventListener('change', () => {
-      if (toggleCheckbox.checked) {
-        this.#actorSelection.setPortraitImageId(actor.id, this.#actorSelection.tokenImageId(actor.id));
-        portraitField.style.display = '';
-        mountPortraitPicker();
-      } else {
-        this.#actorSelection.clearCustomPortrait(actor.id);
-        portraitField.style.display = 'none';
-        portraitField.querySelector('.bindery-actor-image-picker')?.remove();
-      }
-    });
-
-    wrap.appendChild(details);
-    return wrap;
-  }
-
-  /**
-   * [Step 35 Z1] A dropdown with thumbnails — a native `<select>` can't show
-   * an image per option (a hard HTML limitation), hence a custom, tiny
-   * popover: a button showing the CURRENT choice (thumbnail+page), and on
-   * click, a list of all candidates (thumbnail+page each). Self-contained,
-   * closed by clicking outside it — zero dependency on the rest of the row,
-   * so it can be used for both the token and the portrait.
-   */
-  #buildImagePicker(images: readonly CIFImage[], currentId: string, onSelect: (imageId: string) => void): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'bindery-actor-image-picker';
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'bindery-actor-image-picker-toggle';
-
-    const menu = document.createElement('div');
-    menu.className = 'bindery-actor-image-picker-menu';
-    menu.hidden = true;
-
-    const renderToggleContent = (imageId: string): void => {
-      toggle.innerHTML = '';
-      const image = images.find((i) => i.id === imageId) ?? null;
-      const thumbUrl = imageId ? this.#thumbnailFor(imageId) : null;
-      if (thumbUrl) {
-        const thumb = document.createElement('img');
-        thumb.className = 'bindery-actor-image-picker-thumb';
-        thumb.src = thumbUrl;
-        thumb.alt = '';
-        toggle.appendChild(thumb);
-      }
-      const text = document.createElement('span');
-      text.textContent = image ? `p. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
-      toggle.appendChild(text);
-    };
-    renderToggleContent(currentId);
-
-    const buildOption = (imageId: string, image: CIFImage | null): HTMLElement => {
-      const opt = document.createElement('button');
-      opt.type = 'button';
-      opt.className = 'bindery-actor-image-picker-option';
-      const thumbUrl = image ? this.#thumbnailFor(image.id) : null;
-      if (thumbUrl) {
-        const thumb = document.createElement('img');
-        thumb.className = 'bindery-actor-image-picker-thumb';
-        thumb.src = thumbUrl;
-        thumb.alt = '';
-        opt.appendChild(thumb);
-      }
-      const text = document.createElement('span');
-      text.textContent = image ? `p. ${image.provenance.pageNumber}` : game.i18n!.localize('BINDERY.review.actorImageNone' as never);
-      opt.appendChild(text);
-      opt.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        menu.hidden = true;
-        renderToggleContent(imageId);
-        onSelect(imageId);
-      });
-      return opt;
-    };
-
-    menu.appendChild(buildOption('', null));
-    for (const image of images) menu.appendChild(buildOption(image.id, image));
-
-    const closeOnOutsideClick = (ev: MouseEvent): void => {
-      if (wrap.contains(ev.target as Node)) return;
-      menu.hidden = true;
-      document.removeEventListener('click', closeOnOutsideClick);
-    };
-    toggle.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const willOpen = menu.hidden;
-      menu.hidden = !willOpen;
-      if (willOpen) document.addEventListener('click', closeOnOutsideClick);
-    });
-
-    wrap.appendChild(toggle);
-    wrap.appendChild(menu);
-    return wrap;
-  }
-
-  #renderActorNotesInto(container: HTMLElement, preview: AdapterResult<Coc7ActorPayload> | undefined): void {
-    container.innerHTML = '';
-    if (!preview) return;
-    for (const issue of preview.issues) {
-      const p = document.createElement('p');
-      p.className = `bindery-actor-note bindery-actor-note-${issue.severity}`;
-      p.textContent = localizeMessage('coc7', issue);
-      container.appendChild(p);
-    }
-    for (const note of preview.notes) {
-      const p = document.createElement('p');
-      p.className = 'bindery-actor-note bindery-actor-note-info';
-      p.textContent = localizeMessage('coc7', note);
-      container.appendChild(p);
-    }
-  }
-
-  /** Refreshes SOLELY the notes of ONE row (after editing a field) — without a full `render()`, so as not to lose the list's focus/scroll. */
-  #refreshActorRowNotes(actorId: string): void {
-    const box = this.element.querySelector<HTMLElement>(`[data-actor-notes-for="${actorId}"]`);
-    if (box) this.#renderActorNotesInto(box, this.#actorAdapterPreview.get(actorId));
-  }
-
-  static #onSelectAllActors(this: ReviewScreen): void {
-    this.#actorSelection.selectAll();
-    void this.render();
-  }
-  static #onSelectNoActors(this: ReviewScreen): void {
-    this.#actorSelection.selectNone();
-    void this.render();
-  }
-
-  /** [Bug fix — see `#refreshHeaderCounts`, the same bug, the same `.bindery-review-counts` relic.] */
-  async #refreshActorHeaderCounts(): Promise<void> {
-    this.#refreshFooter();
-    const el = this.element.querySelector<HTMLElement>('[data-count="actors"]');
-    if (!el || this.#tab !== 'actors') return;
-    el.textContent = `${game.i18n!.localize('BINDERY.review.selectedCount' as never)}: ${this.#actorSelection.selectedCount}/${(this.#data.document.actors ?? []).length}`;
-  }
-
-  #refreshActorRowHighlights(): void {
-    const rows = this.element.querySelectorAll<HTMLElement>('.bindery-actor-row');
-    for (const row of rows) {
-      row.classList.toggle('bindery-row-highlighted', row.dataset['actorId'] === this.#highlightedActorId);
-    }
-  }
-
-  /** [Step 20 Z2] `provenance` navigation in BOTH directions — mirrors the images' `#mountOverlay`/`#redrawOverlay`, but without "select and crop" mode (doesn't apply to actors). */
-  async #redrawActorOverlay(): Promise<void> {
-    await this.#mountActorOverlay(this.#data.document.actors ?? []);
-  }
-
-  async #mountActorOverlay(actors: readonly CIFActor[]): Promise<void> {
-    const svg = this.element.querySelector<SVGSVGElement>('[data-overlay]');
-    const img = this.element.querySelector<HTMLImageElement>('.bindery-page-image');
-    if (!svg || !img) return;
-
-    // [Bug fix — see the identical comment in `#mountOverlay`.]
-    const requestedPageNumber = this.#currentPageNumber;
-    const box = await this.#data.previewDocument.getPageBox(requestedPageNumber);
-    if (this.#currentPageNumber !== requestedPageNumber) return;
-    const draw = () => {
-      const width = img.naturalWidth || img.clientWidth;
-      const height = img.naturalHeight || img.clientHeight;
-      if (!width || !height) return;
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.style.width = `${img.clientWidth}px`;
-      svg.style.height = `${img.clientHeight}px`;
-      svg.innerHTML = '';
-      for (const actor of actors) {
-        if (actor.provenance.pageNumber !== this.#currentPageNumber) continue;
-        const screen = pdfRectToScreen(actor.provenance.bbox, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', String(screen.minX));
-        rect.setAttribute('y', String(screen.minY));
-        rect.setAttribute('width', String(Math.max(0, screen.maxX - screen.minX)));
-        rect.setAttribute('height', String(Math.max(0, screen.maxY - screen.minY)));
-        const classes = [this.#actorSelection.isSelected(actor.id) ? 'bindery-overlay-selected' : 'bindery-overlay-unselected'];
-        if (actor.id === this.#highlightedActorId) classes.push('bindery-overlay-highlighted');
-        rect.setAttribute('class', classes.join(' '));
-        rect.dataset['actorId'] = actor.id;
-        rect.addEventListener('click', () => {
-          this.#highlightedActorId = actor.id;
-          // [Step 21] Without VirtualList (see the `#mountActorList` comment) — the row
-          // is already in the DOM, a plain scroll-into-view is enough.
-          this.element.querySelector(`.bindery-actor-row[data-actor-id="${actor.id}"]`)?.scrollIntoView({ block: 'nearest' });
-          this.#refreshActorRowHighlights();
-          draw();
-        });
-        svg.appendChild(rect);
-      }
-    };
-    if (img.complete) draw();
-    else img.addEventListener('load', draw, { once: true });
   }
 
   // ---- Scene list ---------------------------------------------------------
@@ -2645,12 +2039,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.#step !== 'target') return;
     const sceneFolder = this.element.querySelector<HTMLInputElement>('input[name="sceneFolder"]');
     const journalFolder = this.element.querySelector<HTMLInputElement>('input[name="journalFolder"]');
-    const actorFolder = this.element.querySelector<HTMLInputElement>('input[name="actorFolder"]');
     const imagePath = this.element.querySelector<HTMLInputElement>('input[name="imagePath"]');
     const namePrefix = this.element.querySelector<HTMLInputElement>('input[name="namePrefix"]');
     sceneFolder?.addEventListener('change', () => (this.#targets.sceneFolder = sceneFolder.value));
     journalFolder?.addEventListener('change', () => (this.#targets.journalFolder = journalFolder.value));
-    actorFolder?.addEventListener('change', () => (this.#targets.actorFolder = actorFolder.value));
     namePrefix?.addEventListener('change', () => (this.#targets.namePrefix = namePrefix.value));
     if (imagePath) {
       imagePath.value = game.settings!.get(MODULE_ID, 'uploadPath') as string;
@@ -2870,50 +2262,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         }
       } catch (err) {
         runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_DESTINATION_FAILED', params: { name, destination, error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
-      }
-    }
-
-    // [Step 20 Z2] Actors — SOLELY selected ones, AFTER user overrides
-    // (`applyActorOverrides`), with adapter notes TURNED ON (unlike
-    // `tools/build-z4-measurement-macro.ts` from step 19, which deliberately
-    // zeroed them SOLELY for measurement — the actual product always computes
-    // them, A3/A10).
-    const selectedActors = (doc.actors ?? []).filter((a) => this.#actorSelection.isSelected(a.id));
-    if (selectedActors.length > 0) {
-      const actorFolderId = await ensureFolder(this.#targets.actorFolder, 'Actor');
-      const actorResults = selectedActors.map((actor) => {
-        const patched = applyActorOverrides(actor, this.#actorSelection);
-        // [Step 35 Z1/Z2] `tokenImageRef`/`portraitImageRef` — the id of the
-        // image CHOSEN by the author in the Actors tab (empty string =
-        // "none"), resolved to a path SOLELY via `imagePathResolver` (see
-        // `uploadedTokenImagePathById` above) — the adapter degrades on its
-        // own when the resolver returns `null`.
-        const ctx = {
-          folderId: actorFolderId ?? null,
-          imagePathResolver: (ref: string) => uploadedTokenImagePathById.get(ref) ?? null,
-          language: doc.source.detectedLanguage,
-          profileId: doc.source.detectedProfileId,
-          tokenImageRef: this.#actorSelection.tokenImageId(actor.id) || null,
-          portraitImageRef: this.#actorSelection.portraitImageId(actor.id) || null,
-        };
-        // See the comment next to `#rebuildActorAdapterPreview` — the same safe cast, our OWN `coc7Adapter` implementation.
-        return coc7Adapter.fromActor(patched, ctx) as AdapterResult<Coc7ActorPayload>;
-      });
-      try {
-        const created = await createActorsFromAdapterResults({ results: actorResults, folder: actorFolderId });
-        for (const entry of created) {
-          entries.push({ label: entry.actor.name as unknown as string, uuid: (entry.actor as unknown as { uuid?: string }).uuid });
-          // [Step 27 Z1] Without an "actor name: " prefix — the issue's
-          // parameters (e.g. `UNCERTAIN_NAME`'s `name`) already carry the
-          // same name; duplicating it here (the previous shape, using
-          // `.message`) was visible redundancy ("X: Uncertain name: X..."),
-          // not an intentional feature.
-          for (const issue of entry.issues) {
-            runDiagnostics.push({ severity: issue.severity, code: issue.code, params: issue.params });
-          }
-        }
-      } catch (err) {
-        runDiagnostics.push({ severity: 'error', code: 'REVIEW_ACTOR_CREATE_FAILED', params: { error: err instanceof Error ? err.message : String(err) } });
       }
     }
 

@@ -5,14 +5,6 @@ export { extractImagesFromDocument } from './extractImagesFromDocument.js';
 export type { ExtractImagesFromDocumentOptions } from './extractImagesFromDocument.js';
 export { buildCIFFromDocument } from './buildCIFFromDocument.js';
 export type { BuildCIFFromDocumentOptions } from './buildCIFFromDocument.js';
-export { analyzeProfileDocument, getFontRoleAwareTokensForPage } from './analyzeProfileDocument.js';
-export type { AnalyzeProfileDocumentOptions, GetFontRoleAwareTokensOptions } from './analyzeProfileDocument.js';
-export { measureAttachGeometryForDocument } from './measureAttachGeometryForDocument.js';
-export type { MeasureAttachGeometryForDocumentOptions } from './measureAttachGeometryForDocument.js';
-export { getPageTextTokens } from './getPageTextTokens.js';
-export type { PageTextToken, GetPageTextTokensOptions } from './getPageTextTokens.js';
-export { CANONICAL_STATS, CANONICAL_STAT_KEYS } from './canon/statKeys.js';
-export type { CanonicalStatDefinition, CanonicalStatKey } from './canon/statKeys.js';
 export {
   classifyQuality,
   computeUnicodeConfidence,
@@ -77,5 +69,4 @@ export * from './text/index.js';
 export * from './layout/index.js';
 export * from './semantic/index.js';
 export * from './cif/index.js';
-export * from './profiles/index.js';
 export * from './referenceInvariants.js';

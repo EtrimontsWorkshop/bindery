@@ -8,8 +8,6 @@ import { buildImageExtraction, type BuildImageExtractionOptions } from './images
 import { buildInventory } from './inventory/inventory.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
-import { buildActorsForDocument } from './profiles/buildActorsForDocument.js';
-import type { ProfileV2 } from './profiles/schema.js';
 
 /**
  * [Step 9 Z3/Z4/Z5] Entry point analogous to `extractImagesFromDocument`
@@ -31,16 +29,6 @@ export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOp
   fileName: string;
   fileHash: string;
   detectedLanguage?: string | null;
-  /**
-   * [Step 20 Z2] When provided, statblocks (`CIFDocument.actors`) are built
-   * for the entire document. Optional because D2/D3 (profile
-   * scoring/detection, MDD §6.3/§6.4) do NOT yet exist as a registry in the
-   * product (Step 19 decision) — the caller (the module layer) currently
-   * supplies the profile from the outside, instead of core guessing which
-   * profile matches on its own. No profile = no actors, as is the case
-   * today (degrade, don't fail — A7).
-   */
-  profile?: ProfileV2;
 }
 
 async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
@@ -53,7 +41,7 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
 }
 
 export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFromDocumentOptions): Promise<BuildCIFDocumentResult> {
-  const { assetBaseUrl, fileName, fileHash, detectedLanguage, profile, ...imageOpts } = opts;
+  const { assetBaseUrl, fileName, fileHash, detectedLanguage, ...imageOpts } = opts;
 
   const invDoc = await openDocument(data, assetBaseUrl);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -95,21 +83,8 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     {
       ...imageOpts,
       bodyBlockBoxesByPage,
-      treatFullBleedAsContent: profile?.images?.treatFullBleedAsContent ?? false,
-      autoCropUniformMargins: profile?.images?.autoCropUniformMargins ?? false,
-      brightenAutoCroppedImages: profile?.images?.brightenAutoCroppedImages ?? false,
     },
   );
-
-  let actors: import('./cif/types.js').CIFActor[] | undefined;
-  let actorDiagnostics: import('./text/types.js').Diagnostic[] = [];
-  if (profile) {
-    const actorsDoc = await openDocument(data, assetBaseUrl);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorsResult = await buildActorsForDocument(actorsDoc as any, { profile, fontRoles: inv.fontRoles, signal: imageOpts.signal });
-    actors = actorsResult.actors;
-    actorDiagnostics = actorsResult.diagnostics;
-  }
 
   return buildCIFDocument({
     fileName,
@@ -119,7 +94,6 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     blocks,
     outline,
     images: imageResult.images,
-    diagnostics: [...textLayout.diagnostics, ...imageResult.diagnostics, ...actorDiagnostics],
-    actors,
+    diagnostics: [...textLayout.diagnostics, ...imageResult.diagnostics],
   });
 }

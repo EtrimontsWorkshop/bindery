@@ -3,7 +3,6 @@
   <p class="bindery-wizard-privacy">{{localize "BINDERY.wizard.pickFileHint"}}</p>
 
   <div>
-    <p class="bindery-wizard-step-label">{{localize "BINDERY.wizard.step1"}}</p>
     <label class="bindery-wizard-dropzone {{#if fileName}}bindery-has-file{{/if}}" data-role="dropzone">
       <span class="bindery-btn bindery-btn--primary">{{localize "BINDERY.wizard.pickFileLabel"}}</span>
       {{#if fileName}}
@@ -14,72 +13,6 @@
       <input type="file" data-role="pdf" accept="application/pdf" />
     </label>
   </div>
-
-  {{! [KROK-44 Z1] Wczytywanie profilu aktorow ukryte za `statblocksEnabled`
-      (patrz `features.ts`) — pierwsze wydanie publiczne obejmuje wylacznie
-      obrazy/sceny/journale. Kod/schemat/adapter nietkniete, ukryta wylacznie
-      ta sekcja interfejsu. }}
-  {{#if statblocksEnabled}}
-  <fieldset class="bindery-actor-profile">
-    <legend class="bindery-wizard-step-label">
-      {{localize "BINDERY.wizard.step2"}}<span class="bindery-wizard-step-optional">{{localize "BINDERY.wizard.actorProfileOptionalBadge"}}</span>
-    </legend>
-
-    <p class="hint">{{{localize "BINDERY.wizard.actorProfileHintShort"}}}</p>
-    <p class="hint bindery-r3-notice">{{localize "BINDERY.wizard.actorProfileR3Notice"}}</p>
-
-    {{#if hasActorProfileError}}
-      <p class="notification error">{{localize "BINDERY.wizard.actorProfileErrorTitle"}}</p>
-      <ul class="bindery-actor-profile-issues">
-        {{#each actorProfileIssues}}
-          <li>{{this}}</li>
-        {{/each}}
-      </ul>
-      <div class="bindery-actor-profile-actions">
-        <label class="bindery-btn bindery-btn--secondary">
-          {{localize "BINDERY.wizard.actorProfilePickLabel"}}
-          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
-        </label>
-      </div>
-    {{else if hasActorProfile}}
-      <table class="bindery-result">
-        <tbody>
-          <tr class="bindery-result-mono">
-            <th>{{localize "BINDERY.wizard.actorProfileFieldFile"}}</th>
-            <td>{{actorProfileFileName}}</td>
-          </tr>
-          <tr>
-            <th>{{localize "BINDERY.wizard.actorProfileFieldTitle"}}</th>
-            <td>{{actorProfileSummary.title}}</td>
-          </tr>
-          <tr>
-            <th>{{localize "BINDERY.wizard.actorProfileFieldGameLine"}}</th>
-            <td>{{actorProfileSummary.gameLine}} ({{actorProfileSummary.language}})</td>
-          </tr>
-          <tr class="bindery-result-sage">
-            <th>{{localize "BINDERY.wizard.actorProfileFieldPatternCount"}}</th>
-            <td>{{actorProfileSummary.patternCount}}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p class="hint">{{localize "BINDERY.wizard.actorProfileStaleHint"}}</p>
-      <div class="bindery-actor-profile-actions">
-        <label class="bindery-btn bindery-btn--secondary">
-          {{localize "BINDERY.wizard.actorProfileChangeButton"}}
-          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
-        </label>
-        <button type="button" class="bindery-btn bindery-btn--danger" data-action="clearActorProfile">{{localize "BINDERY.wizard.actorProfileClearButton"}}</button>
-      </div>
-    {{else}}
-      <div class="bindery-actor-profile-actions">
-        <label class="bindery-btn bindery-btn--secondary">
-          {{localize "BINDERY.wizard.actorProfilePickLabel"}}
-          <input type="file" data-role="profile" accept=".json,application/json" class="bindery-visually-hidden-file" />
-        </label>
-      </div>
-    {{/if}}
-  </fieldset>
-  {{/if}}
 
   {{#if hasError}}
     <p class="notification error">{{errorMessage}}</p>

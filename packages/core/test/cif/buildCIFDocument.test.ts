@@ -229,7 +229,6 @@ describe('buildCIFDocument', () => {
     expect(document.source.fileHash).toBe('deadbeef');
     expect(document.source.pageCount).toBe(42);
     expect(document.source.detectedLanguage).toBe('pl');
-    expect(document.source.detectedProfileId).toBeNull();
     expect(() => new Date(document.source.extractedAt).toISOString()).not.toThrow();
   });
 });

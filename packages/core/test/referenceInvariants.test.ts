@@ -134,7 +134,7 @@ describe('[4] checkProvenanceBlockIdsInvariant', () => {
   function cifDoc(blockIds: string[]): CIFDocument {
     return {
       schemaVersion: 1,
-      source: { fileName: 'x', fileHash: 'h', pageCount: 1, detectedProfileId: null, detectedLanguage: null, extractedAt: 'now' },
+      source: { fileName: 'x', fileHash: 'h', pageCount: 1, detectedLanguage: null, extractedAt: 'now' },
       journals: [
         {
           id: 'j0',

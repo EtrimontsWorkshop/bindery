@@ -60,7 +60,7 @@ export interface PrepareTokenInput {
   format: string;
   width: number;
   height: number;
-  /** Starting value of the "remove background" toggle — see `images.removeTokenBackgroundDefault` in `schema.ts` (`@bindery/core`). */
+  /** Starting value of the "remove background" toggle. */
   removeBackgroundDefault: boolean;
 }
 
@@ -161,10 +161,9 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#removeBg = input.removeBackgroundDefault;
 
     // [Set as default] Once the user has clicked this button, their saved
-    // set of settings wins over ALL the built-in initial values ABOVE —
-    // including the profile's suggestion (`input.removeBackgroundDefault`)
-    // — this is an explicit, deliberate decision made via the button, not a
-    // default profile heuristic.
+    // set of settings wins over ALL the built-in initial values ABOVE
+    // (including `input.removeBackgroundDefault`) — this is an explicit,
+    // deliberate decision made via the button, not a default heuristic.
     const saved = game.settings!.get(MODULE_ID, 'tokenPrepDefaults');
     if (saved.enabled) {
       this.#shape = saved.shape as TokenMaskShape;

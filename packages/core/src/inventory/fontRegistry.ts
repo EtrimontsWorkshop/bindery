@@ -6,8 +6,7 @@
  * -SC700...). That's why `key` is always an opaque key (BaseFont with the
  * subset prefix stripped + size), and the ROLE comes from a
  * frequency/size ranking across the whole document — NEVER from parsing the
- * suffix. `display` exists solely for presentation in the UI/Profile Studio
- * and must never influence `key` or `role`.
+ * suffix.
  */
 
 export interface FontEntry {
@@ -19,8 +18,6 @@ export interface FontEntry {
   glyphCount: number;
   itemCount: number;
   pages: Set<number>;
-  /** For presentation only. Never used as a condition in a rule. */
-  display?: { family: string; weightSuffix?: string; italic?: boolean };
 }
 
 export type FontRole = 'body' | 'heading' | 'caption' | 'accent' | 'unknown';
@@ -32,42 +29,6 @@ export function stripSubsetPrefix(baseFont: string): { prefix: string | null; na
   const m = SUBSET_PREFIX_RE.exec(baseFont);
   if (m) return { prefix: m[1]!, name: m[2]! };
   return { prefix: null, name: baseFont };
-}
-
-// Dictionary of weight/style suffixes — SOLELY cosmetic, for `display`. An unknown
-// suffix is not an error: the family becomes the whole name, weightSuffix/italic stay undefined.
-const STYLE_SUFFIXES: Array<{ re: RegExp; weightSuffix?: string; italic?: boolean }> = [
-  { re: /-?(SemiboldItalic|SemiBoldItalic|SemiboldIt|SemiBoldIt)$/i, weightSuffix: 'SemiBold', italic: true },
-  { re: /-?(ExtraBoldItalic|ExtraBoldIt)$/i, weightSuffix: 'ExtraBold', italic: true },
-  { re: /-?(BoldItalic|BoldIt|BoldOblique)$/i, weightSuffix: 'Bold', italic: true },
-  { re: /-?(BlackItalic|BlackIt)$/i, weightSuffix: 'Black', italic: true },
-  { re: /-?(LightItalic|LightIt)$/i, weightSuffix: 'Light', italic: true },
-  { re: /-?(Italic|It|Oblique)$/i, italic: true },
-  { re: /-?(ExtraBold|UltraBold)$/i, weightSuffix: 'ExtraBold' },
-  { re: /-?(SemiBold|Semibold|DemiBold)$/i, weightSuffix: 'SemiBold' },
-  { re: /-?(ExtraLight|UltraLight)$/i, weightSuffix: 'ExtraLight' },
-  { re: /-?(Black|Heavy)$/i, weightSuffix: 'Black' },
-  { re: /-?(Bold)$/i, weightSuffix: 'Bold' },
-  { re: /-?(Medium)$/i, weightSuffix: 'Medium' },
-  { re: /-?(Light)$/i, weightSuffix: 'Light' },
-  { re: /-?(Thin)$/i, weightSuffix: 'Thin' },
-  { re: /-?(Book)$/i, weightSuffix: 'Book' },
-  { re: /-?(Regular|Roman|Normal)$/i, weightSuffix: 'Regular' },
-];
-
-/** Parses a weight/style suffix from a font name — SOLELY for `display`, never for `key`. */
-export function parseDisplaySuffix(name: string): { family: string; weightSuffix?: string; italic?: boolean } {
-  for (const { re, weightSuffix, italic } of STYLE_SUFFIXES) {
-    const m = re.exec(name);
-    if (m) {
-      const family = name.slice(0, m.index).replace(/-$/, '');
-      const result: { family: string; weightSuffix?: string; italic?: boolean } = { family: family || name };
-      if (weightSuffix) result.weightSuffix = weightSuffix;
-      if (italic) result.italic = true;
-      return result;
-    }
-  }
-  return { family: name };
 }
 
 /** Builds the carrier key: name (prefix stripped) + size rounded to 0.5pt. */

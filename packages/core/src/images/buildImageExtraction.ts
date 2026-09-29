@@ -50,13 +50,13 @@ export interface BuildImageExtractionOptions {
   nearStatblockOrHeadingObjIds?: ReadonlySet<string>;
   /** [Step 9 Z2] Bboxes of `body` blocks (text flow) per page — see `classify.ts`. Links the text flow to the image flow, EXPLICITLY via this parameter. */
   bodyBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
-  /** [at the user's request] See the comment on `treatFullBleedAsContent` in `schema.ts` — bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images. Off by default. */
+  /** [at the user's request] Bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images, treating them as content instead of background. Off by default. */
   treatFullBleedAsContent?: boolean;
-  /** [at the user's request, EXPERIMENTAL] See the comment on `autoCropUniformMargins` in `schema.ts` and `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
+  /** [at the user's request, EXPERIMENTAL] See `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
   autoCropUniformMargins?: boolean;
   /** [User request] Hide single-color and smooth-background images from the auto-detected list (see `UNIFORM_COLOR_MIN_FRACTION` and `SMOOTH_BACKGROUND_COARSE_MAX` in `finalize.ts`). On by default; only geometry-focused tests with flat-color stand-in images turn it off. */
   hideBackgroundImages?: boolean;
-  /** [at the user's request] See the comment on `brightenAutoCroppedImages` in `schema.ts` and `brightenImage.ts`. No effect when a given image wasn't actually cropped by `autoCropUniformMargins`. Off by default. */
+  /** [at the user's request] See `brightenImage.ts`. No effect when a given image wasn't actually cropped by `autoCropUniformMargins`. Off by default. */
   brightenAutoCroppedImages?: boolean;
 }
 

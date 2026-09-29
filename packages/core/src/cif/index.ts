@@ -1,9 +1,4 @@
-export type { CIFDocument, CIFJournal, CIFJournalPage, CIFScene, CIFImage, Provenance, CIFActor, CIFStat, CIFAttack, CIFNamedValue, CIFNamedText } from './types.js';
-export { buildCIFActor } from './buildCIFActor.js';
-export type { BuildCIFActorInput } from './buildCIFActor.js';
-export type { AdapterIssue, AdapterResult, ContentKind, ImportContext, SystemAdapter } from './adapter.js';
-export { resolve, NEUTRAL_CONTENT_KINDS } from './resolve.js';
-export type { Detection, Resolution, ResolutionReason, ScoredProfile } from './resolve.js';
+export type { CIFDocument, CIFJournal, CIFJournalPage, CIFScene, CIFImage, Provenance } from './types.js';
 export { escapeHtml, blocksToHtml } from './blocksToHtml.js';
 export type { EmbeddedImageForHtml } from './blocksToHtml.js';
 export { extractOutline, flattenOutline } from './outline.js';

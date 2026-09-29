@@ -7,7 +7,7 @@ import type { Diagnostic } from '../text/types.js';
 import { blocksToHtml, type EmbeddedImageForHtml } from './blocksToHtml.js';
 import { assignHeadingLevels, buildJournalDrafts, headingsToMarkers, outlineToMarkers, type JournalPageDraft } from './buildJournalHierarchy.js';
 import type { ResolvedOutlineNode } from './outline.js';
-import type { CIFActor, CIFDocument, CIFImage, CIFJournal, CIFJournalPage, Provenance } from './types.js';
+import type { CIFDocument, CIFImage, CIFJournal, CIFJournalPage, Provenance } from './types.js';
 
 /**
  * CIF builder (Step 9 Z3/Z4/Z5): `SemanticBlock[]` of the whole document +
@@ -27,7 +27,6 @@ export interface BuildCIFDocumentInput {
   fileName: string;
   fileHash: string;
   pageCount: number;
-  detectedProfileId?: string | null;
   detectedLanguage?: string | null;
   /** Whole document, already page-ascending + reading order within a page (`buildPageLayouts`). */
   blocks: readonly SemanticBlock[];
@@ -36,8 +35,6 @@ export interface BuildCIFDocumentInput {
   /** [Step 11 Z4] `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here) — see `buildCIFImages`. */
   images: readonly FinalizedImage<EncodedImage>[];
   diagnostics: readonly Diagnostic[];
-  /** [Step 20 Z2] Statblocks already built by `buildActorsForDocument` (called EARLIER by `buildCIFFromDocument`, when the profile is known) — empty/`undefined` when no profile was matched (degrade, don't fail — A7). */
-  actors?: readonly CIFActor[];
 }
 
 export interface BuildCIFDocumentResult {
@@ -146,7 +143,6 @@ export function buildCIFDocument(input: BuildCIFDocumentInput): BuildCIFDocument
       fileName: input.fileName,
       fileHash: input.fileHash,
       pageCount: input.pageCount,
-      detectedProfileId: input.detectedProfileId ?? null,
       detectedLanguage: input.detectedLanguage ?? null,
       extractedAt: new Date().toISOString(),
     },
@@ -154,7 +150,6 @@ export function buildCIFDocument(input: BuildCIFDocumentInput): BuildCIFDocument
     scenes: [],
     images: cifImages,
     diagnostics: [...input.diagnostics],
-    actors: input.actors && input.actors.length > 0 ? [...input.actors] : undefined,
   };
 
   return { document, imageBytesById };

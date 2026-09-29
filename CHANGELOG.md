@@ -1,3 +1,9 @@
+## [0.2.4]
+
+### Removed
+
+- **Character-profile / statblock recognition, the Actors tab, and the Call of Cthulhu 7th Edition adapter have been removed from the codebase.** This was still work-in-progress code, hidden behind a flag and never enabled in a released build — Bindery has only ever imported maps, handouts, and images for you, so nothing changes in what you can do with this update. Removing the unfinished code clears the way for a redesigned approach to character import in a future release.
+
 ## [0.2.3]
 
 ### Changed

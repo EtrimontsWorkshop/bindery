@@ -1,7 +1,4 @@
 import { ASSET_BASE_URL } from './settings.js';
-import { ensureFolder } from './documents/ensureFolder.js';
-import { createActorsFromAdapterResults, type CreatedActorEntry } from './documents/createActors.js';
-import type { Coc7ActorPayload } from './adapters/coc7.js';
 
 export interface BinderyAPI {
   readonly version: string;
@@ -10,20 +7,6 @@ export interface BinderyAPI {
    * uses) is lazy — only on first call (risk I3).
    */
   inspectDocument(data: ArrayBuffer): Promise<import('@bindery/core').DocumentSummary>;
-  /**
-   * [Step 19 Z4] EXCLUSIVELY for measuring B'/A with the user — NOT the
-   * review screen (deliberately out of scope for this step, see "What NOT to
-   * do" in KROK-19-adapter-coc7.md). Takes ALREADY COMPUTED adapter results
-   * (computed from the whole document earlier, in Node — `coc7Adapter.fromActor`
-   * is a pure function, so its result is identical no matter where it was
-   * computed) and creates an Actor+Item from them in the ACTIVE world. Usage:
-   * pasted into the Foundry browser console, see
-   * `tools/build-z4-measurement-macro.ts`.
-   */
-  createStatblockActorsForMeasurement(
-    results: readonly import('@bindery/core').AdapterResult<Coc7ActorPayload>[],
-    opts?: { folderName?: string },
-  ): Promise<{ id: string; name: string; notes: readonly import('@bindery/core').LocalizableMessage[]; issues: readonly import('@bindery/core').AdapterIssue[] }[]>;
 }
 
 /** Preview of an extracted image — ONLY what the review screen needs (A5: a human always reviews before saving). */
@@ -53,33 +36,7 @@ export function buildAPI(version: string): BinderyAPI {
       const { inspectDocument } = await import('@bindery/core');
       return inspectDocument(data, { assetBaseUrl: ASSET_BASE_URL });
     },
-    async createStatblockActorsForMeasurement(results, opts = {}) {
-      const folder = opts.folderName ? await ensureFolder(opts.folderName, 'Actor') : undefined;
-      const entries: CreatedActorEntry[] = await createActorsFromAdapterResults({ results: [...results], folder });
-      return entries.map((e) => ({ id: e.actor.id as unknown as string, name: e.actor.name as unknown as string, notes: e.notes, issues: e.issues }));
-    },
   };
-}
-
-export type ActorProfileValidation =
-  | { ok: true; profile: import('@bindery/core').ProfileV2 }
-  | { ok: false; issues: readonly string[] };
-
-/**
- * [Step 21 Z1] Validates the content of a profile file chosen by the user in
- * `ImportWizard` (`<input type="file">`, never the console — see
- * RAPORT-KROK-20.md finding #3, the Actors tab was "functionally dead for
- * anyone but the developer"). Replaces the removed `setDebugActorProfile` —
- * ONE way to load a profile, not two ("Two ways to do the same thing is two
- * ways to diverge", step 21 brief). Returns `ok:false` with readable errors
- * instead of throwing — a bad file is an expected case, not an exceptional
- * one (the same contract as `validateProfile` itself).
- */
-export async function validateActorProfileFile(raw: unknown): Promise<ActorProfileValidation> {
-  const { validateProfile } = await import('@bindery/core');
-  const result = validateProfile(raw);
-  if (!result.ok) return { ok: false, issues: result.issues };
-  return { ok: true, profile: result.profile };
 }
 
 /**
@@ -144,11 +101,11 @@ async function hashArrayBuffer(data: ArrayBuffer): Promise<string> {
 export async function buildJournalsForReview(
   data: ArrayBuffer,
   fileName: string,
-  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void; profile?: import('@bindery/core').ProfileV2 } = {},
+  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<CIFBuildResult> {
   const { buildCIFFromDocument } = await import('@bindery/core');
   const fileHash = await hashArrayBuffer(data);
-  const result = await buildCIFFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, fileName, fileHash, signal: opts.signal, onProgress: opts.onProgress, profile: opts.profile });
+  const result = await buildCIFFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, fileName, fileHash, signal: opts.signal, onProgress: opts.onProgress });
   return {
     preview: {
       journals: result.document.journals.map((j) => ({ name: j.name, pageCount: j.pages.length })),

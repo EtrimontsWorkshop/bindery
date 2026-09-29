@@ -1,7 +1,7 @@
 export { HANDLED_OPCODES, walkOperators } from './walkOperators.js';
 export type { WalkEvent, GroupContext, OperatorListLike } from './walkOperators.js';
 
-export { buildFontKey, parseDisplaySuffix, rankFontRoles, resolveFontKey, stripSubsetPrefix } from './fontRegistry.js';
+export { buildFontKey, rankFontRoles, resolveFontKey, stripSubsetPrefix } from './fontRegistry.js';
 export type { FontEntry, FontRole } from './fontRegistry.js';
 
 export { buildImageEntries, correlateImagesByBBox } from './imageRegistry.js';

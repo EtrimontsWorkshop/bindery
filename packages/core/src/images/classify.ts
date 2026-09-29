@@ -376,8 +376,9 @@ export function classifyImages(
   // existing unit tests) get exactly the pre-Z2 behavior.
   bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]> = new Map(),
   // [at the user's request, a book with a bespoke background on every page]
-  // See the comment on `treatFullBleedAsContent` in `schema.ts`. Defaults to
-  // `{}` (off) — behavior identical to before this flag was added.
+  // Lets a full-bleed background image be treated as content instead of
+  // decoration. Defaults to `{}` (off) — behavior identical to before this
+  // flag was added.
   options: { treatFullBleedAsContent?: boolean } = {},
 ): ClassifiedImage[] {
   const treatFullBleedAsContent = options.treatFullBleedAsContent ?? false;
@@ -449,9 +450,8 @@ export function classifyImages(
       if (centerTextCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD) {
         // [at the user's request] `treatFullBleedAsContent` bypasses the
         // assumption "full bleed + text on top = repeating background"
-        // right here — see the comment on the flag in `schema.ts`.
-        // Publications with a bespoke illustration under every page land
-        // PRECISELY in this branch.
+        // right here. Publications with a bespoke illustration under every
+        // page land PRECISELY in this branch.
         if (treatFullBleedAsContent) {
           return { entry, classification: 'content', reason: 'Z1-full-bleed-forced-content', confidence: confidenceForReason('Z1-full-bleed-background') };
         }
