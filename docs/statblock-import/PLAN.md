@@ -952,6 +952,159 @@ gotowych `ExtractedActorInstance[]`, i `templateSchemaFingerprint` wciąż
 nigdzie nieporównywany (obliczony i zapisany, ale nic go jeszcze nie
 sprawdza przy imporcie).
 
+## Zrealizowane — Zadanie 5 (UI kreatora profilu, `ui/`)
+
+**Zakres:** ApplicationV2 okno `ProfileBuilderApp`
+(`packages/module/src/statblock/ui/ProfileBuilderApp.ts` +
+`templates/statblock-profile-builder.hbs`), otwierane z nowej pozycji w menu
+ustawień modułu (`game.settings.registerMenu`, wzorem `openWizard`/
+`ImportWizard`). Makieta układu pokazana i zaakceptowana przez właściciela
+PRZED napisaniem kodu (zgodnie z brifem). Realizuje wszystkie 8 funkcji z
+brifu — szczegóły i świadome uproszczenia niżej.
+
+**"UI ma być cienkie" — zweryfikowane strukturalnie:** klasa NIE zawiera
+żadnej logiki ekstrakcji/detekcji/walidacji własnej — woła WYŁĄCZNIE moduły z
+Zadań 1-4 (`validateProfile`, `introspectDocumentInstance`,
+`openPreviewDocument`, `buildPagesForDetection`, `extractField`,
+`resolveTransformChain`, `detectStatblocks`, `profile/store.ts`'s CRUD).
+Własna logika tego pliku to WYŁĄCZNIE: stan UI (która zakładka, co
+zaznaczone, tryb prosty/zaawansowany), budowanie kontekstu Handlebars z tego
+stanu, i wiązanie zdarzeń DOM.
+
+**`@bindery/core` (i wszystko pod `../schema/`/`../profile/`, co go
+statycznie importuje) ładowane WYŁĄCZNIE dynamicznym `import()` wewnątrz
+metod** — ta sama dyscyplina co `ImportWizard.ts` (ryzyko I3/`check:size`):
+`registerMenu` wymaga referencji do klasy w `settings.ts`, więc SAMA klasa
+trafia do eager bundle'a świata, ale jej WŁASNY kod (bez `@bindery/core`)
+musi się w nim zmieścić. Budżet `check:size` nadal zielony (35217/40960
+bajtów), ale zużyty w ~86% — **obserwacja, nie usterka**: sama definicja
+klasy `ProfileBuilderApp` (spora, ~700 linii) urosła z 7873 do 35217 bajtów w
+eager-loaded `api-*.js`. Patrz nowe pytanie #25 — kolejne zadania UI (6-7)
+mogą już nie zmieścić się w budżecie bez dalszego rozbicia/leniwego
+ładowania.
+
+**Makieta okna (zakładka "Pola", najbardziej złożona):** trzy kolumny —
+podgląd strony PDF z nakładką SVG pokazującą elementy tekstu jako klikalne
+prostokąty (reużycie `pageOverlayGeometry.ts`'s `pdfRectToScreen`/
+`screenRectToPdf`, dokładnie ten sam wzorzec pointerdown/move/up co
+`ReviewScreen.ts`'s "Select and crop", napisany od nowa jako własna, prostsza
+wersja — metody `ReviewScreen`'a są prywatne, nie do reużycia bezpośrednio);
+środkowa kolumna: przeszukiwalne, płaskie drzewo pól z SchemaIntrospectora
+(Zadanie 1), zmapowane oznaczone haczykiem; prawa kolumna: konfiguracja
+źródła + edytor łańcucha transformacji + podgląd na żywo.
+
+**Wybór Actora wzorcowego i PDF-a (zakładka "Źródło"):** `<select>` po
+`game.actors.contents` (wybór po `id`, ustawia `templateActorUuid`/
+`actorType` z żywego dokumentu — introspekcja przez `introspectDocumentInstance`,
+Zadanie 1) + `<input type=file accept=".pdf">` (wzorzec `ImportWizard`'a),
+ładujący RAZEM `openPreviewDocument` (podgląd strony) i
+`buildPagesForDetection` (Zadanie 3 — CAŁY dokument od razu, cache'owany w
+pamięci na czas edycji, żeby podgląd na żywo/test detekcji na dowolnej
+stronie nie musiały niczego przeliczać).
+
+**Przypisanie zaznaczenia do pola:** klik na element w nakładce SVG →
+`FieldSource` typu `label` (dokładny, przycięty tekst klikniętego elementu,
+`labelIsRegex:false`) — WYŁĄCZNIE ten jeden, konkretny sposób budowy
+etykiety w v1 (autor może ręcznie przełączyć na regex w polu tekstowym
+obok). Przeciągnięcie prostokąta → `FieldSource` typu `region`.
+**Udokumentowane uproszczenie:** `normalizedRect` liczony względem CAŁEJ
+STRONY, nie "bboxa statblocka" (zamierzone znaczenie `RegionSource` z
+Zadania 2) — w momencie przechwytywania nie ma jeszcze ustalonego regionu
+jednego statblocka (detekcja niekoniecznie uruchomiona). Profil zbudowany
+tak działa poprawnie WYŁĄCZNIE dla układów z jednym statblockiem na stronę,
+chyba że autor ręcznie poprawi znormalizowany prostokąt później. Patrz nowe
+pytanie #26.
+
+**Kolekcje:** dodawanie/usuwanie sekcji, wybór typu Itemu + UUID
+wzorcowego Itemu (wpisywany wprost — brak własnego pickera dokumentów w tym
+module; po wpisaniu UUID moduł sam introspektuje Item i uzupełnia
+`itemType`), reguła podziału (3 warianty z Zadania 4, uproszczony tekst
+wzorca w trybie prostym). **Udokumentowane uproszczenie:** brak osobnego
+drzewa schematu PER TYP ITEMU — pola pozycji kolekcji dodaje się wpisując
+ścieżkę schematu wprost (tekstowo), nie klikając w drzewo jak dla pól
+Actora. To rozwiązanie asymetryczne, ale unika budowania DRUGIEGO,
+kontekstowego drzewa schematu w tej samej sesji edycji. Patrz nowe pytanie
+#27.
+
+**Podgląd na żywo:** liczony WEWNĄTRZ `_prepareContext` (nie jako efekt
+uboczny `_onRender` wołający `this.render()` ponownie — **błąd złapany i
+naprawiony PRZED commitem**: pierwsza wersja robiła to jako
+`_onRender`-owy efekt uboczny, co wchodziło w NIESKOŃCZONĄ pętlę renderowania,
+bo `#selectedTarget` wciąż był ustawiony po każdym renderze). Woła
+`extractField` (Zadanie 2) na elementach BIEŻĄCEJ strony podglądu z
+rozwiązanym łańcuchem transformacji (`resolveTransformChain`, Zadanie 4).
+
+**Edytor łańcucha transformacji:** lista chipów + jeden generyczny formularz
+"dodaj krok" (wybór rodzaju + jeden parametr tekstowy, znaczenie zależne od
+rodzaju) zamiast osobnego formularza per rodzaj kroku — **udokumentowane
+uproszczenie**: `regexExtract.group` i `split.separatorIsRegex` NIE są
+ustawialne z UI w v1 (zawsze `undefined`/`false`) — zaawansowany użytkownik
+może je dodać ręcznie edytując wyeksportowany JSON. Edytor `valueMaps` NIE
+został zbudowany osobno w v1 — `valueMapId` istnieje w schemacie i silniku
+(Zadanie 4), ale UI go jeszcze nie wystawia. Patrz nowe pytanie #28.
+
+**Detekcja:** kotwica (tryb prosty: tylko tekst nagłówka; zaawansowany:
+`textPattern`/`headingStyle` + minimalny `styleFilter` — pogrubienie +
+"największy font w bloku", bez pełnego edytora filtra stylu), granica (4
+warianty z Zadania 3), lista wymaganych etykiet, przycisk "Testuj na całym
+PDF-ie" wołający `detectStatblocks` (Zadanie 3) na już scache'owanych
+stronach, lista wyników klikalna do przeskoczenia podglądu na daną stronę.
+
+**Zapis/eksport/import/duplikowanie/usuwanie:** przez `profile/store.ts`
+(Zadanie 1) wprost — okno samo nie ma żadnej logiki persystencji. "Zapisz"
+najpierw uruchamia `validateProfile` (Zadanie 1) i pokazuje czytelne błędy
+zamiast zapisywać nieprawidłowy profil.
+
+**Tryb prosty/zaawansowany:** rzeczywisty, działający przełącznik (nie
+kosmetyczny) — ukrywa/pokazuje: kotwicę `headingStyle` i jej filtr stylu,
+granice `verticalGap`/`endOfColumnOrPage`/`endLabel` (prosty pokazuje tylko
+`nextAnchor`), warianty transformacji `regexExtract`/`nthNumber`/`split`/
+`join`/`defaultValue`, wariant podziału kolekcji `fixedDelimiter`.
+
+**Bramki:** typecheck obu pakietów czysty, lint czysty, `build` bez błędów,
+`check:boundary`/`check:imports` zielone, `check:lang` zielony (wszystkie
+nowe klucze `BINDERY.statblockProfileBuilder.*` w en I pl, ten sam zestaw),
+`check:size` zielony (patrz obserwacja o budżecie wyżej), 929 testów core
+bez zmian (Zadanie 5 to czysto moduł-side UI — zero nowych testów
+automatycznych, ten sam precedens co `ReviewScreen.ts`/`ImportWizard.ts`/
+`GridPicker.ts`/`TokenPrepApp.ts`, żaden z których nie ma testu). **Nie
+zweryfikowane na żywym Foundry** — brak dostępnego środowiska w tej sesji,
+instrukcja ręcznego testu niżej.
+
+### Instrukcja ręcznego testu w Foundry (Zadanie 5)
+
+1. W świecie testowym: Ustawienia modułu → "Kreator profilu statblocka…" —
+   powinno otworzyć się okno z pustą listą profili (lub istniejącą z Zadania
+   4, jeśli dodano ręcznie do `statblockProfiles`).
+2. "Nowy profil" → przejście do edytora, zakładka "Źródło" aktywna.
+3. Wybierz dowolnego Actora z listy (dowolny system) — sprawdź, że
+   `actorType` i `templateActorUuid` ustawiają się poprawnie (bez błędów w
+   konsoli).
+4. Wczytaj syntetyczny/testowy PDF (NIE prawdziwy statblock — reguła 6) —
+   sprawdź, że podgląd strony 1 się renderuje i licznik stron jest poprawny.
+5. Zakładka "Pola": kliknij dowolny element tekstu na podglądzie — powinien
+   pojawić się pasek "Zaznaczenie: <tekst>"; kliknij pole w drzewie schematu
+   po prawej, potem "Przypisz do zaznaczonego pola" — sprawdź, że pole
+   dostaje haczyk w drzewie i podgląd na żywo pokazuje surowy tekst/wartość.
+6. Dodaj krok transformacji (np. "Rozpoznaj liczbę" dla pola liczbowego) —
+   sprawdź, że podgląd na żywo aktualizuje wartość.
+7. Przeciągnij prostokąt na podglądzie strony — sprawdź, że pasek zaznaczenia
+   pokazuje "region" zamiast tekstu etykiety.
+8. Zakładka "Kolekcje": dodaj kolekcję, wpisz UUID wzorcowego Itemu z Actora
+   wybranego w kroku 3 — sprawdź, że typ Itemu uzupełnia się automatycznie.
+9. Zakładka "Detekcja": skonfiguruj prostą kotwicę tekstową pasującą do
+   czegoś w testowym PDF-ie, kliknij "Testuj na całym PDF-ie" — sprawdź, że
+   lista wyników pokazuje sensowne strony/pewności; kliknięcie wyniku
+   przeskakuje podgląd na właściwą stronę.
+10. "Zapisz" — sprawdź komunikat potwierdzający; zamknij i otwórz okno
+    ponownie, "Edytuj" ten sam profil — sprawdź, że WSZYSTKIE wprowadzone
+    dane (pola, kolekcje, detekcja) wracają niezmienione.
+11. Wypróbuj tryb "Zaawansowany" — sprawdź, że dodatkowe kontrolki (kotwica
+    stylu nagłówka, więcej wariantów granicy/transformacji) się pojawiają i
+    nie psują trybu prostego po powrocie.
+12. Eksportuj profil do pliku, usuń go z listy, zaimportuj z powrotem —
+    sprawdź, że dane się zgadzają.
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -1114,6 +1267,29 @@ sprawdza przy imporcie).
     zdryfowane pole, nigdy jako jedno zbiorcze ostrzeżenie "ten profil może
     być nieaktualny". Domykać teraz, czy zostawić jako osobne, późniejsze
     usprawnienie?
+25. **Budżet `check:size` zużyty w ~86% po Zadaniu 5** — sama definicja
+    `ProfileBuilderApp` (eager-loaded przez `registerMenu`) zajęła ~27KB z
+    40KB budżetu. Kolejne zadania UI (6: uruchomienie+podgląd, 7: import do
+    Foundry) prawdopodobnie dodadzą WIĘCEJ kodu do TEGO SAMEGO okna (albo
+    nowego) — czy rozbić `ProfileBuilderApp` na mniejsze, leniwie ładowane
+    części teraz (zanim budżet faktycznie pęknie), czy poczekać, aż
+    `check:size` faktycznie zacznie czerwienić się w kolejnym zadaniu?
+26. **`RegionSource.normalizedRect` liczony względem CAŁEJ STRONY w
+    kreatorze, nie bboxa statblocka** — działa poprawnie tylko dla jednego
+    statblocka na stronę (patrz wyżej). Czy to akceptowalne dla v1 (autor
+    poprawia ręcznie dla układów wielokolumnowych/wielu-statblocków-na-
+    stronę), czy kreator powinien wymagać najpierw uruchomienia testu
+    detekcji i normalizować względem bboxa NAJBLIŻSZEGO kandydata zamiast
+    całej strony?
+27. **Brak osobnego drzewa schematu dla pól pozycji kolekcji** — dodawane
+    przez wpisanie ścieżki wprost, nie przez klikanie w drzewo (asymetryczne
+    względem pól Actora). Czy warto zbudować analogiczne drzewo per typ
+    Itemu (`itemDescriptorsByCollectionId` już jest zbierane, tylko
+    niewyświetlane), czy zostawić jako "advanced" wpisywanie ręczne?
+28. **Edytor `valueMaps` niezbudowany w v1** — `ProfileField.valueMapId`
+    istnieje i działa w silniku (Zadanie 4), ale UI nie pozwala jeszcze
+    zdefiniować/wybrać `ValueMap`. Priorytet na Zadanie 6, czy domykać teraz
+    jako uzupełnienie Zadania 5?
 
 ## Log postępu
 
@@ -1235,3 +1411,40 @@ sprawdza przy imporcie).
   podwójnej ekstrakcji, gdy Zadanie 6 zbuduje podgląd przed zapisem), i czy
   `templateSchemaFingerprint` powinien być porównywany zbiorczo przy
   imporcie zamiast ujawniać dryf schematu wyłącznie pośrednio, pole po polu.
+- **2026-09-30** — Zadanie 5 (UI kreatora profilu, briefu właściciela)
+  zaimplementowane: `packages/module/src/statblock/ui/ProfileBuilderApp.ts`
+  (ApplicationV2+HandlebarsApplicationMixin, wzorem `ImportWizard`/
+  `GridPicker`) + `templates/statblock-profile-builder.hbs`, otwierane z
+  nowej pozycji menu ustawień (`registerMenu`). Makieta pokazana i
+  zaakceptowana PRZED kodowaniem (widget mockup, zakładka "Pola"), zgodnie z
+  brifem. Wszystkie 8 funkcji z brifu: wybór Actora wzorcowego + PDF-a;
+  podgląd strony z nakładką SVG (elementy tekstu jako klikalne prostokąty,
+  własna wersja "Select and crop" — `ReviewScreen.ts`'s metody są prywatne,
+  nie do reużycia — reużywająca `pageOverlayGeometry.ts` wprost);
+  przypisanie zaznaczenia do pola przez przeszukiwalne, płaskie drzewo
+  SchemaIntrospectora z haczykami na zmapowanych; kolekcje z regułą
+  podziału (Zadanie 4); podgląd na żywo przez `extractField`/
+  `resolveTransformChain` (Zadania 2/4), liczony INLINE w `_prepareContext`
+  (błąd nieskończonej pętli renderowania złapany i naprawiony PRZED
+  commitem — pierwsza wersja liczyła podgląd jako efekt uboczny
+  `_onRender` wołający `render()` ponownie); edytor łańcucha transformacji
+  (formularz generyczny, nie per-rodzaj); reguły detekcji + "Testuj na
+  całym PDF-ie" (`detectStatblocks`, Zadanie 3) z listą wyników klikalną do
+  przeskoczenia strony; pełny CRUD profilu przez `profile/store.ts`
+  (Zadanie 1) z walidacją przed zapisem. Tryb prosty/zaawansowany
+  rzeczywiście działający (ukrywa/pokazuje regex/styl/warianty
+  zaawansowane). `@bindery/core` i moduł-side statblock helpery ładowane
+  WYŁĄCZNIE dynamicznym `import()` (dyscyplina `ImportWizard.ts`, ryzyko
+  I3) — sama klasa (eager, przez `registerMenu`) urosła eager bundle z 7873
+  do 35217 bajtów (wciąż pod budżetem 40960, ale ~86% zużyte — nowe pytanie
+  #25). Udokumentowane uproszczenia v1: region capture znormalizowany
+  względem CAŁEJ strony nie bboxa statblocka (#26), brak osobnego drzewa
+  schematu dla pól pozycji kolekcji — wpisywane wprost (#27), edytor
+  `valueMaps` niezbudowany (#28). Zero nowych testów automatycznych —
+  Zadanie 5 to czysto moduł-side UI, ten sam precedens co
+  `ReviewScreen.ts`/`ImportWizard.ts`/`GridPicker.ts`/`TokenPrepApp.ts`
+  (żaden nie ma testu); instrukcja ręcznego testu w Foundry dodana do
+  sekcji "Zrealizowane — Zadanie 5" (NIE zweryfikowane na żywo w tej sesji —
+  brak dostępnego środowiska Foundry). Wszystkie bramki statyczne zielone
+  (typecheck obu pakietów, lint, build, `check:boundary`/`check:imports`/
+  `check:size`/`check:lang`, 929 testów core bez zmian).
