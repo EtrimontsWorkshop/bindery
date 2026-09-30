@@ -11,8 +11,9 @@ function validProfile(): StatblockProfile {
     templateActorUuid: 'Actor.abc123',
     templateSchemaFingerprint: 'deadbeef',
     detection: {
-      anchor: { kind: 'labelPattern', pattern: '^[A-Z][a-z]+$' },
+      anchor: { kind: 'textPattern', pattern: '^[A-Z][a-z]+$', patternIsRegex: true },
       boundary: { kind: 'nextAnchor' },
+      requiredLabels: [{ pattern: 'HP:', isRegex: false }],
     },
     fields: [
       {
@@ -126,6 +127,75 @@ describe('validateProfile — rejects malformed input with readable issues', () 
     for (const garbage of [null, [], 42, undefined]) {
       expect(() => validateProfile(garbage)).not.toThrow();
     }
+  });
+});
+
+describe('validateProfile — Task 3 detection/source refinements', () => {
+  it("rejects anchor kind:'textPattern' with no pattern", () => {
+    const profile = validProfile();
+    profile.detection.anchor = { kind: 'textPattern' };
+    expect(validateProfile(profile).ok).toBe(false);
+  });
+
+  it("rejects anchor kind:'headingStyle' with no styleFilter", () => {
+    const profile = validProfile();
+    profile.detection.anchor = { kind: 'headingStyle' };
+    expect(validateProfile(profile).ok).toBe(false);
+  });
+
+  it("accepts anchor kind:'headingStyle' with a styleFilter", () => {
+    const profile = validProfile();
+    profile.detection.anchor = { kind: 'headingStyle', styleFilter: { largestFontInBlock: true } };
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it("rejects boundary kind:'verticalGap' with no gapThreshold", () => {
+    const profile = validProfile();
+    profile.detection.boundary = { kind: 'verticalGap' };
+    expect(validateProfile(profile).ok).toBe(false);
+  });
+
+  it("accepts boundary kind:'verticalGap' with a gapThreshold", () => {
+    const profile = validProfile();
+    profile.detection.boundary = { kind: 'verticalGap', gapThreshold: 20 };
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it("rejects boundary kind:'endLabel' with no endLabelPattern", () => {
+    const profile = validProfile();
+    profile.detection.boundary = { kind: 'endLabel' };
+    expect(validateProfile(profile).ok).toBe(false);
+  });
+
+  it('accepts an empty requiredLabels list (a profile author who has not filled it in yet)', () => {
+    const profile = validProfile();
+    profile.detection.requiredLabels = [];
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it("rejects a field's label source with stopAt:'nextLabel' and no nextLabelPattern", () => {
+    const profile = validProfile();
+    profile.fields[0]!.source = { kind: 'label', labelPattern: 'HP:', labelIsRegex: false, stopAt: 'nextLabel' };
+    expect(validateProfile(profile).ok).toBe(false);
+  });
+
+  it("accepts a field's label source with stopAt:'nextLabel' and a nextLabelPattern", () => {
+    const profile = validProfile();
+    profile.fields[0]!.source = { kind: 'label', labelPattern: 'HP:', labelIsRegex: false, stopAt: 'nextLabel', nextLabelPattern: '^[A-Z][a-z]+:$', nextLabelIsRegex: true };
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it('accepts a field with no source at all (Tasks 1/2 predate the profile-builder UI that would generate one)', () => {
+    const profile = validProfile();
+    delete profile.fields[0]!.source;
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it('accepts a region source and a styleFilter source on different fields', () => {
+    const profile = validProfile();
+    profile.fields[0]!.source = { kind: 'region', normalizedRect: { minX: 0, minY: 0, maxX: 1, maxY: 1 } };
+    profile.collections[0]!.itemFields[0]!.source = { kind: 'styleFilter', filter: { bold: true } };
+    expect(validateProfile(profile).ok).toBe(true);
   });
 });
 

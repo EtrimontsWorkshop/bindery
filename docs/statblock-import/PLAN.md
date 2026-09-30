@@ -644,6 +644,153 @@ bajtów, `extract/` nie jest jeszcze podpięty pod żaden punkt wejścia UI),
 kolumn kalibrowany "na oko" (nie na realnych danych, bo reguła 6 zakazuje
 prawdziwej treści), `diceNotation` to kosmetyka, nie parser.
 
+## Zrealizowane — Zadanie 3 (detekcja statblocków, `pdf/`)
+
+**Zakres:** dokładnie brief właściciela — znajdowanie GRANIC statbloków w
+całym dokumencie (to, co Zadanie 2 celowo zostawiło jako założenie
+wejściowe). Logika czysta w `packages/core/src/statblock/pdf/` (zero pdf.js,
+zero Foundry, testowalna w Node) + jeden plik cienkiej integracji z
+istniejącym pipeline'em pdf.js modułu (`buildPagesForDetection.ts`).
+
+**Rewizja schematu profilu (wymagana, odkryta w trakcie):** brief Zadania 3
+podał precyzyjną sygnaturę detekcji, inną i bogatszą niż moje własne,
+wcześniejsze, spekulatywne `DetectionConfig` z fazy planowania —
+`profile/schema.ts` zrewidowany:
+- `anchor`: `{kind:'textPattern'|'headingStyle', pattern?, patternIsRegex?,
+  styleFilter?}` z `.refine()` wymagającym `pattern` dla `textPattern` i
+  `styleFilter` dla `headingStyle`.
+- `boundary`: `{kind:'nextAnchor'|'verticalGap'|'endOfColumnOrPage'|
+  'endLabel', gapThreshold?, endLabelPattern?, endLabelIsRegex?}` z
+  `.refine()`ami wymagającymi `gapThreshold`/`endLabelPattern` tam, gdzie
+  sensowne.
+- nowe `requiredLabels: {pattern, isRegex}[]` na poziomie `DetectionConfig`.
+- `ProfileField` dostał NOWE pole `source: FieldSource` (ogólna,
+  uruchamialna w czasie detekcji reguła ekstrakcji — dyskryminowana unia
+  `label`/`region`/`styleFilter`, faktycznie te same kształty co Zadania 2
+  `sources/`) OBOK już istniejącego `capture` (pojedynczy przykład
+  zaznaczony w UI) — te dwa pola służą różnym celom i oba zostały: `capture`
+  to "co użytkownik kliknął", `source` to "jak to znaleźć w dowolnej innej
+  instancji statblocka".
+- `FieldSource`/`StyleFilter`/`LabelSource`/`RegionSource`/`NormalizedRect`/
+  `StyleFilterSource` PRZENIESIONE z bycia ręcznie pisanym interfejsem w
+  `extract/sources/types.ts` do kanonicznych, walidowanych Zod definicji w
+  `profile/schema.ts` (skoro `ProfileField.source` niesie je teraz jako
+  realne, niezaufane dane profilu) — `extract/sources/types.ts` re-eksportuje.
+
+**Kolejność czytania (`readingOrder.ts`):** kolumnowo — CAŁA kolumna 1
+(góra-dół) przed kolumną 2, strona po stronie. To świadomy wybór
+architektoniczny: to właśnie pozwala statblockowi legalnie kontynuować się z
+dołu jednej kolumny na górę następnej (wymaganie brifu wprost), a jednocześnie
+(przy `boundary.kind:'endOfColumnOrPage'`) dwóm statblokom obok siebie w tym
+samym rzędzie nigdy się nie skleić. Nazwa `buildStatblockReadingOrder`
+(zamiast `buildReadingOrder`) — kolizja nazwy przy re-eksporcie z
+`layout/readingOrder.ts`'s własnym `buildReadingOrder`, wykryta przez `tsc`.
+
+**Dopasowanie kotwicy (`matchAnchor.ts`):** `textPattern` — dopasowanie
+tekstu linii (string lub regex); `headingStyle` — KAŻDY element linii musi
+spełniać `StyleFilter` (font/rozmiar/pogrubienie/kursywa jako AND, jak w
+Zadaniu 2); `largestFontInBlock` reinterpretowany na poziomie STRONY
+(przekazywany przez wywołującego jako precomputed max), bo w Zadaniu 3 nie ma
+już pojedynczego "bloku" do porównania — cała strona jest przeszukiwana pod
+kątem kotwic.
+
+**Reguła końca kandydata (`findCandidateEnd.ts`):** wszystkie 4 warianty z
+brifu. Dwie reguły projektowe stosowane spójnie:
+1. **Kolejna kotwica to zawsze niejawny twardy limit** — niezależnie od
+   `boundary.kind`, żaden kandydat nigdy nie wychodzi poza start kolejnego
+   dopasowania kotwicy (dwa statbloki nie mogą się nakładać).
+2. **Przekroczenie granicy kolumny/strony NIE jest samo w sobie sygnałem
+   stopu** dla `verticalGap`/`endLabel`/`nextAnchor` (odstęp pionowy jest
+   RESETOWANY na granicy, nigdy traktowany jako naruszenie progu) — TYLKO
+   `endOfColumnOrPage` traktuje przekroczenie jako twardy stop. To dokładnie
+   to, co pozwala "statblokom łamanym między kolumnami/stronami" działać przy
+   pozostałych trzech regułach, a "dwóm statblokom obok siebie nigdy się nie
+   sklejać" przy `endOfColumnOrPage`.
+
+**Wskaźnik pewności (`computeCandidateConfidence.ts`):** confidence =
+(znalezione sygnały) / (wszystkie skonfigurowane sygnały), domyślnie `1`
+(zaufaj kotwicy), gdy nie skonfigurowano żadnego sygnału. Sygnały = wszystkie
+`requiredLabels` + wszystkie `fields` mające `source` zdefiniowane. **Celowe
+uproszczenie:** używa WYŁĄCZNIE warstwy dopasowania źródła z Zadania 2
+(`extractRawValue`), NIE pełnego `extractField` (łańcuch transformacji +
+rzutowanie na typ) — bo `ProfileField` nie ma jeszcze tablicy
+`transforms: TransformStep[]` (tylko `source` + `valueMapId`), więc pełny
+potok "cast-to-type" nie jest jeszcze w pełni spięty od końca do końca. Patrz
+nowe pytanie #17 niżej.
+
+**Fałszywe trafienia nigdy nie znikają po cichu:** dopasowanie kotwicy, które
+nie ma w pobliżu żadnej wymaganej etykiety, WCIĄŻ produkuje
+`DetectionCandidate` (z niską/zerową pewnością), nigdy nie jest filtrowane
+przez sam detektor — zgodne z ogólną konwencją projektu "never silently
+disappear" (właściciel przegląda i odrzuca ręcznie w UI, nie silnik po
+cichu).
+
+**Wynik (`detectStatblocks.ts`):** `DetectionCandidate {id, regions[]
+(numer strony + bbox, może być kilka gdy kandydat przecina kolumnę/stronę),
+elements[] (elementy tekstu bloku), confidence, foundRequiredLabels,
+missingRequiredLabels}`. Jeden kandydat na dopasowaną kotwicę, bezwarunkowo.
+
+**Cienka warstwa integracji (`buildPagesForDetection.ts`):** reużywa
+PRAWDZIWY, już wdrożony pipeline — `buildInventory` → `buildTextLayout` →
+`buildPageLayouts`, DOKŁADNIE te same trzy wywołania, które już orkiestruje
+`buildCIFFromDocument.ts` (reguła 5 — żadnej drugiej ścieżki dostępu do
+pdf.js) — dając prawdziwe kolumny (`PageLayout.columns`) i ramki wektorowe
+(`VectorRegion[]`) za darmo, bez ponownego pisania detekcji układu.
+Konwersja `SemanticBlock[]` → `PageTextElement[]` per token (`TextLine.tokens`),
+z fontem rozwiązywanym przez dopasowanie bbox tokenu do `TextLine.runs`
+(spójne odcinki tego samego fontu), z fallbackiem na `line.dominantFont`, gdy
+`tokens`/`runs` są nieobecne. **Znane ograniczenie, udokumentowane w
+nagłówku pliku:** `bold`/`italic` są WYWNIOSKOWANE heurystycznie (czy nazwa
+fontu zawiera "bold"/"black"/"heavy"/"italic"/"oblique") — osadzone fonty PDF
+nie eksponują niezawodnie prawdziwych flag wagi/stylu (to samo ustalenie, co
+komentarz nagłówkowy starego, usuniętego `fontRegistry.ts`). Parsowanie
+partiami z `onProgress`/`AbortSignal` między stronami (`checkAborted()` rzuca
+`DOMException('Aborted','AbortError')`, nie `AbortSignal.prototype.
+throwIfAborted` — unika ryzyka wersji lib TS), ten sam kontrakt co już
+istniejący `buildImageExtraction.ts`.
+
+**Brak automatycznego testu dla `buildPagesForDetection.ts` — decyzja
+świadoma, nie przeoczenie:** sprawdziłem wprost, czy istnieje precedens w
+repo dla testowania w Node kodu otwierającego pdf.js z konfiguracją
+`assetBaseUrl`/`GlobalWorkerOptions.workerSrc`/`wasmUrl`/
+`standardFontDataUrl` (dokładny wzorzec tego pliku) — **`buildCIFFromDocument.ts`,
+JEDYNY inny plik w repo z identycznym wzorcem `openDocument()`, NIE MA
+własnego pliku testowego w ogóle.** Testowana jest wyłącznie logika PO stronie
+czystej (`buildCIFDocument.test.ts`, na ręcznie budowanych obiektach), nigdy
+sama integracja z pdf.js/workerem/assetami. `buildPagesForDetection.ts`
+podąża za tym samym, już istniejącym w projekcie podziałem odpowiedzialności
+— czysta logika (`readingOrder`/`matchAnchor`/`findCandidateEnd`/
+`computeCandidateConfidence`/`detectStatblocks`) w pełni pokryta testami,
+integracyjna warstwa `assetBaseUrl`-owa weryfikowana na żywo, nie
+jednostkowo. Patrz nowe pytanie #21.
+
+**Testy:** 55 nowych testów (871 w sumie w core): `readingOrder.test.ts` (8),
+`matchAnchor.test.ts` (8), `findCandidateEnd.test.ts` (10),
+`computeCandidateConfidence.test.ts` (7), `detectStatblocks.test.ts` (11 —
+wszystkie sześć scenariuszy wskazanych explicite przez właściciela: 1 kolumna,
+2 kolumny obok siebie nigdy się nie łączące, przez granicę kolumny, przez
+granicę strony, brak statblocków, fałszywe trafienia), plus nowe testy
+rewizji schematu w `schema.test.ts`/`validateAgainstSchema.test.ts` (walidacja
+nowych kształtów `anchor`/`boundary`/`requiredLabels`/`field.source`). Dwa
+prawdziwe błędy złapane podczas pisania WŁASNYCH testów (nie w kodzie
+produkcyjnym): dwa scenariusze "przez granicę kolumny/strony" w
+`detectStatblocks.test.ts` miały elementy kontynuacji umieszczone w NIEWŁAŚCIWEJ
+kolumnie/na niewłaściwej stronie (przez pomyłkę we współrzędnych testu, nie w
+algorytmie) — poprawione, wszystkie 871 testów zielone.
+
+**Bramki:** 871 testów core zielone, typecheck obu pakietów czysty, lint,
+`check:boundary`/`check:imports`/`check:size` (budżet bez zmian — 7873
+bajtów, `pdf/` nie jest jeszcze podpięty pod żaden punkt wejścia UI),
+`check:lang`, `build` bez błędów. Bez `package`/podbicia wersji — jak w
+Zadaniach 1-2, nic jeszcze nie jest widoczne dla użytkownika końcowego.
+
+**Czego NIE zrobiono / założenia do potwierdzenia:** patrz nowe pytania
+#17-#21 niżej — m.in. czy `ProfileField` potrzebuje `transforms:
+TransformStep[]` dla pełnej wierności pewności/ekstrakcji, semantyka
+`largestFontInBlock` przemianowana na poziom strony, ograniczenie heurystyki
+bold/italic, brak testu integracyjnego `buildPagesForDetection.ts` (decyzja
+świadoma, patrz wyżej).
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -736,6 +883,44 @@ prawdziwej treści), `diceNotation` to kosmetyka, nie parser.
     spoza niej przez błąd OCR/parsowania — pokazanie tego do ręcznej
     korekty wydało się bezpieczniejsze niż ciche odrzucenie. Zgadzasz się z
     tą interpretacją, czy "choices" powinno być tak samo twarde jak typ?
+17. **`ProfileField` bez `transforms: TransformStep[]`** — wskaźnik pewności
+    (Zadanie 3) i przyszłe pełne uruchomienie profilu na dokumencie oba
+    potrzebują w końcu przejść przez PEŁNY łańcuch z Zadania 2 (`source` +
+    `transforms` + `valueMapId` → `castAndValidate`), nie tylko samo
+    dopasowanie źródła. Dziś `computeCandidateConfidence` świadomie używa
+    WYŁĄCZNIE `extractRawValue` (patrz wyżej). Dodać `transforms` do
+    `ProfileField` teraz (rozszerzenie schematu bez migracji, bo pole może
+    być opcjonalne z domyślnym `[]`), czy poczekać do zadania, które faktycznie
+    tworzy `ExtractedActorInstance[]` z pełnym rzutowaniem na typ?
+18. **`largestFontInBlock` przemianowany na poziom strony w Zadaniu 3** —
+    Zadanie 2 definiowało go względem JEDNEGO już-zlokalizowanego bloku;
+    Zadanie 3 przeszukuje całą stronę pod kątem kotwic, więc semantyka
+    przesunęła się na "największy font na tej stronie" (przekazywany przez
+    wywołującego). Czy to akceptowalna reinterpretacja tej samej nazwy pola w
+    `StyleFilter`, czy potrzebny osobny wariant (np. `largestFontOnPage`) dla
+    jasności?
+19. **Heureza bold/italic w `buildPagesForDetection.ts`** — wnioskowana z
+    nazwy fontu (podłańcuchy "bold"/"italic"/itp.), nie z prawdziwych flag
+    (te nie są niezawodnie dostępne w osadzonych fontach PDF, ustalenie z
+    Zadania... właściwie ze starego, usuniętego `fontRegistry.ts`). Profil
+    autora polegający na `styleFilter.bold`/`.italic` dziedziczy to
+    ograniczenie. Akceptowalne jako punkt startowy, czy potrzebny dokładniejszy
+    sygnał (np. porównanie grubości kreski glifu) zanim ktoś zacznie budować
+    profile na kotwicy `headingStyle`?
+20. **Sygnał `vectorFrame` (ramki wektorowe) wciąż nieużyty jako granica** —
+    pytanie #7 wciąż otwarte: `inventory.vectors`/`VectorRegion[]` są już
+    przekazywane do `PageForDetection.vectorFrames` przez
+    `buildPagesForDetection.ts`, ale sam detektor (`findCandidateEnd.ts`) ich
+    jeszcze nie używa jako piątego `boundary.kind`. Rozszerzyć teraz, czy
+    zostawić jako zadanie 3b/4?
+21. **Brak automatycznego testu dla `buildPagesForDetection.ts`** — zgodne z
+    istniejącym w repo precedensem (`buildCIFFromDocument.ts` też nie ma
+    testu, patrz wyżej), ale to wciąż oznacza, że cała ścieżka integracji
+    pdf.js→`PageForDetection[]` jest zweryfikowana tylko przez typecheck +
+    bramki statyczne, nigdy uruchomieniowo, aż do pierwszego użycia na żywym
+    Foundry. Akceptowalne dalej, czy chcesz w którymś momencie jednorazowy
+    spike (`spike/`, usuwany po użyciu, konwencja tego projektu) weryfikujący
+    to na prawdziwym syntetycznym PDF-ie z `test/synth/`?
 
 ## Log postępu
 
@@ -786,3 +971,43 @@ prawdziwej treści), `diceNotation` to kosmetyka, nie parser.
   (#12-16) o zakres dopasowania wieloelementowej etykiety, kalibrację progu
   kolumn, głębokość `diceNotation`/`textToHtml`, i semantykę "choices" w
   walidacji.
+- **2026-09-30** — Zadanie 3 (detekcja statblocków, briefu właściciela)
+  zaimplementowane: `packages/core/src/statblock/pdf/` — `types.ts`
+  (`PageForDetection`, `DetectionCandidate`, `DetectionRegion`,
+  `DetectionProgress`), `readingOrder.ts` (`buildStatblockReadingOrder`,
+  kolumnowo góra-dół, kolumna-po-kolumnie, strona-po-stronie),
+  `matchAnchor.ts` (`textPattern`/`headingStyle`), `findCandidateEnd.ts`
+  (wszystkie 4 warianty `boundary.kind`, "kolejna kotwica = twardy limit",
+  "przekroczenie kolumny/strony nie jest samo w sobie naruszeniem odstępu"),
+  `computeCandidateConfidence.ts` (świadome uproszczenie: `extractRawValue`,
+  nie pełny `extractField` — patrz pytanie #17), `detectStatblocks.ts`
+  (orkiestracja), plus `buildPagesForDetection.ts` (cienka warstwa
+  integracji reużywająca `buildInventory`/`buildTextLayout`/
+  `buildPageLayouts`, dokładnie jak `buildCIFFromDocument.ts` — reguła 5).
+  Wymagana rewizja schematu profilu: `DetectionConfig.anchor`/`.boundary`
+  zastąpione precyzyjną sygnaturą z brifu (`textPattern`/`headingStyle`,
+  `nextAnchor`/`verticalGap`/`endOfColumnOrPage`/`endLabel`,
+  `requiredLabels`), nowe pole `ProfileField.source: FieldSource` obok
+  istniejącego `capture`, typy `FieldSource`/`StyleFilter`/itp. przeniesione
+  do `profile/schema.ts` jako kanoniczne Zod definicje. 55 nowych testów
+  (871 w sumie w core), pokrywających wszystkie sześć scenariuszy wskazanych
+  explicite przez właściciela (1 kolumna, 2 kolumny obok siebie nigdy się
+  nie łączące — z i bez `endOfColumnOrPage`, by pokazać dlaczego jest
+  potrzebny, przez granicę kolumny, przez granicę strony — w tym wariant
+  specyficzny dla `verticalGap`, brak statblocków — pusta strona i pusty
+  dokument, fałszywe trafienia — kotwica bez wymaganych etykiet wciąż
+  produkuje kandydata z pewnością 0) plus testy rewizji schematu. Dwa błędy
+  złapane i naprawione W TRAKCIE pisania WŁASNYCH testów (błędne
+  współrzędne kolumny/strony w dwóch scenariuszach testowych, nie błąd
+  algorytmu). Sprawdzone i udokumentowane jako decyzja świadoma, nie
+  przeoczenie: `buildPagesForDetection.ts` nie ma własnego testu
+  integracyjnego, dokładnie jak istniejący w repo precedens
+  `buildCIFFromDocument.ts` (identyczny wzorzec `openDocument()` z
+  `assetBaseUrl`/workerem, też bez testu). Wszystkie bramki zielone (871
+  testów, lint, typecheck obu pakietów, `check:boundary`/`check:imports`/
+  `check:size` bez zmian budżetu/`check:lang`/`build`), bez `package`/
+  podbicia wersji (jak w Zadaniach 1-2, `pdf/` jeszcze niepodpięty pod UI).
+  5 nowych pytań (#17-21) o `transforms` na `ProfileField`, reinterpretację
+  `largestFontInBlock` na poziom strony, ograniczenie heurystyki
+  bold/italic, sygnał `vectorFrame` jako granicę, i brak testu
+  integracyjnego.

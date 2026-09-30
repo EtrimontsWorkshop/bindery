@@ -14,6 +14,15 @@ import { z } from 'zod';
  * label, which section) is now data the profile author captured by
  * pointing at their own system's Actor (rule 1/2 of the statblock-import
  * brief, see `docs/statblock-import/PLAN.md`).
+ *
+ * [Task 3 revision] `FieldSource`/`StyleFilter` (how to locate a field's
+ * value at RUN TIME — label/region/style) now live HERE as their
+ * canonical, validated definition — they used to be a plain TS interface
+ * in `extract/sources/types.ts` with no schema at all, which worked while
+ * only Task 2's own tests constructed them by hand, but a `ProfileField`
+ * now actually CARRIES one (`source`, added below) as real profile data,
+ * so it needs validation like everything else here. `extract/sources/types.ts`
+ * re-exports these rather than redefining them.
  */
 
 export const STATBLOCK_PROFILE_SCHEMA_VERSION = 1 as const;
@@ -46,12 +55,76 @@ const fieldCaptureSchema = z.object({
   relativePosition: z.enum(['sameLineAfterLabel', 'belowAnchor', 'fixedOffsetFromAnchor']),
 });
 
+/**
+ * [Task 2, moved here in Task 3] "The largest font in the block" etc. —
+ * see `extract/sources/styleFilterSource.ts` for how this is actually
+ * applied against a block's elements. `largestFontInBlock` composes with
+ * the other criteria (narrows to the largest size AMONG elements already
+ * passing them, or among the whole block when nothing else is set).
+ */
+const styleFilterSchema = z.object({
+  fontNamePattern: z.string().optional(),
+  minFontSize: z.number().optional(),
+  maxFontSize: z.number().optional(),
+  bold: z.boolean().optional(),
+  italic: z.boolean().optional(),
+  largestFontInBlock: z.boolean().optional(),
+});
+
+const normalizedRectSchema = z.object({
+  minX: z.number(),
+  minY: z.number(),
+  maxX: z.number(),
+  maxY: z.number(),
+});
+
+/** [Task 2] "Text after a label until the next label, end of line, or end of block." See `extract/sources/labelSource.ts`. */
+const labelSourceSchema = z.object({
+  kind: z.literal('label'),
+  labelPattern: z.string().min(1),
+  labelIsRegex: z.boolean(),
+  stopAt: z.enum(['nextLabel', 'endOfLine', 'endOfBlock']),
+  /** Required when `stopAt === 'nextLabel'` — validated properly (not just at runtime) via the `superRefine` on `fieldSourceSchema` below. */
+  nextLabelPattern: z.string().optional(),
+  nextLabelIsRegex: z.boolean().optional(),
+});
+
+/** [Task 2] "A rectangle normalized relative to the block's bounding box." See `extract/sources/regionSource.ts`. */
+const regionSourceSchema = z.object({
+  kind: z.literal('region'),
+  normalizedRect: normalizedRectSchema,
+});
+
+/** [Task 2] "Every element matching a style predicate." See `extract/sources/styleFilterSource.ts`. */
+const styleFilterSourceSchema = z.object({
+  kind: z.literal('styleFilter'),
+  filter: styleFilterSchema,
+});
+
+const fieldSourceSchema = z
+  .discriminatedUnion('kind', [labelSourceSchema, regionSourceSchema, styleFilterSourceSchema])
+  .refine((source) => source.kind !== 'label' || source.stopAt !== 'nextLabel' || !!source.nextLabelPattern, {
+    message: "a 'label' source with stopAt:'nextLabel' requires nextLabelPattern",
+  });
+
 const profileFieldSchema = z.object({
   id: z.string().min(1),
   /** Dot path into `actor.system`, discovered via schema introspection — never a literal in module code. */
   actorSchemaPath: z.string().min(1),
   dataType: profileFieldDataTypeSchema,
+  /** The ORIGINAL example the profile author pointed at — kept for the profile-builder UI's own reference, never used at extraction time. */
   capture: fieldCaptureSchema,
+  /**
+   * [Task 3] The GENERALIZED extraction rule Task 2's engine actually runs
+   * against every OTHER statblock instance found by Task 3's detector —
+   * `capture` above is a single example, this is what makes the field
+   * relocatable everywhere else. Optional only because Tasks 1/2 shipped
+   * before a profile-builder UI exists to derive one FROM `capture`
+   * automatically; a profile with fields missing `source` simply
+   * contributes nothing to Task 3's confidence score or to a future
+   * "extract every field" pass (see PLAN.md's Task 3 open questions).
+   */
+  source: fieldSourceSchema.optional(),
   /** Optional reference into `valueMaps[].id` for raw-text -> canonical-value conversion. */
   valueMapId: z.string().optional(),
 });
@@ -80,17 +153,51 @@ const valueMapSchema = z.object({
   params: z.record(z.string(), z.unknown()),
 });
 
+/** [Task 3] A label the detector expects to find within every genuine statblock instance — the raw material for the confidence score ("how many required labels/fields did we actually extract"), separate from `fields[]`/`collections[]` (which describe WHERE a VALUE lives, not just whether a label is present). */
+const requiredLabelSchema = z.object({
+  pattern: z.string().min(1),
+  isRegex: z.boolean(),
+});
+
+/**
+ * [Task 3 revision] Anchor: "a heading STYLE or a text PATTERN" — `textPattern`
+ * matches by text alone; `headingStyle` matches by `styleFilter` (reusing
+ * the same style-predicate vocabulary as field extraction), optionally
+ * ALSO narrowed by `pattern`. Boundary: the four end-rules from the brief
+ * verbatim — `nextAnchor` (until the next anchor, spanning columns/pages
+ * freely — this is what lets a statblock legitimately break across a
+ * column or page), `verticalGap` (stop at an unusually large vertical gap
+ * between consecutive lines — reset at every column/page break, so
+ * crossing one never LOOKS like a gap on its own), `endOfColumnOrPage` (a
+ * hard stop at the bottom of the current column/page — for books where a
+ * statblock never legitimately spans one, so two side-by-side or
+ * back-to-back statblocks are never merged), `endLabel` (stop at a
+ * dedicated closing marker). Regardless of `boundary.kind`, the START of
+ * the NEXT anchor is always an implicit hard cap — see
+ * `pdf/detectStatblocks.ts`.
+ */
 const detectionConfigSchema = z.object({
-  // How to recognize "a new statblock starts here" while scanning the whole document.
-  anchor: z.object({
-    kind: z.enum(['labelPattern', 'fontRoleAndPattern', 'vectorFrame']),
-    pattern: z.string().optional(),
-    fontKey: z.string().optional(),
-  }),
-  // How to know where ONE statblock ends and the next begins.
-  boundary: z.object({
-    kind: z.enum(['nextAnchor', 'fixedLineCount', 'vectorFrame']),
-  }),
+  anchor: z
+    .object({
+      kind: z.enum(['textPattern', 'headingStyle']),
+      pattern: z.string().optional(),
+      patternIsRegex: z.boolean().optional(),
+      styleFilter: styleFilterSchema.optional(),
+    })
+    .refine((anchor) => anchor.kind !== 'textPattern' || !!anchor.pattern, { message: "anchor kind:'textPattern' requires pattern" })
+    .refine((anchor) => anchor.kind !== 'headingStyle' || !!anchor.styleFilter, { message: "anchor kind:'headingStyle' requires styleFilter" }),
+  boundary: z
+    .object({
+      kind: z.enum(['nextAnchor', 'verticalGap', 'endOfColumnOrPage', 'endLabel']),
+      /** Required when `kind === 'verticalGap'` — a gap (PDF points) between consecutive lines larger than this ends the candidate. */
+      gapThreshold: z.number().positive().optional(),
+      /** Required when `kind === 'endLabel'`. */
+      endLabelPattern: z.string().optional(),
+      endLabelIsRegex: z.boolean().optional(),
+    })
+    .refine((boundary) => boundary.kind !== 'verticalGap' || boundary.gapThreshold !== undefined, { message: "boundary kind:'verticalGap' requires gapThreshold" })
+    .refine((boundary) => boundary.kind !== 'endLabel' || !!boundary.endLabelPattern, { message: "boundary kind:'endLabel' requires endLabelPattern" }),
+  requiredLabels: z.array(requiredLabelSchema),
   pageRange: z.array(z.object({ from: z.number().int().positive(), to: z.number().int().positive().optional() })).optional(),
 });
 
@@ -125,6 +232,13 @@ export type ProfileCollection = z.infer<typeof profileCollectionSchema>;
 export type CollectionSplitRule = z.infer<typeof collectionSplitRuleSchema>;
 export type ValueMap = z.infer<typeof valueMapSchema>;
 export type DetectionConfig = z.infer<typeof detectionConfigSchema>;
+export type RequiredLabel = z.infer<typeof requiredLabelSchema>;
+export type StyleFilter = z.infer<typeof styleFilterSchema>;
+export type NormalizedRect = z.infer<typeof normalizedRectSchema>;
+export type LabelSource = z.infer<typeof labelSourceSchema>;
+export type RegionSource = z.infer<typeof regionSourceSchema>;
+export type StyleFilterSource = z.infer<typeof styleFilterSourceSchema>;
+export type FieldSource = z.infer<typeof fieldSourceSchema>;
 
 export interface ProfileValidationOk {
   ok: true;

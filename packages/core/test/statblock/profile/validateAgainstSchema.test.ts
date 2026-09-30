@@ -15,7 +15,7 @@ function baseProfile(): StatblockProfile {
     actorType: 'npc',
     templateActorUuid: 'Actor.abc',
     templateSchemaFingerprint: 'fp',
-    detection: { anchor: { kind: 'labelPattern' }, boundary: { kind: 'nextAnchor' } },
+    detection: { anchor: { kind: 'textPattern', pattern: 'X' }, boundary: { kind: 'nextAnchor' }, requiredLabels: [] },
     fields: [],
     collections: [],
     valueMaps: [],
