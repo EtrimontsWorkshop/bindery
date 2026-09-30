@@ -15,7 +15,8 @@ import type { ProfileCollection, ProfileField, StatblockProfile } from './schema
  * with hand-built mock trees, no Foundry dependency.
  */
 
-function findDescriptor(tree: readonly SchemaFieldDescriptor[], path: string): SchemaFieldDescriptor | undefined {
+/** Exported for reuse by `import/descriptorLookup.ts` (Task 4) — the same "find a descriptor by its dot path" walk, needed again to resolve constraints/current values when building Actor data. */
+export function findDescriptor(tree: readonly SchemaFieldDescriptor[], path: string): SchemaFieldDescriptor | undefined {
   for (const descriptor of tree) {
     if (descriptor.path === path) return descriptor;
     if (descriptor.children) {

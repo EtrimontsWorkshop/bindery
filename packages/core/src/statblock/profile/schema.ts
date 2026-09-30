@@ -107,6 +107,34 @@ const fieldSourceSchema = z
     message: "a 'label' source with stopAt:'nextLabel' requires nextLabelPattern",
   });
 
+/**
+ * [Task 4] The transform chain steps a profile author can actually configure
+ * on a field — mirrors `extract/transforms/types.ts`'s `TransformStep`
+ * union MINUS its `'valueMap'` variant. `valueMap` is deliberately excluded
+ * here: a profile already has a top-level, shareable `valueMaps: ValueMap[]`
+ * registry (Task 1) plus `ProfileField.valueMapId` referencing it — embedding
+ * a full `ValueMap` a second time, inline, in every field's own transform
+ * chain would duplicate the same lookup table across every field that uses
+ * it instead of defining it once. `import/extractInstance.ts` resolves
+ * `valueMapId` (if set) and appends it as the FINAL step of the chain built
+ * from `transforms` below — see that file's own comment for why "always
+ * last" is a documented simplification, not a hard requirement of the
+ * format itself.
+ */
+const transformStepSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('trim') }),
+  z.object({ kind: z.literal('normalizeWhitespace') }),
+  z.object({ kind: z.literal('joinWrappedLines') }),
+  z.object({ kind: z.literal('stripLigaturesAndOddChars') }),
+  z.object({ kind: z.literal('regexExtract'), pattern: z.string().min(1), group: z.number().int().nonnegative().optional() }),
+  z.object({ kind: z.literal('parseNumber') }),
+  z.object({ kind: z.literal('nthNumber'), n: z.number().int() }),
+  z.object({ kind: z.literal('split'), separator: z.string().min(1), separatorIsRegex: z.boolean().optional() }),
+  z.object({ kind: z.literal('join'), separator: z.string() }),
+  z.object({ kind: z.literal('textToHtml') }),
+  z.object({ kind: z.literal('defaultValue'), value: z.unknown() }),
+]);
+
 const profileFieldSchema = z.object({
   id: z.string().min(1),
   /** Dot path into `actor.system`, discovered via schema introspection — never a literal in module code. */
@@ -125,7 +153,16 @@ const profileFieldSchema = z.object({
    * "extract every field" pass (see PLAN.md's Task 3 open questions).
    */
   source: fieldSourceSchema.optional(),
-  /** Optional reference into `valueMaps[].id` for raw-text -> canonical-value conversion. */
+  /**
+   * [Task 4] The transform chain run on this field's raw matched text before
+   * casting to `dataType` — closes the gap Task 3 flagged (question #17):
+   * `extractField` always needed a chain, but nothing in the profile
+   * supplied one until now. Defaults to empty (no transforms beyond the
+   * cast itself) so every profile written before this field existed is
+   * still valid.
+   */
+  transforms: z.array(transformStepSchema).default([]),
+  /** Optional reference into `valueMaps[].id` for raw-text -> canonical-value conversion, applied as the last step of the chain above. */
   valueMapId: z.string().optional(),
 });
 
@@ -133,7 +170,9 @@ const collectionSplitRuleSchema = z.object({
   kind: z.enum(['repeatingLinePattern', 'sectionHeaderThenEntries', 'fixedDelimiter']),
   /** e.g. locate a heading like "ATTACKS" (captured, never hardcoded), then treat each following entry until the next heading/anchor as one item. */
   sectionHeaderPattern: z.string().optional(),
+  sectionHeaderIsRegex: z.boolean().optional(),
   entryBoundaryPattern: z.string().optional(),
+  entryBoundaryIsRegex: z.boolean().optional(),
 });
 
 const profileCollectionSchema = z.object({
@@ -143,6 +182,8 @@ const profileCollectionSchema = z.object({
   /** UUID of an exemplar embedded Item on `templateActorUuid`, introspected the same way as the Actor itself. */
   templateItemUuid: z.string().min(1),
   splitRule: collectionSplitRuleSchema,
+  /** [Task 4] Where within ONE already-split entry its own printed name lives — same shape/reuse as the profile's top-level `nameSource`, see there for why this isn't just another `itemFields` entry. */
+  nameSource: fieldSourceSchema,
   /** Same shape as top-level `fields`, scoped to one collection entry. */
   itemFields: z.array(profileFieldSchema),
 });
@@ -216,6 +257,16 @@ export const statblockProfileSchema = z.object({
   templateSchemaFingerprint: z.string().min(1),
 
   detection: detectionConfigSchema,
+  /**
+   * [Task 4] Where within a matched statblock instance the printed name
+   * lives. Kept as its OWN top-level source rather than folded into
+   * `fields[]` because `ProfileField.actorSchemaPath` is a dot path into
+   * `actor.system` (per its own doc comment) and a Document's `name` is a
+   * sibling of `system`, not a path inside it — reusing `FieldSource`'s
+   * shape (the exact same label/region/styleFilter vocabulary as every
+   * other captured value) rather than inventing a parallel mechanism.
+   */
+  nameSource: fieldSourceSchema,
   fields: z.array(profileFieldSchema),
   collections: z.array(profileCollectionSchema),
   valueMaps: z.array(valueMapSchema),
@@ -239,6 +290,7 @@ export type LabelSource = z.infer<typeof labelSourceSchema>;
 export type RegionSource = z.infer<typeof regionSourceSchema>;
 export type StyleFilterSource = z.infer<typeof styleFilterSourceSchema>;
 export type FieldSource = z.infer<typeof fieldSourceSchema>;
+export type ProfileTransformStep = z.infer<typeof transformStepSchema>;
 
 export interface ProfileValidationOk {
   ok: true;

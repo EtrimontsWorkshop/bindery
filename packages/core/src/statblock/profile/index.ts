@@ -17,9 +17,10 @@ export {
   type RegionSource,
   type StyleFilterSource,
   type FieldSource,
+  type ProfileTransformStep,
   type ProfileValidationOk,
   type ProfileValidationFailed,
   type ProfileValidationResult,
 } from './schema.js';
-export { validateProfileAgainstSchema } from './validateAgainstSchema.js';
+export { validateProfileAgainstSchema, findDescriptor } from './validateAgainstSchema.js';
 export { migrateProfileData, type ProfileMigrationOk, type ProfileMigrationFailed, type ProfileMigrationResult } from './migrate.js';

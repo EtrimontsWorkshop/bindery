@@ -15,6 +15,7 @@ function validProfile(): StatblockProfile {
       boundary: { kind: 'nextAnchor' },
       requiredLabels: [{ pattern: 'HP:', isRegex: false }],
     },
+    nameSource: { kind: 'label', labelPattern: 'Name:', labelIsRegex: false, stopAt: 'endOfLine' },
     fields: [
       {
         id: 'field-hp',
@@ -25,6 +26,7 @@ function validProfile(): StatblockProfile {
           examplePageNumber: 1,
           relativePosition: 'sameLineAfterLabel',
         },
+        transforms: [],
       },
     ],
     collections: [
@@ -33,6 +35,7 @@ function validProfile(): StatblockProfile {
         itemType: 'weapon',
         templateItemUuid: 'Actor.abc123.Item.xyz789',
         splitRule: { kind: 'sectionHeaderThenEntries', sectionHeaderPattern: '^ATTACKS$' },
+        nameSource: { kind: 'label', labelPattern: 'Name:', labelIsRegex: false, stopAt: 'endOfLine' },
         itemFields: [
           {
             id: 'attack-name',
@@ -43,6 +46,7 @@ function validProfile(): StatblockProfile {
               examplePageNumber: 2,
               relativePosition: 'belowAnchor',
             },
+            transforms: [],
           },
         ],
       },

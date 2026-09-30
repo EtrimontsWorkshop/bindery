@@ -791,6 +791,167 @@ TransformStep[]` dla pełnej wierności pewności/ekstrakcji, semantyka
 bold/italic, brak testu integracyjnego `buildPagesForDetection.ts` (decyzja
 świadoma, patrz wyżej).
 
+## Zrealizowane — Zadanie 4 (ActorBuilder, `import/`)
+
+**Zakres:** "z wyników ekstrakcji buduje dane Actora" — brakujący łącznik
+między Zadaniem 3 (kandydaci z pewnością, ale bez PRAWDZIWYCH wartości pól —
+Q17) a zapisem do Foundry. Czysta logika w
+`packages/core/src/statblock/import/` (budowanie+walidacja danych, w pełni
+testowalna mockami) + cienka warstwa integracji w
+`packages/module/src/statblock/import/importStatblocks.ts` (jedyne miejsce
+dotykające `Actor.create`/`fromUuid`/`game.actors` — reguła 1/A1).
+
+**Rewizja schematu profilu (domyka pytanie #17 z Zadania 3):**
+- `ProfileField` dostał nowe pole `transforms: ProfileTransformStep[]`
+  (domyślnie `[]`) — brakujący łańcuch transformacji, bez którego
+  `extractField` (Zadanie 2) nie miał jak rzutować surowego tekstu na
+  docelowy typ dla PRAWDZIWEJ ekstrakcji (Zadanie 3 celowo używało tylko
+  `extractRawValue`, patrz jego własny komentarz). `ProfileTransformStep`
+  lustrzanie odwzorowuje `TransformStep` z `extract/transforms/types.ts`
+  MINUS wariant `valueMap` — `valueMapId` (Zadanie 1, dotąd martwe, nigdy
+  niepodpięte nigdzie) został OŻYWIONY zamiast dublowany: `import/
+  resolveTransformChain.ts` rozwiązuje `valueMapId` przez `profile.valueMaps`
+  i dokleja go jako OSTATNI krok łańcucha — udokumentowane uproszczenie
+  (patrz nowe pytanie #22), nie twarde ograniczenie formatu.
+- Nowe top-level `StatblockProfile.nameSource: FieldSource` oraz
+  `ProfileCollection.nameSource: FieldSource` — drukowana nazwa
+  stworzenia/pozycji kolekcji nie mieści się w `ProfileField.actorSchemaPath`
+  (ścieżka WEWNĄTRZ `system`, a `name` Dokumentu jest siostrą `system`, nie
+  jego częścią) — reużywa dokładnie ten sam mechanizm `FieldSource`
+  (label/region/styleFilter) zamiast wymyślać drugi.
+- `CollectionSplitRule` dostał `sectionHeaderIsRegex`/`entryBoundaryIsRegex`
+  (spójność z resztą schematu, gdzie każdy `*Pattern` ma swój `*IsRegex` —
+  przeoczone w Zadaniu 1, bo `splitRule` nie miał jeszcze żadnego
+  konsumenta).
+
+**`import/extractInstance.ts` — brakujący łącznik Zadanie 3 → Zadanie 4:**
+`extractStatblockInstance(candidate, profile): ExtractedActorInstance`
+uruchamia PRAWDZIWĄ ekstrakcję (Zadanie 2, `extractField`) dla `nameSource`,
+każdego `fields[]` z `source`, i każdej pozycji każdej kolekcji (po
+podziale — patrz niżej) — dokładnie to, czego Zadanie 3 świadomie NIE
+robiło. Użyto tego samego precedensu co
+`computeCandidateConfidence`/`detectStatblocks.ts`: `candidate.regions[0]`
+jako jedyny bbox dla źródeł typu `region` (kandydat rozciągnięty na kilka
+stron/kolumn nie ma sensownej sumy bboxów między stronami).
+
+**`import/splitCollectionEntries.ts` — pierwszy realny konsument
+`splitRule`:** dzieli już-zlokalizowany fragment tekstu na pozycje WYŁĄCZNIE
+po CAŁYCH liniach (rekonstruowanych przez `reconstructLines`, Zadanie 2 —
+nigdy w połowie linii, bo `PageTextElement`y to już dyskretne tokeny).
+`sectionHeaderThenEntries` pomija linię nagłówka; oba warianty z etykietą
+podziału (`repeatingLinePattern`/`sectionHeaderThenEntries`) traktują linię
+dopasowaną do `entryBoundaryPattern` jako POCZĄTEK nowej pozycji (włącznie);
+`fixedDelimiter` traktuje dopasowaną linię jako czysty SEPARATOR (wyłączony
+z obu sąsiednich pozycji, np. linia z samymi myślnikami). Degradacja, nigdy
+wyjątek ani cichy pusty wynik: brak `entryBoundaryPattern` → każda linia
+staje się osobną pozycją; linie PRZED pierwszym dopasowaniem (możliwe tylko
+dla `repeatingLinePattern`, bo nagłówek już konsumuje wstęp) trafiają do
+własnej, prawdopodobnie niepełnej pozycji zamiast zniknąć po cichu.
+
+**`import/buildActorData.ts` — budowanie + walidacja, bez Foundry:**
+`setPath.ts` (własny, czysty odpowiednik `foundry.utils.setProperty` — core
+nie może go importować). Każde mapowane pole przechodzi `castAndValidate`
+(Zadanie 2) PO RAZ DRUGI — pierwszy raz przy ekstrakcji (wobec gołego
+`dataType` z profilu), drugi raz tutaj (wobec PRAWDZIWEGO opisu schematu
+Actora/Itemu z introspekcji, z min/max/choices) — niezgodność typu = błąd
+(wartość pominięta), naruszenie ograniczenia (choices/min/max) = ostrzeżenie
+(wartość zostaje, tak jak w Zadaniu 2). Brak deskryptora dla ścieżki =
+błąd (dryf schematu/literówka w profilu); brak schematu Itemu dla całej
+kolekcji (nierozwiązany `templateItemUuid`) = JEDNO ostrzeżenie zamiast
+jednego na pole. `inheritUnmappedFromTemplate` (**domyka pytanie #8**:
+zastosowano DOKŁADNIE tę samą globalną flagę profilu na poziomie pozycji
+kolekcji, nie tylko Actora — najprostsza spójna interpretacja) kopiuje
+`currentValue` z deskryptora szablonu na każdą NIEOBJĘTĄ ścieżkę-liść.
+Brak znalezionej nazwy (Actora lub pozycji) nigdy nie blokuje importu —
+degraduje do generycznego fallbacku ("Unnamed"/"Unnamed Item", żadna nazwa
+systemowa) z ostrzeżeniem, reszta danych i tak się buduje.
+
+**`import/nearestImage.ts` — serwis przypisania obrazu (heureza):** czysta
+geometria (`rectGapDistance`, już istniejące w `geometry.ts`), zero I/O —
+wybiera najbliższy obraz na TEJ SAMEJ stronie co pierwszy region kandydata
+(inne strony nigdy nie są "najbliższe", niezależnie od surowych liczb —
+przestrzenie współrzędnych różnych stron nie są porównywalne). Zamiana
+wybranego id na realną ścieżkę pliku i RĘCZNA zmiana przez użytkownika to
+zadanie warstwy UI (Zadanie 5) — ta funkcja dostarcza tylko DOMYŚLNY wybór.
+
+**`import/resolveDuplicateAction.ts` — obsługa duplikatów:** samo
+wyszukanie istniejącego Actora (`game.actors`) zostaje w module (zapytanie
+Foundry), ale DECYZJA "co zrobić, mając odpowiedź tak/nie" to mała, czysta
+funkcja (`skip`→pomiń, `overwrite`→aktualizuj, `copy`→zawsze twórz nowy) —
+testowalna bez żywego świata.
+
+**`packages/module/src/statblock/import/importStatblocks.ts` — orkiestracja
+Foundry:** jedyne miejsce z `fromUuid`/`Actor.create`/`game.actors`/
+`createEmbeddedDocuments` dla tej funkcji. Dla każdego kandydata: ekstrakcja
+(Zadanie 3 → `extractStatblockInstance`) → budowanie danych
+(`buildActorData`) → sprawdzenie duplikatu → zapis (`Actor.create({...,
+items})` dla nowego — "razem z Actorem" z brifu — albo `update` +
+`createEmbeddedDocuments` po usunięciu starych zarządzanych Itemów dla
+nadpisania — "osobno" z brifu). Błąd zapisu JEDNEJO statbloku nigdy nie
+przerywa całego przebiegu — łapany i raportowany per-instancja (`status:
+'error'`), z postępem przez `onProgress`/`AbortSignal` (ten sam kontrakt co
+Zadanie 3). **Brak automatycznego testu — decyzja świadoma, ten sam
+precedens co `buildPagesForDetection.ts`** (`buildCIFFromDocument.ts` też go
+nie ma) — zweryfikowane ręcznie, instrukcja niżej.
+
+### Instrukcja ręcznego testu w Foundry (Zadanie 4)
+
+1. W świecie testowym z zainstalowanym dowolnym systemem: utwórz wzorcowego
+   Actora (dowolny typ, np. "npc") z co najmniej jednym polem liczbowym
+   (np. HP) i jedną kolekcją embedded Itemów (np. bronie/ataki) z co
+   najmniej jednym wzorcowym Itemem.
+2. Ręcznie złóż `StatblockProfile` jako JSON (Zadanie 5 dostarczy kreator —
+   do tego czasu: albo edycja ręczna, albo mały skrypt w konsoli
+   przeglądarki wołający `game.settings.set(...)` bezpośrednio), wskazując
+   `templateActorUuid`/`templateItemUuid` na Actora/Item z kroku 1,
+   `nameSource`/`fields[].source`/`collections[].nameSource`/`itemFields`
+   na realne etykiety w testowym PDF-ie.
+3. Wywołaj `detectStatblocks` (Zadanie 3) na tekście z testowego PDF-a, żeby
+   uzyskać `DetectionCandidate[]`.
+4. Wywołaj `importStatblocks(profile, candidates, { duplicatePolicy: 'skip' })`
+   z konsoli przeglądarki (po zaimportowaniu modułu w konsoli deweloperskiej
+   Foundry).
+5. Sprawdź: utworzony Actor ma poprawną nazwę i wartość HP pod właściwą
+   ścieżką schematu; embedded Itemy odpowiadają pozycjom w PDF-ie z
+   poprawnymi wartościami pól; uruchomienie PONOWNIE z `duplicatePolicy:
+   'skip'` NIE tworzy duplikatu; z `'overwrite'` aktualizuje istniejącego
+   Actora i podmienia jego zarządzane Itemy; z `'copy'` tworzy dodatkowego
+   Actora o tej samej nazwie.
+6. Sprawdź `ImportReport` zwrócony z wywołania: liczby `created`/`updated`/
+   `skipped`/`failed` zgadzają się z tym, co faktycznie powstało w świecie,
+   a `diagnostics` per instancja wskazują na realne, zrozumiałe problemy
+   (np. usuń jedno wymagane pole z profilu i sprawdź, że pojawia się
+   odpowiednie ostrzeżenie zamiast cichego pominięcia).
+
+**Testy:** 58 nowych testów jednostkowych (929 w sumie w core) na
+ręcznie budowanych mockach (`ExtractedActorInstance`/`SchemaFieldDescriptor`/
+`DetectionCandidate` — zero PDF, zero Foundry) pokrywających: budowanie
+ścieżek (`setPath`), wyciąganie ograniczeń/liści z drzewa deskryptorów,
+rozwiązywanie łańcucha transformacji (w tym `valueMapId` nieznaleziony),
+wszystkie warianty `splitCollectionEntries` (w tym degradacje), pełną
+ekstrakcję instancji (nazwa/pola/kolekcje, w tym pole bez źródła i etykieta
+nieznaleziona), budowanie danych Actora (mapowanie/błąd ścieżki/ostrzeżenie
+braku wartości/porażka rzutowania/miękkie naruszenie ograniczenia/
+dziedziczenie z szablonu/kolekcje/fallback nazwy), heurystykę najbliższego
+obrazu, i tabelę decyzyjną duplikatów.
+`importStatblocks.ts` (warstwa Foundry) celowo bez testu — patrz wyżej.
+
+**Bramki:** 929 testów core zielone, typecheck obu pakietów czysty
+(wymagało przebudowania `packages/core`'s `dist/`, żeby moduł widział nowe
+eksporty — `@bindery/core` rozwiązuje się do zbudowanego pakietu, nie
+źródeł), lint, `check:boundary`/`check:imports`/`check:size` (budżet bez
+zmian — `import/` niepodpięty pod żaden punkt wejścia UI)/`check:lang`,
+`build` bez błędów. Bez `package`/podbicia wersji, jak w poprzednich
+zadaniach.
+
+**Czego NIE zrobiono / założenia do potwierdzenia:** patrz nowe pytania
+#22-#24 niżej — kolejność `valueMapId` zawsze na końcu łańcucha,
+`candidates` w `importStatblocks` jako surowe `DetectionCandidate[]`
+(ekstrakcja dzieje się WEWNĄTRZ tej funkcji, nie przed nią) zamiast
+gotowych `ExtractedActorInstance[]`, i `templateSchemaFingerprint` wciąż
+nigdzie nieporównywany (obliczony i zapisany, ale nic go jeszcze nie
+sprawdza przy imporcie).
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -921,6 +1082,38 @@ bold/italic, brak testu integracyjnego `buildPagesForDetection.ts` (decyzja
     Foundry. Akceptowalne dalej, czy chcesz w którymś momencie jednorazowy
     spike (`spike/`, usuwany po użyciu, konwencja tego projektu) weryfikujący
     to na prawdziwym syntetycznym PDF-ie z `test/synth/`?
+22. **`valueMapId` zawsze jako OSTATNI krok łańcucha transformacji** —
+    `import/resolveTransformChain.ts` dokleja rozwiązany `ValueMap` po
+    wszystkich krokach z `ProfileField.transforms`, bez możliwości wstawienia
+    go w środku (np. przed późniejszym `regexExtract`). Wystarczające na
+    start (każde pole napisane dziś potrzebuje tylko jednego wyszukania, na
+    końcu, po normalizacji tekstu), czy `valueMapId` powinien stać się
+    zamiast tego kolejnym wariantem `kind` wewnątrz `transforms` (z
+    referencją do `valueMaps[].id`), żeby autor profilu mógł go dowolnie
+    pozycjonować?
+23. **`importStatblocks(profile, candidates, options)` przyjmuje SUROWE
+    `DetectionCandidate[]`** (z Zadania 3), nie gotowe
+    `ExtractedActorInstance[]` — ekstrakcja (`extractStatblockInstance`)
+    dzieje się WEWNĄTRZ tej funkcji, per kandydat, tuż przed budowaniem
+    danych. Zgodne z dosłownym brzmieniem brifu Zadania 4 ("candidates"), ale
+    oznacza, że wywołujący (przyszłe UI Zadania 5/6) nie ma możliwości
+    obejrzenia/edycji wyekstrahowanych wartości PRZED zapisem bez wywołania
+    `extractStatblockInstance` osobno, poza `importStatblocks`, tylko po to
+    żeby zbudować podgląd — powielenie tej samej ekstrakcji dwa razy dla tego
+    samego kandydata. Akceptowalne (podgląd Zadania 6 i tak prawdopodobnie
+    potrzebuje własnego wywołania `extractStatblockInstance` do wyświetlenia
+    diagnostyki przed potwierdzeniem), czy `importStatblocks` powinien
+    zamiast tego przyjmować `ExtractedActorInstance[]` już gotowe, a
+    ekstrakcję zostawić wyłącznie wywołującemu?
+24. **`templateSchemaFingerprint` wciąż niewykorzystywany przy imporcie** —
+    liczony i zapisywany przy budowie profilu (Zadanie 1), ale
+    `importStatblocks`/`buildActorData` nigdy go nie porównują z aktualnym
+    stanem schematu Actora/Itemu przed zapisem (pytanie #3 z sekcji Zadania
+    1 wciąż otwarte w praktyce) — dryf schematu ujawnia się dziś WYŁĄCZNIE
+    pośrednio, przez pojedyncze `STATBLOCK_IMPORT_PATH_NOT_FOUND` na
+    zdryfowane pole, nigdy jako jedno zbiorcze ostrzeżenie "ten profil może
+    być nieaktualny". Domykać teraz, czy zostawić jako osobne, późniejsze
+    usprawnienie?
 
 ## Log postępu
 
@@ -1011,3 +1204,34 @@ bold/italic, brak testu integracyjnego `buildPagesForDetection.ts` (decyzja
   `largestFontInBlock` na poziom strony, ograniczenie heurystyki
   bold/italic, sygnał `vectorFrame` jako granicę, i brak testu
   integracyjnego.
+- **2026-09-30** — Zadanie 4 (ActorBuilder, briefu właściciela)
+  zaimplementowane: `packages/core/src/statblock/import/` — `types.ts`
+  (`ExtractedActorInstance`, `BuiltActorData`, `ImportReport`, ...),
+  `setPath.ts` (odpowiednik `foundry.utils.setProperty` bez Foundry),
+  `descriptorLookup.ts`, `resolveTransformChain.ts` (domyka pytanie #17,
+  ożywia dotąd martwe `valueMapId`), `splitCollectionEntries.ts` (pierwszy
+  realny konsument `splitRule`), `extractInstance.ts` (brakujący łącznik
+  Zadanie 3→4: prawdziwa ekstrakcja przez `extractField` zamiast samej
+  lokalizowalności), `buildActorData.ts` (budowanie+podwójna walidacja przez
+  `castAndValidate`, dziedziczenie z szablonu — domyka pytanie #8 dla
+  kolekcji), `nearestImage.ts`, `resolveDuplicateAction.ts`. Plus
+  `packages/module/src/statblock/import/importStatblocks.ts` — jedyna
+  warstwa dotykająca `fromUuid`/`Actor.create`/`game.actors`/
+  `createEmbeddedDocuments`. Wymagana rewizja schematu: `ProfileField.
+  transforms`, top-level `StatblockProfile.nameSource`/`ProfileCollection.
+  nameSource` (drukowana nazwa nie mieści się w `actorSchemaPath`, który jest
+  ściśle wewnątrz `system`), `sectionHeaderIsRegex`/`entryBoundaryIsRegex` na
+  `CollectionSplitRule` (spójność z resztą schematu). 58 nowych testów (929
+  w sumie w core) na ręcznie budowanych mockach — zero PDF, zero Foundry;
+  `importStatblocks.ts` celowo bez testu automatycznego, ten sam precedens
+  jak `buildPagesForDetection.ts` (`buildCIFFromDocument.ts` też go nie ma) —
+  instrukcja ręcznego testu w Foundry dodana do sekcji "Zrealizowane —
+  Zadanie 4". Wszystkie bramki zielone (wymagało przebudowania `packages/
+  core`'s `dist/`, żeby `packages/module` widziało nowe eksporty — `@bindery/
+  core` rozwiązuje się do zbudowanego pakietu). 3 nowe pytania (#22-24): czy
+  `valueMapId` powinien móc być pozycjonowany w środku łańcucha zamiast
+  zawsze na końcu, czy `importStatblocks` powinien przyjmować gotowe
+  `ExtractedActorInstance[]` zamiast surowych `DetectionCandidate[]` (unikając
+  podwójnej ekstrakcji, gdy Zadanie 6 zbuduje podgląd przed zapisem), i czy
+  `templateSchemaFingerprint` powinien być porównywany zbiorczo przy
+  imporcie zamiast ujawniać dryf schematu wyłącznie pośrednio, pole po polu.

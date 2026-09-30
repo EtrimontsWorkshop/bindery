@@ -16,6 +16,7 @@ function baseProfile(): StatblockProfile {
     templateActorUuid: 'Actor.abc',
     templateSchemaFingerprint: 'fp',
     detection: { anchor: { kind: 'textPattern', pattern: 'X' }, boundary: { kind: 'nextAnchor' }, requiredLabels: [] },
+    nameSource: { kind: 'label', labelPattern: 'Name:', labelIsRegex: false, stopAt: 'endOfLine' },
     fields: [],
     collections: [],
     valueMaps: [],
@@ -32,6 +33,7 @@ describe('validateProfileAgainstSchema — top-level fields', () => {
         actorSchemaPath: 'attributes.hp.value',
         dataType: 'number',
         capture: { exampleBbox: bbox(), examplePageNumber: 1, relativePosition: 'sameLineAfterLabel' },
+            transforms: [],
       },
     ];
     const actorSchema: SchemaFieldDescriptor[] = [{ path: 'attributes.hp.value', label: 'HP', type: 'number' }];
@@ -46,6 +48,7 @@ describe('validateProfileAgainstSchema — top-level fields', () => {
         actorSchemaPath: 'attributes.sanity.value',
         dataType: 'number',
         capture: { exampleBbox: bbox(), examplePageNumber: 1, relativePosition: 'sameLineAfterLabel' },
+            transforms: [],
       },
     ];
     const diagnostics = validateProfileAgainstSchema(profile, [{ path: 'attributes.hp.value', label: 'HP', type: 'number' }], new Map());
@@ -62,6 +65,7 @@ describe('validateProfileAgainstSchema — top-level fields', () => {
         actorSchemaPath: 'name',
         dataType: 'number',
         capture: { exampleBbox: bbox(), examplePageNumber: 1, relativePosition: 'sameLineAfterLabel' },
+            transforms: [],
       },
     ];
     const diagnostics = validateProfileAgainstSchema(profile, [{ path: 'name', label: 'Name', type: 'string' }], new Map());
@@ -78,6 +82,7 @@ describe('validateProfileAgainstSchema — top-level fields', () => {
         actorSchemaPath: 'attributes.hp.value',
         dataType: 'number',
         capture: { exampleBbox: bbox(), examplePageNumber: 1, relativePosition: 'sameLineAfterLabel' },
+            transforms: [],
       },
     ];
     const actorSchema: SchemaFieldDescriptor[] = [
@@ -91,7 +96,14 @@ describe('validateProfileAgainstSchema — collections', () => {
   it('flags a collection referencing an Item type the current system does not have', () => {
     const profile = baseProfile();
     profile.collections = [
-      { id: 'c1', itemType: 'gadget', templateItemUuid: 'Actor.abc.Item.x', splitRule: { kind: 'fixedDelimiter' }, itemFields: [] },
+      {
+        id: 'c1',
+        itemType: 'gadget',
+        templateItemUuid: 'Actor.abc.Item.x',
+        splitRule: { kind: 'fixedDelimiter' },
+        nameSource: { kind: 'label', labelPattern: 'Name:', labelIsRegex: false, stopAt: 'endOfLine' },
+        itemFields: [],
+      },
     ];
     const diagnostics = validateProfileAgainstSchema(profile, [], new Map());
     expect(diagnostics).toHaveLength(1);
@@ -106,12 +118,14 @@ describe('validateProfileAgainstSchema — collections', () => {
         itemType: 'weapon',
         templateItemUuid: 'Actor.abc.Item.x',
         splitRule: { kind: 'fixedDelimiter' },
+        nameSource: { kind: 'label', labelPattern: 'Name:', labelIsRegex: false, stopAt: 'endOfLine' },
         itemFields: [
           {
             id: 'f1',
             actorSchemaPath: 'damage',
             dataType: 'string',
             capture: { exampleBbox: bbox(), examplePageNumber: 1, relativePosition: 'belowAnchor' },
+            transforms: [],
           },
         ],
       },
