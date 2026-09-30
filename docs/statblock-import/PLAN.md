@@ -1,17 +1,20 @@
 # Import statblocków z PDF — plan architektury (system-agnostyczny)
 
-**Status: Zadanie 1 (SchemaIntrospector + model profilu) zaimplementowane
-i przetestowane jednostkowo.** Stary silnik statbloków
-(`packages/core/src/profiles/`), Profile Studio i adapter CoC7 zostały w
-całości usunięte w `v0.2.4` (commit `dd28f67`). Ten dokument jest źródłem
-prawdy o architekturze tej funkcji między sesjami — aktualizować po każdym
-zadaniu (reguła 10 poniżej).
+**Status: Zadania 1 (SchemaIntrospector + model profilu) i 2 (silnik
+ekstrakcji pól w `extract/`) zaimplementowane i przetestowane jednostkowo.**
+Stary silnik statbloków (`packages/core/src/profiles/`), Profile Studio i
+adapter CoC7 zostały w całości usunięte w `v0.2.4` (commit `dd28f67`). Ten
+dokument jest źródłem prawdy o architekturze tej funkcji między sesjami —
+aktualizować po każdym zadaniu (reguła 10 poniżej).
 
 **Uwaga o numeracji zadań:** właściciel zgrupował moje pierwotne "Zadanie 1"
-(schemat profilu) i "Zadanie 2" (introspekcja) w JEDNO "Zadanie 1". Sekcja
+(schemat profilu) i "Zadanie 2" (introspekcja) w JEDNO "Zadanie 1"; jego
+"Zadanie 2" (ten silnik ekstrakcji) odpowiada mojemu pierwotnemu "Zadaniu 3",
+ale zawężonemu do JEDNEGO już-zlokalizowanego bloku (znajdowanie GRANIC
+statbloków w całym dokumencie zostaje osobnym, późniejszym zadaniem). Sekcja
 "Lista zadań 1-7" niżej zachowuje oryginalną numerację jako punkt odniesienia
-architektonicznego; sekcja "Zrealizowane" poniżej opisuje, co faktycznie
-powstało pod nazwą właściciela "Zadanie 1".
+architektonicznego; sekcje "Zrealizowane" opisują, co faktycznie powstało
+pod nazwami właściciela.
 
 ## Twarde zasady (obowiązują w każdym zadaniu)
 
@@ -517,6 +520,130 @@ faktycznie powstaje profil — odłożone do Zadania 5), empiryczna weryfikacja
 introspekcji na dwóch różnych żywych systemach Foundry (Zadanie 2 w
 oryginalnej liście, kryterium akceptacji jeszcze nie spełnione).
 
+## Zrealizowane — Zadanie 2 (silnik ekstrakcji pól, `extract/`)
+
+**Zakres:** jeden już-zlokalizowany blok (`ExtractionBlock` — bbox + jego
+własne elementy tekstowe) w środku, jedno pole na wyjściu. Znajdowanie GRANIC
+statbloków w całym dokumencie (mój pierwotny szerszy "Zadanie 3") to
+OSOBNE, późniejsze zadanie — ten silnik go zakłada jako dane wejściowe, nie
+buduje go. Zero UI, zero Foundry, zero DOM — sprawdzone: `check:boundary`
+zielony, wszystkie testy uruchamiają się w czystym Node przez vitest.
+
+**Prymityw wejściowy — `PageTextElement`:** `{text, x, y, w, h, fontName,
+fontSize, bold, italic}` dokładnie jak w briefie. Własna decyzja
+projektowa (brief nie podał wprost): `x`/`y` to róg MIN (lewy/dolny), ta
+sama konwencja PDF-space (Y rośnie w górę) co cały `packages/core`
+(`geometry.ts::Rect`) — nie baseline, nie top-left-w-dół-ekranu.
+Celowo NIE reużyto `CleanItem`/`TextLine` z `text/`/`layout/` (te niosą
+surową macierz transformacji PDF i są związane z całodokumentową higieną/
+statystyką odstępów/rangowaniem ról fontów — nadmiarowe dla ekstrakcji
+garści pól z już-zlokalizowanego bloku); nowy, mniejszy typ `ReconstructedLine`
+zamiast tego (nazwa inna niż istniejące `layout/lineCluster.ts`'s `TextLine`
+— kolizja nazw przy re-eksporcie z głównego barrela wykryta przez `tsc`,
+naprawiona zmianą nazwy).
+
+**Rekonstrukcja linii i kolumn (`reconstructLines.ts`):** grupowanie po
+nakładaniu się Y w wiersze, potem podział wiersza w miejscu nietypowo
+szerokiej przerwy poziomej (mediana przerw w wierszu × 4, próg
+bezwzględny 24pt gdy przerw jest za mało, żeby policzyć sensowną
+medianę) — praktyczny przypadek: dwie niezależne pary etykieta/wartość
+obok siebie w tym samym wierszu wizualnym (np. "HP: 12    AC: 15") nie
+zlepiają się w jeden bezsensowny string. **Błąd złapany przez własne
+testy i naprawiony:** dla wiersza z DOKŁADNIE dwoma elementami (jedna
+przerwa) mediana tej jednej przerwy to ona sama — mnożenie jej przez 4
+nigdy nie mogło przekroczyć progu, więc podział kolumnowy nigdy by się nie
+uruchomił dla najprostszego, najczęstszego przypadku (dokładnie dwa pola
+obok siebie). Naprawione: próg bezwzględny sam w sobie, gdy przerw jest
+mniej niż 2.
+
+**Trzy źródła (`sources/`):**
+- `label` — dopasowanie NA POZIOMIE ELEMENTU (jeden element = cała
+  etykieta, bez łączenia wieloelementowych etykiet w tym zadaniu),
+  `stopAt` przez rekonstruowane linie: `endOfLine` (reszta bieżącej linii),
+  `endOfBlock` (wszystkie kolejne linie), `nextLabel` (kolejne linie, aż
+  któraś dopasuje `nextLabelPattern` — wymagany, błąd konfiguracji gdy go
+  brak).
+- `region` — prostokąt znormalizowany 0..1 względem bboxa bloku,
+  włączenie przez ŚRODEK elementu w prostokącie (ten sam wzorzec co stary,
+  usunięty `inferPatternFromSelection.ts`'s zaznaczenie myszą).
+- `styleFilter` — font/rozmiar/pogrubienie/kursywa jako kryteria AND;
+  `largestFontInBlock` komponuje się z pozostałymi kryteriami (np.
+  "największy POGRUBIONY font w bloku" zawęża do max rozmiaru WŚRÓD już
+  przefiltrowanych elementów, nie wszystkich w bloku).
+
+**Łańcuch transformacji (`transforms/`):** wszystkie 11 z brifu:
+`trim`, `normalizeWhitespace` (czyści białe znaki W LINII, zachowuje
+podziały linii — łączenie linii to osobny krok), `joinWrappedLines`
+(dehyfenacja: linia kończąca się myślnikiem + kolejna zaczynająca się
+małą literą → sklejone bez myślnika/spacji; wielka litera → zwykła spacja,
+myślnik zostaje), `stripLigaturesAndOddChars` (ligatury ﬁﬂﬀﬃﬄ, znaki
+kontrolne, PUA), `regexExtract` (z grupą), `parseNumber`, `nthNumber`,
+`split`/`join`, `valueMap` (dysponuje NA `ValueMap.kind` z Zadania 1:
+`stripUnits`, `regexReplace`, `diceNotation` — TYLKO kosmetyczna
+normalizacja, nie parser kostek, `lookupTable` — fuzzy+case-insensitive,
+patrz niżej), `textToHtml`, `defaultValue`. Każdy krok NIGDY nie rzuca
+wyjątku — degraduje do `undefined`/no-op, więc `defaultValue` na końcu
+łańcucha niezawodnie łapie KAŻDĄ wcześniejszą porażkę, nie tylko brak
+dopasowania źródła.
+
+**`parseNumber` — dziwne minusy i ułamki:** rozpoznaje `+`, zwykły
+`-`, U+2212 MINUS SIGN, U+2013 EN DASH (używany jako minus w niektórych
+fontach) jako znak liczby; samotny myślnik bez cyfr CELOWO nie parsuje się
+jako liczba (częsta konwencja "brak" w statblokach — `defaultValue` po tym
+kroku obsługuje taki przypadek, jeśli potrzeba). Ułamki: unikodowe
+wulgarne (½⅓⅔¼¾...) samodzielnie lub jako liczba mieszana ("1½").
+**Błąd złapany przez własne testy i naprawiony:** pierwsza wersja regexa
+próbowała najpierw gałęzi "zwykła liczba", która zachłannie dopasowywała
+samą część całkowitą "1" z "1½" i NIGDY nie sprawdzała gałęzi ułamkowej
+(alternacja regexowa nie cofa się do innej, też poprawnej gałęzi po
+sukcesie wcześniejszej) — "1½" dawało błędnie `1` zamiast `1.5`. Naprawione
+zmianą kolejności alternatyw (gałąź ułamkowa pierwsza).
+
+**`valueMap` typu `lookupTable` — fuzzy, case-insensitive (główny wymóg
+brifu):** trzy poziomy, każdy próbowany tylko gdy poprzedni nic nie
+znalazł: (1) dokładne dopasowanie, case-insensitive domyślnie; (2) przy
+`fuzzy:true` — dopasowanie po znormalizowaniu (tylko litery/cyfry,
+usuwa różnice w interpunkcji/białych znakach); (3) przy `fuzzy:true` —
+najbliższy klucz odległością Levenshteina w progu proporcjonalnym do
+długości (żeby nie dopasować dwóch naprawdę niezwiązanych wartości).
+
+**Rzutowanie na typ + walidacja (`castAndValidate.ts`):** niezgodność
+typu (np. pole liczbowe dostało string) to błąd, wartość odrzucona;
+naruszenie ograniczenia (min/max/integer/choices) to ostrzeżenie, wartość
+ZOSTAJE (nadal użyteczna do przeglądu). `ProfileFieldDataType` (z Zadania
+1) to bezpośrednio słownik typów tutaj — ten sam zestaw
+string/number/boolean/html/choices/array/object.
+
+**Diagnostyka — napotkane ograniczenie typu:** `Diagnostic.params` jest
+typowany `Record<string, string | number>` (feeduje szablon lokalizacji),
+nie `unknown` — każde miejsce chcące zgłosić obiekt/tablicę (np. cały
+`StyleFilter` albo listę `choices`) przechodzi przez `toParamValue()`
+(JSON.stringify z fallbackiem na `String()`), nowy mały helper
+(`diagnosticParam.ts`).
+
+**Testy:** 133 nowe testy jednostkowe (72 pliki testowe w core razem,
+816 testów w sumie), wszystkie na ręcznie budowanych `PageTextElement[]`/
+stringach — zero PDF, zero prawdziwych statbloków. Pokryte explicite
+wskazane przez właściciela przypadki brzegowe: brak etykiety
+(`STATBLOCK_LABEL_NOT_FOUND`), pusty tekst (etykieta bez wartości →
+`found:true, raw:''` + diagnostyka info; pusty region/filtr →
+`found:false`), zawinięte linie (dehyfenacja z wielką/małą literą po
+myślniku, kilka łączeń pod rząd, puste linie), dziwne minusy (wszystkie 4
+warianty znaku, samotny myślnik bez cyfr, myślnik jako separator a nie
+znak). Dwa prawdziwe błędy w PIERWSZEJ wersji kodu złapane właśnie przez
+pisanie tych testów (opisane wyżej) — dokładnie po to reguła 10 każe
+testować szeroko, nie tylko "happy path".
+
+**Bramki:** 816 testów core zielone, typecheck obu pakietów czysty, lint,
+`check:boundary`/`check:imports`/`check:size` (budżet bez zmian — 7873
+bajtów, `extract/` nie jest jeszcze podpięty pod żaden punkt wejścia UI),
+`build`/`package` bez zmian w `git status`.
+
+**Czego NIE zrobiono / założenia do potwierdzenia:** patrz nowe pytania
+#12-#16 niżej — m.in. dopasowanie wieloelementowej etykiety, sygnał granicy
+kolumn kalibrowany "na oko" (nie na realnych danych, bo reguła 6 zakazuje
+prawdziwej treści), `diceNotation` to kosmetyka, nie parser.
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -577,6 +704,38 @@ oryginalnej liście, kryterium akceptacji jeszcze nie spełnione).
     release" wciąż mówi "The feature is built and tested" o silniku, który
     właśnie usunęliśmy w v0.2.4. Poprawić teraz (na coś w stylu "not yet
     built"), czy poczekać aż ta funkcja czegoś dostarczy?
+12. **Dopasowanie wieloelementowej etykiety** — `label` źródło dopasowuje
+    etykietę na poziomie JEDNEGO elementu (cały trymowany tekst). Prawdziwe
+    PDF-y czasem rozbijają jedną etykietę na dwa elementy (np. "Hit" +
+    "Points:"). Czy to wystarczający zakres na start (profil autor może
+    dobrać `labelPattern` z regexem obejmującym wariant), czy potrzebne
+    dopasowanie po SKLEJONYM tekście sąsiednich elementów?
+13. **Kalibracja progu podziału kolumn** — mediana×4 / próg bezwzględny
+    24pt w `reconstructLines.ts` to rozsądna, ale NIEKALIBROWANA heureza
+    (reguła 6 zakazuje testowania na prawdziwej treści, więc nie mam na
+    czym skalibrować). Czy to akceptowalne jako punkt startowy do
+    ewentualnej kalibracji później (analogicznie do `gapStatistics.ts` w
+    starym pipeline), czy wolisz inne podejście do "obsługi kolumn" już
+    teraz?
+14. **`diceNotation` to tylko kosmetyka** — normalizuje wielkość liter i
+    spacje wokół `+`/`-`, NIE parsuje/nie oblicza notacji kostek (poza
+    zakresem tego zadania wg mojej interpretacji brifu — "łańcuch
+    transformacji tekstu", nie "silnik reguł gry"). Wystarczy, czy
+    potrzebny pełny parser (np. do walidacji, że "1d6+2" to poprawna
+    notacja)?
+15. **`textToHtml` jest linia-po-linii, nie akapit-po-akapicie** — każda
+    zrekonstruowana linia to osobny `<p>`; wielolinijkowa proza NIE jest
+    łączona w jeden akapit (to robi `joinWrappedLines`, ale on produkuje
+    zwykły string, nie HTML). Czy potrzebny wariant łączący WIELE linii w
+    jeden `<p>` (np. przez pustą linię jako separator akapitów), czy
+    obecny, prostszy "jedna linia = jeden `<p>`" wystarczy na razie?
+16. **`castAndValidate`'s "choices" nie odrzuca, tylko ostrzega** — wartość
+    spoza `choices` zostaje (z ostrzeżeniem), zamiast być odrzucona jak przy
+    niezgodności typu. Decyzja: "choices" to zamknięta lista wobec REALNEGO
+    systemu (np. rozmiar stworzenia), ale ekstrakcja mogła znaleźć coś
+    spoza niej przez błąd OCR/parsowania — pokazanie tego do ręcznej
+    korekty wydało się bezpieczniejsze niż ciche odrzucenie. Zgadzasz się z
+    tą interpretacją, czy "choices" powinno być tak samo twarde jak typ?
 
 ## Log postępu
 
@@ -605,3 +764,25 @@ oryginalnej liście, kryterium akceptacji jeszcze nie spełnione).
   pytaniach #2 (rozstrzygnięte)/#4 (częściowo) wyżej. Czeka na dalsze
   wskazówki właściciela (np. Zadanie 2 z oryginalnej listy: weryfikacja na
   żywo w dwóch systemach, albo od razu UI kreatora profilu).
+- **2026-09-30** — Zadanie 2 (silnik ekstrakcji pól, briefu właściciela)
+  zaimplementowane: `packages/core/src/statblock/extract/` — `types.ts`
+  (`PageTextElement`, `ExtractionBlock`, `ReconstructedLine`),
+  `reconstructLines.ts` (grupowanie w wiersze + podział kolumnowy),
+  `sources/` (label/region/styleFilter), `transforms/` (wszystkich 11 z
+  brifu + `runChain.ts`), `castAndValidate.ts`, `extractField.ts` (spina
+  wszystko). Zero UI, zero silnika znajdowania GRANIC statbloków w całym
+  dokumencie (osobne, późniejsze zadanie) — zgodnie z briefem. 133 nowe
+  testy jednostkowe (816 w sumie w core), w tym explicite wskazane
+  przypadki brzegowe (brak etykiety, pusty tekst, zawinięte linie, dziwne
+  minusy). Dwa prawdziwe błędy złapane i naprawione W TRAKCIE pisania
+  testów (nie po fakcie): próg podziału kolumn nigdy nie mógł się
+  uruchomić dla dokładnie dwuelementowych wierszy (mediana jednej przerwy
+  mnożona przez siebie), i `parseNumber`'s regex gubił część ułamkową
+  liczby mieszanej przez kolejność alternatyw. Napotkane i rozwiązane
+  ograniczenie typu: `Diagnostic.params` jest `Record<string,string|number>`,
+  nie `unknown` — dodany `diagnosticParam.ts::toParamValue()` dla
+  diagnostyk niosących obiekt/tablicę. Wszystkie bramki zielone, budżet
+  startowy bez zmian (extract/ jeszcze niepodpięty pod UI). 5 nowych pytań
+  (#12-16) o zakres dopasowania wieloelementowej etykiety, kalibrację progu
+  kolumn, głębokość `diceNotation`/`textToHtml`, i semantykę "choices" w
+  walidacji.
