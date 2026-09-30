@@ -1,3 +1,4 @@
+import type { StatblockProfile } from '@bindery/core';
 import { ImportWizard } from './apps/ImportWizard.js';
 
 // [User request] Renamed from 'bindery' — that id was already taken in
@@ -105,6 +106,20 @@ export function registerSettings(): void {
       outputSize: 512,
       format: 'webp',
     } satisfies TokenPrepDefaults,
+  });
+
+  // [Statblock import, Task 1] All statblock profiles the user has built in
+  // this world, keyed by `StatblockProfile.id` — one setting holding the
+  // whole collection (not one setting per profile), so CRUD is a single
+  // `get`/`set` round-trip. `config:false` — like the settings above,
+  // changed ONLY through the profile-builder UI (not yet built), never the
+  // settings screen. No explicit `type: Object` — same fvtt-types
+  // generic-inference limit noted at `tokenPrepDefaults` above.
+  game.settings!.register(MODULE_ID, 'statblockProfiles', {
+    name: 'Statblock import profiles',
+    scope: 'world',
+    config: false,
+    default: {} as Record<string, StatblockProfile>,
   });
 }
 

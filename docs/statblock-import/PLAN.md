@@ -1,10 +1,17 @@
 # Import statblocków z PDF — plan architektury (system-agnostyczny)
 
-**Status: analiza repo zakończona, plan gotowy do przeglądu. Zero kodu.**
-Stary silnik statbloków (`packages/core/src/profiles/`), Profile Studio i
-adapter CoC7 zostały w całości usunięte w `v0.2.4` (commit `dd28f67`). Ten
-dokument jest źródłem prawdy o architekturze tej funkcji między sesjami —
-aktualizować po każdym zadaniu (reguła 10 poniżej).
+**Status: Zadanie 1 (SchemaIntrospector + model profilu) zaimplementowane
+i przetestowane jednostkowo.** Stary silnik statbloków
+(`packages/core/src/profiles/`), Profile Studio i adapter CoC7 zostały w
+całości usunięte w `v0.2.4` (commit `dd28f67`). Ten dokument jest źródłem
+prawdy o architekturze tej funkcji między sesjami — aktualizować po każdym
+zadaniu (reguła 10 poniżej).
+
+**Uwaga o numeracji zadań:** właściciel zgrupował moje pierwotne "Zadanie 1"
+(schemat profilu) i "Zadanie 2" (introspekcja) w JEDNO "Zadanie 1". Sekcja
+"Lista zadań 1-7" niżej zachowuje oryginalną numerację jako punkt odniesienia
+architektonicznego; sekcja "Zrealizowane" poniżej opisuje, co faktycznie
+powstało pod nazwą właściciela "Zadanie 1".
 
 ## Twarde zasady (obowiązują w każdym zadaniu)
 
@@ -408,30 +415,138 @@ ten sam duch co reszta modułu). **Kryteria akceptacji:** zweryfikowane na
 żywo w prawdziwym świecie Foundry na DWÓCH różnych systemach — karta
 utworzonego Actora pokazuje właściwe wartości we właściwych polach dla obu.
 
+## Zrealizowane — Zadanie 1 (SchemaIntrospector + model profilu)
+
+**Zakres:** oryginalne Zadanie 1 (schemat) + Zadanie 2 (introspekcja) z listy
+wyżej, połączone przez właściciela w jedno zadanie. Zero UI, zero silnika
+ekstrakcji — zgodnie z briefem.
+
+**Core (`packages/core/src/statblock/`):**
+- `schema/types.ts` — `FoundryFieldLike` (duck-typed shape realnego pola
+  Foundry, ten sam wzorzec co `PdfTextItemLike` dla pdf.js), `SchemaFieldKind`
+  (`string|number|boolean|html|choices|array|object|unsupported`),
+  `SchemaFieldDescriptor` (path/label/type/choices/min/max/integer/initial/
+  currentValue/children).
+- `schema/describeSchemaField.ts` — czysta rekurencyjna funkcja
+  `describeSchemaField`/`describeSchema`: klasyfikuje pole po
+  `className` (zamkniętą mapą, żadnego zgadywania), `choices` ZAWSZE
+  nadpisuje bazowy typ prymitywny na `'choices'`, pomija dzieci `readonly`,
+  reprezentuje pole tablicowe jako jedno syntetyczne dziecko = kształt
+  JEDNEGO elementu (nie N realnych elementów — to schemat, nie dane).
+- `schema/attachCurrentValues.ts` — osobny czysty przebieg wypełniający
+  `currentValue` z żywych danych `actor.system` (własna, minimalna
+  reimplementacja `getProperty` po kropce-ścieżce, bez importu z Foundry).
+- `profile/schema.ts` — **zmiana względem wcześniejszego szkicu planu**: typy
+  (`StatblockProfile`, `ProfileField`, itd.) są teraz `z.infer<typeof ...>`
+  wywiedzione ZE schematu Zod, nie odwrotnie — dokładnie wzorem starego,
+  usuniętego `profiles/schema.ts` (unika rozjazdu typ↔walidator). `ProfileFieldDataType`
+  to DOKŁADNIE `SchemaFieldKind` minus `'unsupported'` (przetestowane wprost,
+  patrz niżej) — dzięki temu `validateProfileAgainstSchema` robi zwykłe
+  porównanie równości zamiast tabeli zgodności.
+- `profile/validateAgainstSchema.ts` — `validateProfileAgainstSchema(profile,
+  actorSchema, itemSchemas)` → `Diagnostic[]` (reużywa istniejący typ
+  `Diagnostic`): sprawdza, czy każda `actorSchemaPath` istnieje w BIEŻĄCYM
+  drzewie schematu i czy typ się zgadza — osobno od `validateProfile`
+  (struktura JSON-a) właśnie po to, żeby wykryć dryf systemu
+  (`templateSchemaFingerprint` w profilu jest po to samo, ale jego
+  OBLICZANIE odłożone do Zadania 5 — patrz pytanie #4 zaktualizowane niżej).
+- `profile/migrate.ts` — szkielet migracji: dziś jedna gałąź (v1 = identity),
+  `default` odrzuca z czytelnym powodem zamiast cichej koercji. Wywoływane
+  PRZED `validateProfile` przez warstwę storage.
+
+**Module (`packages/module/src/statblock/`):**
+- `schema/toFieldLike.ts` — adapter realnego pola Foundry → `FoundryFieldLike`,
+  z jedną funkcją `resolveMaybeFunction` rozwiązującą `choices`/`initial`,
+  gdy są funkcją zero-argumentową (core nigdy nie wywołuje funkcji, których
+  nie zna).
+- `schema/introspectActor.ts` — `listDocumentSubtypes('Actor'|'Item')` (z
+  `game.system.documentTypes`), `introspectDocumentType(kind, type)` (z
+  `CONFIG.Actor|Item.dataModels[type].schema`, zwraca `null` gdy brak
+  DataModelu), `introspectDocumentInstance(kind, doc)` (łączy powyższe +
+  `attachCurrentValues` na żywych danych), `describeDocumentInstanceViaFallback`
+  (dla systemów BEZ DataModelu: `foundry.utils.flattenObject(doc.toObject())`,
+  filtrowane do ścieżek `system.*`, typ zgadywany z `typeof` realnej
+  wartości), `introspectAllItemTypes()` (pula typów Itemów pod `collections`).
+  Krzyżowanie z `game.system.documentTypes[kind][type].htmlFields` nadpisuje
+  `'string'` na `'html'` nawet gdy pole to zwykły `StringField` (niektóre
+  systemy nie używają klasy `HTMLField` mimo renderowania jako rich text).
+- `profile/store.ts` — CRUD na jednym ustawieniu światowym
+  `statblockProfiles` (`Record<id, StatblockProfile>`): `listProfiles`,
+  `getProfile`, `saveProfile`, `deleteProfile`, `duplicateProfile` (nowe id
+  przez `foundry.utils.randomID()`), `exportProfile` (`foundry.utils.saveDataToFile`,
+  odzyskuje mechanizm eksportu, którego już nie było w żywym kodzie),
+  `importProfileFromFile` (`foundry.utils.readTextFromFile` + migracja +
+  walidacja). Każdy odczyt migruje i waliduje PONOWNIE (wpis, który
+  przestał być poprawny — np. ręcznie edytowany w bazie świata — jest
+  pomijany z ostrzeżeniem w konsoli, nie wywala reszty kolekcji).
+- `settings.ts`/`global.d.ts` — nowe ustawienie `statblockProfiles`
+  zarejestrowane (`scope: 'world'`, `config: false`, wzorem
+  `tokenPrepDefaults`).
+
+**Przy okazji naprawione:** `global.d.ts` importował i deklarował typ
+`LastActorProfile`/ustawienie `lastActorProfile`, które usunąłem z
+`settings.ts` przy usuwaniu CoC7 w poprzedniej sesji — zostało przeoczone,
+bo `skipLibCheck: true` w `tsconfig.base.json` NIE sprawdza plików `.d.ts`,
+więc `tsc --noEmit` milczał mimo realnego błędu. Wyczyszczone.
+
+**Testy (`packages/core/test/statblock/`):** 44 nowe testy, wszystkie na
+ręcznie budowanych obiektach JS/JSON (zero PDF, zgodnie z regułą 6) —
+klasyfikacja typów pól (w tym `choices` nadpisujące typ bazowy, pomijanie
+`readonly`, zagnieżdżanie wielopoziomowe, kształt elementu tablicy),
+`attachCurrentValues` (ścieżki zagnieżdżone, brakujące, przez
+nie-obiekt), `validateProfile` (happy path + >=7 wariantów złych profili,
+nigdy nie rzuca wyjątku, test synchronizacji `ProfileFieldDataType`↔`SchemaFieldKind`),
+`validateProfileAgainstSchema` (brakująca ścieżka, niezgodny typ, brakujący
+typ Itemu kolekcji), `migrateProfileData` (identity, nieznana wersja,
+brak `schemaVersion`, śmieciowe wejście). Moduł Foundry-side
+(`toFieldLike`/`introspectActor`/`store`) NIE ma testów jednostkowych —
+tak jak reszta warstwy Foundry-facing w tym repo, weryfikowany na żywo
+(patrz kryteria akceptacji Zadania 2 wyżej — jeszcze niezrealizowane, brak
+uruchomionego świata Foundry w tej sesji).
+
+**Bramki:** 664 testy core zielone, typecheck obu pakietów czysty
+(`skipLibCheck` już nie kryje nowych błędów — sprawdzone ręcznie), lint,
+`check:boundary`/`check:imports`/`check:size` (budżet startowy: 7736 → 7873
+bajtów, wzrost wyłącznie z nowego wpisu `game.settings.register`), `build`/
+`package` bez zmian w `git status`.
+
+**Czego NIE zrobiono (zgodnie z briefem "nie rób jeszcze UI ani
+ekstrakcji"):** UI kreatora profilu, silnik detekcji/ekstrakcji (Zadania
+3-4/6-7), obliczanie `templateSchemaFingerprint` (potrzebne dopiero, gdy
+faktycznie powstaje profil — odłożone do Zadania 5), empiryczna weryfikacja
+introspekcji na dwóch różnych żywych systemach Foundry (Zadanie 2 w
+oryginalnej liście, kryterium akceptacji jeszcze nie spełnione).
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
    renderowaną stronę PDF (następca Profile Studio, ale NIE jego dokładne
    odtworzenie — nowe okno, węższy zakres). Czy to dobry kierunek, czy
    wolisz inny mechanizm (np. formularz bez live-podglądu PDF-a)?
-2. **Perzystencja profilu** — nie ma dziś w kodzie żadnego wzorca
-   zapisu/odczytu JSON-a jako pliku (stary mechanizm profilu aktora
-   zniknął razem z resztą). Czy nowy profil ma być: (a) ustawieniem
-   per-świat (jak `lastGridConfig`), (b) plikiem do eksportu/importu (żeby
-   dało się nim dzielić między światami/społecznością, jak dawniej), czy
-   (c) oboma?
+2. ~~**Perzystencja profilu**~~ — **ROZSTRZYGNIĘTE przez właściciela w
+   briefie Zadania 1: oboma.** `game.settings` (`statblockProfiles`, per
+   świat) jako główne miejsce + `exportProfile`/`importProfileFromFile`
+   (`foundry.utils.saveDataToFile`/`readTextFromFile`) do dzielenia się
+   profilem jako plikiem `.json`. Zaimplementowane w `profile/store.ts`.
 3. **Niezgodność wersji `fvtt-types`** — pakiet w `packages/module` jest
    przypięty do typów Foundry 13, a `module.json` deklaruje minimum 14. Typy
    pól schematu (SchemaField/ArrayField/etc.) są w praktyce stabilne
-   13→14, ale to założenie, nie pewnik. Zaktualizować `fvtt-types` najpierw,
-   czy jechać dalej i zweryfikować empirycznie w zadaniu 2?
-4. **Niezawodność `CONFIG.Actor.dataModels`** — badanie typów sugeruje, że
-   to właściwy generyczny mechanizm, ale nie zweryfikowałem empirycznie,
-   czy jest wypełniony dla KAŻDEGO systemu (starsze systemy oparte
-   wyłącznie o `template.json` mogą go nie mieć — Foundry v14 oznacza
-   `game.template` jako przestarzałe na rzecz nowszego rejestru). Czy
-   akceptowalne jest wspieranie na start WYŁĄCZNIE systemów z prawdziwym
-   DataModel (wykluczając stare, oparte o `template.json`)?
+   13→14, ale to założenie, nie pewnik — **nadal otwarte**, udokumentowane
+   wprost w komentarzu `packages/module/src/statblock/schema/toFieldLike.ts`
+   (kod działa na tym założeniu, nie zablokowałem się na nim). Zaktualizować
+   `fvtt-types` najpierw, czy jechać dalej i zweryfikować empirycznie na
+   żywym Foundry v14?
+4. **Niezawodność `CONFIG.Actor.dataModels`** — **częściowo rozstrzygnięte
+   przez implementację, nie empirię:** `introspectDocumentType` zwraca
+   `null`, gdy brak DataModelu, i `introspectDocumentInstance` w takim
+   wypadku automatycznie spada na `describeDocumentInstanceViaFallback`
+   (`foundry.utils.flattenObject`) — więc stare, `template.json`-owe
+   systemy NIE są wykluczone, tylko dostają uboższy wynik (bez
+   label/choices/min/max, same ścieżki+typ+wartość). Nadal nie
+   zweryfikowałem na żywo, że `CONFIG.Actor.dataModels` faktycznie bywa
+   puste dla takich systemów w Foundry v14 (czy fallback kiedykolwiek się
+   realnie uruchomi) — to wymaga żywego świata z takim systemem
+   zainstalowanym.
 5. **Format fixture'ów** — proponuję dwuwarstwowe podejście opisane wyżej
    (lekki JSON tokenów dla testów silnika, prawdziwe syntetyczne PDF-y przez
    istniejący `test/synth/` dla integracji). Akceptowalne, czy chcesz
@@ -471,3 +586,22 @@ utworzonego Actora pokazuje właściwe wartości we właściwych polach dla obu.
   DataModel Foundry, konwencje testowe) przez trzy równoległe agenty
   badawcze; plan architektury, schematy JSON, lista zadań 1-7 i lista pytań
   napisane. Zero kodu. Czeka na odpowiedzi właściciela na pytania powyżej.
+- **2026-09-30** — Zadanie 1 (SchemaIntrospector + model profilu, briefu
+  właściciela) zaimplementowane: `packages/core/src/statblock/`
+  (schema: types/describeSchemaField/attachCurrentValues; profile:
+  schema/validateAgainstSchema/migrate) + `packages/module/src/statblock/`
+  (schema: toFieldLike/introspectActor; profile: store) + nowe ustawienie
+  `statblockProfiles`. 44 nowe testy jednostkowe (zero PDF, hand-built
+  fixtures). Przy okazji naprawiony przeoczony wcześniej błąd w
+  `global.d.ts` (martwy import `LastActorProfile` po usunięciu CoC7,
+  niewykryty przez `tsc` z powodu `skipLibCheck: true`). Wszystkie bramki
+  zielone. Zweryfikowane empirycznie w fvtt-types (nie w żywym Foundry):
+  `SchemaField.entries/.fields`, `ArrayField.element`,
+  `NumberField.min/max/integer/choices`, `HTMLField extends StringField`,
+  `game.system.documentTypes`, `foundry.utils.flattenObject/saveDataToFile/
+  readTextFromFile`, `foundry.utils.randomID`. Nie zrobiono: UI, silnik
+  ekstrakcji, `templateSchemaFingerprint`, weryfikacja na żywym świecie —
+  szczegóły w sekcji "Zrealizowane — Zadanie 1" i zaktualizowanych
+  pytaniach #2 (rozstrzygnięte)/#4 (częściowo) wyżej. Czeka na dalsze
+  wskazówki właściciela (np. Zadanie 2 z oryginalnej listy: weryfikacja na
+  żywo w dwóch systemach, albo od razu UI kreatora profilu).

@@ -69,4 +69,5 @@ export * from './text/index.js';
 export * from './layout/index.js';
 export * from './semantic/index.js';
 export * from './cif/index.js';
+export * from './statblock/index.js';
 export * from './referenceInvariants.js';
