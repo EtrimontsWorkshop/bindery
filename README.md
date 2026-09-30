@@ -30,7 +30,42 @@ Stated plainly, so you know what to expect before importing a real book:
 
 ## What's not in this release
 
-**Actor (stat block) import.** Bindery can read stat blocks from a PDF and create actors from them, but each book lays its stat blocks out differently, so it needs a description of that layout to work. Building and loading those descriptions is hidden in this release until there's a supported way to share them. The feature is built and tested, and this section will be updated when it's available.
+**Actor (stat block) import** is under active development on a separate branch and is **not available in this release** — the sections below describe the feature as it's being built, not something you can use with the version this README ships alongside. This section will be updated (and the "Status" line above changed) once it ships.
+
+## Statblock import (profile-based) — in development
+
+Bindery can read stat blocks from a PDF and create Actors from them, for **any** game system, in **any** language — it never assumes a particular system's field names or a particular layout. Instead, you teach it once per book (or per layout) by building a **profile**: you point it at an Actor you've already set up in your world as a template, then show it where each value sits on an example page. From then on, it can find every statblock in that PDF that follows the same layout and build an Actor for each one.
+
+### Workflow
+
+1. **Open the profile builder** (module settings → "Statblock profile builder…") and start a new profile, or edit an existing one.
+2. **Source tab** — pick the template Actor (the one whose fields you want to fill in) and load an example PDF containing at least one statblock in the layout you want to teach.
+3. **Fields tab** — click an element on the page preview (or drag a rectangle) to select it, then click the matching field in the Actor's own field list to assign it. Repeat for every field worth extracting; a live preview shows the raw text, the value after any transforms, and whether it's valid for that field's type. Fields you don't map can optionally inherit their value from the template Actor instead of staying empty.
+4. **Collections tab** — for repeating sections (attacks, spells, inventory — whatever your system's Actor has as embedded Items), point at a template Item and describe how the section splits into individual entries (a repeating line pattern, a heading followed by entries, or a fixed delimiter).
+5. **Detection tab** — describe how to recognize where one statblock starts (a heading pattern, or a heading's visual style) and ends (the next statblock, a blank-line gap, the end of a column/page, or a closing marker), then run "test on the whole PDF" to see every statblock it finds and how confident it is about each one, before importing anything.
+6. **Save** the profile (with validation against the template Actor's current schema), and reuse it on any other PDF that shares the same layout. Profiles export to a `.json` file so you can share one for a specific book with other GMs running the same system.
+
+### A worked example, on made-up fields
+
+Because Bindery has no idea which system you're using, every example below is deliberately abstract — substitute your own system's actual field names:
+
+- The book prints `Attribute A: 14` under each creature's name → map a field with source "label: `Attribute A:`, same line" to your Actor's `attributeA` path, with a "parse number" transform so `"14"` becomes the number `14`, not the string `"14"`.
+- The book prints `Resource B (used/max): 3/10` → map that text to `resourceB.value`/`resourceB.max` as two separate fields (or one field plus a "split" transform on `/`), whichever your system's Actor schema actually has.
+- A repeating "Actions" section, each entry starting with a bold name, followed by a description → a collection with split rule "heading, then entries" (heading pattern `ACTIONS`), each entry's own name and description mapped the same way as any other field, scoped to that one entry.
+
+### Limitations
+
+- **No OCR.** Bindery reads the PDF's own text layer — the same layer you could select and copy in a PDF viewer. A scanned book with no text layer (image-only pages) has nothing for it to find; run the PDF through an OCR tool first if you need this to work on one.
+- **One profile per layout, not per book.** If a book uses two different statblock layouts (for example, a simpler format for minor NPCs and a fuller one for major ones), you need one profile per layout.
+- **Requires an existing Actor (and, for repeating sections, Item) in your world to teach from.** The profile builder introspects that Actor's live schema — it never has or needs built-in knowledge of any game system.
+- Region-based field selection (dragging a rectangle instead of clicking a labeled value) is normalized against the whole page in the current profile builder, not against the statblock's own boundaries — it works reliably for one statblock per page, and may need manual adjustment for multi-column layouts with more than one statblock per page.
+
+### Extension points
+
+Noted here as documented directions for future work, not commitments:
+
+- **OCR fallback.** For scanned, image-only PDFs, a future version could run OCR to produce a synthetic text layer before detection — the rest of the pipeline (profiles, extraction, detection) is already independent of *how* the text layer was produced, so this would slot in ahead of it rather than requiring changes throughout.
+- **Mapping suggestions.** The profile builder currently requires you to click every field yourself. A future version could suggest likely matches (e.g. a number near a label whose text resembles a field's own name or localized label) for you to confirm or reject, rather than replacing your judgment outright.
 
 ## Legal notice
 

@@ -68,6 +68,7 @@
     <div class="form-group">
       <label>{{localize "BINDERY.statblockProfileBuilder.exemplarPdf"}}</label>
       <input type="file" accept=".pdf" data-role="pdf-file" />
+      {{#if busy}}<p class="hint bindery-pb-busy"><i class="fa-solid fa-spinner fa-spin"></i> {{localize busy}}</p>{{/if}}
       {{#if pdfFileName}}<p class="hint">{{pdfFileName}} — {{localize "BINDERY.statblockProfileBuilder.pageOf"}} {{currentPageNumber}}/{{pageCount}}</p>{{/if}}
     </div>
     <div class="form-group">
@@ -87,7 +88,7 @@
           <button type="button" data-action="nextPage"><i class="fa-solid fa-arrow-right"></i></button>
         </div>
         <div class="bindery-pb-page-wrap">
-          <img class="bindery-pb-page-image" />
+          <img class="bindery-pb-page-image" {{#if currentPageImageUrl}}src="{{currentPageImageUrl}}"{{/if}} />
           <svg class="bindery-pb-page-overlay" data-pb-overlay></svg>
         </div>
         {{#if pendingCapture}}

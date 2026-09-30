@@ -1105,6 +1105,154 @@ instrukcja ręcznego testu niżej.
 12. Eksportuj profil do pliku, usuń go z listy, zaimportuj z powrotem —
     sprawdź, że dane się zgadzają.
 
+## Zrealizowane — Zadanie 7 (dopracowanie)
+
+**Zakres:** audyt + naprawa na całej funkcji statblock-import (Zadania 1-5),
+bez nowych funkcji — dokładnie 7 punktów brifu właściciela.
+
+**1. Audyt nazw systemów RPG / zahardkodowanych ścieżek `system.*`:** grep +
+ręczny przegląd `statblock/` w obu pakietach. **Zero rzeczywistych naruszeń
+znalezionych** — trzy komentarze wspominające "CoC7" to legalne odniesienia
+historyczne (kontrastują NOWY, bezsystemowy kod ze STARYM, usuniętym
+adapterem — dokładnie ta sama narracja co sekcja "Dlaczego od zera" tego
+dokumentu), a `'system.'` w `introspectActor.ts` to nazwa WŁASNEGO pola
+Dokumentu Foundry (uniwersalna dla każdego systemu), nie ścieżka
+systemowo-specyficzna. Nowy skrypt CI `tools/check-no-system-names.mjs`
+(`npm run check:no-system-names`, wpięty w `npm run build`) — skanuje
+`statblock/` (oba pakiety) + `templates/`+`lang/` pod kątem (a) znanej listy
+id systemów Foundry jako CYTOWANEGO literału (nie prozy w komentarzu) i (b)
+literału `system.<cokolwiek>` z czymś po kropce W TEJ SAMEJ parze cudzysłowów
+(bary prefiks `'system.'` nie łapie się — to legalne użycie).
+
+**2. Kompletność/spójność lokalizacji en/pl:** nowy skrypt
+`tools/check-lang-usage.mjs` (`npm run check:lang-usage`, wpięty w `build`)
+— skanuje `packages/module/src`+`templates` pod kątem literałów
+`BINDERY.x.y`, porównuje z kluczami w `en.json`. **Znaleziono i naprawiono
+jeden prawdziwy brakujący klucz:** `BINDERY.statblockProfileBuilder.loadingPdf`
+(Zadanie 5, ustawiane w kodzie, nigdy niezdefiniowane w `lang/`, i NIGDY
+niewyświetlane w szablonie w ogóle — druga, powiązana usterka, patrz niżej).
+**70 kluczy zgłoszonych jako "nieużyte"** (ostrzeżenie, nie błąd — skrypt
+nie widzi konstrukcji dynamicznych) — w tym CAŁA istniejąca sekcja
+`diagnostic.*` (odkrycie opisane w punkcie 3 niżej) oraz garść PRAWDZIWIE
+martwych kluczy sprzed tej sesji (`BINDERY.wizard.fieldFileName`/
+`resultTitle`, `BINDERY.review.tabJournals`/`tabScenes`/`journals`/`scenes`/
+itd. — pozostałości po wcześniejszej wersji `ReviewScreen`, poza zakresem tej
+funkcji, NIE usunięte — patrz "Dług techniczny" niżej).
+
+**3. Obsługa błędów/komunikaty z kontekstem — dwie prawdziwe usterki
+znalezione i naprawione:**
+- **Zaginiony `busy` wskaźnik:** Zadanie 5 ustawiało `this.#busy` podczas
+  ładowania PDF-a, ale NIGDY nie renderowało go w szablonie — użytkownik nie
+  widział ŻADNEJ informacji zwrotnej podczas (potencjalnie długiego, patrz
+  punkt 4) wczytywania dużego PDF-a. Naprawione: `{{#if busy}}` w zakładce
+  "Źródło" + brakujący klucz z punktu 2.
+- **Diagnostyki w podglądzie na żywo gubiły `params` (stronę/pole/wartość)
+  całkowicie** — pokazywały goły `"severity: KOD"`. **Odkryty, udokumentowany,
+  ale NIGDY niezaimplementowany mechanizm** w samym rdzeniu:
+  `localizableMessage.ts`/`text/types.ts` (core) wprost mówią "warstwa
+  modułu formatuje `code`+`params` przez `game.i18n.format`... zobacz
+  `packages/module/src/i18n.ts`" — **ten plik nie istniał**. Utworzony teraz:
+  `packages/module/src/i18n.ts::formatDiagnostic(diagnostic)` — używa
+  `game.i18n.format('BINDERY.diagnostic.' + code, params)` gdy szablon
+  istnieje (fallback na goły kod, gdy nie — `game.i18n.has(key, false)`),
+  dokleja stronę/pole/surową wartość jako JEDNOLITY sufiks NIEZALEŻNIE od
+  tego, czy sam szablon je referencuje (uzasadnienie w komentarzu pliku: ten
+  sam kod bywa wzbogacany o `field`/`raw` W JEDNYM miejscu emisji
+  (`buildActorData.ts`), a nie w innym (`castAndValidate.ts` wprost) —
+  szablon odwołujący się do `{field}` pokazywałby dosłowny, niepodstawiony
+  placeholder tam, gdzie go nie ma). Dodano **37 nowych szablonów**
+  `BINDERY.diagnostic.STATBLOCK_*` (en+pl, dopasowane dokładnie do realnych
+  kluczy `params` każdego kodu, zweryfikowane grepem źródła) — pierwsza
+  faktyczna treść dla WSZYSTKICH kodów diagnostycznych Zadań 2-4. Wpięte w
+  `ProfileBuilderApp`'s podgląd na żywo.
+
+**4. Wydajność na dużym PDF-ie — dwie prawdziwe usterki znalezione i
+naprawione w `ProfileBuilderApp.ts`, plus jeden nowy test regresyjny:**
+- **Wyciek `URL.createObjectURL` + zbędne ponowne dekodowanie strony PDF na
+  KAŻDYM renderze okna** (nie tylko przy zmianie strony) — ApplicationV2
+  podmienia CAŁY DOM przy każdym `render()` (ustalona konwencja tego
+  projektu), a stary kod wołał `previewDoc.renderPage()` (kosztowne
+  dekodowanie+kodowanie WebP) i tworzył NOWY `createObjectURL` przy KAŻDYM
+  `_onRender`, nigdy nie zwalniając poprzedniego — klik w dowolne pole,
+  wpisanie znaku w wyszukiwarce, wszystko na zakładce "Pola" ponownie
+  dekodowało obraz strony i pogłębiało wyciek. Naprawione reużyciem
+  DOKŁADNIE sprawdzonego wzorca `ReviewScreen.ts`'s
+  `#pageImageCache`/`#ensurePageImage` (cache z LRU, rozmiar 5, `img.src`
+  wiązany przez kontekst Handlebars, nie imperatywnie w `_onRender`) — ten
+  sam kod, nie wymyślony od nowa.
+- **Wyciek `PreviewDocument` (uchwyt pdf.js) przy zmianie PDF-a/profilu** —
+  otwarcie drugiego przykładowego PDF-a w tej samej sesji, edycja innego
+  profilu, czy powrót do listy nigdy nie wołały `previewDoc.destroy()`
+  (tylko zamknięcie CAŁEGO okna to robiło). Naprawione nowym
+  `#teardownPreviewDoc()` wołanym z wszystkich czterech miejsc (nowy PDF,
+  reset edytora, powrót do listy, zamknięcie okna).
+- **Nowy test regresyjny** (`test/statblock/pdf/largeDocumentPerformance.test.ts`,
+  931 testów w sumie w core): syntetyczny dokument 300 stron (bez
+  prawdziwego PDF-a — reguła 6, to co jest zagrożone to WŁASNY algorytm
+  `detectStatblocks`, nie prędkość dekodowania pdf.js) potwierdza `detectStatblocks`
+  znajduje dokładnie 1 kandydata na stronę z pewnością 1 w < 5s (budżet
+  hojny, to strażnik regresji, nie SLA), plus test porównujący czas
+  `buildStatblockReadingOrder` dla 100 vs 1000 stron — potwierdza skalowanie
+  W PRZYBLIŻENIU LINIOWE, nie kwadratowe. `buildPagesForDetection`'s
+  "wczytaj cały dokument naraz" pozostawiono BEZ ZMIAN — to ten sam,
+  ISTNIEJĄCY WCZEŚNIEJ wzorzec architektoniczny całego pipeline'u CIF
+  (`buildCIFFromDocument.ts` robi identycznie), nie nowe ryzyko wprowadzone
+  przez tę funkcję — udokumentowane jako rekomendacja na później, nie
+  naprawione teraz.
+
+**5-6. README:** nowa sekcja "Statblock import (profile-based) — in
+development" — workflow 6 kroków (buduj profil → mapuj pola → kolekcje →
+detekcja+test → zapis), przykład na w pełni abstrakcyjnych polach
+(`attributeA`, `resourceB`, sekcja "Actions") zamiast jakiegokolwiek
+realnego systemu, jawne ograniczenia (brak OCR, jeden profil na layout,
+wymaga istniejącego Actora/Itemu jako wzorca, uproszczenie normalizacji
+regionu z Zadania 5), i podsekcja "Extension points" (OCR jako warstwa
+PRZED detekcją, podpowiedzi mapowania jako sugestie do potwierdzenia, nie
+automat). **Naprawiona przy okazji nieaktualność** flagowana w pytaniu #11:
+stara sekcja "What's not in this release" mówiła "Funkcja jest zbudowana i
+przetestowana" o STARYM, USUNIĘTYM silniku sprzed tej całej przebudowy —
+zaktualizowana na uczciwy status "w budowie na osobnym branchu, niedostępne
+w tym wydaniu".
+
+**7. Dług techniczny — patrz nowa sekcja niżej i nowe pytania #29-31.**
+
+**Bramki:** 931 testów core zielone (2 nowe testy wydajności), typecheck
+obu pakietów czysty, lint czysty, `build` (z nowymi `check:lang-usage`/
+`check:no-system-names` w łańcuchu) bez błędów, `check:boundary`/
+`check:imports` zielone, `check:size` zielony ale ciaśniej (36368/40960
+bajtów, ~89% — `i18n.ts` dodał ~1.1KB do eager bundle'a; patrz pytanie #25
+z Zadania 5, wciąż otwarte i coraz bardziej naglące).
+
+### Dług techniczny — pełna lista (Zadanie 7, punkt 7)
+
+Zebrane z całej sesji (pytania #1-28 wyżej wciąż otwarte) plus nowe z tego
+audytu:
+
+- **Martwe klucze lokalizacji sprzed tej sesji** (`BINDERY.wizard.
+  fieldFileName`/`resultTitle`, `BINDERY.review.tabJournals`/`tabScenes`/
+  `journals`/`scenes`/`journalsOptInHint`/`journalGroupApply`/
+  `journalGroupHint`/`selectedCount`/`destinationLabel`/`cancelledHint`) —
+  prawdopodobnie pozostałości po wcześniejszej wersji `ReviewScreen` (osobne
+  zakładki Journals/Scenes, później skonsolidowane). Poza zakresem tej
+  funkcji — nie usunięte, tylko odnotowane.
+- **`ReviewScreen.ts`'s wiersz diagnostyki nadal pokazuje goły `[severity]
+  KOD × liczba`**, nie korzysta z nowego `formatDiagnostic()` — teraz, gdy
+  ten helper istnieje, `ReviewScreen` mógłby z niego skorzystać dla dużo
+  czytelniejszych komunikatów (wymaga dopisania szablonów dla kodów spoza
+  `STATBLOCK_*`, które już je mają).
+- **`buildPagesForDetection`'s wczytywanie całego dokumentu naraz** —
+  akceptowalne teraz (ten sam wzorzec co reszta pipeline'u), ale przy
+  naprawdę dużych książkach (setki stron gęstego tekstu) mogłoby skorzystać
+  na leniwym/strumieniowym przetwarzaniu per strona zamiast budowania
+  całego `PageForDetection[]` naraz — większa zmiana architektoniczna, nie
+  punktowa naprawa.
+- **Budżet `check:size` na 89%** (patrz pytanie #25) — coraz pilniejsze po
+  Zadaniu 7's `i18n.ts`.
+- Wszystkie pytania #1-28 z poprzednich zadań (patrz sekcja wyżej) —
+  najbardziej dojrzałe do domknięcia: #17 (już domknięte w Zadaniu 4), #8
+  (już domknięte w Zadaniu 4), #22-24 (Zadanie 4, wciąż otwarte), #25-28
+  (Zadanie 5, wciąż otwarte).
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -1290,6 +1438,23 @@ instrukcja ręcznego testu niżej.
     istnieje i działa w silniku (Zadanie 4), ale UI nie pozwala jeszcze
     zdefiniować/wybrać `ValueMap`. Priorytet na Zadanie 6, czy domykać teraz
     jako uzupełnienie Zadania 5?
+29. **Martwe klucze lokalizacji sprzed tej sesji** (`wizard.fieldFileName`/
+    `resultTitle`, garść `review.*` związanych z zakładkami Journals/Scenes)
+    — usunąć teraz (mały, izolowany PR sprzątający), czy zostawić na osobne,
+    świadome sprzątanie `ReviewScreen`, żeby nie mieszać z branchem
+    statblock-import?
+30. **`ReviewScreen.ts` nie korzysta z nowego `formatDiagnostic()`** — jego
+    własny wiersz diagnostyki wciąż pokazuje goły `[severity] KOD × liczba`
+    bez podstawionych parametrów, mimo że mechanizm formatujący TERAZ
+    istnieje (Zadanie 7). Wdrożyć tam też (wymaga dopisania szablonów
+    lokalizacji dla kodów spoza `STATBLOCK_*`), czy zostawić jako osobne
+    zadanie nie mieszające się z tym branchem?
+31. **`buildPagesForDetection`'s wczytywanie całego dokumentu naraz** —
+    zaakceptowane jako spójne z resztą pipeline'u (`buildCIFFromDocument.ts`
+    robi to samo), ale przy naprawdę dużych książkach mogłoby skorzystać na
+    leniwym przetwarzaniu per strona. Wystarczające na teraz (bramka
+    wydajnościowa z Zadania 7 przeszła), czy to już wystarczający sygnał,
+    żeby zaplanować większą zmianę architektoniczną?
 
 ## Log postępu
 
@@ -1448,3 +1613,38 @@ instrukcja ręcznego testu niżej.
   brak dostępnego środowiska Foundry). Wszystkie bramki statyczne zielone
   (typecheck obu pakietów, lint, build, `check:boundary`/`check:imports`/
   `check:size`/`check:lang`, 929 testów core bez zmian).
+- **2026-09-30** — Zadanie 7 (dopracowanie, briefu właściciela)
+  zaimplementowane: (1) `tools/check-no-system-names.mjs` — nowa bramka CI,
+  zero rzeczywistych naruszeń reguły 1 znalezionych po audycie `statblock/`
+  (trzy komentarze "CoC7" to legalne odniesienia historyczne). (2)
+  `tools/check-lang-usage.mjs` — nowa bramka CI (brakujące/nieużyte klucze),
+  znalazła i naprawiła prawdziwy brakujący klucz
+  (`statblockProfileBuilder.loadingPdf`) plus 70 zgłoszeń "nieużyte"
+  (głównie martwe klucze sprzed tej sesji + cała sekcja `diagnostic.*`,
+  patrz punkt 3). (3) DWIE prawdziwe usterki napotkane i naprawione:
+  wskaźnik `busy` ustawiany ale nigdy niewyświetlany (Zadanie 5), i
+  diagnostyki w podglądzie na żywo gubiące `params` całkowicie — co
+  doprowadziło do odkrycia, że `packages/module/src/i18n.ts` był
+  UDOKUMENTOWANY (w komentarzach `localizableMessage.ts`/`text/types.ts`,
+  core) ale NIGDY nie zbudowany — utworzony teraz (`formatDiagnostic()`,
+  `game.i18n.format` + jednolity sufiks strona/pole/wartość) wraz z 37
+  nowymi szablonami `BINDERY.diagnostic.STATBLOCK_*` (en+pl, pierwsza
+  rzeczywista treść dla wszystkich kodów diagnostycznych Zadań 2-4). (4)
+  DWIE prawdziwe usterki wydajności/pamięci w `ProfileBuilderApp.ts`
+  znalezione i naprawione: wyciek `URL.createObjectURL` + zbędne ponowne
+  dekodowanie strony PDF na KAŻDYM renderze (nie tylko zmianie strony) —
+  naprawione reużyciem DOKŁADNEGO wzorca `ReviewScreen.ts`'s
+  `#pageImageCache`/`#ensurePageImage` (LRU, rozmiar 5); wyciek
+  `PreviewDocument` przy zmianie PDF-a/profilu bez zamknięcia okna —
+  naprawione nowym `#teardownPreviewDoc()`. Nowy test regresyjny
+  (syntetyczny dokument 300 stron, 931 testów w sumie w core) potwierdza
+  `detectStatblocks`/`buildStatblockReadingOrder` skalują się liniowo, nie
+  kwadratowo. (5-6) Nowa sekcja README "Statblock import (profile-based)"
+  — workflow, przykład na w pełni abstrakcyjnych polach, ograniczenia (brak
+  OCR, jeden profil na layout), punkty rozszerzenia (OCR, podpowiedzi
+  mapowania) — plus naprawiona nieaktualna sekcja "What's not in this
+  release" (mówiła o STARYM, usuniętym silniku). (7) Pełna lista długu
+  technicznego spisana (sekcja "Dług techniczny" + nowe pytania #29-31).
+  Wszystkie bramki zielone, w tym dwie nowe (`check:no-system-names`,
+  `check:lang-usage`, obie wpięte w `npm run build`); budżet `check:size`
+  na ~89% (36368/40960) — coraz pilniejsze, patrz pytanie #25.

@@ -8,13 +8,15 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/module && npm run check:lang && npm run sync:local",
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/module && npm run check:lang && npm run check:lang-usage && npm run check:no-system-names && npm run sync:local",
     "test": "npm run test --workspace=packages/core",
     "lint": "eslint . --max-warnings=0",
     "check:boundary": "npm run check:boundary --workspace=packages/core",
     "check:imports": "node tools/check-imports.mjs",
     "check:size": "node tools/check-size.mjs",
     "check:lang": "node tools/check-lang.mjs",
+    "check:lang-usage": "node tools/check-lang-usage.mjs",
+    "check:no-system-names": "node tools/check-no-system-names.mjs",
     "sync:local": "node tools/sync-local-module.mjs",
     "package": "node tools/package-module.mjs",
     "recount:fragmentation": "node tools/recount-fragmentation.mjs",

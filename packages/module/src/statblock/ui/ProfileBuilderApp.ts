@@ -1,3 +1,4 @@
+import { formatDiagnostic } from '../../i18n.js';
 import { ASSET_BASE_URL } from '../../settings.js';
 
 /**
@@ -116,6 +117,10 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   #pagesForDetection: any[] | null = null;
   #currentPageNumber = 1;
   #pageRenderToken = 0;
+  /** [Task 7, performance] Rendered-page cache with LRU eviction — same pattern as `ReviewScreen.ts`'s `#pageImageCache`/`#ensurePageImage`, reused rather than reinvented: without it, every unrelated re-render (clicking a field, typing in a search box — ApplicationV2 replaces the whole DOM part on every `render()`) re-decoded and re-encoded the current PDF page from scratch, and every decode leaked its own `URL.createObjectURL` (never revoked) — both compounding badly on a large, many-page PDF (Task 7 point 4). */
+  #pageImageCache = new Map<number, string>();
+  #pageImageOrder: number[] = [];
+  static readonly #PAGE_CACHE_SIZE = 5;
 
   #selectedTarget: FieldTarget | null = null;
   #pendingCapture: PendingCapture | null = null;
@@ -174,6 +179,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
       pdfFileName: this.#pdfFile?.name ?? null,
       hasPdf: this.#previewDoc !== null,
+      currentPageImageUrl: this.#pageImageCache.get(this.#currentPageNumber) ?? null,
       currentPageNumber: this.#currentPageNumber,
       pageCount: this.#previewDoc?.pageCount ?? 0,
 
@@ -314,7 +320,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       raw: result.raw,
       value: result.value === undefined ? null : String(result.value),
       found: result.found,
-      diagnostics: result.diagnostics.map((d: { severity: string; code: string }) => `${d.severity}: ${d.code}`),
+      diagnostics: result.diagnostics.map(formatDiagnostic),
     };
   }
 
@@ -500,8 +506,18 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   // ---- PDF preview + overlay --------------------------------------------
 
+  /** Releases the CURRENT PDF's resources — the previous `PreviewDocument` (pdf.js worker/document handle) and every cached page image URL — before it's replaced or the window closes. Without this, opening a second exemplar PDF in the same session (or closing the window) leaked BOTH. */
+  #teardownPreviewDoc(): void {
+    if (this.#previewDoc) void this.#previewDoc.destroy();
+    this.#previewDoc = null;
+    for (const url of this.#pageImageCache.values()) URL.revokeObjectURL(url);
+    this.#pageImageCache.clear();
+    this.#pageImageOrder = [];
+  }
+
   async #onPdfSelected(file: File | null): Promise<void> {
     if (!file) return;
+    this.#teardownPreviewDoc();
     this.#pdfFile = file;
     this.#busy = 'BINDERY.statblockProfileBuilder.loadingPdf';
     await this.render();
@@ -521,22 +537,33 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     }
   }
 
-  async #renderCurrentPage(): Promise<void> {
-    if (!this.#previewDoc) return;
+  /** Cache-first — see the `#pageImageCache` field comment for why this replaced a naive "always re-render" version. */
+  async #ensurePageImage(pageNumber: number): Promise<void> {
+    if (!this.#previewDoc || this.#pageImageCache.has(pageNumber)) return;
     const token = ++this.#pageRenderToken;
-    const encoded = await this.#previewDoc.renderPage(this.#currentPageNumber, { targetLongEdgePx: 1400, format: 'webp' });
-    if (token !== this.#pageRenderToken) return;
-    const img = this.element.querySelector<HTMLImageElement>('.bindery-pb-page-image');
-    if (!img) return;
-    const blob = new Blob([encoded.bytes], { type: `image/${encoded.format}` });
-    img.src = URL.createObjectURL(blob);
+    try {
+      const encoded = await this.#previewDoc.renderPage(pageNumber, { targetLongEdgePx: 1400, format: 'webp' });
+      if (token !== this.#pageRenderToken) return; // user already moved on — discard the stale result
+      const url = URL.createObjectURL(new Blob([new Uint8Array(encoded.bytes)], { type: `image/${encoded.format}` }));
+      this.#pageImageCache.set(pageNumber, url);
+      this.#pageImageOrder.push(pageNumber);
+      while (this.#pageImageOrder.length > ProfileBuilderApp.#PAGE_CACHE_SIZE) {
+        const evict = this.#pageImageOrder.shift()!;
+        const evictUrl = this.#pageImageCache.get(evict);
+        if (evictUrl) URL.revokeObjectURL(evictUrl);
+        this.#pageImageCache.delete(evict);
+      }
+      if (this.#tab === 'fields' && pageNumber === this.#currentPageNumber) await this.render();
+    } catch (err) {
+      console.warn('Bindery | ProfileBuilderApp: renderPage failed:', err);
+    }
   }
 
   async #mountPageOverlay(): Promise<void> {
-    await this.#renderCurrentPage();
+    await this.#ensurePageImage(this.#currentPageNumber);
     const svg = this.element.querySelector<SVGSVGElement>('[data-pb-overlay]');
     const img = this.element.querySelector<HTMLImageElement>('.bindery-pb-page-image');
-    if (!svg || !img) return;
+    if (!svg || !img || !img.getAttribute('src')) return;
 
     const core = await this.#core();
     const box = await this.#previewDoc.getPageBox(this.#currentPageNumber);
@@ -711,12 +738,12 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   }
 
   #resetEditorState(): void {
+    this.#teardownPreviewDoc();
     this.#templateActor = null;
     this.#actorDescriptors = [];
     this.#itemDescriptorsByCollectionId.clear();
     this.#pdfFile = null;
     this.#pdfBuffer = null;
-    this.#previewDoc = null;
     this.#pagesForDetection = null;
     this.#currentPageNumber = 1;
     this.#selectedTarget = null;
@@ -771,6 +798,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   static #onBackToList(this: ProfileBuilderApp): void {
     void (async () => {
+      this.#teardownPreviewDoc();
       this.#phase = 'list';
       this.#profile = null;
       await this.render();
@@ -1075,7 +1103,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   }
 
   override async close(options?: object): Promise<this> {
-    if (this.#previewDoc) void this.#previewDoc.destroy();
+    this.#teardownPreviewDoc();
     return super.close(options);
   }
 }
