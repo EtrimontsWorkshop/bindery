@@ -124,6 +124,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   #selectedTarget: FieldTarget | null = null;
   #pendingCapture: PendingCapture | null = null;
+  /** Text of each overlay rectangle currently drawn (see `#wireRegionDrag`'s pointerup for why this isn't a per-rect click listener). */
+  #rectLabels = new WeakMap<SVGRectElement, string>();
   #dragState: { startScreen: { x: number; y: number }; rectEl: SVGRectElement } | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -586,11 +588,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         rect.setAttribute('width', String(Math.max(0, screen.maxX - screen.minX)));
         rect.setAttribute('height', String(Math.max(0, screen.maxY - screen.minY)));
         rect.setAttribute('class', 'bindery-pb-element');
-        rect.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: el.text.trim() };
-          void this.render();
-        });
+        this.#rectLabels.set(rect, el.text.trim());
         svg.appendChild(rect);
       }
     };
@@ -641,7 +639,17 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       const width = Math.abs(cur.x - state.startScreen.x);
       const height = Math.abs(cur.y - state.startScreen.y);
       state.rectEl.remove();
-      if (width < MIN_DRAG_PX || height < MIN_DRAG_PX) return; // accidental click, not a deliberate drag
+      if (width < MIN_DRAG_PX || height < MIN_DRAG_PX) {
+        // A plain click, not a drag. `setPointerCapture` above redirects the
+        // browser's own `click` to the <svg> itself, so a per-rect click
+        // listener never fires — find the text element under the pointer here.
+        const hit = document.elementsFromPoint(e.clientX, e.clientY).find((n) => this.#rectLabels.has(n as SVGRectElement));
+        if (hit) {
+          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: this.#rectLabels.get(hit as SVGRectElement)! };
+          void this.render();
+        }
+        return;
+      }
       const screenRect = { minX: Math.min(state.startScreen.x, cur.x), minY: Math.min(state.startScreen.y, cur.y), maxX: Math.max(state.startScreen.x, cur.x), maxY: Math.max(state.startScreen.y, cur.y) };
       const width_ = img.clientWidth;
       const height_ = img.clientHeight;
