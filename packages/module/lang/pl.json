@@ -176,6 +176,8 @@
       "title": "Kreator profilu statblocka",
       "openMenuLabel": "Kreator profilu statblocka…",
       "openMenuHint": "Zbuduj profil, który nauczy Bindery znajdować i importować statbloki z PDF-a.",
+      "defaultProfileName": "Nowy profil",
+      "copySuffix": "(kopia)",
       "newProfile": "Nowy profil",
       "import": "Importuj",
       "edit": "Edytuj",

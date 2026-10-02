@@ -176,6 +176,8 @@
       "title": "Statblock profile builder",
       "openMenuLabel": "Statblock profile builder…",
       "openMenuHint": "Build a profile that teaches Bindery how to find and import statblocks from a PDF.",
+      "defaultProfileName": "New profile",
+      "copySuffix": "(copy)",
       "newProfile": "New profile",
       "import": "Import",
       "edit": "Edit",

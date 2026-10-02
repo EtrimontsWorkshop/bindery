@@ -705,7 +705,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.#profile = {
         schemaVersion: core.STATBLOCK_PROFILE_SCHEMA_VERSION,
         id: foundry.utils.randomID(),
-        name: 'Nowy profil',
+        name: game.i18n!.localize('BINDERY.statblockProfileBuilder.defaultProfileName'),
         actorType: '',
         templateActorUuid: '',
         templateSchemaFingerprint: '',
@@ -754,7 +754,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   static #onDuplicateProfileFromList(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
     void (async () => {
       const store = await this.#store();
-      await store.duplicateProfile(target.dataset['id']!, `${target.dataset['name']} (kopia)`);
+      await store.duplicateProfile(target.dataset['id']!, `${target.dataset['name']} ${game.i18n!.localize('BINDERY.statblockProfileBuilder.copySuffix')}`);
       await this.render();
     })();
   }
@@ -824,7 +824,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   static #onDuplicateCurrent(this: ProfileBuilderApp): void {
     void (async () => {
       if (!this.#profile) return;
-      this.#profile = { ...foundry.utils.deepClone(this.#profile), id: foundry.utils.randomID(), name: `${this.#profile.name} (kopia)` };
+      this.#profile = { ...foundry.utils.deepClone(this.#profile), id: foundry.utils.randomID(), name: `${this.#profile.name} ${game.i18n!.localize('BINDERY.statblockProfileBuilder.copySuffix')}` };
       await this.render();
     })();
   }
