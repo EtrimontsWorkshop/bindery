@@ -87,10 +87,6 @@
           <span>{{currentPageNumber}} / {{pageCount}}</span>
           <button type="button" data-action="nextPage"><i class="fa-solid fa-arrow-right"></i></button>
         </div>
-        <div class="bindery-pb-page-wrap">
-          <img class="bindery-pb-page-image" {{#if currentPageImageUrl}}src="{{currentPageImageUrl}}"{{/if}} />
-          <svg class="bindery-pb-page-overlay" data-pb-overlay></svg>
-        </div>
         {{#if pendingCapture}}
           <div class="bindery-pb-capture-bar">
             <span>{{localize "BINDERY.statblockProfileBuilder.selectionMade"}}: {{pendingCapture.text}}</span>
@@ -98,6 +94,10 @@
             <button type="button" data-action="clearCapture">{{localize "BINDERY.statblockProfileBuilder.clear"}}</button>
           </div>
         {{/if}}
+        <div class="bindery-pb-page-wrap">
+          <img class="bindery-pb-page-image" {{#if currentPageImageUrl}}src="{{currentPageImageUrl}}"{{/if}} />
+          <svg class="bindery-pb-page-overlay" data-pb-overlay></svg>
+        </div>
       {{else}}
         <p class="hint">{{localize "BINDERY.statblockProfileBuilder.noPdfYet"}}</p>
       {{/if}}
