@@ -974,7 +974,10 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
           if (collection) collection.nameSource = source;
         }
       } else {
-        (resolved.sourceRef as AnyField).source = source;
+        const field = resolved.sourceRef as AnyField;
+        field.source = source;
+        // A label capture takes the rest of the line (which may hold other labelled values), so a numeric target needs a number-parsing step to be usable at all — add it as a starting point rather than leaving the preview red.
+        if (field.dataType === 'number' && field.transforms.length === 0) field.transforms.push({ kind: 'parseNumber' });
       }
       this.#pendingCapture = null;
       await this.render();
