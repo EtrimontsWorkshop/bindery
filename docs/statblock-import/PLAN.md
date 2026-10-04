@@ -1285,6 +1285,30 @@ test detekcji → zapis. Nadal nieprzetestowane na żywo: przeciąganie
 regionu, kolekcje z prawdziwym Itemem szablonowym, eksport/import/
 duplikowanie/usuwanie profilu, faktyczny import Actorów.
 
+
+## Zrealizowane — Przycisk importu w kreatorze (wstęp do Zadania 6)
+
+W zakładce **Detection**, pod wynikami "Testuj na całym PDF-ie", pojawiła
+się sekcja "Import do świata": wybór polityki duplikatów (pomiń / nadpisz /
+utwórz kolejnego; domyślnie pomiń), przycisk importu z liczbą znalezionych
+statblocków, okno potwierdzenia (DialogV2) i raport po imporcie (podsumowanie
+utworzono/zaktualizowano/pominięto/błędy + lista per instancja z
+zlokalizowaną diagnostyką przez `formatDiagnostic`). Import używa
+zwalidowanego profilu z pamięci (bez konieczności zapisu) i wywołuje
+`importStatblocks` ładowane dynamicznie. Raport czyszczony przy ponownym
+teście detekcji i przy zmianie profilu. Bez przypisywania obrazów (`images`
+pominięte) i bez wyboru folderu — świadomie, do kolejnego kroku.
+
+**Budżet `check:size`**: sama dodana funkcja zepchnęłaby budżet do 96%
+(39332/40960). Zamiast podnosić budżet — `settings.ts` rejestruje teraz
+cienką zaślepkę `ProfileBuilderLauncher`, która dopiero po kliknięciu
+ładuje właściwe `ProfileBuilderApp`. Paczka startowa: 8435 B (~21%).
+Domyka pytanie #25.
+
+**Ręczny test**: opis w rozmowie z właścicielem (kreator → Detection →
+Testuj → Import). Nadal nieprzetestowane na żywo: sam import Actora,
+polityki `overwrite`/`copy`, import z kolekcjami.
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w

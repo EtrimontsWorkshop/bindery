@@ -1,6 +1,6 @@
 import type { StatblockProfile } from '@bindery/core';
 import { ImportWizard } from './apps/ImportWizard.js';
-import { ProfileBuilderApp } from './statblock/ui/ProfileBuilderApp.js';
+import { ProfileBuilderLauncher } from './statblock/ui/ProfileBuilderLauncher.js';
 
 // [User request] Renamed from 'bindery' — that id was already taken in
 // Foundry's official package directory by an unrelated module. Changing this
@@ -33,7 +33,7 @@ export function registerSettings(): void {
     hint: 'BINDERY.statblockProfileBuilder.openMenuHint',
     label: 'BINDERY.statblockProfileBuilder.openMenuLabel',
     icon: 'fa-solid fa-dragon',
-    type: ProfileBuilderApp,
+    type: ProfileBuilderLauncher,
     restricted: true,
   });
 

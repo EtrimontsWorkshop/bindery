@@ -1943,3 +1943,10 @@
   max-height: 260px;
   overflow-y: auto;
 }
+
+.bindery-profile-builder-app .bindery-pb-import { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.bindery-profile-builder-app .bindery-pb-import-report { list-style: none; margin: 0; padding: 0; }
+.bindery-profile-builder-app .bindery-pb-import-report > li { padding: 0.25rem 0; }
+.bindery-profile-builder-app .bindery-pb-import-error > strong { color: var(--color-level-error, #c0392b); }
+.bindery-profile-builder-app .bindery-pb-import-created > strong,
+.bindery-profile-builder-app .bindery-pb-import-updated > strong { color: var(--color-level-success, #2e8b57); }
