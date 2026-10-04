@@ -273,7 +273,9 @@
       "importStatusCreated": "Created",
       "importStatusUpdated": "Updated",
       "importStatusSkipped": "Skipped",
-      "importStatusError": "Failed"
+      "importStatusError": "Failed",
+      "detectionNeedsPdf": "Load a PDF on the Source tab first.",
+      "detectionNoResults": "No statblocks found. Check the anchor: plain text matches any line that contains it; heading style needs the heading font to match."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",

@@ -273,7 +273,9 @@
       "importStatusCreated": "Utworzono",
       "importStatusUpdated": "Zaktualizowano",
       "importStatusSkipped": "Pominięto",
-      "importStatusError": "Błąd"
+      "importStatusError": "Błąd",
+      "detectionNeedsPdf": "Najpierw wczytaj PDF w zakładce Source.",
+      "detectionNoResults": "Nie znaleziono statblocków. Sprawdź kotwicę: zwykły tekst pasuje do każdej linii, która go zawiera; styl nagłówka wymaga zgodnej czcionki nagłówka."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",

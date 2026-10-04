@@ -1305,6 +1305,14 @@ cienką zaślepkę `ProfileBuilderLauncher`, która dopiero po kliknięciu
 ładuje właściwe `ProfileBuilderApp`. Paczka startowa: 8435 B (~21%).
 Domyka pytanie #25.
 
+**Poprawki po pierwszej próbie na żywo**: (a) kotwica w trybie zwykłego
+tekstu dopasowywała CAŁĄ linię, więc praktycznie nigdy nie pasowała ("HP:"
+vs linia "HP: 7 AC: 15") — teraz "linia zawiera tekst"; dokładne dopasowanie
+nadal przez regex `^…$`; (b) etykieta w trybie zwykłego tekstu ignoruje
+końcowy dwukropek po obu stronach ("HP" znajduje "HP:"); (c) zakładka
+Detection pokazuje komunikaty: brak wczytanego PDF-a, brak znalezionych
+statblocków (wcześniej cisza).
+
 **Ręczny test**: opis w rozmowie z właścicielem (kreator → Detection →
 Testuj → Import). Nadal nieprzetestowane na żywo: sam import Actora,
 polityki `overwrite`/`copy`, import z kolekcjami.

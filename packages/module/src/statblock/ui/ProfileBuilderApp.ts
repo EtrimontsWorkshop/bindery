@@ -202,6 +202,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       collections: profile.collections.map((c: AnyCollection) => this.#buildCollectionRow(c)),
 
       detection: this.#buildDetectionContext(profile),
+      detectionRan: this.#detectionResults !== null,
+      detectionNone: this.#detectionResults !== null && this.#detectionResults.length === 0,
       importPolicyIsSkip: this.#importPolicy === 'skip',
       importPolicyIsOverwrite: this.#importPolicy === 'overwrite',
       importPolicyIsCopy: this.#importPolicy === 'copy',

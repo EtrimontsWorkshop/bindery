@@ -51,7 +51,9 @@ export function extractFromLabelSource(block: ExtractionBlock, source: LabelSour
   const lines = reconstructLines(block.elements);
   if (lines.length === 0) return notFound(source.labelPattern);
 
-  const matchesLabel = (text: string): boolean => (labelMatch.regex ? labelMatch.regex.test(text.trim()) : text.trim() === source.labelPattern);
+  // A plain (non-regex) label is compared without a trailing colon on either side, so "HP" finds the element "HP:" and vice versa.
+  const stripColon = (text: string): string => text.trim().replace(/\s*:$/, '');
+  const matchesLabel = (text: string): boolean => (labelMatch.regex ? labelMatch.regex.test(text.trim()) : stripColon(text) === stripColon(source.labelPattern));
   const matchesNextLabel = (text: string): boolean => (nextLabelRegex ? nextLabelRegex.test(text.trim()) : text.trim() === source.nextLabelPattern);
 
   let labelLineIndex = -1;

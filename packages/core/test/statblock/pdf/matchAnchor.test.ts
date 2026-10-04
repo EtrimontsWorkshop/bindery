@@ -20,6 +20,13 @@ describe('lineMatchesAnchor — textPattern', () => {
     expect(lineMatchesAnchor(line, anchor, 0)).toBe(false);
   });
 
+  it('plain text matches when the line merely contains it', () => {
+    const line = lineFrom(el('HP:', 0, 0), el('7', 40, 0), el('AC:', 80, 0), el('15', 120, 0));
+    expect(lineMatchesAnchor(line, { kind: 'textPattern' as const, pattern: 'HP:', patternIsRegex: false }, 0)).toBe(true);
+    expect(lineMatchesAnchor(line, { kind: 'textPattern' as const, pattern: 'Goblin', patternIsRegex: false }, 0)).toBe(false);
+    expect(lineMatchesAnchor(line, { kind: 'textPattern' as const, pattern: '  ', patternIsRegex: false }, 0)).toBe(false);
+  });
+
   it('supports plain-text (non-regex) exact matching', () => {
     const line = lineFrom(el('ATTACKS', 0, 0));
     const anchor = { kind: 'textPattern' as const, pattern: 'ATTACKS', patternIsRegex: false };

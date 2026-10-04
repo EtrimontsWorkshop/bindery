@@ -54,7 +54,10 @@ function lineMatchesHeadingStyle(line: ReconstructedLine, anchor: DetectionConfi
 /** Whether this reconstructed line is a match for the profile's start anchor — see `DetectionConfig.anchor` in `profile/schema.ts` for the two kinds. */
 export function lineMatchesAnchor(line: ReconstructedLine, anchor: DetectionConfig['anchor'], maxFontSizeOnPage: number): boolean {
   if (anchor.kind === 'textPattern') {
-    return anchor.pattern !== undefined && matchesTextPattern(line.text, anchor.pattern, anchor.patternIsRegex);
+    if (anchor.pattern === undefined) return false;
+    // Plain text means "the line contains it": a statblock's start line usually holds more than the text a person would type (a name plus a type, a label plus its value), so an exact whole-line match would almost never fire. Exact matching stays available through a regex (`^…$`).
+    if (!anchor.patternIsRegex) return anchor.pattern.trim() !== '' && line.text.includes(anchor.pattern.trim());
+    return matchesTextPattern(line.text, anchor.pattern, true);
   }
   return lineMatchesHeadingStyle(line, anchor, maxFontSizeOnPage);
 }
