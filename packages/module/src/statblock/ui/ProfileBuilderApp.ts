@@ -727,6 +727,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.#actorDescriptors = result.descriptors;
       this.#profile.templateActorUuid = actor.uuid;
       this.#profile.actorType = actor.type;
+      this.#profile.templateSchemaFingerprint = (await this.#core()).computeSchemaFingerprint(result.descriptors);
+      this.#validationIssues = [];
     }
     await this.render();
   }

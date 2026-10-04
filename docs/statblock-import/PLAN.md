@@ -1313,6 +1313,15 @@ końcowy dwukropek po obu stronach ("HP" znajduje "HP:"); (c) zakładka
 Detection pokazuje komunikaty: brak wczytanego PDF-a, brak znalezionych
 statblocków (wcześniej cisza).
 
+**Błąd znaleziony przy drugiej próbie**: `templateSchemaFingerprint` nigdy
+nie był obliczany (kreator zostawiał pusty string), więc `validateProfile`
+odrzucał KAŻDY profil — nie dało się go zapisać ani użyć do importu.
+Naprawione: `computeSchemaFingerprint` (core, `schema/`, hash struktury:
+ścieżki + typy + ograniczenia, bez etykiet i wartości bieżących),
+wywoływane przy wyborze Actora szablonowego. Nadal nic nie porównuje
+fingerprintu przy imporcie (pytanie #24). Profile utworzone przed tą
+poprawką trzeba przepiąć na Actora ponownie.
+
 **Ręczny test**: opis w rozmowie z właścicielem (kreator → Detection →
 Testuj → Import). Nadal nieprzetestowane na żywo: sam import Actora,
 polityki `overwrite`/`copy`, import z kolekcjami.
