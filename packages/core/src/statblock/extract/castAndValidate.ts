@@ -1,6 +1,7 @@
 import type { Diagnostic } from '../../text/types.js';
 import { toParamValue } from './diagnosticParam.js';
 import type { ProfileFieldDataType } from '../profile/schema.js';
+import { parseNumber } from './transforms/numberTransforms.js';
 
 /**
  * [Task 2] "Casting the result onto the target field type + validation
@@ -12,6 +13,7 @@ import type { ProfileFieldDataType } from '../profile/schema.js';
  * `choices` from `../schema/types.js` — the SAME constraint vocabulary a
  * profile field's target schema path carries).
  *
+ * A string aimed at a `'number'` field is parsed leniently (first number in the text).
  * A type mismatch is an ERROR diagnostic and the value is dropped
  * (`undefined`) — a `'number'` field that got a string means something
  * upstream (usually a missing `parseNumber` step) is genuinely wrong, not
@@ -35,8 +37,11 @@ export function castAndValidate(value: unknown, constraints: FieldTypeConstraint
 
   switch (constraints.dataType) {
     case 'number': {
+      // A string headed for a number field is read as its first number, so a profile author doesn't have to add a parse step by hand for the common case (the explicit `parseNumber` / `nthNumber` steps still win when present — they run earlier and hand over a number).
+      const original = value;
+      if (typeof value === 'string') value = parseNumber(value).value;
       if (typeof value !== 'number' || Number.isNaN(value)) {
-        return { value: undefined, diagnostics: [{ severity: 'error', code: 'STATBLOCK_CAST_NOT_NUMBER', params: { value: toParamValue(value) } }] };
+        return { value: undefined, diagnostics: [{ severity: 'error', code: 'STATBLOCK_CAST_NOT_NUMBER', params: { value: toParamValue(original) } }] };
       }
       const diagnostics: Diagnostic[] = [];
       if (constraints.integer && !Number.isInteger(value)) diagnostics.push({ severity: 'warning', code: 'STATBLOCK_VALIDATE_NOT_INTEGER', params: { value } });

@@ -108,6 +108,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   #actorDescriptors: AnyDescriptor[] = [];
   #itemDescriptorsByCollectionId = new Map<string, AnyDescriptor[]>();
   #schemaSearch = '';
+  #refocusSchemaSearch = false;
 
   #pdfFile: File | null = null;
   #pdfBuffer: ArrayBuffer | null = null;
@@ -214,15 +215,17 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     const mappedPaths = new Set(profile.fields.map((f: AnyField) => f.actorSchemaPath));
     const target = this.#selectedTarget;
 
-    const walk = (nodes: AnyDescriptor[], depth: number): void => {
+    // A leaf is often labelled only by its own role ("Flat", "Max") while the name the user knows ("Armor Class") sits on a parent group — so the search, and the label shown while searching, include the ancestors' labels.
+    const walk = (nodes: AnyDescriptor[], depth: number, trail: string[]): void => {
       for (const node of nodes) {
         const isLeaf = !node.children || node.children.length === 0;
-        const matches = !query || node.path.toLowerCase().includes(query) || node.label.toLowerCase().includes(query);
+        const fullLabel = [...trail, node.label].join(' › ');
+        const matches = !query || node.path.toLowerCase().includes(query) || fullLabel.toLowerCase().includes(query);
         if (isLeaf) {
           if (matches) {
             rows.push({
               path: node.path,
-              label: node.label,
+              label: query ? fullLabel : node.label,
               depth,
               isGroup: false,
               isMapped: mappedPaths.has(node.path),
@@ -231,11 +234,11 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
           }
         } else {
           if (!query) rows.push({ path: node.path, label: node.label, depth, isGroup: true, isMapped: false, isSelected: false });
-          walk(node.children, depth + 1);
+          walk(node.children, depth + 1, [...trail, node.label]);
         }
       }
     };
-    walk(this.#actorDescriptors, 0);
+    walk(this.#actorDescriptors, 0, []);
     return rows;
   }
 
@@ -398,8 +401,15 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     actorSelect?.addEventListener('change', () => void this.#onTemplateActorSelected(actorSelect.value));
 
     const searchInput = this.element.querySelector<HTMLInputElement>('input[data-role="schema-search"]');
+    if (this.#refocusSchemaSearch && searchInput) {
+      // ApplicationV2 replaces the DOM on every render, so the box the user is typing into is a fresh element each time — hand focus (and the caret) back to it.
+      this.#refocusSchemaSearch = false;
+      searchInput.focus();
+      searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+    }
     searchInput?.addEventListener('input', () => {
       this.#schemaSearch = searchInput.value;
+      this.#refocusSchemaSearch = true;
       void this.render();
     });
 
@@ -974,10 +984,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
           if (collection) collection.nameSource = source;
         }
       } else {
-        const field = resolved.sourceRef as AnyField;
-        field.source = source;
-        // A label capture takes the rest of the line (which may hold other labelled values), so a numeric target needs a number-parsing step to be usable at all — add it as a starting point rather than leaving the preview red.
-        if (field.dataType === 'number' && field.transforms.length === 0) field.transforms.push({ kind: 'parseNumber' });
+        (resolved.sourceRef as AnyField).source = source;
       }
       this.#pendingCapture = null;
       await this.render();

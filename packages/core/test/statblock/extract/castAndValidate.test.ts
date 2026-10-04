@@ -13,6 +13,10 @@ describe('castAndValidate — number', () => {
     expect(castAndValidate(5, { dataType: 'number' })).toEqual({ value: 5, diagnostics: [] });
   });
 
+  it('reads the first number out of a string aimed at a number field', () => {
+    expect(castAndValidate('7 AC: 15', { dataType: 'number' })).toEqual({ value: 7, diagnostics: [] });
+  });
+
   it('rejects a non-number value as an error, dropping it', () => {
     const result = castAndValidate('not a number', { dataType: 'number' });
     expect(result.value).toBeUndefined();
