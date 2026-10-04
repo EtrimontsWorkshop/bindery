@@ -1253,6 +1253,38 @@ audytu:
   (już domknięte w Zadaniu 4), #22-24 (Zadanie 4, wciąż otwarte), #25-28
   (Zadanie 5, wciąż otwarte).
 
+## Zrealizowane — Poprawki po teście na żywo (po Zadaniu 7)
+
+Przejście kreatora na prawdziwym Foundry (v14, syntetyczny PDF) wykryło
+błędy, których testy jednostkowe nie mogły: 
+
+- **Domyślna nazwa profilu / sufiks kopii** były zahardkodowane po polsku
+  — przeniesione do locale (`defaultProfileName`, `copySuffix`).
+- **Klikanie napisu na podglądzie nic nie robiło** — `setPointerCapture`
+  na SVG przekierowuje `click` na SVG; trafienie w prostokąt ustalane teraz
+  przez `document.elementsFromPoint` na `pointerup` (`#rectLabels`).
+- **Pasek zaznaczenia** był poza widocznym obszarem okna — przeniesiony nad
+  podgląd strony.
+- **Pole wyszukiwania pól schematu traciło fokus po każdej literze**
+  (ApplicationV2 podmienia DOM przy każdym `render()`) — fokus i kursor
+  przywracane w `_onRender`.
+- **Wyszukiwanie nie znajdowało pól, których nazwa jest na grupie
+  nadrzędnej** (liść "Flat" pod grupą "Armor Class") — wyszukiwanie i
+  etykieta w wynikach uwzględniają teraz etykiety przodków.
+- **Mniej klikania dla pól liczbowych**: `castAndValidate` dla celu typu
+  number czyta pierwszą liczbę z tekstu (etykieta bierze resztę linii, więc
+  "7 AC: 15" wcześniej dawało błąd bez ręcznego kroku Parse number).
+  Jawne `parseNumber`/`nthNumber` nadal działają i mają pierwszeństwo.
+- **Wdrożenie**: katalog repo i katalog modułu w Foundry to dwa różne
+  katalogi, a `sync:local` zakłada, że to jedno — kopiowanie ręczne;
+  po każdym buildzie otwarte karty Foundry wymagają twardego reloadu
+  (nazwy chunków mają hash).
+
+Zweryfikowane na żywo przez właściciela: klik → przypisanie → podgląd →
+test detekcji → zapis. Nadal nieprzetestowane na żywo: przeciąganie
+regionu, kolekcje z prawdziwym Itemem szablonowym, eksport/import/
+duplikowanie/usuwanie profilu, faktyczny import Actorów.
+
 ## Pytania i założenia wymagające Twojej decyzji
 
 1. **Mechanizm "uczenia" profilu** — zakładam interaktywne klikanie w
@@ -1648,3 +1680,9 @@ audytu:
   Wszystkie bramki zielone, w tym dwie nowe (`check:no-system-names`,
   `check:lang-usage`, obie wpięte w `npm run build`); budżet `check:size`
   na ~89% (36368/40960) — coraz pilniejsze, patrz pytanie #25.
+
+- **Poprawki po teście na żywo** — patrz sekcja "Poprawki po teście na
+  żywo (po Zadaniu 7)": lokalizacja nazwy domyślnej, klikanie w podgląd,
+  pasek zaznaczenia, fokus wyszukiwarki, wyszukiwanie po etykietach
+  przodków, leniwy cast liczb. Właściciel potwierdził działanie całego
+  przepływu pola → detekcja → zapis.
