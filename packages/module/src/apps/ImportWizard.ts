@@ -54,7 +54,6 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     actions: {
       analyze: ImportWizard.#onAnalyze,
       openReview: ImportWizard.#onOpenReview,
-      openStatblockImport: ImportWizard.#onOpenStatblockImport,
     },
   };
 
@@ -201,13 +200,6 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     await this.render();
   }
 
-  /** Opens the statblock-to-Actor import for the PDF already loaded here — loaded lazily (risk I3), like `ReviewScreen`. */
-  static async #onOpenStatblockImport(this: ImportWizard): Promise<void> {
-    if (!this.#fileBuffer || !this.#state.fileName) return;
-    const { StatblockImportApp } = await import('../statblock/ui/StatblockImportApp.js');
-    await StatblockImportApp.open({ fileBuffer: this.#fileBuffer, fileName: this.#state.fileName });
-  }
-
   /**
    * [Step 11] Replaces the old extractImages->buildJournals->createJournals
    * chain (each step creating documents IMMEDIATELY, with no review) — it
@@ -266,6 +258,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
         imageBytesById: result.imageBytesById,
         previewDocument,
         fileName: this.#state.fileName,
+        fileBuffer: this.#fileBuffer,
       });
 
       if (reviewResult.confirmed) {

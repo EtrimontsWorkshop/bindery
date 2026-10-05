@@ -26,9 +26,7 @@
       "buildingReview": "Analizowanie dokumentu…",
       "journalBuildErrorGeneric": "Nie udało się zbudować podglądu z tego dokumentu. Szczegóły w konsoli.",
       "reviewImportDone": "Import zakończony — sprawdź panele boczne Sceny i Dziennik.",
-      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku",
-      "statblockImportButton": "Importuj statblocki jako Actorów…",
-      "statblockImportHint": "Korzysta z profilu utworzonego w Ustawieniach → Bindery → Kreator profilu statblocków."
+      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku"
     },
     "review": {
       "title": "Bindery — przegląd",
@@ -101,7 +99,8 @@
       "footerHintUnassigned": "Zaznaczone obrazy nie mają jeszcze przeznaczenia — ustaw Scenę, Journal lub Token, żeby móc importować",
       "journalGroupHintShort": "Obrazy „Journal” o tej samej nazwie grupy trafiają do jednego journala z wieloma stronami.",
       "selectedPanelLabel": "zaznaczonym",
-      "diagnosticsEmpty": "Brak uwag"
+      "diagnosticsEmpty": "Brak uwag",
+      "tabStatblocks": "Statblocki"
     },
     "gridPicker": {
       "title": "Ustaw siatkę sceny",
@@ -340,8 +339,6 @@
       "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" nie pasuje do żadnego wpisu w mapowaniu wartości."
     },
     "statblockImport": {
-      "title": "Import statblocków jako Actorów",
-      "intro": "Statblocki znalezione w",
       "profileLabel": "Profil",
       "selectProfile": "— wybierz profil —",
       "noProfiles": "Nie ma jeszcze żadnych profili. Utwórz profil w Ustawieniach → Bindery → Kreator profilu statblocków i wróć tutaj.",
@@ -354,16 +351,13 @@
       "policySkip": "Pomiń go",
       "policyOverwrite": "Nadpisz go",
       "policyCopy": "Utwórz kolejnego",
-      "importButton": "Importuj statblocki ({count}) jako Actorów",
-      "importing": "Importowanie…",
-      "confirmTitle": "Import Actorów",
-      "confirmBody": "Utworzyć Actorów z {count} statblocków? Dla istniejących Actorów: {policy}.",
-      "failed": "Import statblocków nie powiódł się: {message}",
-      "reportSummary": "Utworzono: {created}, zaktualizowano: {updated}, pominięto: {skipped}, błędy: {failed}.",
       "statusCreated": "Utworzono",
       "statusUpdated": "Zaktualizowano",
       "statusSkipped": "Pominięto",
-      "statusError": "Błąd"
+      "statusError": "Błąd",
+      "noImage": "Bez obrazu",
+      "imageLabel": "Obraz dla tego Actora i jego tokenu",
+      "importHint": "Zaznaczone statblocki staną się Actorami w następnym kroku, razem z obrazami — wybrany obraz jest wgrywany raz i służy jako portret i token Actora."
     }
   }
 }

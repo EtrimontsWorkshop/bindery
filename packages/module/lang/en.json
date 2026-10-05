@@ -26,9 +26,7 @@
       "buildingReview": "Analyzing document…",
       "journalBuildErrorGeneric": "Could not build a preview from this document. See console for details.",
       "reviewImportDone": "Import complete — check the Scenes and Journal sidebars.",
-      "dropHint": "or drop it here — no file selected",
-      "statblockImportButton": "Import statblocks as Actors…",
-      "statblockImportHint": "Uses a profile made in Settings → Bindery → Statblock profile builder."
+      "dropHint": "or drop it here — no file selected"
     },
     "review": {
       "title": "Bindery — Review",
@@ -101,7 +99,8 @@
       "footerHintUnassigned": "The selected images have no destination yet — set Scene, Journal or Token for them to be able to import",
       "journalGroupHintShort": "Journal images with the same group name land in a single multi-page journal.",
       "selectedPanelLabel": "to selected",
-      "diagnosticsEmpty": "No issues"
+      "diagnosticsEmpty": "No issues",
+      "tabStatblocks": "Statblocks"
     },
     "gridPicker": {
       "title": "Set the scene grid",
@@ -340,8 +339,6 @@
       "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" did not match any entry in the value map."
     },
     "statblockImport": {
-      "title": "Import statblocks as Actors",
-      "intro": "Statblocks found in",
       "profileLabel": "Profile",
       "selectProfile": "— choose a profile —",
       "noProfiles": "No profiles yet. Create one in Settings → Bindery → Statblock profile builder, then come back.",
@@ -354,16 +351,13 @@
       "policySkip": "Skip it",
       "policyOverwrite": "Overwrite it",
       "policyCopy": "Create another one",
-      "importButton": "Import {count} statblock(s) as Actors",
-      "importing": "Importing…",
-      "confirmTitle": "Import Actors",
-      "confirmBody": "Create Actors from {count} statblock(s)? Policy for existing Actors: {policy}.",
-      "failed": "Statblock import failed: {message}",
-      "reportSummary": "Created: {created}, updated: {updated}, skipped: {skipped}, failed: {failed}.",
       "statusCreated": "Created",
       "statusUpdated": "Updated",
       "statusSkipped": "Skipped",
-      "statusError": "Failed"
+      "statusError": "Failed",
+      "noImage": "No picture",
+      "imageLabel": "Picture for this Actor and its token",
+      "importHint": "Ticked statblocks become Actors in the next step, together with the images — the chosen picture is uploaded once and used as the Actor's portrait and token."
     }
   }
 }

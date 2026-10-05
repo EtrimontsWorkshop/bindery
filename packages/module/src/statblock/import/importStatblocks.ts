@@ -1,11 +1,9 @@
 import {
   buildActorData,
   extractStatblockInstance,
-  findNearestImage,
   resolveDuplicateAction,
   type DetectionCandidate,
   type DuplicatePolicy,
-  type ImageCandidate,
   type ImportProgress,
   type ImportReport,
   type SchemaContext,
@@ -30,8 +28,8 @@ import { introspectDocumentInstance } from '../schema/introspectActor.js';
 export interface ImportStatblocksOptions {
   folder?: string;
   duplicatePolicy: DuplicatePolicy;
-  /** Pre-extracted image candidates (e.g. from `buildInventory().images`, adapted by the caller) for the "nearest image" heuristic — omit to skip image assignment entirely. */
-  images?: readonly ImageCandidate[];
+  /** Resolves the file path of the picture chosen for one statblock (by its candidate id) — it becomes the Actor's portrait and its token image. Omit, or return `undefined`, for an Actor without a picture. */
+  resolveImagePath?: (candidateId: string) => Promise<string | undefined>;
   onProgress?: (progress: ImportProgress) => void;
   signal?: AbortSignal;
 }
@@ -110,8 +108,13 @@ export async function importStatblocks(profile: StatblockProfile, candidates: re
     checkAborted(options.signal);
     const c = candidates[i]!;
     const instance = extractStatblockInstance(c, profile);
-    const imageId = options.images ? findNearestImage(instance.regions, options.images) : undefined;
-    const { data, diagnostics } = buildActorData(instance, profile, schemaContext, { folder: options.folder, img: imageId });
+    let imagePath: string | undefined;
+    try {
+      imagePath = await options.resolveImagePath?.(c.id);
+    } catch (err) {
+      console.warn('Bindery | resolving the statblock image failed:', err);
+    }
+    const { data, diagnostics } = buildActorData(instance, profile, schemaContext, { folder: options.folder, img: imagePath });
     const pageNumber = instance.regions[0]?.pageNumber;
 
     const existing = findExistingActor(data.name, data.type, options.folder);
@@ -122,16 +125,23 @@ export async function importStatblocks(profile: StatblockProfile, candidates: re
         report.skipped++;
         report.instances.push({ instanceId: instance.id, status: 'skipped', actorName: data.name, pageNumber, diagnostics });
       } else if (action === 'update' && existing) {
-        await existing.update({ img: data.img, folder: data.folder, system: data.system });
+        await existing.update({ ...(data.img ? { img: data.img, prototypeToken: { texture: { src: data.img } } } : {}), folder: data.folder, system: data.system });
         await replaceManagedItems(existing, profile, data.items);
         report.updated++;
-        report.instances.push({ instanceId: instance.id, status: 'updated', actorName: data.name, pageNumber, diagnostics });
+        report.instances.push({ instanceId: instance.id, status: 'updated', actorName: data.name, actorUuid: existing.uuid, pageNumber, diagnostics });
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ActorCls = (foundry.documents as any).Actor ?? (globalThis as any).Actor;
-        await ActorCls.create({ name: data.name, type: data.type, img: data.img, folder: data.folder, system: data.system, items: data.items });
+        const created = await ActorCls.create({
+          name: data.name,
+          type: data.type,
+          ...(data.img ? { img: data.img, prototypeToken: { texture: { src: data.img } } } : {}),
+          folder: data.folder,
+          system: data.system,
+          items: data.items,
+        });
         report.created++;
-        report.instances.push({ instanceId: instance.id, status: 'created', actorName: data.name, pageNumber, diagnostics });
+        report.instances.push({ instanceId: instance.id, status: 'created', actorName: data.name, actorUuid: created?.uuid, pageNumber, diagnostics });
       }
     } catch (err) {
       report.failed++;

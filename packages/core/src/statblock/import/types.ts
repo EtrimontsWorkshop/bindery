@@ -69,6 +69,8 @@ export interface ImportInstanceReport {
   instanceId: string;
   status: 'created' | 'updated' | 'skipped' | 'error';
   actorName: string;
+  /** UUID of the created or updated Actor — absent for a skipped or failed instance. */
+  actorUuid?: string;
   pageNumber?: number;
   diagnostics: Diagnostic[];
 }

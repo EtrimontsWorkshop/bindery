@@ -1357,7 +1357,27 @@ ten sam łańcuch transformacji i rzutowanie; lista wyboru z deskryptora
 schematu). W panelu pola: "Albo ustaw stałą wartość". Pole stałe nie liczy
 się do pewności detekcji. Dodatkowo nowy profil domyślnie dziedziczy
 niezmapowane pola z szablonu.
-(5) *Import przy imporcie obrazów* — w toku, patrz niżej.
+(5) *Import przy imporcie obrazów* — osobne okno importu statblocków
+USUNIĘTE; zamiast niego zakładka **Statblocks** w ekranie przeglądu
+(`ReviewScreen`, ten sam, w którym przegląda się i importuje obrazy).
+Logika w `statblock/ui/statblockReviewState.ts` (ładowana leniwie przy
+pierwszym otwarciu zakładki — wykrywanie czyta cały PDF): wybór profilu
+(jeden profil wybiera się sam), lista znalezionych statblocków z
+checkboxem, obrazem i polityką duplikatów. Obraz jest podpowiadany
+(`findNearestImage` — najbliższy początkowi statbloka na tej samej stronie)
+i zmienialny (lista: obrazy ze stron statbloka). Import Actorów odbywa się
+w TYM SAMYM kroku co import obrazów (`#runImport`): wspólna mapa
+`uploadedPathByImageId` — obraz wybrany dla statbloka jest wgrywany raz
+(lub współdzielony z importem obrazu) i ustawiany jako `img` Actora ORAZ
+`prototypeToken.texture.src`. Podsumowanie importu linkuje do
+utworzonych/zaktualizowanych Actorów (`ImportInstanceReport.actorUuid`),
+diagnostyki statblocków trafiają do tej samej listy co obrazów.
+`importStatblocks`: opcja `images` zastąpiona `resolveImagePath`.
+`ReviewScreenData.fileBuffer` (opcjonalne) włącza zakładkę.
+Ograniczenie v1: lista obrazów statbloka obejmuje tylko obrazy z jego
+stron; przycięty ręcznie obraz (zakładka obrazów) pojawia się, jeśli leży
+na tej stronie. Tokeny przygotowane w narzędziu tokenu są używane tak jak
+wgrane (bajty podmieniane przed wgraniem).
 
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
