@@ -277,7 +277,8 @@
       "literalHint": "Ta sama wartość u każdego importowanego Actora — dla ustawień zmieniających sposób odczytu innego pola.",
       "literalTrue": "Tak",
       "literalFalse": "Nie",
-      "removeMapping": "Usuń to przypisanie"
+      "removeMapping": "Usuń to przypisanie",
+      "templateActorMissing": "Actor szablonowy tego profilu już nie istnieje, więc nie można wyświetlić jego pól. Wybierz innego w zakładce Źródło."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",

@@ -1387,6 +1387,13 @@ pole i przy zapisie (zostaje jedno zaznaczone pole naraz); w panelu pola
 przycisk "Usuń to przypisanie". Pola kolekcji bez zmian (dodawane i
 usuwane jawnie).
 
+**Edycja zapisanego profilu**: otwarcie profilu z listy nie wczytywało
+Actora szablonowego ani Itemów kolekcji (profil pamięta tylko ich UUID),
+więc drzewo pól było puste (tylko "Nazwa Actora"). Teraz `#loadTemplates()`
+wczytuje schemat przy każdym otwarciu; brak Actora → ostrzeżenie.
+Przykładowy PDF nadal trzeba wczytać ponownie w zakładce Źródło (profil go
+nie przechowuje).
+
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 

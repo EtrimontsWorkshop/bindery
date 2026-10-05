@@ -825,8 +825,29 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.#phase = 'editor';
       this.#tab = 'source';
       this.#resetEditorState();
+      await this.#loadTemplates();
       await this.render();
     })();
+  }
+
+  /** The saved profile only remembers WHICH template Actor/Items it was built from — the field list in the editor comes from reading their schema again, so it has to be reloaded whenever a profile is opened. */
+  async #loadTemplates(): Promise<void> {
+    const profile = this.#profile;
+    if (!profile) return;
+    const schema = await this.#schema();
+    const actor = profile.templateActorUuid ? await fromUuid(profile.templateActorUuid) : null;
+    if (actor) {
+      this.#templateActor = actor;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.#actorDescriptors = schema.introspectDocumentInstance('Actor', actor as any).descriptors;
+    } else {
+      ui.notifications?.warn(game.i18n!.localize('BINDERY.statblockProfileBuilder.templateActorMissing'));
+    }
+    for (const collection of profile.collections as AnyCollection[]) {
+      const item = collection.templateItemUuid ? await fromUuid(collection.templateItemUuid) : null;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (item) this.#itemDescriptorsByCollectionId.set(collection.id, schema.introspectDocumentInstance('Item', item as any).descriptors);
+    }
   }
 
   #resetEditorState(): void {

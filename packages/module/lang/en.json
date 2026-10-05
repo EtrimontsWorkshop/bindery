@@ -277,7 +277,8 @@
       "literalHint": "The same value on every imported Actor — for settings that change how another field is read.",
       "literalTrue": "Yes",
       "literalFalse": "No",
-      "removeMapping": "Remove this mapping"
+      "removeMapping": "Remove this mapping",
+      "templateActorMissing": "The template Actor of this profile no longer exists, so its fields can't be listed. Pick another one on the Source tab."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",
