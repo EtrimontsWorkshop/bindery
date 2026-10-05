@@ -26,7 +26,9 @@
       "buildingReview": "Analyzing document…",
       "journalBuildErrorGeneric": "Could not build a preview from this document. See console for details.",
       "reviewImportDone": "Import complete — check the Scenes and Journal sidebars.",
-      "dropHint": "or drop it here — no file selected"
+      "dropHint": "or drop it here — no file selected",
+      "statblockImportButton": "Import statblocks as Actors…",
+      "statblockImportHint": "Uses a profile made in Settings → Bindery → Statblock profile builder."
     },
     "review": {
       "title": "Bindery — Review",
@@ -179,7 +181,6 @@
       "defaultProfileName": "New profile",
       "copySuffix": "(copy)",
       "newProfile": "New profile",
-      "import": "Import",
       "edit": "Edit",
       "duplicate": "Duplicate",
       "export": "Export",
@@ -258,24 +259,9 @@
       "newRequiredLabelPlaceholder": "Label text (e.g. HP:)",
       "testDetection": "Test on the whole PDF",
       "pageAbbrev": "p.",
-      "importHeading": "Import into the world",
-      "importPolicyLabel": "If an Actor with the same name already exists",
-      "importPolicySkip": "Skip it",
-      "importPolicyOverwrite": "Overwrite it",
-      "importPolicyCopy": "Create another one",
-      "importButton": "Import {count} found statblock(s) as Actors",
-      "importHintRunDetection": "Run \"Test on the whole PDF\" first — the import uses what it finds.",
-      "importing": "Importing…",
-      "importConfirmTitle": "Import Actors",
-      "importConfirmBody": "Create Actors from {count} statblock(s)? Policy for existing Actors: {policy}.",
-      "importFailed": "Import failed: {message}",
-      "importReportSummary": "Created: {created}, updated: {updated}, skipped: {skipped}, failed: {failed}.",
-      "importStatusCreated": "Created",
-      "importStatusUpdated": "Updated",
-      "importStatusSkipped": "Skipped",
-      "importStatusError": "Failed",
       "detectionNeedsPdf": "Load a PDF on the Source tab first.",
-      "detectionNoResults": "No statblocks found. Check the anchor: plain text matches any line that contains it; heading style needs the heading font to match."
+      "detectionNoResults": "No statblocks found. Check the anchor: plain text matches any line that contains it; heading style needs the heading font to match.",
+      "import": "Import"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",
@@ -336,6 +322,32 @@
       "STATBLOCK_VALUE_MAP_NORMALIZED_MATCH": "\"{input}\" matched \"{matchedKey}\" after normalizing.",
       "STATBLOCK_VALUE_MAP_NOT_FOUND": "Value map \"{valueMapId}\" was not found in this profile.",
       "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" did not match any entry in the value map."
+    },
+    "statblockImport": {
+      "title": "Import statblocks as Actors",
+      "intro": "Statblocks found in",
+      "profileLabel": "Profile",
+      "selectProfile": "— choose a profile —",
+      "noProfiles": "No profiles yet. Create one in Settings → Bindery → Statblock profile builder, then come back.",
+      "profileInvalid": "This profile is incomplete and can't be used yet:",
+      "findingStatblocks": "Looking for statblocks…",
+      "foundCount": "{count} statblock(s) found:",
+      "noneFound": "No statblocks found with this profile. Open it in the profile builder and check the Detection tab.",
+      "pageAbbrev": "p.",
+      "policyLabel": "If an Actor with the same name already exists",
+      "policySkip": "Skip it",
+      "policyOverwrite": "Overwrite it",
+      "policyCopy": "Create another one",
+      "importButton": "Import {count} statblock(s) as Actors",
+      "importing": "Importing…",
+      "confirmTitle": "Import Actors",
+      "confirmBody": "Create Actors from {count} statblock(s)? Policy for existing Actors: {policy}.",
+      "failed": "Statblock import failed: {message}",
+      "reportSummary": "Created: {created}, updated: {updated}, skipped: {skipped}, failed: {failed}.",
+      "statusCreated": "Created",
+      "statusUpdated": "Updated",
+      "statusSkipped": "Skipped",
+      "statusError": "Failed"
     }
   }
 }

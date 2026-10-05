@@ -62,7 +62,6 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       deleteProfile: ProfileBuilderApp.#onDeleteProfileFromList,
       exportProfile: ProfileBuilderApp.#onExportProfileFromList,
       importProfile: ProfileBuilderApp.#onImportProfile,
-      importStatblocks: ProfileBuilderApp.#onImportStatblocks,
       backToList: ProfileBuilderApp.#onBackToList,
       switchTab: ProfileBuilderApp.#onSwitchTab,
       setMode: ProfileBuilderApp.#onSetMode,
@@ -132,9 +131,6 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   #detectionResults: any[] | null = null;
-  #importPolicy: 'skip' | 'overwrite' | 'copy' = 'skip';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  #importReport: any = null;
 
   async #core(): Promise<CoreModule> {
     return import('@bindery/core');
@@ -202,13 +198,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       collections: profile.collections.map((c: AnyCollection) => this.#buildCollectionRow(c)),
 
       detection: this.#buildDetectionContext(profile),
-      detectionRan: this.#detectionResults !== null,
       detectionNone: this.#detectionResults !== null && this.#detectionResults.length === 0,
-      importPolicyIsSkip: this.#importPolicy === 'skip',
-      importPolicyIsOverwrite: this.#importPolicy === 'overwrite',
-      importPolicyIsCopy: this.#importPolicy === 'copy',
-      importButtonLabel: game.i18n!.format('BINDERY.statblockProfileBuilder.importButton', { count: String(this.#detectionResults?.length ?? 0) }),
-      importReport: this.#describeImportReport(),
       detectionResults: this.#detectionResults?.map((c) => ({
         id: c.id,
         page: c.regions[0]?.pageNumber ?? '?',
@@ -422,11 +412,6 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       this.#schemaSearch = searchInput.value;
       this.#refocusSchemaSearch = true;
       void this.render();
-    });
-
-    const policySelect = this.element.querySelector<HTMLSelectElement>('select[data-role="import-policy"]');
-    policySelect?.addEventListener('change', () => {
-      this.#importPolicy = policySelect.value as 'skip' | 'overwrite' | 'copy';
     });
 
     const nameInput = this.element.querySelector<HTMLInputElement>('input[name="profileName"]');
@@ -785,7 +770,6 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     this.#selectedTarget = null;
     this.#pendingCapture = null;
     this.#detectionResults = null;
-    this.#importReport = null;
   }
 
   static #onDuplicateProfileFromList(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
@@ -1123,68 +1107,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       if (!this.#profile || !this.#pagesForDetection) return;
       const core = await this.#core();
       this.#detectionResults = core.detectStatblocks(this.#pagesForDetection, this.#profile);
-      this.#importReport = null;
       await this.render();
-    })();
-  }
-
-  #describeImportReport(): { summary: string; instances: Array<{ status: string; statusKey: string; actorName: string; pageNumber?: number; messages: string[] }> } | null {
-    const report = this.#importReport;
-    if (!report) return null;
-    const statusKeys: Record<string, string> = {
-      created: 'BINDERY.statblockProfileBuilder.importStatusCreated',
-      updated: 'BINDERY.statblockProfileBuilder.importStatusUpdated',
-      skipped: 'BINDERY.statblockProfileBuilder.importStatusSkipped',
-      error: 'BINDERY.statblockProfileBuilder.importStatusError',
-    };
-    return {
-      summary: game.i18n!.format('BINDERY.statblockProfileBuilder.importReportSummary', {
-        created: String(report.created),
-        updated: String(report.updated),
-        skipped: String(report.skipped),
-        failed: String(report.failed),
-      }),
-      instances: report.instances.map((i: { status: string; actorName: string; pageNumber?: number; diagnostics: Parameters<typeof formatDiagnostic>[0][] }) => ({
-        status: i.status,
-        statusKey: statusKeys[i.status] ?? statusKeys['error']!,
-        actorName: i.actorName,
-        pageNumber: i.pageNumber,
-        messages: i.diagnostics.map((d) => formatDiagnostic(d)),
-      })),
-    };
-  }
-
-  static #onImportStatblocks(this: ProfileBuilderApp): void {
-    void (async () => {
-      if (!this.#profile || !this.#detectionResults?.length) return;
-      const core = await this.#core();
-      const validation = core.validateProfile(this.#profile);
-      if (!validation.ok) {
-        this.#validationIssues = validation.issues;
-        await this.render();
-        return;
-      }
-      this.#validationIssues = [];
-      const i18n = game.i18n!;
-      const policyKeys = { skip: 'importPolicySkip', overwrite: 'importPolicyOverwrite', copy: 'importPolicyCopy' } as const;
-      const confirmed = await foundry.applications.api.DialogV2.confirm({
-        window: { title: 'BINDERY.statblockProfileBuilder.importConfirmTitle' },
-        content: `<p>${i18n.format('BINDERY.statblockProfileBuilder.importConfirmBody', { count: String(this.#detectionResults.length), policy: i18n.localize(`BINDERY.statblockProfileBuilder.${policyKeys[this.#importPolicy]}`) })}</p>`,
-      });
-      if (!confirmed) return;
-
-      this.#busy = 'BINDERY.statblockProfileBuilder.importing';
-      this.#importReport = null;
-      await this.render();
-      try {
-        const { importStatblocks } = await import('../import/importStatblocks.js');
-        this.#importReport = await importStatblocks(validation.profile, this.#detectionResults, { duplicatePolicy: this.#importPolicy });
-      } catch (err) {
-        ui.notifications?.error(i18n.format('BINDERY.statblockProfileBuilder.importFailed', { message: String(err) }));
-      } finally {
-        this.#busy = null;
-        await this.render();
-      }
     })();
   }
 

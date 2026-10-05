@@ -26,7 +26,9 @@
       "buildingReview": "Analizowanie dokumentu…",
       "journalBuildErrorGeneric": "Nie udało się zbudować podglądu z tego dokumentu. Szczegóły w konsoli.",
       "reviewImportDone": "Import zakończony — sprawdź panele boczne Sceny i Dziennik.",
-      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku"
+      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku",
+      "statblockImportButton": "Importuj statblocki jako Actorów…",
+      "statblockImportHint": "Korzysta z profilu utworzonego w Ustawieniach → Bindery → Kreator profilu statblocków."
     },
     "review": {
       "title": "Bindery — przegląd",
@@ -179,7 +181,6 @@
       "defaultProfileName": "Nowy profil",
       "copySuffix": "(kopia)",
       "newProfile": "Nowy profil",
-      "import": "Importuj",
       "edit": "Edytuj",
       "duplicate": "Duplikuj",
       "export": "Eksportuj",
@@ -258,24 +259,9 @@
       "newRequiredLabelPlaceholder": "Tekst etykiety (np. HP:)",
       "testDetection": "Testuj na całym PDF-ie",
       "pageAbbrev": "str.",
-      "importHeading": "Import do świata",
-      "importPolicyLabel": "Jeśli Actor o tej samej nazwie już istnieje",
-      "importPolicySkip": "Pomiń go",
-      "importPolicyOverwrite": "Nadpisz go",
-      "importPolicyCopy": "Utwórz kolejnego",
-      "importButton": "Importuj znalezione statblocki ({count}) jako Actorów",
-      "importHintRunDetection": "Najpierw uruchom „Testuj na całym PDF-ie” — import korzysta z tego, co zostanie znalezione.",
-      "importing": "Importowanie…",
-      "importConfirmTitle": "Import Actorów",
-      "importConfirmBody": "Utworzyć Actorów z {count} statblocków? Dla istniejących Actorów: {policy}.",
-      "importFailed": "Import nie powiódł się: {message}",
-      "importReportSummary": "Utworzono: {created}, zaktualizowano: {updated}, pominięto: {skipped}, błędy: {failed}.",
-      "importStatusCreated": "Utworzono",
-      "importStatusUpdated": "Zaktualizowano",
-      "importStatusSkipped": "Pominięto",
-      "importStatusError": "Błąd",
       "detectionNeedsPdf": "Najpierw wczytaj PDF w zakładce Source.",
-      "detectionNoResults": "Nie znaleziono statblocków. Sprawdź kotwicę: zwykły tekst pasuje do każdej linii, która go zawiera; styl nagłówka wymaga zgodnej czcionki nagłówka."
+      "detectionNoResults": "Nie znaleziono statblocków. Sprawdź kotwicę: zwykły tekst pasuje do każdej linii, która go zawiera; styl nagłówka wymaga zgodnej czcionki nagłówka.",
+      "import": "Importuj"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",
@@ -336,6 +322,32 @@
       "STATBLOCK_VALUE_MAP_NORMALIZED_MATCH": "\"{input}\" dopasowano do \"{matchedKey}\" po normalizacji.",
       "STATBLOCK_VALUE_MAP_NOT_FOUND": "Nie znaleziono mapowania wartości \"{valueMapId}\" w tym profilu.",
       "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" nie pasuje do żadnego wpisu w mapowaniu wartości."
+    },
+    "statblockImport": {
+      "title": "Import statblocków jako Actorów",
+      "intro": "Statblocki znalezione w",
+      "profileLabel": "Profil",
+      "selectProfile": "— wybierz profil —",
+      "noProfiles": "Nie ma jeszcze żadnych profili. Utwórz profil w Ustawieniach → Bindery → Kreator profilu statblocków i wróć tutaj.",
+      "profileInvalid": "Ten profil jest niekompletny i nie można go jeszcze użyć:",
+      "findingStatblocks": "Szukam statblocków…",
+      "foundCount": "Znaleziono statblocków: {count}:",
+      "noneFound": "Ten profil nie znalazł żadnych statblocków. Otwórz go w kreatorze profilu i sprawdź zakładkę Detection.",
+      "pageAbbrev": "str.",
+      "policyLabel": "Jeśli Actor o tej samej nazwie już istnieje",
+      "policySkip": "Pomiń go",
+      "policyOverwrite": "Nadpisz go",
+      "policyCopy": "Utwórz kolejnego",
+      "importButton": "Importuj statblocki ({count}) jako Actorów",
+      "importing": "Importowanie…",
+      "confirmTitle": "Import Actorów",
+      "confirmBody": "Utworzyć Actorów z {count} statblocków? Dla istniejących Actorów: {policy}.",
+      "failed": "Import statblocków nie powiódł się: {message}",
+      "reportSummary": "Utworzono: {created}, zaktualizowano: {updated}, pominięto: {skipped}, błędy: {failed}.",
+      "statusCreated": "Utworzono",
+      "statusUpdated": "Zaktualizowano",
+      "statusSkipped": "Pominięto",
+      "statusError": "Błąd"
     }
   }
 }

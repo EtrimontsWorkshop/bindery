@@ -65,6 +65,12 @@
       {{/if}}
     </div>
 
+    <div>
+      <button type="button" class="bindery-btn" data-action="openStatblockImport" title="{{localize 'BINDERY.wizard.statblockImportHint'}}">
+        <i class="fa-solid fa-dragon"></i> {{localize "BINDERY.wizard.statblockImportButton"}}
+      </button>
+    </div>
+
     {{#if reviewBuildError}}
       <p class="notification error">{{reviewBuildError}}</p>
     {{/if}}

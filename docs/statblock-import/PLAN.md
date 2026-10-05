@@ -1286,45 +1286,46 @@ regionu, kolekcje z prawdziwym Itemem szablonowym, eksport/import/
 duplikowanie/usuwanie profilu, faktyczny import Actorów.
 
 
-## Zrealizowane — Przycisk importu w kreatorze (wstęp do Zadania 6)
+## Zrealizowane — Import statblocków w kreatorze importu PDF (wstęp do Zadania 6)
 
-W zakładce **Detection**, pod wynikami "Testuj na całym PDF-ie", pojawiła
-się sekcja "Import do świata": wybór polityki duplikatów (pomiń / nadpisz /
-utwórz kolejnego; domyślnie pomiń), przycisk importu z liczbą znalezionych
-statblocków, okno potwierdzenia (DialogV2) i raport po imporcie (podsumowanie
-utworzono/zaktualizowano/pominięto/błędy + lista per instancja z
-zlokalizowaną diagnostyką przez `formatDiagnostic`). Import używa
-zwalidowanego profilu z pamięci (bez konieczności zapisu) i wywołuje
-`importStatblocks` ładowane dynamicznie. Raport czyszczony przy ponownym
-teście detekcji i przy zmianie profilu. Bez przypisywania obrazów (`images`
-pominięte) i bez wyboru folderu — świadomie, do kolejnego kroku.
+**Podział odpowiedzialności** (decyzja właściciela): kreator profilu
+(`ProfileBuilderApp`) TYLKO tworzy i testuje profil (zakładka Detection
+zostaje jako test profilu); import Actorów dzieje się w istniejącym
+kreatorze importu PDF (`ImportWizard`). W oknie importu, po analizie PDF-a,
+jest przycisk "Importuj statblocki jako Actorów…", który otwiera lekkie
+okno `StatblockImportApp` (ładowane leniwie) dla JUŻ wczytanego pliku —
+bez ponownego wybierania PDF-a. Okno: wybór zapisanego profilu (jeden
+profil jest wybierany sam i od razu uruchamia wyszukiwanie), walidacja
+profilu, lista znalezionych statblocków (str./pewność/pierwszy tekst),
+polityka duplikatów (pomiń / nadpisz / kopia), potwierdzenie, raport
+(utworzono/zaktualizowano/pominięto/błędy + zlokalizowane diagnostyki).
+Bez przypisywania obrazów i wyboru folderu (świadomie, kolejny krok).
 
-**Budżet `check:size`**: sama dodana funkcja zepchnęłaby budżet do 96%
-(39332/40960). Zamiast podnosić budżet — `settings.ts` rejestruje teraz
-cienką zaślepkę `ProfileBuilderLauncher`, która dopiero po kliknięciu
-ładuje właściwe `ProfileBuilderApp`. Paczka startowa: 8435 B (~21%).
-Domyka pytanie #25.
+**Budżet `check:size`**: kreator profilu i okno importu ładowane leniwie
+(`ProfileBuilderLauncher`, dynamiczne importy) — paczka startowa ~8,7 KB
+(~21% budżetu). Domyka pytanie #25.
 
-**Poprawki po pierwszej próbie na żywo**: (a) kotwica w trybie zwykłego
-tekstu dopasowywała CAŁĄ linię, więc praktycznie nigdy nie pasowała ("HP:"
-vs linia "HP: 7 AC: 15") — teraz "linia zawiera tekst"; dokładne dopasowanie
-nadal przez regex `^…$`; (b) etykieta w trybie zwykłego tekstu ignoruje
-końcowy dwukropek po obu stronach ("HP" znajduje "HP:"); (c) zakładka
-Detection pokazuje komunikaty: brak wczytanego PDF-a, brak znalezionych
-statblocków (wcześniej cisza).
+**Poprawki z kolejnych prób na żywo**: (a) kotwica zwykłego tekstu
+dopasowuje linię ZAWIERAJĄCĄ tekst (wcześniej całą linię); dokładne
+dopasowanie przez regex `^…$`; (b) etykieta zwykłego tekstu ignoruje
+końcowy dwukropek; (c) komunikaty w zakładce Detection (brak PDF-a, brak
+wyników); (d) `templateSchemaFingerprint` nigdy nie był obliczany, więc
+KAŻDY profil był odrzucany przez `validateProfile` — dodano
+`computeSchemaFingerprint` (core, hash struktury: ścieżki+typy+
+ograniczenia, bez etykiet i wartości), liczony przy wyborze Actora
+szablonowego; profile utworzone przed poprawką trzeba przepiąć na Actora.
+Nadal nic nie porównuje fingerprintu przy imporcie (pytanie #24).
 
-**Błąd znaleziony przy drugiej próbie**: `templateSchemaFingerprint` nigdy
-nie był obliczany (kreator zostawiał pusty string), więc `validateProfile`
-odrzucał KAŻDY profil — nie dało się go zapisać ani użyć do importu.
-Naprawione: `computeSchemaFingerprint` (core, `schema/`, hash struktury:
-ścieżki + typy + ograniczenia, bez etykiet i wartości bieżących),
-wywoływane przy wyborze Actora szablonowego. Nadal nic nie porównuje
-fingerprintu przy imporcie (pytanie #24). Profile utworzone przed tą
-poprawką trzeba przepiąć na Actora ponownie.
+**Wdrożenie lokalne**: repo i folder modułu w Foundry to różne katalogi.
+Kod logiki (core) ładuje się z `lib/core/` — ręczne kopiowanie samego
+`scripts/lang/templates/styles` zostawiało STARY core (stąd "is not a
+function" i brak działania poprawek core). Nowy skrypt
+`npm run deploy:foundry` (zmienna `BINDERY_FOUNDRY_MODULE_DIR`) kopiuje
+cały zbudowany moduł, w tym `lib/`; sprawdza, że cel to folder modułu o tym
+samym `id`.
 
-**Ręczny test**: opis w rozmowie z właścicielem (kreator → Detection →
-Testuj → Import). Nadal nieprzetestowane na żywo: sam import Actora,
-polityki `overwrite`/`copy`, import z kolekcjami.
+**Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
+na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 
 ## Pytania i założenia wymagające Twojej decyzji
 

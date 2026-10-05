@@ -1,0 +1,60 @@
+<div class="bindery-si-root">
+<div class="bindery-si-body">
+  <p class="hint">{{localize "BINDERY.statblockImport.intro"}} <strong>{{fileName}}</strong></p>
+
+  {{#if hasProfiles}}
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockImport.profileLabel"}}</label>
+      <select data-role="profile">
+        <option value="">{{localize "BINDERY.statblockImport.selectProfile"}}</option>
+        {{#each profileOptions}}
+          <option value="{{this.id}}" {{#if this.isSelected}}selected{{/if}}>{{this.name}}</option>
+        {{/each}}
+      </select>
+    </div>
+  {{else}}
+    <p class="notification warning">{{localize "BINDERY.statblockImport.noProfiles"}}</p>
+  {{/if}}
+
+  {{#if busy}}<p class="bindery-progress-text">{{localize busy}}</p>{{/if}}
+
+  {{#if issues.length}}
+    <div class="notification error">
+      <p>{{localize "BINDERY.statblockImport.profileInvalid"}}</p>
+      <ul>{{#each issues}}<li>{{this}}</li>{{/each}}</ul>
+    </div>
+  {{/if}}
+
+  {{#if noCandidates}}<p class="hint">{{localize "BINDERY.statblockImport.noneFound"}}</p>{{/if}}
+
+  {{#if hasCandidates}}
+    <p>{{foundSummary}}</p>
+    <ul class="bindery-si-candidates">
+      {{#each candidates}}
+        <li>{{localize "BINDERY.statblockImport.pageAbbrev"}} {{this.page}} — {{this.confidencePercent}}% — {{this.snippet}}</li>
+      {{/each}}
+    </ul>
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockImport.policyLabel"}}</label>
+      <select data-role="policy">
+        <option value="skip" {{#if policyIsSkip}}selected{{/if}}>{{localize "BINDERY.statblockImport.policySkip"}}</option>
+        <option value="overwrite" {{#if policyIsOverwrite}}selected{{/if}}>{{localize "BINDERY.statblockImport.policyOverwrite"}}</option>
+        <option value="copy" {{#if policyIsCopy}}selected{{/if}}>{{localize "BINDERY.statblockImport.policyCopy"}}</option>
+      </select>
+    </div>
+    <button type="button" class="bindery-btn bindery-btn--primary" data-action="importStatblocks">{{importButtonLabel}}</button>
+  {{/if}}
+
+  {{#if report}}
+    <p class="bindery-si-summary">{{report.summary}}</p>
+    <ul class="bindery-si-report">
+      {{#each report.instances}}
+        <li class="bindery-si-{{this.status}}">
+          <strong>{{localize this.statusKey}}</strong> — {{this.actorName}}{{#if this.pageNumber}} ({{localize "BINDERY.statblockImport.pageAbbrev"}} {{this.pageNumber}}){{/if}}
+          {{#if this.messages.length}}<ul>{{#each this.messages}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
+        </li>
+      {{/each}}
+    </ul>
+  {{/if}}
+</div>
+</div>

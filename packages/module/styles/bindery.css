@@ -1944,9 +1944,10 @@
   overflow-y: auto;
 }
 
-.bindery-profile-builder-app .bindery-pb-import { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
-.bindery-profile-builder-app .bindery-pb-import-report { list-style: none; margin: 0; padding: 0; }
-.bindery-profile-builder-app .bindery-pb-import-report > li { padding: 0.25rem 0; }
-.bindery-profile-builder-app .bindery-pb-import-error > strong { color: var(--color-level-error, #c0392b); }
-.bindery-profile-builder-app .bindery-pb-import-created > strong,
-.bindery-profile-builder-app .bindery-pb-import-updated > strong { color: var(--color-level-success, #2e8b57); }
+.bindery-statblock-import-app .bindery-si-body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; overflow-y: auto; }
+.bindery-statblock-import-app .bindery-si-candidates,
+.bindery-statblock-import-app .bindery-si-report { list-style: none; margin: 0; padding: 0; }
+.bindery-statblock-import-app .bindery-si-report > li { padding: 0.25rem 0; }
+.bindery-statblock-import-app .bindery-si-error > strong { color: var(--color-level-error, #c0392b); }
+.bindery-statblock-import-app .bindery-si-created > strong,
+.bindery-statblock-import-app .bindery-si-updated > strong { color: var(--color-level-success, #2e8b57); }

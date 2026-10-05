@@ -281,33 +281,6 @@
         {{/each}}
       </ul>
     {{/if}}
-
-    <div class="bindery-pb-import">
-      <h3>{{localize "BINDERY.statblockProfileBuilder.importHeading"}}</h3>
-      {{#if detectionResults}}
-        <label>{{localize "BINDERY.statblockProfileBuilder.importPolicyLabel"}}
-          <select data-role="import-policy">
-            <option value="skip" {{#if importPolicyIsSkip}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.importPolicySkip"}}</option>
-            <option value="overwrite" {{#if importPolicyIsOverwrite}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.importPolicyOverwrite"}}</option>
-            <option value="copy" {{#if importPolicyIsCopy}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.importPolicyCopy"}}</option>
-          </select>
-        </label>
-        <button type="button" data-action="importStatblocks">{{importButtonLabel}}</button>
-      {{else}}
-        <p class="hint">{{localize "BINDERY.statblockProfileBuilder.importHintRunDetection"}}</p>
-      {{/if}}
-      {{#if importReport}}
-        <p class="bindery-pb-import-summary">{{importReport.summary}}</p>
-        <ul class="bindery-pb-import-report">
-          {{#each importReport.instances}}
-            <li class="bindery-pb-import-{{this.status}}">
-              <strong>{{localize this.statusKey}}</strong> — {{this.actorName}}{{#if this.pageNumber}} ({{localize "BINDERY.statblockProfileBuilder.pageAbbrev"}} {{this.pageNumber}}){{/if}}
-              {{#if this.messages}}<ul>{{#each this.messages}}<li>{{this}}</li>{{/each}}</ul>{{/if}}
-            </li>
-          {{/each}}
-        </ul>
-      {{/if}}
-    </div>
   </section>
   {{/if}}
 
