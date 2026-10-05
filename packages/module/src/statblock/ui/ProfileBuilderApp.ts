@@ -33,6 +33,14 @@ type BuilderPhase = 'list' | 'editor';
 type BuilderTab = 'source' | 'fields' | 'collections' | 'detection';
 type BuilderMode = 'simple' | 'advanced';
 
+/** A text element on the page as the user clicked it: its text, how it is styled, and whether that styling is just the page's ordinary body text (then matching "by look" would match everything). */
+interface ClickedElement {
+  text: string;
+  fontSize: number;
+  bold: boolean;
+  isBodyStyle: boolean;
+}
+
 /** What the user just marked on the page preview, waiting to be assigned to a field/name via a button click — never applied automatically (the profile author always picks WHICH field a selection belongs to). */
 interface PendingCapture {
   kind: 'label' | 'region';
@@ -87,6 +95,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       removeRequiredLabel: ProfileBuilderApp.#onRemoveRequiredLabel,
       testDetection: ProfileBuilderApp.#onTestDetection,
       jumpToCandidate: ProfileBuilderApp.#onJumpToCandidate,
+      anchorByLook: ProfileBuilderApp.#onAnchorByLook,
+      anchorByText: ProfileBuilderApp.#onAnchorByText,
     },
   };
 
@@ -126,7 +136,9 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   #selectedTarget: FieldTarget | null = null;
   #pendingCapture: PendingCapture | null = null;
   /** Text of each overlay rectangle currently drawn (see `#wireRegionDrag`'s pointerup for why this isn't a per-rect click listener). */
-  #rectLabels = new WeakMap<SVGRectElement, string>();
+  #rectLabels = new WeakMap<SVGRectElement, ClickedElement>();
+  /** What the user last clicked on the Detection tab, kept so "by look" / "by text" can be switched without clicking again. */
+  #anchorPick: { element: ClickedElement; mode: 'look' | 'text' } | null = null;
   #dragState: { startScreen: { x: number; y: number }; rectEl: SVGRectElement } | null = null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,6 +182,10 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       isFieldsTab: this.#tab === 'fields',
       isCollectionsTab: this.#tab === 'collections',
       isDetectionTab: this.#tab === 'detection',
+      showPreview: this.#tab === 'fields' || this.#tab === 'detection',
+      anchorSummary: this.#describeAnchor(profile),
+      anchorPick: this.#anchorPick ? { isLook: this.#anchorPick.mode === 'look', isText: this.#anchorPick.mode === 'text' } : null,
+      detectionFoundSummary: this.#detectionResults && this.#detectionResults.length > 0 ? game.i18n!.format('BINDERY.statblockProfileBuilder.detectionFound', { count: String(this.#detectionResults.length) }) : null,
       busy: this.#busy,
       validationIssues: this.#validationIssues,
       isValid: this.#validationIssues.length === 0,
@@ -514,7 +530,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       if (resolved?.source && (resolved.source as { kind?: string }).kind === 'label') (resolved.source as { labelPattern: string }).labelPattern = labelSourcePatternInput.value;
     });
 
-    if (this.#tab === 'fields' && this.#previewDoc) void this.#mountPageOverlay();
+    if ((this.#tab === 'fields' || this.#tab === 'detection') && this.#previewDoc) void this.#mountPageOverlay();
   }
 
   // ---- PDF preview + overlay --------------------------------------------
@@ -566,7 +582,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         if (evictUrl) URL.revokeObjectURL(evictUrl);
         this.#pageImageCache.delete(evict);
       }
-      if (this.#tab === 'fields' && pageNumber === this.#currentPageNumber) await this.render();
+      if ((this.#tab === 'fields' || this.#tab === 'detection') && pageNumber === this.#currentPageNumber) await this.render();
     } catch (err) {
       console.warn('Bindery | ProfileBuilderApp: renderPage failed:', err);
     }
@@ -581,6 +597,12 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     const core = await this.#core();
     const box = await this.#previewDoc.getPageBox(this.#currentPageNumber);
     const elements = (this.#pagesForDetection ?? []).find((p) => p.pageNumber === this.#currentPageNumber)?.elements ?? [];
+
+    // The page's "body" style = the (size, bold) combination covering the most text.
+    const styleKey = (el: { fontSize: number; bold: boolean }): string => `${Math.round(el.fontSize * 2) / 2}|${el.bold}`;
+    const weight = new Map<string, number>();
+    for (const el of elements as Array<{ text: string; fontSize: number; bold: boolean }>) weight.set(styleKey(el), (weight.get(styleKey(el)) ?? 0) + el.text.length);
+    const bodyStyle = [...weight.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
     const draw = (): void => {
       const width = img.naturalWidth || img.clientWidth;
@@ -599,7 +621,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         rect.setAttribute('width', String(Math.max(0, screen.maxX - screen.minX)));
         rect.setAttribute('height', String(Math.max(0, screen.maxY - screen.minY)));
         rect.setAttribute('class', 'bindery-pb-element');
-        this.#rectLabels.set(rect, el.text.trim());
+        this.#rectLabels.set(rect, { text: el.text.trim(), fontSize: el.fontSize, bold: el.bold, isBodyStyle: styleKey(el) === bodyStyle });
         svg.appendChild(rect);
       }
     };
@@ -655,12 +677,17 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         // browser's own `click` to the <svg> itself, so a per-rect click
         // listener never fires — find the text element under the pointer here.
         const hit = document.elementsFromPoint(e.clientX, e.clientY).find((n) => this.#rectLabels.has(n as SVGRectElement));
-        if (hit) {
-          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: this.#rectLabels.get(hit as SVGRectElement)! };
+        const clicked = hit ? this.#rectLabels.get(hit as SVGRectElement) : undefined;
+        if (clicked && this.#tab === 'detection') {
+          void this.#pickAnchor(clicked, clicked.isBodyStyle ? 'text' : 'look');
+        } else if (clicked) {
+          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: clicked.text };
           void this.render();
         }
         return;
       }
+      // Dragging out a region is for field capture only — it has no meaning for the statblock start.
+      if (this.#tab === 'detection') return;
       const screenRect = { minX: Math.min(state.startScreen.x, cur.x), minY: Math.min(state.startScreen.y, cur.y), maxX: Math.max(state.startScreen.x, cur.x), maxY: Math.max(state.startScreen.y, cur.y) };
       const width_ = img.clientWidth;
       const height_ = img.clientHeight;
@@ -770,6 +797,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     this.#selectedTarget = null;
     this.#pendingCapture = null;
     this.#detectionResults = null;
+    this.#anchorPick = null;
   }
 
   static #onDuplicateProfileFromList(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
@@ -1111,6 +1139,43 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     })();
   }
 
+  #describeAnchor(profile: AnyProfile): string {
+    const i18n = game.i18n!;
+    const anchor = profile.detection.anchor;
+    if (anchor.kind === 'textPattern' && anchor.pattern) return i18n.format('BINDERY.statblockProfileBuilder.anchorSummaryText', { text: anchor.pattern });
+    const filter = anchor.styleFilter;
+    if (anchor.kind === 'headingStyle' && filter) {
+      if (filter.minFontSize !== undefined) {
+        return i18n.format(filter.bold ? 'BINDERY.statblockProfileBuilder.anchorSummaryStyleBold' : 'BINDERY.statblockProfileBuilder.anchorSummaryStyle', { size: String(Math.round(((filter.minFontSize + (filter.maxFontSize ?? filter.minFontSize)) / 2) * 10) / 10) });
+      }
+      return i18n.localize('BINDERY.statblockProfileBuilder.anchorSummaryCustomStyle');
+    }
+    return i18n.localize('BINDERY.statblockProfileBuilder.anchorNone');
+  }
+
+  /** Turns a clicked line into the statblock-start rule and immediately shows what it finds. "Look" = lines styled like the clicked one (size, bold); "text" = lines containing its text. */
+  async #pickAnchor(element: ClickedElement, mode: 'look' | 'text'): Promise<void> {
+    if (!this.#profile) return;
+    this.#anchorPick = { element, mode };
+    this.#profile.detection.anchor =
+      mode === 'look'
+        ? { kind: 'headingStyle', styleFilter: { minFontSize: element.fontSize - 0.5, maxFontSize: element.fontSize + 0.5, ...(element.bold ? { bold: true } : {}) } }
+        : { kind: 'textPattern', pattern: element.text, patternIsRegex: false };
+    if (this.#pagesForDetection) {
+      const core = await this.#core();
+      this.#detectionResults = core.detectStatblocks(this.#pagesForDetection, this.#profile);
+    }
+    await this.render();
+  }
+
+  static #onAnchorByLook(this: ProfileBuilderApp): void {
+    if (this.#anchorPick) void this.#pickAnchor(this.#anchorPick.element, 'look');
+  }
+
+  static #onAnchorByText(this: ProfileBuilderApp): void {
+    if (this.#anchorPick) void this.#pickAnchor(this.#anchorPick.element, 'text');
+  }
+
   static #onJumpToCandidate(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
     void (async () => {
       const id = target.dataset['id'];
@@ -1118,7 +1183,6 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       const page = candidate?.regions[0]?.pageNumber;
       if (!page) return;
       this.#currentPageNumber = page;
-      this.#tab = 'fields';
       await this.render();
     })();
   }

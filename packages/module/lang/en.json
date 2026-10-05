@@ -261,7 +261,16 @@
       "pageAbbrev": "p.",
       "detectionNeedsPdf": "Load a PDF on the Source tab first.",
       "detectionNoResults": "No statblocks found. Check the anchor: plain text matches any line that contains it; heading style needs the heading font to match.",
-      "import": "Import"
+      "import": "Import",
+      "anchorNone": "No statblock start set yet.",
+      "anchorClickHint": "Click the first line of any statblock on the page — usually the creature's name.",
+      "anchorSummaryText": "Each statblock starts with a line containing “{text}”.",
+      "anchorSummaryStyle": "Each statblock starts with a line styled like the one you clicked (text size {size}).",
+      "anchorSummaryStyleBold": "Each statblock starts with a line styled like the one you clicked (bold, text size {size}).",
+      "anchorSummaryCustomStyle": "Each statblock starts with a line matching a custom style (see Advanced mode).",
+      "anchorByLook": "Match by look",
+      "anchorByText": "Match by text",
+      "detectionFound": "{count} statblock(s) found."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",

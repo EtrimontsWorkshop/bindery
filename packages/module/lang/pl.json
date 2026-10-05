@@ -261,7 +261,16 @@
       "pageAbbrev": "str.",
       "detectionNeedsPdf": "Najpierw wczytaj PDF w zakładce Source.",
       "detectionNoResults": "Nie znaleziono statblocków. Sprawdź kotwicę: zwykły tekst pasuje do każdej linii, która go zawiera; styl nagłówka wymaga zgodnej czcionki nagłówka.",
-      "import": "Importuj"
+      "import": "Importuj",
+      "anchorNone": "Nie ustawiono jeszcze początku statblocka.",
+      "anchorClickHint": "Kliknij pierwszą linię dowolnego statblocka na stronie — zwykle nazwę stworzenia.",
+      "anchorSummaryText": "Każdy statblock zaczyna się od linii zawierającej „{text}”.",
+      "anchorSummaryStyle": "Każdy statblock zaczyna się od linii o takim wyglądzie jak ta, którą kliknięto (rozmiar tekstu {size}).",
+      "anchorSummaryStyleBold": "Każdy statblock zaczyna się od linii o takim wyglądzie jak ta, którą kliknięto (pogrubiona, rozmiar tekstu {size}).",
+      "anchorSummaryCustomStyle": "Każdy statblock zaczyna się od linii o własnym stylu (zobacz tryb zaawansowany).",
+      "anchorByLook": "Dopasuj po wyglądzie",
+      "anchorByText": "Dopasuj po tekście",
+      "detectionFound": "Znaleziono statblocków: {count}."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",

@@ -1951,3 +1951,8 @@
 .bindery-statblock-import-app .bindery-si-error > strong { color: var(--color-level-error, #c0392b); }
 .bindery-statblock-import-app .bindery-si-created > strong,
 .bindery-statblock-import-app .bindery-si-updated > strong { color: var(--color-level-success, #2e8b57); }
+
+.bindery-profile-builder-app .bindery-pb-grid-two { grid-template-columns: 1.2fr 1fr; }
+.bindery-profile-builder-app .bindery-pb-anchor-summary { font-weight: 600; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes { display: flex; gap: 0.25rem; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes button.active { outline: 2px solid currentColor; }

@@ -1324,6 +1324,19 @@ function" i brak działania poprawek core). Nowy skrypt
 cały zbudowany moduł, w tym `lib/`; sprawdza, że cel to folder modułu o tym
 samym `id`.
 
+**Kotwica przez klikanie** (zakładka Detection): podgląd strony jest
+teraz widoczny też tam (wspólny układ z zakładką Fields). Kliknięcie
+pierwszej linii statblocka ustawia kotwicę automatycznie i od razu uruchamia
+detekcję ("Znaleziono statblocków: N"). Wybór reguły: jeśli styl klikniętego
+tekstu (rozmiar zaokrąglony do 0,5 + pogrubienie) NIE jest dominującym
+stylem strony → "po wyglądzie" (`headingStyle` z `minFontSize`/`maxFontSize`
+= rozmiar ±0,5 i `bold` gdy pogrubiony); w przeciwnym razie → "po tekście"
+(`textPattern`, linia zawiera tekst). Dwa przyciski przełączają regułę bez
+ponownego klikania. W trybie prostym znikają: pole wzorca, wybór rodzaju
+kotwicy, granica, wymagane etykiety i przycisk testu (zostają w
+zaawansowanym). Przeciąganie regionu w tej zakładce jest wyłączone.
+Uproszczenie: dominujący styl liczony per strona (waga = długość tekstu).
+
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 
