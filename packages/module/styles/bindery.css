@@ -1007,6 +1007,80 @@
   font-size: 13px;
   color: var(--bindery-text-4);
 }
+/* Przywrocone: reguly dla ekranu przegladu, ktore dzielily selektor z usunietym Profile Studio (commit dd28f67 zdjal je razem z nim). */
+.bindery-review-app .bindery-page-nav-input {
+  font-family: var(--bindery-font-mono);
+  font-size: 13px;
+  background: var(--bindery-bg);
+  border: 1px solid var(--bindery-line-ctrl);
+  border-radius: var(--bindery-r-pill);
+  padding: 6px 10px;
+  width: 3.2rem;
+  text-align: center;
+  color: var(--bindery-text);
+}
+.bindery-review-app .bindery-page-canvas-wrap {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--bindery-r-window);
+  border: 1px solid rgba(246, 239, 227, 0.12);
+  background: var(--bindery-bg);
+  overflow: hidden;
+  flex: none;
+}
+.bindery-review-app .bindery-page-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.bindery-review-app .bindery-page-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.bindery-review-app .bindery-page-overlay rect {
+  fill: transparent;
+  stroke-width: 2;
+  cursor: pointer;
+  pointer-events: all;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-select-drag-rect {
+  fill: rgba(214, 127, 72, 0.2);
+  stroke: var(--bindery-accent-hi);
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.bindery-review-app .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay, .bindery-review-app .bindery-page-canvas-wrap.bindery-select-mode .bindery-page-overlay rect:not(.bindery-select-drag-rect) {
+  cursor: crosshair;
+}
+.bindery-review-app .bindery-review-list {
+  border: 1px solid var(--bindery-line);
+  border-radius: var(--bindery-r-card);
+  background: var(--bindery-window);
+  overflow-y: auto;
+  min-height: 0;
+  position: relative;
+}
+.bindery-review-app .bindery-review-list-full {
+  min-height: 0;
+}
+.bindery-review-app .bindery-review-row {
+  border-top: 1px solid var(--bindery-line-soft);
+  border-bottom: none;
+  color: var(--bindery-text);
+}
+.bindery-review-app .bindery-review-row:first-child {
+  border-top: none;
+}
+.bindery-review-app .bindery-review-row:hover {
+  background: var(--bindery-panel);
+}
+
 /* [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"] Grupa
    −/procent/+ wewnatrz `.bindery-page-nav` — wlasny, ciasny `gap`, zeby trzy
    elementy czytaly sie jako JEDEN klaster kontrolny, nie trzy osobne przyciski
@@ -1949,3 +2023,8 @@
 .bindery-review .bindery-sb-row { display: grid; grid-template-columns: auto 48px 1fr minmax(120px, 220px); gap: 0.5rem; align-items: center; }
 .bindery-review .bindery-sb-thumb { width: 48px; height: 48px; object-fit: contain; background: rgba(255, 255, 255, 0.05); border-radius: 4px; }
 .bindery-review .bindery-sb-thumb-empty { display: inline-block; }
+
+.bindery-profile-builder-app .bindery-pb-grid-two { grid-template-columns: 1.2fr 1fr; }
+.bindery-profile-builder-app .bindery-pb-anchor-summary { font-weight: 600; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes { display: flex; gap: 0.25rem; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes button.active { outline: 2px solid currentColor; }

@@ -1394,6 +1394,19 @@ wczytuje schemat przy każdym otwarciu; brak Actora → ostrzeżenie.
 Przykładowy PDF nadal trzeba wczytać ponownie w zakładce Źródło (profil go
 nie przechowuje).
 
+**Regresja stylów ekranu przeglądu (z commitu `dd28f67`, v0.2.4)**: przy
+usuwaniu starego Profile Studio zniknęły reguły CSS, które dzieliły
+selektor `.bindery-review-app …, .bindery-profile-studio …` — razem z
+częścią dla ekranu przeglądu (ramka `.bindery-page-canvas-wrap` 3:4,
+`.bindery-page-image`, nakładka `.bindery-page-overlay` i jej `rect`,
+`.bindery-select-drag-rect`, kursor trybu zaznaczania, lista `.bindery-review-list`
+i jej wiersze, pole numeru strony). Skutek: nakładka obrazów lądowała POD
+podglądem, a pasek "Zaznacz i wytnij" daleko od niego. Przywrócono 12
+reguł (tylko połówka `.bindery-review-app`). Przy okazji przywrócono 4
+reguły zakładki Detekcja kreatora profilu usunięte przez pomyłkę przy
+edycji CSS. Lekcja: zmiany w bindery.css robić dopisywaniem/edycją
+konkretnego bloku, nie obcinaniem końcówki pliku.
+
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 
