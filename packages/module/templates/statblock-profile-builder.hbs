@@ -127,10 +127,35 @@
     <div class="bindery-pb-col bindery-pb-col-detail">
       {{#if selectedFieldPanel}}
         <p class="bindery-pb-selected-label">{{selectedTargetLabel}}</p>
+        {{#if selectedFieldPanel.showLabelPattern}}
         <div class="form-group">
           <label>{{localize "BINDERY.statblockProfileBuilder.sourceLabelPattern"}}</label>
           <input type="text" data-role="label-pattern" value="{{selectedFieldPanel.labelPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.sourceLabelPlaceholder'}}" />
         </div>
+        {{/if}}
+        {{#if selectedFieldPanel.isStyleSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintStyle"}}</p>{{/if}}
+        {{#if selectedFieldPanel.isRegionSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintRegion"}}</p>{{/if}}
+        {{#if selectedFieldPanel.isLiteralSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintLiteral"}}</p>{{/if}}
+        {{#if selectedFieldPanel.isFieldTarget}}
+        <div class="form-group bindery-pb-literal">
+          <label>{{localize "BINDERY.statblockProfileBuilder.literalLabel"}}</label>
+          <p class="hint">{{localize "BINDERY.statblockProfileBuilder.literalHint"}}</p>
+          {{#if selectedFieldPanel.literal.hasChoices}}
+            <select data-role="literal-value">
+              <option value="">—</option>
+              {{#each selectedFieldPanel.literal.choices}}<option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>{{/each}}
+            </select>
+          {{else if selectedFieldPanel.literal.isBoolean}}
+            <select data-role="literal-value">
+              <option value="">—</option>
+              <option value="true" {{#if selectedFieldPanel.literal.isTrue}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.literalTrue"}}</option>
+              <option value="false" {{#if selectedFieldPanel.literal.isFalse}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.literalFalse"}}</option>
+            </select>
+          {{else}}
+            <input type="text" data-role="literal-value" value="{{selectedFieldPanel.literal.value}}" />
+          {{/if}}
+        </div>
+        {{/if}}
 
         {{#if selectedFieldPanel.isFieldTarget}}
         <div class="bindery-pb-transforms">

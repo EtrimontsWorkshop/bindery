@@ -196,3 +196,40 @@ describe('buildActorData — top-level Actor fields', () => {
     expect(result.data.folder).toBe('folder-1');
   });
 });
+
+describe('buildActorData — resources with a current and a maximum part', () => {
+  const schema: SchemaContext = {
+    actorDescriptors: [descriptor('pool.value', 'number', { currentValue: 0 }), descriptor('pool.max', 'number', { currentValue: 0 }), descriptor('other.value', 'number'), descriptor('other.max', 'string')],
+    resourcePaths: ['pool', 'other'],
+  };
+
+  it('fills the current part with the same number when only the maximum was mapped', () => {
+    const profile = minimalProfile({ fields: [field('m', 'pool.max', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { m: value(7) } }), profile, schema).data.system).toEqual({ pool: { max: 7, value: 7 } });
+  });
+
+  it('fills the maximum with the same number when only the current part was mapped', () => {
+    const profile = minimalProfile({ fields: [field('v', 'pool.value', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { v: value(7) } }), profile, schema).data.system).toEqual({ pool: { value: 7, max: 7 } });
+  });
+
+  it('keeps both numbers when both were mapped', () => {
+    const profile = minimalProfile({ fields: [field('v', 'pool.value', 'number'), field('m', 'pool.max', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { v: value(3), m: value(7) } }), profile, schema).data.system).toEqual({ pool: { value: 3, max: 7 } });
+  });
+
+  it('is not overwritten by template inheritance', () => {
+    const profile = minimalProfile({ inheritUnmappedFromTemplate: true, fields: [field('m', 'pool.max', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { m: value(7) } }), profile, schema).data.system).toMatchObject({ pool: { max: 7, value: 7 } });
+  });
+
+  it('leaves a pair alone unless both parts are numeric fields of the schema', () => {
+    const profile = minimalProfile({ fields: [field('v', 'other.value', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { v: value(5) } }), profile, schema).data.system).toEqual({ other: { value: 5 } });
+  });
+
+  it('does nothing when the system declares no resources', () => {
+    const profile = minimalProfile({ fields: [field('m', 'pool.max', 'number')] });
+    expect(buildActorData(instance({ fieldValues: { m: value(7) } }), profile, { actorDescriptors: schema.actorDescriptors }).data.system).toEqual({ pool: { max: 7 } });
+  });
+});

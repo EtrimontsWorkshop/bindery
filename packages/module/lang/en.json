@@ -270,7 +270,14 @@
       "anchorSummaryCustomStyle": "Each statblock starts with a line matching a custom style (see Advanced mode).",
       "anchorByLook": "Match by look",
       "anchorByText": "Match by text",
-      "detectionFound": "{count} statblock(s) found."
+      "detectionFound": "{count} statblock(s) found.",
+      "sourceHintStyle": "Takes the text styled like the one you clicked (same size and weight) — so it works for every statblock.",
+      "sourceHintRegion": "Takes the text inside the marked area of the page.",
+      "sourceHintLiteral": "This field is set to a fixed value, not read from the PDF.",
+      "literalLabel": "Or set a fixed value",
+      "literalHint": "The same value on every imported Actor — for settings that change how another field is read.",
+      "literalTrue": "Yes",
+      "literalFalse": "No"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",

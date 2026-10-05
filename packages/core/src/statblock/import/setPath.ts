@@ -21,3 +21,13 @@ export function setPath(target: Record<string, unknown>, path: string, value: un
   }
   cursor[segments[segments.length - 1]!] = value;
 }
+
+/** Reads the value at a dot path from a plain object, `undefined` when any step is missing. */
+export function getPath(source: Record<string, unknown>, path: string): unknown {
+  let cursor: unknown = source;
+  for (const segment of path.split('.')) {
+    if (typeof cursor !== 'object' || cursor === null) return undefined;
+    cursor = (cursor as Record<string, unknown>)[segment];
+  }
+  return cursor;
+}

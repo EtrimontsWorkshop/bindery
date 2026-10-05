@@ -4,7 +4,7 @@ import { findDescriptor } from '../profile/validateAgainstSchema.js';
 import type { ProfileField, StatblockProfile } from '../profile/schema.js';
 import type { SchemaFieldDescriptor } from '../schema/types.js';
 import { descriptorToConstraints, flattenLeafDescriptors } from './descriptorLookup.js';
-import { setPath } from './setPath.js';
+import { getPath, setPath } from './setPath.js';
 import type { BuiltActorData, BuiltItemData, ExtractedActorInstance, ExtractedValue } from './types.js';
 
 /** Never a literal system name/term — plain English fallbacks for the rare case a statblock's own name couldn't be located at all (still imports the rest of the data rather than skipping the whole instance; the user can always rename after review). */
@@ -16,6 +16,10 @@ export interface SchemaContext {
   actorDescriptors: readonly SchemaFieldDescriptor[];
   /** Introspected schema per `ProfileCollection.id` (not `itemType` — two collections could share an item type but have different template items), from the collection's own `templateItemUuid`. Absent for a collection whose template item couldn't be resolved — degrades to "every item field unmapped" for that collection rather than throwing. */
   itemDescriptorsByCollectionId?: ReadonlyMap<string, readonly SchemaFieldDescriptor[]>;
+  /**
+   * Paths (relative to the Actor's `system`) of resource objects the system itself declares as having a current and a maximum part (`value`/`max`) — what Foundry calls a token bar. Supplied by the module layer from the system's own configuration, never guessed here. Used to keep the two parts consistent: when only one is mapped, the other gets the same number.
+   */
+  resourcePaths?: readonly string[];
 }
 
 export interface BuildActorDataOptions {
@@ -72,6 +76,31 @@ function applyFieldsToSystem(system: Record<string, unknown>, fields: readonly P
   return mappedPaths;
 }
 
+/**
+ * A resource's current and maximum parts belong together: a statblock prints one number ("HP 7") and a freshly imported creature should start full. When exactly one of the two was filled from the statblock, the other gets the same number — returns the paths it set, so template inheritance doesn't overwrite them.
+ */
+function completeResourcePairs(system: Record<string, unknown>, resourcePaths: readonly string[] | undefined, descriptors: readonly SchemaFieldDescriptor[] | undefined): Set<string> {
+  const filled = new Set<string>();
+  if (!resourcePaths || !descriptors) return filled;
+  for (const base of resourcePaths) {
+    const valuePath = `${base}.value`;
+    const maxPath = `${base}.max`;
+    const valueDescriptor = findDescriptor(descriptors, valuePath);
+    const maxDescriptor = findDescriptor(descriptors, maxPath);
+    if (valueDescriptor?.type !== 'number' || maxDescriptor?.type !== 'number') continue;
+    const value = getPath(system, valuePath);
+    const max = getPath(system, maxPath);
+    if (typeof max === 'number' && value === undefined) {
+      setPath(system, valuePath, max);
+      filled.add(valuePath);
+    } else if (typeof value === 'number' && max === undefined) {
+      setPath(system, maxPath, value);
+      filled.add(maxPath);
+    }
+  }
+  return filled;
+}
+
 /** `inheritUnmappedFromTemplate`: every scalar leaf the profile did NOT map gets the template's own current value instead of being left unset. */
 function applyTemplateInheritance(system: Record<string, unknown>, descriptors: readonly SchemaFieldDescriptor[] | undefined, mappedPaths: ReadonlySet<string>): void {
   if (!descriptors) return;
@@ -100,6 +129,7 @@ export function buildActorData(instance: ExtractedActorInstance, profile: Statbl
 
   const system: Record<string, unknown> = {};
   const mappedPaths = applyFieldsToSystem(system, profile.fields, instance.fieldValues, schemaContext.actorDescriptors, diagnostics, pageNumber);
+  for (const path of completeResourcePairs(system, schemaContext.resourcePaths, schemaContext.actorDescriptors)) mappedPaths.add(path);
   if (profile.inheritUnmappedFromTemplate) applyTemplateInheritance(system, schemaContext.actorDescriptors, mappedPaths);
 
   const items: BuiltItemData[] = [];

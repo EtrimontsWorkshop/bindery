@@ -13,5 +13,7 @@ export function extractRawValue(block: ExtractionBlock, source: FieldSource): Ra
       return extractFromRegionSource(block, source);
     case 'styleFilter':
       return extractFromStyleFilterSource(block, source);
+    case 'literal':
+      return { found: true, raw: String(source.value), matchedElements: [], sourceBbox: null, diagnostics: [] };
   }
 }

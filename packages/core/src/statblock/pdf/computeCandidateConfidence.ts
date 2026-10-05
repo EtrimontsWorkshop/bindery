@@ -42,7 +42,8 @@ export function computeCandidateConfidence(elements: readonly PageTextElement[],
     (result.found ? foundRequiredLabels : missingRequiredLabels).push(label.pattern);
   }
 
-  const fieldsWithSource = fields.filter((field): field is ProfileField & { source: FieldSource } => field.source !== undefined);
+  // A fixed (literal) value is always "found" — it says nothing about whether this block is a statblock, so it is not a signal.
+  const fieldsWithSource = fields.filter((field): field is ProfileField & { source: FieldSource } => field.source !== undefined && field.source.kind !== 'literal');
   const fieldsFound = fieldsWithSource.filter((field) => extractRawValue(block, field.source).found).length;
 
   const totalSignals = requiredLabels.length + fieldsWithSource.length;

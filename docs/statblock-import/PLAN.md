@@ -1337,6 +1337,28 @@ kotwicy, granica, wymagane etykiety i przycisk testu (zostają w
 zaawansowanym). Przeciąganie regionu w tej zakładce jest wyłączone.
 Uproszczenie: dominujący styl liczony per strona (waga = długość tekstu).
 
+**Poprawki po pierwszym imporcie na żywo** (5 uwag właściciela):
+(1) *Nazwa "Unnamed"* — kliknięty "Goblin" był zapisywany jako ETYKIETA
+("tekst po etykiecie" = pusto). Teraz przy przypisaniu: tekst, po którym w
+tej samej linii jest coś jeszcze → etykieta; tekst samotny w linii i o
+wyglądzie innym niż tekst główny strony → WARTOŚĆ, źródło `styleFilter`
+(rozmiar ±0,5, pogrubienie), więc działa dla każdego statblocka.
+(2, 3) *Bieżące/maksymalne HP* — nowe `SchemaContext.resourcePaths`
+(z `CONFIG.Actor.trackableAttributes[typ].bar` — deklaracja SAMEGO systemu,
+nie zgadywanie): gdy z PDF-a wypełniono tylko `.max` albo tylko `.value`
+takiego zasobu, drugie dostaje tę samą liczbę (`completeResourcePairs`,
+tylko gdy oba są polami liczbowymi w schemacie; wynik nie jest nadpisywany
+przez dziedziczenie z szablonu). Założenie: zasób = obiekt z `value`/`max`
+(konwencja pasków tokenów Foundry).
+(4) *Wartość wyliczana vs wpisana* — samo wpisanie liczby w pole, które
+system i tak wylicza (wybór sposobu liczenia), nic nie daje. Nowe źródło
+`literal` (stała wartość, ta sama na każdym Actorze; przechodzi przez
+ten sam łańcuch transformacji i rzutowanie; lista wyboru z deskryptora
+schematu). W panelu pola: "Albo ustaw stałą wartość". Pole stałe nie liczy
+się do pewności detekcji. Dodatkowo nowy profil domyślnie dziedziczy
+niezmapowane pola z szablonu.
+(5) *Import przy imporcie obrazów* — w toku, patrz niżej.
+
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 

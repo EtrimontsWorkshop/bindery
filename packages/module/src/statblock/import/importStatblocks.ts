@@ -58,7 +58,11 @@ async function resolveSchemaContext(profile: StatblockProfile): Promise<SchemaCo
     itemDescriptorsByCollectionId.set(collection.id, introspectDocumentInstance('Item', templateItem).descriptors);
   }
 
-  return { actorDescriptors, itemDescriptorsByCollectionId };
+  // The system's own declaration of which Actor attributes have a current and a maximum part (what Foundry shows as token bars), per Actor type.
+  const trackable = (CONFIG.Actor as unknown as { trackableAttributes?: Record<string, { bar?: unknown[] } | undefined> }).trackableAttributes;
+  const resourcePaths = (trackable?.[profile.actorType]?.bar ?? []).filter((path): path is string => typeof path === 'string');
+
+  return { actorDescriptors, itemDescriptorsByCollectionId, resourcePaths };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

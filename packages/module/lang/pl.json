@@ -270,7 +270,14 @@
       "anchorSummaryCustomStyle": "Każdy statblock zaczyna się od linii o własnym stylu (zobacz tryb zaawansowany).",
       "anchorByLook": "Dopasuj po wyglądzie",
       "anchorByText": "Dopasuj po tekście",
-      "detectionFound": "Znaleziono statblocków: {count}."
+      "detectionFound": "Znaleziono statblocków: {count}.",
+      "sourceHintStyle": "Bierze tekst o takim wyglądzie jak ten, który kliknięto (ten sam rozmiar i grubość) — dzięki temu działa dla każdego statblocka.",
+      "sourceHintRegion": "Bierze tekst z zaznaczonego obszaru strony.",
+      "sourceHintLiteral": "To pole ma stałą wartość, nie jest odczytywane z PDF-a.",
+      "literalLabel": "Albo ustaw stałą wartość",
+      "literalHint": "Ta sama wartość u każdego importowanego Actora — dla ustawień zmieniających sposób odczytu innego pola.",
+      "literalTrue": "Tak",
+      "literalFalse": "Nie"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",

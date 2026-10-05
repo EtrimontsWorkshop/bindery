@@ -39,6 +39,8 @@ interface ClickedElement {
   fontSize: number;
   bold: boolean;
   isBodyStyle: boolean;
+  /** Another text element follows it on the same line — so it reads as a label and its value comes after, rather than being the value itself. */
+  hasValueAfter: boolean;
 }
 
 /** What the user just marked on the page preview, waiting to be assigned to a field/name via a button click — never applied automatically (the profile author always picks WHICH field a selection belongs to). */
@@ -46,6 +48,7 @@ interface PendingCapture {
   kind: 'label' | 'region';
   pageNumber: number;
   labelText?: string;
+  element?: ClickedElement;
   normalizedRect?: { minX: number; minY: number; maxX: number; maxY: number };
 }
 
@@ -302,7 +305,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     if (!target) return null;
     const resolved = this.#resolveFieldForTarget(profile, target);
     if (!resolved) return null;
-    const source = resolved.source as { kind?: string; labelPattern?: string } | undefined;
+    const source = resolved.source as { kind?: string; labelPattern?: string; value?: string | number | boolean } | undefined;
     const field = resolved.sourceRef === 'name' ? null : (resolved.sourceRef as AnyField);
 
     return {
@@ -310,6 +313,10 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       hasSource: !!source,
       isLabelSource: source?.kind === 'label',
       isRegionSource: source?.kind === 'region',
+      isStyleSource: source?.kind === 'styleFilter',
+      isLiteralSource: source?.kind === 'literal',
+      showLabelPattern: !source || source.kind === 'label',
+      literal: field ? this.#buildLiteralPanel(target, field, source) : null,
       sourceKind: source?.kind ?? null,
       labelPattern: source?.kind === 'label' ? source.labelPattern : '',
       canAssignCapture: this.#pendingCapture !== null,
@@ -321,6 +328,23 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
           }))
         : [],
       preview: await this.#computeLivePreview(profile, target, field),
+    };
+  }
+
+  /** Controls for "set this field to a fixed value on every imported Actor": a list when the schema field has choices, true/false for a boolean, free text otherwise. */
+  #buildLiteralPanel(target: FieldTarget, field: AnyField, source: { kind?: string; value?: string | number | boolean } | undefined): Record<string, unknown> {
+    const descriptors = target.scope === 'collectionField' ? (this.#itemDescriptorsByCollectionId.get(target.collectionId) ?? []) : this.#actorDescriptors;
+    const descriptor = this.#findDescriptorByPath(descriptors, field.actorSchemaPath);
+    const current = source?.kind === 'literal' ? String(source.value) : '';
+    const choices = (descriptor?.choices ?? []).map((c: { value: string | number; label: string }) => ({ value: String(c.value), label: c.label, selected: String(c.value) === current }));
+    return {
+      hasChoices: choices.length > 0,
+      choices,
+      isBoolean: choices.length === 0 && descriptor?.type === 'boolean',
+      isText: choices.length === 0 && descriptor?.type !== 'boolean',
+      isTrue: current === 'true',
+      isFalse: current === 'false',
+      value: current,
     };
   }
 
@@ -427,6 +451,22 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     searchInput?.addEventListener('input', () => {
       this.#schemaSearch = searchInput.value;
       this.#refocusSchemaSearch = true;
+      void this.render();
+    });
+
+    const literalInput = this.element.querySelector<HTMLInputElement | HTMLSelectElement>('[data-role="literal-value"]');
+    literalInput?.addEventListener('change', () => {
+      const target = this.#selectedTarget;
+      if (!target || !this.#profile) return;
+      const field = this.#resolveFieldForTarget(this.#profile, target)?.sourceRef;
+      if (!field || field === 'name') return;
+      const text = literalInput.value;
+      if (text === '') {
+        if (field.source?.kind === 'literal') delete field.source;
+      } else {
+        const asNumber = field.dataType === 'number' && text.trim() !== '' && !Number.isNaN(Number(text)) ? Number(text) : text;
+        field.source = { kind: 'literal', value: field.dataType === 'boolean' ? text === 'true' : asNumber };
+      }
       void this.render();
     });
 
@@ -603,6 +643,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
     const weight = new Map<string, number>();
     for (const el of elements as Array<{ text: string; fontSize: number; bold: boolean }>) weight.set(styleKey(el), (weight.get(styleKey(el)) ?? 0) + el.text.length);
     const bodyStyle = [...weight.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    const hasValueAfter = new Set<object>();
+    for (const line of core.reconstructLines(elements)) for (const e of line.elements.slice(0, -1)) hasValueAfter.add(e);
 
     const draw = (): void => {
       const width = img.naturalWidth || img.clientWidth;
@@ -621,7 +663,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         rect.setAttribute('width', String(Math.max(0, screen.maxX - screen.minX)));
         rect.setAttribute('height', String(Math.max(0, screen.maxY - screen.minY)));
         rect.setAttribute('class', 'bindery-pb-element');
-        this.#rectLabels.set(rect, { text: el.text.trim(), fontSize: el.fontSize, bold: el.bold, isBodyStyle: styleKey(el) === bodyStyle });
+        this.#rectLabels.set(rect, { text: el.text.trim(), fontSize: el.fontSize, bold: el.bold, isBodyStyle: styleKey(el) === bodyStyle, hasValueAfter: hasValueAfter.has(el) });
         svg.appendChild(rect);
       }
     };
@@ -681,7 +723,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         if (clicked && this.#tab === 'detection') {
           void this.#pickAnchor(clicked, clicked.isBodyStyle ? 'text' : 'look');
         } else if (clicked) {
-          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: clicked.text };
+          this.#pendingCapture = { kind: 'label', pageNumber: this.#currentPageNumber, labelText: clicked.text, element: clicked };
           void this.render();
         }
         return;
@@ -762,7 +804,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         fields: [],
         collections: [],
         valueMaps: [],
-        inheritUnmappedFromTemplate: false,
+        inheritUnmappedFromTemplate: true,
       };
       this.#phase = 'editor';
       this.#tab = 'source';
@@ -1003,10 +1045,14 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
       const resolved = this.#resolveFieldForTarget(this.#profile, target);
       if (!resolved) return;
 
+      // Clicked text with something after it on its line is a LABEL (the value follows). Text that stands alone and looks different from the page's body text IS the value itself (a creature's name, typically) — take it by its look, so it also works for the next statblock, whose text differs.
+      const el = capture.element;
       const source =
-        capture.kind === 'label'
-          ? { kind: 'label' as const, labelPattern: capture.labelText ?? '', labelIsRegex: false, stopAt: 'endOfLine' as const }
-          : { kind: 'region' as const, normalizedRect: capture.normalizedRect! };
+        capture.kind === 'region'
+          ? { kind: 'region' as const, normalizedRect: capture.normalizedRect! }
+          : el && !el.hasValueAfter && !el.isBodyStyle
+            ? { kind: 'styleFilter' as const, filter: { minFontSize: el.fontSize - 0.5, maxFontSize: el.fontSize + 0.5, ...(el.bold ? { bold: true } : {}) } }
+            : { kind: 'label' as const, labelPattern: capture.labelText ?? '', labelIsRegex: false, stopAt: 'endOfLine' as const };
 
       if (resolved.sourceRef === 'name') {
         if (target.scope === 'name') this.#profile.nameSource = source;

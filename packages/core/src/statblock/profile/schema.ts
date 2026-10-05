@@ -101,8 +101,14 @@ const styleFilterSourceSchema = z.object({
   filter: styleFilterSchema,
 });
 
+/** A value the author sets by hand instead of reading it from the PDF — the same on every imported Actor (e.g. a setting that decides how another field is interpreted). Goes through the same transform chain and casting as a value read from the page. */
+const literalSourceSchema = z.object({
+  kind: z.literal('literal'),
+  value: z.union([z.string(), z.number(), z.boolean()]),
+});
+
 const fieldSourceSchema = z
-  .discriminatedUnion('kind', [labelSourceSchema, regionSourceSchema, styleFilterSourceSchema])
+  .discriminatedUnion('kind', [labelSourceSchema, regionSourceSchema, styleFilterSourceSchema, literalSourceSchema])
   .refine((source) => source.kind !== 'label' || source.stopAt !== 'nextLabel' || !!source.nextLabelPattern, {
     message: "a 'label' source with stopAt:'nextLabel' requires nextLabelPattern",
   });
