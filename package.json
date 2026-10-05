@@ -18,6 +18,7 @@
     "check:lang-usage": "node tools/check-lang-usage.mjs",
     "check:no-system-names": "node tools/check-no-system-names.mjs",
     "sync:local": "node tools/sync-local-module.mjs",
+    "deploy:foundry": "node tools/deploy-to-foundry.mjs",
     "package": "node tools/package-module.mjs",
     "recount:fragmentation": "node tools/recount-fragmentation.mjs",
     "perf:inventory": "node tools/perf-inventory.mjs",
