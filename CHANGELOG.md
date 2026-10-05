@@ -1,3 +1,9 @@
+## [0.2.5]
+
+### Fixed
+
+- **The page preview in the review screen no longer falls apart.** The page frame, the overlay with the detected images, the "Select & cut" drag rectangle and cursor, the image list and its rows lost their styles in 0.2.4, so the overlay ended up below the page and the "Select & cut" button far from the preview. The styles are restored.
+
 ## [0.2.4]
 
 ### Removed
