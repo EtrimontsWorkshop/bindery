@@ -276,7 +276,8 @@
       "literalLabel": "Or set a fixed value",
       "literalHint": "The same value on every imported Actor — for settings that change how another field is read.",
       "literalTrue": "Yes",
-      "literalFalse": "No"
+      "literalFalse": "No",
+      "removeMapping": "Remove this mapping"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",

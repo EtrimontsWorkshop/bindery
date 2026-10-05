@@ -136,6 +136,9 @@
         {{#if selectedFieldPanel.isStyleSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintStyle"}}</p>{{/if}}
         {{#if selectedFieldPanel.isRegionSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintRegion"}}</p>{{/if}}
         {{#if selectedFieldPanel.isLiteralSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintLiteral"}}</p>{{/if}}
+        {{#if selectedFieldPanel.hasSource}}{{#if selectedFieldPanel.isFieldTarget}}
+        <button type="button" data-action="removeField" data-field-id="{{selectedFieldPanel.fieldId}}" data-collection-id="{{selectedFieldPanel.collectionId}}"><i class="fa-solid fa-xmark"></i> {{localize "BINDERY.statblockProfileBuilder.removeMapping"}}</button>
+        {{/if}}{{/if}}
         {{#if selectedFieldPanel.isFieldTarget}}
         <div class="form-group bindery-pb-literal">
           <label>{{localize "BINDERY.statblockProfileBuilder.literalLabel"}}</label>

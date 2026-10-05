@@ -232,7 +232,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   #buildSchemaRows(profile: AnyProfile): Array<{ path: string; label: string; depth: number; isGroup: boolean; isMapped: boolean; isSelected: boolean }> {
     const query = this.#schemaSearch.trim().toLowerCase();
     const rows: Array<{ path: string; label: string; depth: number; isGroup: boolean; isMapped: boolean; isSelected: boolean }> = [];
-    const mappedPaths = new Set(profile.fields.map((f: AnyField) => f.actorSchemaPath));
+    const mappedPaths = new Set(profile.fields.filter((f: AnyField) => f.source).map((f: AnyField) => f.actorSchemaPath));
     const target = this.#selectedTarget;
 
     // A leaf is often labelled only by its own role ("Flat", "Max") while the name the user knows ("Armor Class") sits on a parent group — so the search, and the label shown while searching, include the ancestors' labels.
@@ -310,6 +310,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
     return {
       isFieldTarget: field !== null,
+      fieldId: field?.id ?? null,
+      collectionId: target.scope === 'collectionField' ? target.collectionId : '',
       hasSource: !!source,
       isLabelSource: source?.kind === 'label',
       isRegionSource: source?.kind === 'region',
@@ -899,6 +901,8 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
   static #onSaveProfile(this: ProfileBuilderApp): void {
     void (async () => {
       if (!this.#profile) return;
+      this.#pruneEmptyFields();
+      if (this.#selectedTarget && 'fieldId' in this.#selectedTarget && !this.#profile.fields.some((f: AnyField) => f.id === (this.#selectedTarget as { fieldId: string }).fieldId)) this.#selectedTarget = null;
       const core = await this.#core();
       const validation = core.validateProfile(this.#profile);
       if (!validation.ok) {
@@ -960,11 +964,19 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   // ---- field mapping ---------------------------------------------------------
 
+  /** Clicking a field in the tree creates its entry so it can be given a source; entries that never got one are dropped as soon as the selection moves on, so only fields that really take a value stay in the profile (and show a check mark). Collection fields are added explicitly and removed explicitly, so they are left alone. */
+  #pruneEmptyFields(keepFieldId?: string): void {
+    const profile = this.#profile;
+    if (!profile) return;
+    profile.fields = profile.fields.filter((f: AnyField) => f.source || f.id === keepFieldId);
+  }
+
   static #onSelectSchemaTarget(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
     void (async () => {
       const path = target.dataset['path']!;
       const profile = this.#profile!;
       let field = profile.fields.find((f: AnyField) => f.actorSchemaPath === path);
+      this.#pruneEmptyFields(field?.id);
       if (!field) {
         const descriptor = this.#findDescriptorByPath(this.#actorDescriptors, path);
         field = {
@@ -976,6 +988,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
         };
         profile.fields.push(field);
       }
+      this.#pruneEmptyFields(field.id);
       this.#selectedTarget = { scope: 'field', fieldId: field.id };
       await this.render();
     })();
@@ -983,6 +996,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   static #onSelectNameTarget(this: ProfileBuilderApp): void {
     void (async () => {
+      this.#pruneEmptyFields();
       this.#selectedTarget = { scope: 'name' };
       await this.render();
     })();
@@ -990,6 +1004,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   static #onSelectCollectionNameTarget(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
     void (async () => {
+      this.#pruneEmptyFields();
       this.#selectedTarget = { scope: 'collectionName', collectionId: target.dataset['collectionId']! };
       await this.render();
     })();
@@ -997,6 +1012,7 @@ export class ProfileBuilderApp extends HandlebarsApplicationMixin(ApplicationV2)
 
   static #onSelectCollectionFieldTarget(this: ProfileBuilderApp, _ev: PointerEvent, target: HTMLElement): void {
     void (async () => {
+      this.#pruneEmptyFields();
       this.#selectedTarget = { scope: 'collectionField', collectionId: target.dataset['collectionId']!, fieldId: target.dataset['fieldId']! };
       await this.render();
     })();

@@ -1379,6 +1379,14 @@ stron; przycięty ręcznie obraz (zakładka obrazów) pojawia się, jeśli leży
 na tej stronie. Tokeny przygotowane w narzędziu tokenu są używane tak jak
 wgrane (bajty podmieniane przed wgraniem).
 
+**Zaznaczanie pól w drzewie schematu**: kliknięcie pola w drzewie tworzyło
+pusty wpis w profilu, a ✓ oznaczało "wpis istnieje" — po kliknięciu kilku
+pól wszystkie wyglądały na przypisane. Teraz ✓ tylko przy polach z
+przypisanym źródłem; wpisy bez źródła są usuwane przy przejściu na inne
+pole i przy zapisie (zostaje jedno zaznaczone pole naraz); w panelu pola
+przycisk "Usuń to przypisanie". Pola kolekcji bez zmian (dodawane i
+usuwane jawnie).
+
 **Ręczny test**: opis w rozmowie z właścicielem. Nadal nieprzetestowane
 na żywo: sam import Actora, polityki `overwrite`/`copy`, kolekcje.
 

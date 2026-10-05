@@ -276,7 +276,8 @@
       "literalLabel": "Albo ustaw stałą wartość",
       "literalHint": "Ta sama wartość u każdego importowanego Actora — dla ustawień zmieniających sposób odczytu innego pola.",
       "literalTrue": "Tak",
-      "literalFalse": "Nie"
+      "literalFalse": "Nie",
+      "removeMapping": "Usuń to przypisanie"
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",
