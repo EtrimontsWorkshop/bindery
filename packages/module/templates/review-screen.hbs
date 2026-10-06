@@ -35,6 +35,13 @@
           <span class="bindery-tab-spacer"></span>
           <span class="bindery-tab-count">{{imageCount}}</span>
         </button>
+        {{#if hasStatblockTab}}
+        <button type="button" role="tab" aria-selected="{{isTabStatblocks}}" data-action="switchTab" data-tab="statblocks" class="bindery-tab {{#if isTabStatblocks}}active{{/if}}">
+          <span>{{localize "BINDERY.review.tabStatblocks"}}</span>
+          <span class="bindery-tab-spacer"></span>
+          <span class="bindery-tab-count">{{statblockCount}}</span>
+        </button>
+        {{/if}}
         <button type="button" role="tab" aria-selected="{{isTabDiagnostics}}" data-action="switchTab" data-tab="diagnostics" class="bindery-tab {{#if isTabDiagnostics}}active{{/if}}">
           <span>{{localize "BINDERY.review.tabDiagnostics"}}</span>
           <span class="bindery-tab-spacer"></span>
@@ -129,6 +136,58 @@
           </div>
         {{/if}}
 
+        {{#if isTabStatblocks}}
+          <div class="bindery-sb-panel">
+            {{#if statblocks}}
+              {{#if statblocks.hasProfiles}}
+                <div class="form-group">
+                  <label>{{localize "BINDERY.statblockImport.profileLabel"}}</label>
+                  <select class="bindery-select" data-sb="profile">
+                    <option value="">{{localize "BINDERY.statblockImport.selectProfile"}}</option>
+                    {{#each statblocks.profileOptions}}<option value="{{this.id}}" {{#if this.isSelected}}selected{{/if}}>{{this.name}}</option>{{/each}}
+                  </select>
+                </div>
+              {{else}}
+                <p class="notification warning">{{localize "BINDERY.statblockImport.noProfiles"}}</p>
+              {{/if}}
+              {{#if statblocks.busy}}<p class="hint"><i class="fa-solid fa-spinner fa-spin"></i> {{localize "BINDERY.statblockImport.findingStatblocks"}}</p>{{/if}}
+              {{#if statblocks.hasIssues}}
+                <div class="notification error">
+                  <p>{{localize "BINDERY.statblockImport.profileInvalid"}}</p>
+                  <ul>{{#each statblocks.issues}}<li>{{this}}</li>{{/each}}</ul>
+                </div>
+              {{/if}}
+              {{#if statblocks.noneFound}}<p class="hint">{{localize "BINDERY.statblockImport.noneFound"}}</p>{{/if}}
+              {{#if statblocks.hasRows}}
+                <p>{{statblocks.foundSummary}}</p>
+                <ul class="bindery-sb-rows">
+                  {{#each statblocks.rows}}
+                    <li class="bindery-sb-row">
+                      <input type="checkbox" data-sb-include="{{this.id}}" {{#if this.include}}checked{{/if}} />
+                      {{#if this.thumbUrl}}<img class="bindery-sb-thumb" src="{{this.thumbUrl}}" alt="" />{{else}}<span class="bindery-sb-thumb bindery-sb-thumb-empty"></span>{{/if}}
+                      <span class="bindery-sb-label">{{localize "BINDERY.statblockImport.pageAbbrev"}} {{this.page}} — {{this.snippet}}</span>
+                      <select class="bindery-select" data-sb-image="{{this.id}}" title="{{localize 'BINDERY.statblockImport.imageLabel'}}">
+                        {{#each this.imageOptions}}<option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>{{/each}}
+                      </select>
+                    </li>
+                  {{/each}}
+                </ul>
+                <div class="form-group">
+                  <label>{{localize "BINDERY.statblockImport.policyLabel"}}</label>
+                  <select class="bindery-select" data-sb="policy">
+                    <option value="skip" {{#if statblocks.policyIsSkip}}selected{{/if}}>{{localize "BINDERY.statblockImport.policySkip"}}</option>
+                    <option value="overwrite" {{#if statblocks.policyIsOverwrite}}selected{{/if}}>{{localize "BINDERY.statblockImport.policyOverwrite"}}</option>
+                    <option value="copy" {{#if statblocks.policyIsCopy}}selected{{/if}}>{{localize "BINDERY.statblockImport.policyCopy"}}</option>
+                  </select>
+                </div>
+                <p class="hint">{{localize "BINDERY.statblockImport.importHint"}}</p>
+              {{/if}}
+            {{else}}
+              <p class="hint"><i class="fa-solid fa-spinner fa-spin"></i> {{localize "BINDERY.statblockImport.findingStatblocks"}}</p>
+            {{/if}}
+          </div>
+        {{/if}}
+
         {{#if isTabScenes}}
           <div class="bindery-review-list bindery-review-list-full" data-list="scenes"></div>
         {{/if}}
@@ -173,7 +232,7 @@
           </div>
           {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy tylko obrazy, jedyna aktywna sciezka. }}
           <p class="hint">
-            {{localize "BINDERY.review.targetSummary"}}: {{importableImageCount}} {{localize "BINDERY.review.images"}}
+            {{localize "BINDERY.review.targetSummary"}}: {{importableImageCount}} {{localize "BINDERY.review.images"}}{{#if statblockCount}}, {{statblockCount}} {{localize "BINDERY.review.tabStatblocks"}}{{/if}}
           </p>
           {{#if isImporting}}
             <p class="hint">{{localize "BINDERY.review.importing"}}</p>

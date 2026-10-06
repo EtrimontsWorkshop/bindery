@@ -1,0 +1,26 @@
+export {
+  statblockProfileSchema,
+  validateProfile,
+  STATBLOCK_PROFILE_SCHEMA_VERSION,
+  type StatblockProfile,
+  type ProfileField,
+  type ProfileFieldDataType,
+  type FieldCapture,
+  type ProfileCollection,
+  type CollectionSplitRule,
+  type ValueMap,
+  type DetectionConfig,
+  type RequiredLabel,
+  type StyleFilter,
+  type NormalizedRect,
+  type LabelSource,
+  type RegionSource,
+  type StyleFilterSource,
+  type FieldSource,
+  type ProfileTransformStep,
+  type ProfileValidationOk,
+  type ProfileValidationFailed,
+  type ProfileValidationResult,
+} from './schema.js';
+export { validateProfileAgainstSchema, findDescriptor } from './validateAgainstSchema.js';
+export { migrateProfileData, type ProfileMigrationOk, type ProfileMigrationFailed, type ProfileMigrationResult } from './migrate.js';
