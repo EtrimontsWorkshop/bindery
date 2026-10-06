@@ -1,0 +1,336 @@
+{{#if isListPhase}}
+<div class="bindery-pb-list">
+  <div class="bindery-pb-list-toolbar">
+    <button type="button" data-action="newProfile">{{localize "BINDERY.statblockProfileBuilder.newProfile"}}</button>
+    <button type="button" data-action="importProfile">{{localize "BINDERY.statblockProfileBuilder.import"}}</button>
+  </div>
+  {{#if profiles.length}}
+    <ul class="bindery-pb-profile-list">
+      {{#each profiles}}
+        <li>
+          <span class="bindery-pb-profile-name">{{this.name}}</span>
+          <span class="bindery-pb-profile-type">{{this.actorType}}</span>
+          <span class="bindery-pb-profile-actions">
+            <button type="button" data-action="editProfile" data-id="{{this.id}}">{{localize "BINDERY.statblockProfileBuilder.edit"}}</button>
+            <button type="button" data-action="duplicateProfile" data-id="{{this.id}}" data-name="{{this.name}}">{{localize "BINDERY.statblockProfileBuilder.duplicate"}}</button>
+            <button type="button" data-action="exportProfile" data-id="{{this.id}}">{{localize "BINDERY.statblockProfileBuilder.export"}}</button>
+            <button type="button" data-action="deleteProfile" data-id="{{this.id}}">{{localize "BINDERY.statblockProfileBuilder.delete"}}</button>
+          </span>
+        </li>
+      {{/each}}
+    </ul>
+  {{else}}
+    <p class="hint">{{localize "BINDERY.statblockProfileBuilder.emptyList"}}</p>
+  {{/if}}
+</div>
+{{else}}
+<div class="bindery-pb-editor">
+
+  <div class="bindery-pb-header">
+    <input type="text" name="profileName" value="{{profileName}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.profileNamePlaceholder'}}" />
+    <div class="bindery-pb-mode-toggle">
+      <button type="button" data-action="setMode" data-mode="simple" class="{{#unless isAdvanced}}active{{/unless}}">{{localize "BINDERY.statblockProfileBuilder.modeSimple"}}</button>
+      <button type="button" data-action="setMode" data-mode="advanced" class="{{#if isAdvanced}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.modeAdvanced"}}</button>
+    </div>
+    <div class="bindery-pb-header-actions">
+      <button type="button" data-action="duplicateCurrentProfile" title="{{localize 'BINDERY.statblockProfileBuilder.duplicate'}}"><i class="fa-solid fa-copy"></i></button>
+      <button type="button" data-action="exportCurrentProfile" title="{{localize 'BINDERY.statblockProfileBuilder.export'}}"><i class="fa-solid fa-download"></i></button>
+      <button type="button" data-action="deleteCurrentProfile" title="{{localize 'BINDERY.statblockProfileBuilder.delete'}}"><i class="fa-solid fa-trash"></i></button>
+      <button type="button" data-action="backToList">{{localize "BINDERY.statblockProfileBuilder.backToList"}}</button>
+      <button type="button" data-action="saveProfile" class="bindery-pb-save">{{localize "BINDERY.statblockProfileBuilder.save"}}</button>
+    </div>
+  </div>
+
+  {{#unless isValid}}
+    <div class="bindery-pb-validation-issues">
+      {{#each validationIssues}}<p>{{this}}</p>{{/each}}
+    </div>
+  {{/unless}}
+
+  <nav class="bindery-pb-tabs">
+    <a data-action="switchTab" data-tab="source" class="{{#if isSourceTab}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.tabSource"}}</a>
+    <a data-action="switchTab" data-tab="fields" class="{{#if isFieldsTab}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.tabFields"}}</a>
+    <a data-action="switchTab" data-tab="collections" class="{{#if isCollectionsTab}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.tabCollections"}}</a>
+    <a data-action="switchTab" data-tab="detection" class="{{#if isDetectionTab}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.tabDetection"}}</a>
+  </nav>
+
+  {{#if isSourceTab}}
+  <section class="bindery-pb-tab-source">
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockProfileBuilder.templateActor"}}</label>
+      <select name="templateActor">
+        <option value="">{{localize "BINDERY.statblockProfileBuilder.selectActor"}}</option>
+        {{#each actorOptions}}
+          <option value="{{this.id}}" {{#if this.isSelected}}selected{{/if}}>{{this.name}} ({{this.type}})</option>
+        {{/each}}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockProfileBuilder.exemplarPdf"}}</label>
+      <input type="file" accept=".pdf" data-role="pdf-file" />
+      {{#if busy}}<p class="hint bindery-pb-busy"><i class="fa-solid fa-spinner fa-spin"></i> {{localize busy}}</p>{{/if}}
+      {{#if pdfFileName}}<p class="hint">{{pdfFileName}} — {{localize "BINDERY.statblockProfileBuilder.pageOf"}} {{currentPageNumber}}/{{pageCount}}</p>{{/if}}
+    </div>
+    <div class="form-group">
+      <label><input type="checkbox" name="inheritUnmapped" {{#if inheritUnmapped}}checked{{/if}} /> {{localize "BINDERY.statblockProfileBuilder.inheritUnmapped"}}</label>
+    </div>
+  </section>
+  {{/if}}
+
+  {{#if showPreview}}
+  <section class="bindery-pb-tab-{{tab}} bindery-pb-grid {{#if isDetectionTab}}bindery-pb-grid-two{{/if}}">
+
+    <div class="bindery-pb-col bindery-pb-col-preview">
+      {{#if hasPdf}}
+        <div class="bindery-pb-page-nav">
+          <button type="button" data-action="prevPage"><i class="fa-solid fa-arrow-left"></i></button>
+          <span>{{currentPageNumber}} / {{pageCount}}</span>
+          <button type="button" data-action="nextPage"><i class="fa-solid fa-arrow-right"></i></button>
+        </div>
+        {{#if pendingCapture}}{{#if isFieldsTab}}
+          <div class="bindery-pb-capture-bar">
+            <span>{{localize "BINDERY.statblockProfileBuilder.selectionMade"}}: {{pendingCapture.text}}</span>
+            <button type="button" data-action="assignCapture" {{#unless selectedTargetLabel}}disabled{{/unless}}>{{localize "BINDERY.statblockProfileBuilder.assignToField"}}</button>
+            <button type="button" data-action="clearCapture">{{localize "BINDERY.statblockProfileBuilder.clear"}}</button>
+          </div>
+        {{/if}}{{/if}}
+        <div class="bindery-pb-page-wrap">
+          <img class="bindery-pb-page-image" {{#if currentPageImageUrl}}src="{{currentPageImageUrl}}"{{/if}} />
+          <svg class="bindery-pb-page-overlay" data-pb-overlay></svg>
+        </div>
+      {{else}}
+        <p class="hint">{{localize "BINDERY.statblockProfileBuilder.noPdfYet"}}</p>
+      {{/if}}
+    </div>
+
+    {{#if isFieldsTab}}
+    <div class="bindery-pb-col bindery-pb-col-schema">
+      <input type="text" data-role="schema-search" value="{{schemaSearch}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.searchFields'}}" />
+      <div class="bindery-pb-name-row">
+        <a data-action="selectNameTarget" class="bindery-pb-tree-item bindery-pb-tree-name">{{localize "BINDERY.statblockProfileBuilder.actorName"}}</a>
+      </div>
+      <ul class="bindery-pb-schema-tree">
+        {{#each schemaRows}}
+          {{#if this.isGroup}}
+            <li class="bindery-pb-tree-group" style="padding-left:{{this.depth}}0px">{{this.label}}</li>
+          {{else}}
+            <li>
+              <a data-action="selectSchemaTarget" data-path="{{this.path}}" style="padding-left:{{this.depth}}0px" class="bindery-pb-tree-item {{#if this.isMapped}}mapped{{/if}} {{#if this.isSelected}}selected{{/if}}">
+                {{#if this.isMapped}}<i class="fa-solid fa-check"></i>{{/if}} {{this.label}}
+              </a>
+            </li>
+          {{/if}}
+        {{/each}}
+      </ul>
+    </div>
+
+    <div class="bindery-pb-col bindery-pb-col-detail">
+      {{#if selectedFieldPanel}}
+        <p class="bindery-pb-selected-label">{{selectedTargetLabel}}</p>
+        {{#if selectedFieldPanel.showLabelPattern}}
+        <div class="form-group">
+          <label>{{localize "BINDERY.statblockProfileBuilder.sourceLabelPattern"}}</label>
+          <input type="text" data-role="label-pattern" value="{{selectedFieldPanel.labelPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.sourceLabelPlaceholder'}}" />
+        </div>
+        {{/if}}
+        {{#if selectedFieldPanel.isStyleSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintStyle"}}</p>{{/if}}
+        {{#if selectedFieldPanel.isRegionSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintRegion"}}</p>{{/if}}
+        {{#if selectedFieldPanel.isLiteralSource}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.sourceHintLiteral"}}</p>{{/if}}
+        {{#if selectedFieldPanel.hasSource}}{{#if selectedFieldPanel.isFieldTarget}}
+        <button type="button" data-action="removeField" data-field-id="{{selectedFieldPanel.fieldId}}" data-collection-id="{{selectedFieldPanel.collectionId}}"><i class="fa-solid fa-xmark"></i> {{localize "BINDERY.statblockProfileBuilder.removeMapping"}}</button>
+        {{/if}}{{/if}}
+        {{#if selectedFieldPanel.isFieldTarget}}
+        <div class="form-group bindery-pb-literal">
+          <label>{{localize "BINDERY.statblockProfileBuilder.literalLabel"}}</label>
+          <p class="hint">{{localize "BINDERY.statblockProfileBuilder.literalHint"}}</p>
+          {{#if selectedFieldPanel.literal.hasChoices}}
+            <select data-role="literal-value">
+              <option value="">—</option>
+              {{#each selectedFieldPanel.literal.choices}}<option value="{{this.value}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>{{/each}}
+            </select>
+          {{else if selectedFieldPanel.literal.isBoolean}}
+            <select data-role="literal-value">
+              <option value="">—</option>
+              <option value="true" {{#if selectedFieldPanel.literal.isTrue}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.literalTrue"}}</option>
+              <option value="false" {{#if selectedFieldPanel.literal.isFalse}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.literalFalse"}}</option>
+            </select>
+          {{else}}
+            <input type="text" data-role="literal-value" value="{{selectedFieldPanel.literal.value}}" />
+          {{/if}}
+        </div>
+        {{/if}}
+
+        {{#if selectedFieldPanel.isFieldTarget}}
+        <div class="bindery-pb-transforms">
+          <p class="bindery-pb-section-label">{{localize "BINDERY.statblockProfileBuilder.transforms"}}</p>
+          <div class="bindery-pb-transform-chips">
+            {{#each selectedFieldPanel.transforms}}
+              <span class="bindery-pb-chip">{{this.summary}} <a data-action="removeTransformStep" data-index="{{this.index}}"><i class="fa-solid fa-xmark"></i></a></span>
+            {{/each}}
+          </div>
+          <div class="bindery-pb-add-transform">
+            <select data-role="new-transform-kind">
+              <option value="trim">{{localize "BINDERY.statblockProfileBuilder.transformTrim"}}</option>
+              <option value="normalizeWhitespace">{{localize "BINDERY.statblockProfileBuilder.transformNormalizeWhitespace"}}</option>
+              <option value="joinWrappedLines">{{localize "BINDERY.statblockProfileBuilder.transformJoinWrappedLines"}}</option>
+              <option value="stripLigaturesAndOddChars">{{localize "BINDERY.statblockProfileBuilder.transformStripLigatures"}}</option>
+              <option value="parseNumber">{{localize "BINDERY.statblockProfileBuilder.transformParseNumber"}}</option>
+              <option value="textToHtml">{{localize "BINDERY.statblockProfileBuilder.transformTextToHtml"}}</option>
+              {{#if isAdvanced}}
+                <option value="regexExtract">{{localize "BINDERY.statblockProfileBuilder.transformRegexExtract"}}</option>
+                <option value="nthNumber">{{localize "BINDERY.statblockProfileBuilder.transformNthNumber"}}</option>
+                <option value="split">{{localize "BINDERY.statblockProfileBuilder.transformSplit"}}</option>
+                <option value="join">{{localize "BINDERY.statblockProfileBuilder.transformJoin"}}</option>
+                <option value="defaultValue">{{localize "BINDERY.statblockProfileBuilder.transformDefaultValue"}}</option>
+              {{/if}}
+            </select>
+            <input type="text" data-role="new-transform-param" placeholder="{{localize 'BINDERY.statblockProfileBuilder.transformParamPlaceholder'}}" />
+            <button type="button" data-action="addTransformStep">{{localize "BINDERY.statblockProfileBuilder.add"}}</button>
+          </div>
+        </div>
+        {{/if}}
+
+        <div class="bindery-pb-live-preview">
+          <p class="bindery-pb-section-label">{{localize "BINDERY.statblockProfileBuilder.livePreview"}}</p>
+          {{#if selectedFieldPanel.preview}}
+            <div class="bindery-pb-preview-row"><span>{{localize "BINDERY.statblockProfileBuilder.previewRaw"}}</span><span>{{selectedFieldPanel.preview.raw}}</span></div>
+            <div class="bindery-pb-preview-row"><span>{{localize "BINDERY.statblockProfileBuilder.previewValue"}}</span><span>{{selectedFieldPanel.preview.value}}</span></div>
+            <div class="bindery-pb-preview-row">
+              <span>{{localize "BINDERY.statblockProfileBuilder.previewResult"}}</span>
+              <span class="{{#if selectedFieldPanel.preview.found}}bindery-pb-ok{{else}}bindery-pb-warn{{/if}}">
+                {{#if selectedFieldPanel.preview.found}}<i class="fa-solid fa-check"></i>{{else}}<i class="fa-solid fa-triangle-exclamation"></i>{{/if}}
+              </span>
+            </div>
+            {{#each selectedFieldPanel.preview.diagnostics}}<p class="hint">{{this}}</p>{{/each}}
+          {{else}}
+            <p class="hint">{{localize "BINDERY.statblockProfileBuilder.noPreviewYet"}}</p>
+          {{/if}}
+        </div>
+      {{else}}
+        <p class="hint">{{localize "BINDERY.statblockProfileBuilder.selectFieldHint"}}</p>
+      {{/if}}
+    </div>
+
+    {{/if}}
+    {{#if isDetectionTab}}
+    <div class="bindery-pb-col bindery-pb-col-detection">
+    <div class="form-group bindery-pb-anchor">
+      <label>{{localize "BINDERY.statblockProfileBuilder.anchor"}}</label>
+      {{#unless hasPdf}}
+        <p class="hint">{{localize "BINDERY.statblockProfileBuilder.detectionNeedsPdf"}}</p>
+      {{else}}
+        <p class="hint">{{localize "BINDERY.statblockProfileBuilder.anchorClickHint"}}</p>
+      {{/unless}}
+      <p class="bindery-pb-anchor-summary">{{anchorSummary}}</p>
+      {{#if anchorPick}}
+        <div class="bindery-pb-anchor-modes">
+          <button type="button" data-action="anchorByLook" class="{{#if anchorPick.isLook}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.anchorByLook"}}</button>
+          <button type="button" data-action="anchorByText" class="{{#if anchorPick.isText}}active{{/if}}">{{localize "BINDERY.statblockProfileBuilder.anchorByText"}}</button>
+        </div>
+      {{/if}}
+    </div>
+    {{#if isAdvanced}}
+    <div class="form-group">
+      {{#if isAdvanced}}
+        <select data-role="anchor-kind">
+          <option value="textPattern" {{#if detection.isAnchorTextPattern}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.anchorTextPattern"}}</option>
+          <option value="headingStyle" {{#if detection.isAnchorHeadingStyle}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.anchorHeadingStyle"}}</option>
+        </select>
+      {{/if}}
+      {{#if detection.isAnchorHeadingStyle}}
+        <label><input type="checkbox" data-role="anchor-style-bold" {{#if detection.anchorStyleBold}}checked{{/if}} /> {{localize "BINDERY.statblockProfileBuilder.anchorStyleBold"}}</label>
+        <label><input type="checkbox" data-role="anchor-style-largest" {{#if detection.anchorStyleLargest}}checked{{/if}} /> {{localize "BINDERY.statblockProfileBuilder.anchorStyleLargest"}}</label>
+      {{/if}}
+      <input type="text" data-role="anchor-pattern" value="{{detection.anchorPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.anchorPatternPlaceholder'}}" />
+    </div>
+    {{/if}}
+    {{#if isAdvanced}}
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockProfileBuilder.boundary"}}</label>
+      <select data-role="boundary-kind">
+        <option value="nextAnchor" {{#if detection.isBoundaryNextAnchor}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.boundaryNextAnchor"}}</option>
+        {{#if isAdvanced}}
+          <option value="verticalGap" {{#if detection.isBoundaryVerticalGap}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.boundaryVerticalGap"}}</option>
+          <option value="endOfColumnOrPage" {{#if detection.isBoundaryEndOfColumnOrPage}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.boundaryEndOfColumnOrPage"}}</option>
+          <option value="endLabel" {{#if detection.isBoundaryEndLabel}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.boundaryEndLabel"}}</option>
+        {{/if}}
+      </select>
+      {{#if detection.isBoundaryVerticalGap}}<input type="number" data-role="gap-threshold" value="{{detection.gapThreshold}}" />{{/if}}
+      {{#if detection.isBoundaryEndLabel}}<input type="text" data-role="end-label-pattern" value="{{detection.endLabelPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.endLabelPatternPlaceholder'}}" />{{/if}}
+    </div>
+    <div class="form-group">
+      <label>{{localize "BINDERY.statblockProfileBuilder.requiredLabels"}}</label>
+      <div class="bindery-pb-transform-chips">
+        {{#each detection.requiredLabels}}
+          <span class="bindery-pb-chip">{{this.pattern}} <a data-action="removeRequiredLabel" data-index="{{this.index}}"><i class="fa-solid fa-xmark"></i></a></span>
+        {{/each}}
+      </div>
+      <input type="text" data-role="new-required-label" placeholder="{{localize 'BINDERY.statblockProfileBuilder.newRequiredLabelPlaceholder'}}" />
+      <button type="button" data-action="addRequiredLabel">{{localize "BINDERY.statblockProfileBuilder.add"}}</button>
+    </div>
+    {{/if}}
+    {{#if isAdvanced}}<button type="button" data-action="testDetection" {{#unless hasPdf}}disabled{{/unless}}>{{localize "BINDERY.statblockProfileBuilder.testDetection"}}</button>{{/if}}
+    {{#if detectionFoundSummary}}<p>{{detectionFoundSummary}}</p>{{/if}}
+    {{#if detectionNone}}<p class="hint">{{localize "BINDERY.statblockProfileBuilder.detectionNoResults"}}</p>{{/if}}
+    {{#if detectionResults}}
+      <ul class="bindery-pb-detection-results">
+        {{#each detectionResults}}
+          <li>
+            <a data-action="jumpToCandidate" data-id="{{this.id}}">
+              {{localize "BINDERY.statblockProfileBuilder.pageAbbrev"}} {{this.page}} — {{this.confidencePercent}}% — {{this.snippet}}
+            </a>
+          </li>
+        {{/each}}
+      </ul>
+    {{/if}}
+    </div>
+    {{/if}}
+  </section>
+  {{/if}}
+
+  {{#if isCollectionsTab}}
+  <section class="bindery-pb-tab-collections">
+    <button type="button" data-action="addCollection">{{localize "BINDERY.statblockProfileBuilder.addCollection"}}</button>
+    {{#each collections}}
+      <div class="bindery-pb-collection">
+        <div class="bindery-pb-collection-header">
+          <input type="text" data-role="collection-item-type" data-id="{{this.id}}" value="{{this.itemType}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.itemType'}}" />
+          <input type="text" data-role="collection-template-item" data-id="{{this.id}}" value="{{this.templateItemUuid}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.templateItemUuid'}}" />
+          <button type="button" data-action="removeCollection" data-id="{{this.id}}"><i class="fa-solid fa-trash"></i></button>
+        </div>
+        <div class="form-group">
+          <label>{{localize "BINDERY.statblockProfileBuilder.splitRule"}}</label>
+          <select data-role="collection-split-kind" data-id="{{this.id}}">
+            <option value="sectionHeaderThenEntries" {{#if this.isSplitSectionHeader}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.splitSectionHeader"}}</option>
+            <option value="repeatingLinePattern" {{#if this.isSplitRepeating}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.splitRepeating"}}</option>
+            {{#if ../isAdvanced}}<option value="fixedDelimiter" {{#if this.isSplitFixedDelimiter}}selected{{/if}}>{{localize "BINDERY.statblockProfileBuilder.splitFixedDelimiter"}}</option>{{/if}}
+          </select>
+          {{#if this.isSplitSectionHeader}}
+            <input type="text" data-role="collection-split-pattern" data-id="{{this.id}}" value="{{this.sectionHeaderPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.sectionHeaderPatternPlaceholder'}}" />
+          {{else}}
+            <input type="text" data-role="collection-split-pattern" data-id="{{this.id}}" value="{{this.entryBoundaryPattern}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.entryBoundaryPatternPlaceholder'}}" />
+          {{/if}}
+        </div>
+        <a data-action="selectCollectionNameTarget" data-collection-id="{{this.id}}" class="bindery-pb-tree-item {{#if this.isNameSelected}}selected{{/if}}">{{localize "BINDERY.statblockProfileBuilder.entryName"}}</a>
+        <ul class="bindery-pb-collection-fields">
+          {{#each this.itemFields}}
+            <li>
+              <a data-action="selectCollectionFieldTarget" data-collection-id="{{../id}}" data-field-id="{{this.id}}" class="bindery-pb-tree-item {{#if this.hasSource}}mapped{{/if}} {{#if this.isSelected}}selected{{/if}}">
+                {{#if this.hasSource}}<i class="fa-solid fa-check"></i>{{/if}} {{this.actorSchemaPath}}
+              </a>
+              <a data-action="removeField" data-field-id="{{this.id}}" data-collection-id="{{../id}}"><i class="fa-solid fa-xmark"></i></a>
+            </li>
+          {{/each}}
+        </ul>
+        <div class="bindery-pb-add-field">
+          <input type="text" data-role="new-collection-field-path" data-collection-id="{{this.id}}" placeholder="{{localize 'BINDERY.statblockProfileBuilder.newFieldPathPlaceholder'}}" />
+          <button type="button" data-action="addCollectionField" data-collection-id="{{this.id}}">{{localize "BINDERY.statblockProfileBuilder.add"}}</button>
+        </div>
+      </div>
+    {{/each}}
+  </section>
+  {{/if}}
+
+
+</div>
+{{/if}}

@@ -1,4 +1,7 @@
+import type { StatblockProfile } from '@bindery/core';
 import { ImportWizard } from './apps/ImportWizard.js';
+import { STATBLOCK_IMPORT_ENABLED } from './statblock/enabled.js';
+import { ProfileBuilderLauncher } from './statblock/ui/ProfileBuilderLauncher.js';
 
 // [User request] Renamed from 'bindery' — that id was already taken in
 // Foundry's official package directory by an unrelated module. Changing this
@@ -23,6 +26,19 @@ export function registerSettings(): void {
     type: ImportWizard,
     restricted: true,
   });
+
+  // [Statblock import, Task 5] The profile-builder window — same menu-button
+  // pattern as `openWizard` above.
+  if (STATBLOCK_IMPORT_ENABLED) {
+    game.settings!.registerMenu(MODULE_ID, 'openStatblockProfileBuilder', {
+      name: 'BINDERY.statblockProfileBuilder.openMenuLabel',
+      hint: 'BINDERY.statblockProfileBuilder.openMenuHint',
+      label: 'BINDERY.statblockProfileBuilder.openMenuLabel',
+      icon: 'fa-solid fa-dragon',
+      type: ProfileBuilderLauncher,
+      restricted: true,
+    });
+  }
 
   // Consent from the legal notice, §2.2 MDD — saved once per world.
   game.settings!.register(MODULE_ID, 'legalNoticeAcknowledged', {
@@ -105,6 +121,20 @@ export function registerSettings(): void {
       outputSize: 512,
       format: 'webp',
     } satisfies TokenPrepDefaults,
+  });
+
+  // [Statblock import, Task 1] All statblock profiles the user has built in
+  // this world, keyed by `StatblockProfile.id` — one setting holding the
+  // whole collection (not one setting per profile), so CRUD is a single
+  // `get`/`set` round-trip. `config:false` — like the settings above,
+  // changed ONLY through the profile-builder UI (not yet built), never the
+  // settings screen. No explicit `type: Object` — same fvtt-types
+  // generic-inference limit noted at `tokenPrepDefaults` above.
+  game.settings!.register(MODULE_ID, 'statblockProfiles', {
+    name: 'Statblock import profiles',
+    scope: 'world',
+    config: false,
+    default: {} as Record<string, StatblockProfile>,
   });
 }
 

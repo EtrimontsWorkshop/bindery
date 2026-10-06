@@ -11,6 +11,8 @@ import { createJournalHandoutFromImages } from '../documents/createJournalHandou
 import { ensureFolder } from '../documents/ensureFolder.js';
 import { pickGrid, type GridConfig } from './GridPicker.js';
 import { prepareToken } from './TokenPrepApp.js';
+import { STATBLOCK_IMPORT_ENABLED } from '../statblock/enabled.js';
+import type { StatblockReviewState } from '../statblock/ui/statblockReviewState.js';
 import { eraseImage } from './ImageEraseApp.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -33,7 +35,7 @@ const MIN_GRID_SUGGESTION_CONFIDENCE = 0.4;
  */
 const SCENES_JOURNALS_FROM_CIF_ENABLED = false;
 
-type ReviewTab = 'images' | 'scenes' | 'journals' | 'diagnostics';
+type ReviewTab = 'images' | 'scenes' | 'journals' | 'diagnostics' | 'statblocks';
 type ReviewStep = 'review' | 'target' | 'summary';
 /** [User request, "two tabs: automatic and manual"] Image source — PURELY a presentational split of the Images tab list, not a new `CIFImage` field: `manual` is recognized by the `id` prefix (`manual-crop-`, see `#createManualCrop`). */
 type ImageSourceTab = 'auto' | 'manual';
@@ -60,6 +62,8 @@ export interface ReviewScreenData {
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>;
   previewDocument: PreviewDocument;
   fileName: string;
+  /** The PDF's bytes — enables the Statblocks tab (finding statblocks needs the document itself, not only the extracted images). */
+  fileBuffer?: ArrayBuffer;
 }
 
 export interface ReviewScreenResult {
@@ -157,6 +161,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #step: ReviewStep = 'review';
   #tab: ReviewTab = 'images';
+  /** The Statblocks tab's state — created the first time the tab is opened (finding statblocks reads the whole PDF, so it never runs unless asked). */
+  #statblocks: StatblockReviewState | null = null;
   /** [User request] Sub-tabs WITHIN the Images tab — see `ImageSourceTab`/`ImageDestTab`. */
   #imageSourceTab: ImageSourceTab = 'auto';
   // [User request, "all images end up in Unassigned"]
@@ -378,6 +384,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       isTabScenes: this.#tab === 'scenes',
       isTabJournals: this.#tab === 'journals',
       isTabDiagnostics: this.#tab === 'diagnostics',
+      isTabStatblocks: this.#tab === 'statblocks',
+      hasStatblockTab: STATBLOCK_IMPORT_ENABLED && this.#data.fileBuffer !== undefined,
+      statblockCount: this.#statblocks?.includedCount ?? 0,
+      statblocks: this.#statblocks?.describe((imageId) => this.#thumbnailFor(imageId)) ?? null,
       // [User request, "two tabs: automatic and manual" + Scene/Journal/Token
       // sub-tabs] See `#visibleImages`/`ImageSourceTab`/`ImageDestTab` — PURE
       // presentation over already existing state (`ReviewSelection.imageDestination`,
@@ -427,6 +437,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
     this.#hideThumbPreview();
+    this.#wireStatblockControls();
 
     // [At the user's request, the same pattern as Profile Studio] Navigation
     // SOLELY via ◄/► buttons was cumbersome on long documents — a numeric
@@ -1846,7 +1857,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    */
   /** Everything currently selected for import — images, scenes and journals. */
   #totalSelectedCount(): number {
-    return this.#selection.selectedAssignedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount;
+    return this.#selection.selectedAssignedImageCount + this.#selection.selectedSceneCount + this.#selection.selectedJournalCount + (this.#statblocks?.includedCount ?? 0);
   }
 
   /**
@@ -2003,7 +2014,40 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const tab = target.dataset['tab'] as ReviewTab | undefined;
     if (!tab) return;
     this.#tab = tab;
+    if (tab === 'statblocks') void this.#ensureStatblocks();
     void this.render();
+  }
+
+  async #ensureStatblocks(): Promise<void> {
+    const fileBuffer = this.#data.fileBuffer;
+    if (!STATBLOCK_IMPORT_ENABLED || this.#statblocks || !fileBuffer) return;
+    const { StatblockReviewState } = await import('../statblock/ui/statblockReviewState.js');
+    this.#statblocks = new StatblockReviewState(fileBuffer, this.#data.document.images, () => void this.render());
+    await this.render();
+    await this.#statblocks.init();
+  }
+
+  /** Wires the Statblocks tab's controls — the DOM is replaced on every render, so this runs after each one. */
+  #wireStatblockControls(): void {
+    const state = this.#statblocks;
+    if (!state || this.#tab !== 'statblocks') return;
+    const root = this.element;
+    const profileSelect = root.querySelector<HTMLSelectElement>('select[data-sb="profile"]');
+    profileSelect?.addEventListener('change', () => void state.selectProfile(profileSelect.value));
+    const policySelect = root.querySelector<HTMLSelectElement>('select[data-sb="policy"]');
+    policySelect?.addEventListener('change', () => (state.policy = policySelect.value as typeof state.policy));
+    for (const box of root.querySelectorAll<HTMLInputElement>('input[data-sb-include]')) {
+      box.addEventListener('change', () => {
+        state.setInclude(box.dataset['sbInclude']!, box.checked);
+        void this.render();
+      });
+    }
+    for (const select of root.querySelectorAll<HTMLSelectElement>('select[data-sb-image]')) {
+      select.addEventListener('change', () => {
+        state.setImage(select.dataset['sbImage']!, select.value);
+        void this.render();
+      });
+    }
   }
 
   static #onSwitchImageSourceTab(this: ReviewScreen, _ev: PointerEvent, target: HTMLElement): void {
@@ -2087,6 +2131,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const entries: { label: string; uuid?: string }[] = [];
     const runDiagnostics: Diagnostic[] = [];
+    /** Every image uploaded during this import, by CIF image id — a picture used both as an image destination and as a statblock's portrait is uploaded once. */
+    const uploadedPathByImageId = new Map<string, string>();
 
     // Scenes — SOLELY the selected ones.
     const sceneFolderId = await ensureFolder(this.#targets.sceneFolder, 'Scene');
@@ -2192,6 +2238,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         }
         try {
           const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+          uploadedPathByImageId.set(image.id, upload.path);
           pages.push({ name: withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`), imagePath: upload.path });
         } catch (err) {
           // [Step 27 Z1] A code distinct from `REVIEW_IMAGE_DESTINATION_FAILED` below —
@@ -2240,6 +2287,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const name = withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`);
       try {
         const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+        uploadedPathByImageId.set(image.id, upload.path);
         if (destination === 'scene') {
           const grid = await this.#pickGridForImage(bytes, image);
           const created = await createSceneFromImage({ name, imagePath: upload.path, width: image.width, height: image.height, grid, folder: sceneFolderId });
@@ -2265,7 +2313,38 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
 
+    await this.#importStatblocks(entries, runDiagnostics, uploadedPathByImageId, uploadBaseNameFor);
+
     return { entries, diagnostics: runDiagnostics };
+  }
+
+  /** Creates the Actors for the statblocks ticked in the Statblocks tab, with the pictures chosen there (uploaded here if the image import didn't already do it). */
+  async #importStatblocks(entries: { label: string; uuid?: string }[], diagnostics: Diagnostic[], uploadedPathByImageId: Map<string, string>, uploadBaseNameFor: (image: CIFImage) => string): Promise<void> {
+    const state = this.#statblocks;
+    if (!state || state.includedCount === 0) return;
+    const i18n = game.i18n!;
+    const resolveImagePath = async (imageId: string): Promise<string | undefined> => {
+      const known = uploadedPathByImageId.get(imageId);
+      if (known) return known;
+      const image = this.#data.document.images.find((i) => i.id === imageId);
+      const bytes = this.#data.imageBytesById.get(imageId);
+      if (!image || !bytes) return undefined;
+      try {
+        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+        uploadedPathByImageId.set(imageId, upload.path);
+        return upload.path;
+      } catch (err) {
+        diagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_DESTINATION_FAILED', params: { name: image.caption?.trim() || image.id, destination: 'statblock', error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
+        return undefined;
+      }
+    };
+    const report = await state.run(resolveImagePath);
+    if (!report) return;
+    const statusKey = { created: 'statusCreated', updated: 'statusUpdated', skipped: 'statusSkipped', error: 'statusError' } as const;
+    for (const instance of report.instances) {
+      entries.push({ label: `${i18n.localize(`BINDERY.statblockImport.${statusKey[instance.status]}`)}: ${instance.actorName}`, uuid: instance.actorUuid });
+      diagnostics.push(...instance.diagnostics);
+    }
   }
 
   /**

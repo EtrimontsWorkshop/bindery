@@ -258,6 +258,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
         imageBytesById: result.imageBytesById,
         previewDocument,
         fileName: this.#state.fileName,
+        fileBuffer: this.#fileBuffer,
       });
 
       if (reviewResult.confirmed) {

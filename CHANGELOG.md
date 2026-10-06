@@ -1,3 +1,9 @@
+## [0.2.6]
+
+### Changed
+
+- **No change to PDF import.** This release only brings the unfinished, profile-based character (statblock) import into the codebase, switched off: there is no "Statblock profile builder" button in the settings and no Statblocks tab in the review screen. Importing maps, handouts, images and tokens works exactly as in 0.2.5.
+
 ## [0.2.5]
 
 ### Fixed

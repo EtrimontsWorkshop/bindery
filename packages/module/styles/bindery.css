@@ -1817,3 +1817,214 @@
   display: flex;
   gap: 0.5rem;
 }
+
+/* [Task 5] Statblock profile-builder window — own, self-contained rules (no
+   reuse of `.bindery-review-app`'s review-specific selectors, see
+   ProfileBuilderApp.ts's own header comment). */
+.bindery-profile-builder-app .bindery-pb-list-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.bindery-profile-builder-app .bindery-pb-profile-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bindery-profile-builder-app .bindery-pb-profile-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.25rem;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #ccc);
+}
+.bindery-profile-builder-app .bindery-pb-profile-name {
+  flex: 1;
+  font-weight: 600;
+}
+.bindery-profile-builder-app .bindery-pb-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.bindery-profile-builder-app .bindery-pb-header-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+.bindery-profile-builder-app .bindery-pb-mode-toggle button.active {
+  font-weight: 700;
+  text-decoration: underline;
+}
+.bindery-profile-builder-app .bindery-pb-validation-issues {
+  background: rgba(200, 60, 60, 0.12);
+  border: 1px solid rgba(200, 60, 60, 0.4);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85em;
+}
+.bindery-profile-builder-app .bindery-pb-tabs {
+  display: flex;
+  gap: 1rem;
+  border-bottom: 1px solid var(--color-border-light-tertiary, #ccc);
+  margin-bottom: 0.5rem;
+}
+.bindery-profile-builder-app .bindery-pb-tabs a {
+  padding: 0.25rem 0;
+  cursor: pointer;
+}
+.bindery-profile-builder-app .bindery-pb-tabs a.active {
+  font-weight: 700;
+  border-bottom: 2px solid currentColor;
+}
+.bindery-profile-builder-app .bindery-pb-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr 1.2fr;
+  gap: 0.75rem;
+  align-items: start;
+}
+.bindery-profile-builder-app .bindery-pb-page-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: #222;
+  overflow: hidden;
+}
+.bindery-profile-builder-app .bindery-pb-page-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.bindery-profile-builder-app .bindery-pb-page-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.bindery-profile-builder-app .bindery-pb-element {
+  fill: rgba(80, 160, 255, 0.12);
+  stroke: rgba(80, 160, 255, 0.6);
+  stroke-width: 1;
+  cursor: pointer;
+}
+.bindery-profile-builder-app .bindery-pb-element:hover {
+  fill: rgba(80, 160, 255, 0.3);
+}
+.bindery-profile-builder-app .bindery-pb-drag-rect {
+  fill: rgba(255, 180, 60, 0.2);
+  stroke: rgba(255, 150, 30, 0.9);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.bindery-profile-builder-app .bindery-pb-page-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+.bindery-profile-builder-app .bindery-pb-capture-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.85em;
+}
+.bindery-profile-builder-app .bindery-pb-schema-tree {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.bindery-profile-builder-app .bindery-pb-tree-item {
+  display: block;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.bindery-profile-builder-app .bindery-pb-tree-item.mapped {
+  color: #2e7d32;
+}
+.bindery-profile-builder-app .bindery-pb-tree-item.selected {
+  background: rgba(80, 160, 255, 0.2);
+}
+.bindery-profile-builder-app .bindery-pb-tree-group {
+  font-weight: 700;
+  opacity: 0.7;
+  padding: 0.2rem 0.3rem;
+}
+.bindery-profile-builder-app .bindery-pb-transform-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+}
+.bindery-profile-builder-app .bindery-pb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.8em;
+}
+.bindery-profile-builder-app .bindery-pb-add-transform,
+.bindery-profile-builder-app .bindery-pb-add-field {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+.bindery-profile-builder-app .bindery-pb-preview-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85em;
+  padding: 0.1rem 0;
+}
+.bindery-profile-builder-app .bindery-pb-ok {
+  color: #2e7d32;
+}
+.bindery-profile-builder-app .bindery-pb-warn {
+  color: #b45309;
+}
+.bindery-profile-builder-app .bindery-pb-collection {
+  border: 1px solid var(--color-border-light-tertiary, #ccc);
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-top: 0.5rem;
+}
+.bindery-profile-builder-app .bindery-pb-collection-header {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+.bindery-profile-builder-app .bindery-pb-collection-fields {
+  list-style: none;
+  margin: 0.3rem 0;
+  padding: 0;
+}
+.bindery-profile-builder-app .bindery-pb-collection-fields li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.bindery-profile-builder-app .bindery-pb-detection-results {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.bindery-review .bindery-sb-panel { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
+.bindery-review .bindery-sb-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.bindery-review .bindery-sb-row { display: grid; grid-template-columns: auto 48px 1fr minmax(120px, 220px); gap: 0.5rem; align-items: center; }
+.bindery-review .bindery-sb-thumb { width: 48px; height: 48px; object-fit: contain; background: rgba(255, 255, 255, 0.05); border-radius: 4px; }
+.bindery-review .bindery-sb-thumb-empty { display: inline-block; }
+
+.bindery-profile-builder-app .bindery-pb-grid-two { grid-template-columns: 1.2fr 1fr; }
+.bindery-profile-builder-app .bindery-pb-anchor-summary { font-weight: 600; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes { display: flex; gap: 0.25rem; }
+.bindery-profile-builder-app .bindery-pb-anchor-modes button.active { outline: 2px solid currentColor; }
