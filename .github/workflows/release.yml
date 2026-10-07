@@ -38,12 +38,19 @@ jobs:
       - name: Package module.zip
         run: npm run package
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            packages/module/dist/module.json \
-            module.zip \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            # A release for this tag already exists (for example it was created in the GitHub UI):
+            # attach the built files to it, replacing anything uploaded by hand.
+            gh release upload "$TAG" packages/module/dist/module.json module.zip --clobber
+          else
+            gh release create "$TAG" \
+              packages/module/dist/module.json \
+              module.zip \
+              --title "$TAG" \
+              --generate-notes
+          fi

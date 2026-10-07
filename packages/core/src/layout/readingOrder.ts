@@ -4,9 +4,8 @@ import type { SpanningSplit } from './spanning.js';
 import type { StreamAngle } from '../text/types.js';
 
 /**
- * Reading order (Step 6 Z4) — a BAND algorithm, resilient to spanning
- * elements: the page is sliced into horizontal bands at every spanning line
- * (Z2); within a band, columns go left->right (Z3), within a column lines go
+ * Reading order — a BAND algorithm, resilient to spanning
+ * elements: the page is sliced into horizontal bands at every spanning line; within a band, columns go left->right, within a column lines go
  * top->bottom; bands go top->bottom; streams with angle != 0° come LAST,
  * each as its own sequence (marginalia are NOT interleaved into the main flow).
  */
@@ -45,7 +44,7 @@ function orderedColumnIndices(columns: readonly ColumnRegion[], pageRotation: 0 
 
 /**
  * Builds the reading order of the PRIMARY stream (angle 0°) from the
- * spanning/columnar split (Z2) and the detected columns (Z3), then appends the
+ * spanning/columnar split and the detected columns, then appends the
  * remaining streams (angle != 0°) AT THE END, each as its own unbroken
  * sequence in its OWN pre-existing order (marginalia are not interleaved into
  * the main flow).

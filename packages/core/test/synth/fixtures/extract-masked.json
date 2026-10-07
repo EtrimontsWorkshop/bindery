@@ -1,6 +1,6 @@
 {
   "id": "extract-masked",
-  "description": "Obraz duzy (~62% strony) pod maska luminancyjna niejednolita (lewa polowa biala/widoczna, prawa czarna/ukryta).",
+  "description": "A large image (~62% of the page) under a non-uniform luminosity mask (the left half white/visible, the right black/hidden).",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "hasLuminosityGroup": true
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: DWA obrazy XObject — forma maski (2x1px, lewy piksel bialy, prawy czarny) wewnatrz beginGroup/Luminosity, i tresc (4x4px czerwony) narysowana POZA grupa z /ExtGState /SMask wskazujacym na te forme. classifyImages() powinien dac 'mask' dla formy maski (maskEvidence='group', dowod twardy) i 'content' dla tresci (duza powierzchnia). decideExtractionStrategy() dla tresci powinien dac 'region-render' (isMasked=true — bezposrednia ekstrakcja dalaby wersje BEZ maski). Po renderze: lewa i prawa POLOWA wyniku musza byc WYRAZNIE rozne (maska faktycznie zastosowana w kompozycji), nie tylko wybor strategii."
+    "note": "Construction fact: TWO image XObjects — the mask form (2x1px, the left pixel white, the right black) inside beginGroup/Luminosity, and the content (4x4px red) drawn OUTSIDE the group with /ExtGState /SMask pointing at that form. classifyImages() should give 'mask' for the mask form (maskEvidence='group', hard evidence) and 'content' for the content (a large area). decideExtractionStrategy() for the content should give 'region-render' (isMasked=true — direct extraction would give a version WITHOUT the mask). After the render: the left and right HALF of the result must be CLEARLY different (the mask was actually applied in the composition), not only the choice of strategy."
   }
 }

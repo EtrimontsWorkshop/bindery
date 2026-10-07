@@ -1,10 +1,9 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Uklad dwukolumnowy prosty: lewa kolumna x=72..~260, prawa x=310..~500,
- * rynna x=260..310 (50pt) PUSTA na calej wysokosci bloku (8 linii, ta sama
- * wysokosc obu kolumn). Testuje: histogram gestosci + detekcja doliny +
- * walidacja pionowa (KROK-6 Z3).
+ * A simple two-column layout: the left column x=72..~260, the right x=310..~500, the gutter
+ * x=260..310 (50pt) EMPTY over the whole block height (8 lines, the same height for both columns).
+ * Tests: the density histogram + valley detection + vertical validation.
  */
 export function build(): Buffer {
   const left = [

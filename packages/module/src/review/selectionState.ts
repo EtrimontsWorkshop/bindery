@@ -1,7 +1,7 @@
 import type { CIFDocument, CIFImage } from '@bindery/core';
 
 /**
- * [Step 11 Z4] Selection model for the review screen. PURE presentation over
+ * Selection model for the review screen. PURE presentation over
  * a decision `core` has already made (`CIFDocument.images[].classification`/
  * `.confidence`) — this file does NOT classify anything anew, it only
  * projects already-final fields onto "does the checkbox start checked"
@@ -9,23 +9,20 @@ import type { CIFDocument, CIFImage } from '@bindery/core';
  *
  * [user report, "make it so all images are unchecked by default"] Default
  * selection: ALL images (`content` and `undecided` alike) start UNCHECKED —
- * the user explicitly checks what they actually want to import (the
- * previous Step 11 Z4 brief auto-checked confident `content`; dropped per an
- * explicit user request). Default order: `content` in page order, then
+ * the user explicitly checks what they actually want to import. Default order: `content` in page order, then
  * `undecided` sorted descending by area (`width*height`); real illustrations
  * are large, junk is small — the user reviews the first ~20 entries, not
  * ~180.
  */
 
 /**
- * [Step 14 Z4] The destination of a SINGLE image, chosen by the user on the
- * review screen (MDD v2.1 §1.2, P1: "destination chosen per image"). `scene`
+ * The destination of a SINGLE image, chosen by the user on the
+ * review screen ("destination chosen per image"). `scene`
  * — creates a Scene with a background; `journal` — goes into a
  * SINGLE-PAGE JournalEntry as a handout; `token` — saved to disk (image
  * folder), without creating any document; `unassigned` — skipped on import,
  * until the user chooses something else (see `defaultImageDestination`
- * below — this used to be `skip`, replaced per an explicit user request, see
- * below).
+ * below — this used to be `skip`, replaced at the user's request).
  */
 export type ImageDestination = 'scene' | 'journal' | 'token' | 'unassigned';
 
@@ -63,7 +60,7 @@ export interface ReviewSelectionSnapshot {
   sceneIds: readonly string[];
   journalIds: readonly string[];
   journalPageIds: readonly string[];
-  /** [Step 14 Z4] The destination of EVERY image (not just selected ones) — `id -> destination`. */
+  /** The destination of EVERY image (not just selected ones) — `id -> destination`. */
   imageDestinations: ReadonlyMap<string, ImageDestination>;
 }
 
@@ -80,10 +77,10 @@ export class ReviewSelection {
   #scenes = new Map<string, boolean>();
   #journals = new Map<string, boolean>();
   #journalPages = new Map<string, boolean>();
-  /** [Step 14 Z4] Destination per image — a separate map from selection, because an unselected image STILL has a (unused, but remembered) destination. */
+  /** Destination per image — a separate map from selection, because an unselected image STILL has a (unused, but remembered) destination. */
   #imageDestinations = new Map<string, ImageDestination>();
   /**
-   * [Step 19, gap reported live: "I'm missing better journal sorting"] The
+   * The
    * journal group name per image, ONLY for the `journal` destination — an
    * empty string (default) = the existing behavior, each image gets its OWN,
    * single JournalEntry. Images sharing THE SAME non-empty group name go
@@ -102,14 +99,13 @@ export class ReviewSelection {
       selection.#imageDestinations.set(image.id, defaultImageDestination());
       selection.#imageJournalGroups.set(image.id, '');
     }
-    // [Step 11] Scenes are already a decided, confident classification from
+    // Scenes are already a decided, confident classification from
     // core (a CIFScene only exists when core has already deemed the image a
     // map/scene) — no own confidence field to threshold on, so they default
-    // to SELECTED (mirroring Z4 "content" with no conflicting signals).
+    // to SELECTED (mirroring `content` with no conflicting signals).
     for (const scene of document.scenes) selection.#scenes.set(scene.id, true);
-    // [Step 16 Z2, bug fix] Extracting the whole book's text into journals
-    // has been a SECONDARY/optional feature since the product pivot (Step
-    // 11, Bindery-MDD-v2.1.md §0c) — the default "everything selected"
+    // Extracting the whole book's text into journals
+    // has been a SECONDARY/optional feature since the product pivot —
     // created "a mass of text journals" on EVERY import without asking, even
     // when the user only wanted individual images from the Images tab.
     // Default UNSELECTED — explicit opt-in via the Journals tab.
@@ -138,7 +134,7 @@ export class ReviewSelection {
   }
 
   /**
-   * [Step 18, "Select and crop"] Registers an image added AFTER
+   * Registers an image added AFTER
    * `fromDocument()` (a manual crop from the page preview, not from
    * automatic extraction) — `setImage`/`setImageDestination` above
    * deliberately do NOTHING for an unknown `id` (see their `if
@@ -162,28 +158,28 @@ export class ReviewSelection {
     this.#imageJournalGroups.set(id, '');
   }
 
-  /** [Step 14 Z4] The image's destination — defaults from `defaultImageDestination`, overridable per image. */
+  /** The image's destination — defaults from `defaultImageDestination`, overridable per image. */
   imageDestination(id: string): ImageDestination {
     return this.#imageDestinations.get(id) ?? 'unassigned';
   }
   setImageDestination(id: string, destination: ImageDestination): void {
     if (this.#imageDestinations.has(id)) this.#imageDestinations.set(id, destination);
   }
-  /** [Step 14 Z4] Bulk operation "set for all SELECTED images" — see the Z4 brief. */
+  /** Bulk operation "set for all SELECTED images". */
   setDestinationForSelected(destination: ImageDestination, scope?: ReadonlySet<string>): void {
     for (const [id, selected] of this.#images) {
       if (selected && (!scope || scope.has(id))) this.#imageDestinations.set(id, destination);
     }
   }
 
-  /** [Step 19] The journal group name for an image — an empty string = no group (its own JournalEntry). */
+  /** The journal group name for an image — an empty string = no group (its own JournalEntry). */
   imageJournalGroup(id: string): string {
     return this.#imageJournalGroups.get(id) ?? '';
   }
   setImageJournalGroup(id: string, group: string): void {
     if (this.#imageJournalGroups.has(id)) this.#imageJournalGroups.set(id, group.trim());
   }
-  /** [Step 19] Bulk operation "set the journal group for all SELECTED images" — mirrors `setDestinationForSelected`. */
+  /** Bulk operation "set the journal group for all SELECTED images" — mirrors `setDestinationForSelected`. */
   setJournalGroupForSelected(group: string, scope?: ReadonlySet<string>): void {
     const trimmed = group.trim();
     for (const [id, selected] of this.#images) {

@@ -3,10 +3,10 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * Tlo rozkladowkowe z ujemnymi wspolrzednymi, wykraczajace poza MediaBox — spad
- * drukarski. MDD F0: to nie blad, to sygnal ze obraz jest tlem (faza 3).
- * Samokontrola (claims) nie liczy bbox z CTM — to logika fazy 2/3. Wlasciwosc
- * "obraz wychodzi poza strone" jest udokumentowana w `expected` jako ground truth.
+ * A spread background with negative coordinates, extending past the MediaBox — print bleed. This
+ * is not an error, it is a signal that the image is a background. The self-check (claims) doesn't
+ * compute the bbox from the CTM — that is layout/image-pipeline logic. The property "the image
+ * extends past the page" is documented in `expected` as ground truth.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -16,7 +16,7 @@ export function build(): Buffer {
 
   const imgRef = imageXObject(writer, { width: 4, height: 4, rgb: solidRgb(4, 4, 80, 80, 120) });
 
-  // MediaBox 612x792; obraz 692x892 przesuniety o (-40,-50) — wychodzi poza kazda krawedz.
+  // MediaBox 612x792; the image 692x892 shifted by (-40,-50) — extends past every edge.
   const content = new ContentStreamBuilder().save().cm(692, 0, 0, 892, -40, -50).doXObject('Im1').restore().toBuffer();
   const contentRef = writer.addStreamObj('', content);
 

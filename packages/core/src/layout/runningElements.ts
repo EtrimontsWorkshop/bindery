@@ -2,8 +2,8 @@ import { groupByQuantizedPosition } from '../collections.js';
 import type { TextLine } from './lineCluster.js';
 
 /**
- * Running headers/footers (Step 6 Z5) — detected by REPETITION across
- * pages (pattern A8: requires a whole-document view, like Z2/Z5-Step5).
+ * Running headers/footers — detected by REPETITION across
+ * pages.
  *
  * NEVER match on exact text — the page number changes, and that's the most
  * common running element. Matching is by CONJUNCTION: vertical band +
@@ -55,9 +55,9 @@ function quantize(v: number, tolerance: number): number {
 
 /**
  * Detects running headers/footers across the WHOLE document (or a given
- * page range — per the brief: "within a range", not always the whole
+ * page range: "within a range", not always the whole
  * document). Returns matches for TAGGING (`BlockKind: 'header'|'footer'`
- * in Z6) — never removes lines from the model.
+ * in the block builder) — never removes lines from the model.
  */
 export function detectRunningElements(
   pages: readonly PageForRunningElements[],

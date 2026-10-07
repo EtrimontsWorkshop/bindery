@@ -13,7 +13,7 @@ export interface ComputedMetrics {
   fragmentationRatio: number;
   rotatedItemRatio: number;
   emptyItemCount: number;
-  /** Itemy niepuste, ale zlozone wylacznie z bialych znakow (np. pojedyncza spacja). */
+  /** Non-empty items made up solely of whitespace (e.g. a single space). */
   whitespaceOnlyItemCount: number;
   totalItemCount: number;
   nonEmptyItemCount: number;
@@ -24,13 +24,13 @@ export interface ComputedMetrics {
   distinctFontKeys: string[];
   hasLuminosityGroup: boolean;
   zeroGlyphPageCount: number;
-  /** Czy jakikolwiek obraz na jakiejkolwiek stronie wychodzi poza MediaBox (spad drukarski). */
+  /** Whether any image on any page extends past the MediaBox (print bleed). */
   hasBleedingImage: boolean;
-  /** Czy na jakiejkolwiek stronie dwa RoZNE obrazy maja pokrywajace sie bboxy. */
+  /** Whether on any page two DIFFERENT images have overlapping bboxes. */
   hasOverlappingImages: boolean;
-  /** Pary itemow o identycznym str I identycznej macierzy transform (dokladny duplikat pozycyjny). */
+  /** Pairs of items with an identical str AND an identical transform matrix (an exact positional duplicate). */
   exactPositionalDuplicateCount: number;
-  /** Pary itemow o identycznym str i macierzy przesunietej o < 1pt (kandydat na syntetyczne pogrubienie). */
+  /** Pairs of items with an identical str and a matrix shifted by < 1pt (a candidate for synthetic bold). */
   nearPositionalDuplicateCount: number;
 }
 
@@ -40,15 +40,15 @@ function initImageOps(pdfjsMod: typeof pdfjs) {
   IMAGE_OPS.add(pdfjsMod.OPS.paintImageXObject);
   IMAGE_OPS.add(pdfjsMod.OPS.paintImageXObjectRepeat);
   IMAGE_OPS.add(pdfjsMod.OPS.paintInlineImageXObject);
-  // Dodane w KROK-4: maski stencilowe TEZ sa operacjami obrazowymi — pominiete
-  // przypadkiem w kroku 3, ujawnione przez fixture images-mask-opcode.
+  // Added later: stencil masks are image operations TOO — missed by accident initially, revealed by
+  // the images-mask-opcode fixture.
   IMAGE_OPS.add(pdfjsMod.OPS.paintImageMaskXObject);
 }
 
 /**
- * Sledzi CTM (save/restore/transform) i liczy bbox obrazu jednostkowego przez CTM —
- * dokladnie metodyka z fazy 0 (spike probe-images.ts). Narzedzie WYLACZNIE do
- * samokontroli fixture'ow w tym pliku, NIE produkcyjna logika fazy 2/3.
+ * Tracks the CTM (save/restore/transform) and computes the bbox of a unit image through the CTM —
+ * exactly the methodology from the initial spike. A tool ONLY for the self-check of the fixtures
+ * in this file, NOT production logic.
  */
 function computeImageBBoxes(fnArray: number[], argsArray: unknown[][], OPS: any, Util: any): Rect[] {
   let ctm = [1, 0, 0, 1, 0, 0];
@@ -82,10 +82,10 @@ function rectsOverlap(a: Rect, b: Rect): boolean {
 }
 
 /**
- * Przechodzi caly dokument i liczy metryki uzywane przez warstwe 1 (claims).
- * Uzywa disableNormalization:true — dokladnie jak w metodyce fazy 0 — zeby
- * ligatury/znaki laczace/PUA byly widoczne w surowej formie, nie ukryte przez
- * domyslna normalizacje pdf.js.
+ * Walks the whole document and computes the metrics used by layer 1 (claims). Uses
+ * disableNormalization:true — exactly like in the spike methodology — so that
+ * ligatures/combining marks/PUA are visible in their raw form, not hidden by pdf.js's default
+ * normalization.
  */
 export async function computeMetrics(pdfData: Buffer | Uint8Array): Promise<ComputedMetrics> {
   initImageOps(pdfjs);

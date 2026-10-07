@@ -1,10 +1,9 @@
 /**
- * Maps -> scenes (Step 8 Z5, MDD phase 7). Scene dimensions come DIRECTLY
+ * Maps -> scenes. Scene dimensions come DIRECTLY
  * from the bitmap (`packages/core` has already decoded the image and knows
- * `width`/`height`) — zero automatic grid detection (out of MVP scope, per
- * the brief).
+ * `width`/`height`) — zero automatic grid detection (out of scope).
  *
- * [Step 8, discovery #1] Foundry v14 rebuilt scene backgrounds around a
+ * Foundry v14 rebuilt scene backgrounds around a
  * multi-level model (`Level` — an embedded document, each with its own
  * `background.src`) — the OLD, flat `Scene#background.src` field (v10-v13)
  * is today ONLY a backward-compatibility getter (`BaseScene.shimData`,
@@ -12,10 +11,9 @@
  * setter — `Scene.create({background: {src}})` does NOT work in v14
  * (silently ignored, the background stays empty). Verified directly in the
  * source (`resources/app/common/documents/{scene,level}.mjs`), not guessed
- * — per CLAUDE.md: "always verify against the actually installed version".
+ * — always verify against the actually installed version.
  *
- * [Step 8, discovery #2 — caught empirically on a real Foundry instance,
- * not in the source code] `Scene.create()` ALWAYS creates one DEFAULT,
+ * `Scene.create()` ALWAYS creates one DEFAULT,
  * EMPTY Level with the fixed ID `defaultLevel0000`
  * (`BaseScene.metadata.defaultLevelId`, `scene.mjs`) and sets `initialLevel`
  * to that very level. The first version of this code called
@@ -39,7 +37,7 @@ export interface CreateSceneFromImageInput {
   width: number;
   height: number;
   grid: { size: number; offsetX: number; offsetY: number };
-  /** [Step 11 Z6] `Scene` folder id (see `ensureFolder.ts`) — `undefined` = root. */
+  /** `Scene` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 
@@ -53,7 +51,7 @@ export async function createSceneFromImage(input: CreateSceneFromImageInput): Pr
     grid: {
       size: input.grid.size,
     },
-    // [Step 17, bug reported live] `grid.offsetX`/`offsetY` (chosen manually
+    // `grid.offsetX`/`offsetY` (chosen manually
     // in GridPicker or suggested by `detectGrid.ts`) are DELIBERATELY NOT
     // passed to `shiftX`/`shiftY` — verified directly on a live Foundry
     // instance (`scene.getDimensions()`): `padding:0` gives
@@ -63,8 +61,7 @@ export async function createSceneFromImage(input: CreateSceneFromImageInput): Pr
     // OPPOSITE edge of the image, outside the scene area. This is NOT a
     // cosmetic shift of the grid lines (as the name might suggest) — it's a
     // permanent shift of the whole scene boundary. This same mechanism was
-    // already fixed once (Step 16, user confirmed "Looks OK now" after
-    // zeroing it out) via the incorrect use of the OLD, stale
+    // already fixed once via the incorrect use of the OLD, stale
     // `lastGridConfig` value — GridPicker/auto-detection from this step
     // introduced a NEW offset value, correct for THIS image, but being
     // subject to EXACTLY THE SAME Foundry mechanism means the regression

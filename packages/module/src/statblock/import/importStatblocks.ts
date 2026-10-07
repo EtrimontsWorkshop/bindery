@@ -14,7 +14,7 @@ import { introspectDocumentInstance } from '../schema/introspectActor.js';
 /**
  * The Foundry-facing orchestrator — `Actor.create`/
  * `createEmbeddedDocuments`/`fromUuid`/`game.actors` all live ONLY here,
- * never in `packages/core` (A1/`check:boundary`). Everything that decides
+ * never in `packages/core` (`check:boundary`). Everything that decides
  * WHAT to write (`extractStatblockInstance`, `buildActorData`,
  * `findNearestImage`, `resolveDuplicateAction`) is pure core code, already
  * unit-tested on hand-built mocks without Foundry; this file just calls them in order and performs

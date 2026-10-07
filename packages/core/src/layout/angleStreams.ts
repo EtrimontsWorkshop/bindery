@@ -2,7 +2,7 @@ import type { Diagnostic, StreamAngle } from '../text/types.js';
 import { computeStreamAngle } from './textGeometry.js';
 
 /**
- * Bucketing of text items by direction angle (Step 5 Z3, MDD §5.1).
+ * Bucketing of text items by direction angle.
  * MUST precede line clustering and word merging — rotated text
  * (up to 94% of items on a page, phase 0 Q6) breaks any histogram/geometry
  * computed without first separating out directions.
@@ -10,7 +10,7 @@ import { computeStreamAngle } from './textGeometry.js';
 
 export interface AngleStream<T> {
   angle: StreamAngle;
-  /** The 0° bucket is the primary stream; the others are candidates for marginalia (MDD BlockKind). */
+  /** The 0° bucket is the primary stream; the others are candidates for marginalia. */
   isPrimary: boolean;
   items: T[];
 }

@@ -1,61 +1,58 @@
-# Generator fixture'ów syntetycznych
+# Synthetic fixture generator
 
-Generator PDF-ów o kontrolowanej, z góry znanej strukturze — materiał testowy dla fazy 2 (silnik układu), bo na prawdziwym PDF-ie nie da się odróżnić błędu parsera od dziwactwa pliku. Zob. [KROK-3-fixtures.md](../../../../KROK-3-fixtures.md) i [RAPORT-KROK-3.md](../../../../RAPORT-KROK-3.md) dla pełnego kontekstu.
+A generator of PDFs with a controlled, known-in-advance structure — test material for the layout engine, because on a real PDF you cannot tell a parser bug from a quirk of the file.
 
-**Ten kod zostaje w repo na stałe** i będzie rozbudowywany przez cały projekt (nie jest to spike jednorazowy).
+**This code stays in the repo permanently** and is extended throughout the project (it is not a one-off spike).
 
-## Zasada naczelna
+## Guiding rule
 
-> **Fixture musi udowodnić, że testuje to, co deklaruje.**
+> **A fixture must prove that it tests what it declares.**
 
-Każdy fixture ma dwie warstwy w swoim pliku `<id>.json`:
+Every fixture has two layers in its `<id>.json` file:
 
-1. **`claims`** — właściwość, którą fixture ma wykazywać, zweryfikowana automatycznie uruchomieniem PDF-a przez pdf.js (`npm run fixtures:verify`). To jest samokontrola generatora.
-2. **`expected`** — ground truth dla golden testów fazy 2. Może być niekompletne — opisuj tylko to, co fixture faktycznie testuje.
+1. **`claims`** — a property the fixture is meant to demonstrate, verified automatically by running the PDF through pdf.js (`npm run fixtures:verify`). This is the generator's self-check.
+2. **`expected`** — ground truth for the golden tests. It may be incomplete — describe only what the fixture actually tests.
 
-**Fixture bez przechodzącej warstwy `claims` nie trafia do zestawu.**
+**A fixture without a passing `claims` layer does not enter the set.**
 
-## Jak dodać nowy fixture
+## How to add a new fixture
 
-1. Utwórz `fixtures/<id>.ts`, eksportujący `build(): Buffer`. Użyj `rawPdf.ts` (`PdfWriter`), `contentStream.ts` (`ContentStreamBuilder`), `fonts.ts` (`embedFont`) i — dla obrazów — `images.ts`.
-2. Utwórz `fixtures/<id>.json` ręcznie: `id`, `description`, `targetPhase`, `claims`, `expected`.
-3. Zarejestruj w `index.ts` (import modułu + import JSON + dodanie do tablicy `fixtures`).
-4. Uruchom `npm run fixtures:verify` (w `packages/core`). Jeśli `claims` nie przechodzi — **napraw fixture albo napraw `claims`, żeby odzwierciedlały to, co pdf.js faktycznie zwraca**. Nie zgaduj wartości — mierz i wpisz zmierzone.
-5. `npm test` uruchomi też test determinizmu (dwa wywołania `build()` muszą dać identyczny SHA-256) — dodawany automatycznie dla każdego fixture'a w rejestrze, bez dodatkowej pracy.
+1. Create `fixtures/<id>.ts` exporting `build(): Buffer`. Use `rawPdf.ts` (`PdfWriter`), `contentStream.ts` (`ContentStreamBuilder`), `fonts.ts` (`embedFont`) and — for images — `images.ts`.
+2. Create `fixtures/<id>.json` by hand: `id`, `description`, `targetPhase`, `claims`, `expected`.
+3. Register it in `index.ts` (import the module + import the JSON + add it to the `fixtures` array).
+4. Run `npm run fixtures:verify` (in `packages/core`). If `claims` doesn't pass — **fix the fixture, or fix `claims` so that they reflect what pdf.js actually returns**. Don't guess values — measure and write down the measured ones.
+5. `npm test` also runs the determinism test (two `build()` calls must give an identical SHA-256) — added automatically for every fixture in the registry, with no extra work.
 
-## Kluczowe pułapki (przeczytaj przed pisaniem nowego fixture'a)
+## Key pitfalls (read before writing a new fixture)
 
-Pełna lista z uzasadnieniem: [RAPORT-KROK-3.md](../../../../RAPORT-KROK-3.md), sekcja "Napotkane pułapki". Skrót:
+- **pdf.js merges adjacent glyphs into one `TextItem` based on geometry** (distance relative to the font width), **regardless of the number of `Tj` operators**. To force a separate item per token, **put each token on its own row** (a different `Tm`/Y) — the only reliable, simple way. Gaps on the same line give unpredictable merging (sometimes separate items + a synthetic space, sometimes a merge into one string with spaces inside).
+- **Changing the font resource (`/F1` → `/F2`) does NOT force a new item** if both resources point at the same `/Font` object — pdf.js compares `font.name` (built from `/BaseFont`), not the resource name from `Tf`.
+- **A `/ToUnicode` mapping to an empty string (`<code> <>`) is ignored by pdf.js** — `Font#_charToGlyph` in `pdf.worker.mjs` does `this.toUnicode.get(charcode) || charcode`, and an empty string is falsy in JS, so it silently falls back to the raw character code. A `TextItem` with `str === ""` cannot be built this way.
+- **`Util.getAxialAlignedBoundingBox` does not exist** in pdfjs-dist 6.1.200 — compute the bbox by hand from the four corners through the CTM (see `metrics.ts`, `computeImageBBoxes`).
+- **A luminosity mask (`beginGroup` with `smask.subtype === "Luminosity"`) requires the mask's `/G` target to HAVE ITS OWN `/Group /S /Transparency`** — without it `PartialEvaluator.buildFormXObject` doesn't emit `beginGroup` at all (verified directly in the pdf.js source).
 
-- **pdf.js scala sąsiadujące glify w jeden `TextItem` na podstawie geometrii** (odległość względem szerokości fontu), **niezależnie od liczby operatorów `Tj`**. Żeby wymusić osobny item per token, **umieść każdy token na własnym wierszu** (inny `Tm`/Y) — to jedyny niezawodny, prosty sposób. Odstępy w tej samej linii dają nieprzewidywalne scalanie (czasem osobne itemy + syntetyczna spacja, czasem scalenie w jeden string ze spacjami wewnątrz).
-- **Zmiana zasobu fontu (`/F1` → `/F2`) NIE wymusza nowego itemu**, jeśli oba zasoby wskazują na ten sam obiekt `/Font` — pdf.js porównuje `font.name` (zbudowane z `/BaseFont`), nie nazwę zasobu z `Tf`.
-- **`/ToUnicode` mapujący na pusty string (`<kod> <>`) jest ignorowany przez pdf.js** — `Font#_charToGlyph` w `pdf.worker.mjs` robi `this.toUnicode.get(charcode) || charcode`, a pusty string jest falsy w JS, więc cicho wraca do surowego kodu znaku. Nie da się tą drogą zbudować `TextItem` z `str === ""`.
-- **`Util.getAxialAlignedBoundingBox` nie istnieje** w pdfjs-dist 6.1.200 — licz bbox ręcznie z czterech rogów przez CTM (patrz `metrics.ts`, `computeImageBBoxes`).
-- **Maska luminancyjna (`beginGroup` z `smask.subtype === "Luminosity"`) wymaga, żeby cel `/G` maski MIAŁ WŁASNY `/Group /S /Transparency`** — bez tego `PartialEvaluator.buildFormXObject` nie emituje `beginGroup` w ogóle (zweryfikowane wprost w źródle pdf.js).
-
-## Struktura
+## Structure
 
 ```
-rawPdf.ts        emiter niskopoziomowy: obiekty PDF, xref, trailer (PdfWriter)
-contentStream.ts  budowanie operatorów strumienia treści (ContentStreamBuilder)
-fonts.ts          osadzanie TrueType + /ToUnicode (embedFont, buildToUnicodeCMap)
-images.ts         obrazy XObject, maski luminancyjne (imageXObject, luminosityMaskForm)
-metrics.ts        liczy metryki z pdf.js do warstwy claims (computeMetrics)
-types.ts          typy FixtureClaims/FixtureGroundTruth/Fixture
-verifyClaims.ts   porownanie policzonych metryk z claims (checkClaims, verifyAll)
-verify-cli.ts     punkt wejscia `npm run fixtures:verify`
-determinism.test.ts  test Vitest: dwa build() = identyczny SHA-256, dla kazdego fixture'a
-index.ts          rejestr wszystkich fixture'ow
-fixtures/         <id>.ts + <id>.json, jedna para na fixture
-assets/fonts/     Lato i Roboto (SIL OFL 1.1) — jedyne pliki binarne w repo z tego katalogu
+rawPdf.ts         a low-level emitter: PDF objects, xref, trailer (PdfWriter)
+contentStream.ts  building content-stream operators (ContentStreamBuilder)
+fonts.ts          embedding TrueType + /ToUnicode (embedFont, buildToUnicodeCMap)
+images.ts         image XObjects, luminosity masks (imageXObject, luminosityMaskForm)
+metrics.ts        computes metrics from pdf.js for the claims layer (computeMetrics)
+types.ts          the types FixtureClaims/FixtureGroundTruth/Fixture
+verifyClaims.ts   compares the computed metrics with the claims (checkClaims, verifyAll)
+verify-cli.ts     the entry point of `npm run fixtures:verify`
+determinism.test.ts  a Vitest test: two build() calls = an identical SHA-256, for every fixture
+index.ts          the registry of all fixtures
+fixtures/         <id>.ts + <id>.json, one pair per fixture
+assets/fonts/     Lato and Roboto (SIL OFL 1.1) — the only binary files from this directory in the repo
 ```
 
-## Fonty testowe
+## Test fonts
 
-`assets/fonts/{Lato,Roboto}-*.ttf` — SIL Open Font License 1.1 (`OFL-*.txt` obok). Reguła R1 (zero treści wydawców RPG) ich nie dotyczy — to nie jest treść wydawcy, tylko powszechnie dostępne fonty open-source używane jako nośnik do testowania ekstrakcji tekstu. `/BaseFont` w wygenerowanych PDF-ach jest ustawiane dowolnie per fixture (np. `Autobahn`, `AAAAAH+Bookmania-Bold`) — nie musi odpowiadać rzeczywistej nazwie osadzonego fontu, bo pdf.js odczytuje nazwę ze słownika `/Font`, nie z tablicy `name` wewnątrz samego pliku TTF (zweryfikowane empirycznie).
+`assets/fonts/{Lato,Roboto}-*.ttf` — SIL Open Font License 1.1 (`OFL-*.txt` alongside). They are not publisher content, only widely available open-source fonts used as a carrier for testing text extraction. `/BaseFont` in the generated PDFs is set freely per fixture (e.g. `Autobahn`, `AAAAAH+Bookmania-Bold`) — it doesn't have to match the real name of the embedded font, because pdf.js reads the name from the `/Font` dictionary, not from the `name` table inside the TTF file itself (verified empirically).
 
-## Czego ten katalog NIE robi
+## What this directory does NOT do
 
-- Nie implementuje niczego z fazy 2 (scalanie słów, wykrywanie kolumn, kolejność czytania) — dostarcza materiał, nie silnik.
-- Nie commituje wygenerowanych PDF-ów — `build()` zwraca `Buffer` w pamięci, zużywany bezpośrednio przez `pdfjs.getDocument({ data: ... })`.
-- Fixture'y grupy C (układy kolumnowe) nie zostały zbudowane w kroku 3 — patrz RAPORT-KROK-3.md, uzasadnienie w sekcji rekomendacji.
+- It doesn't implement any layout logic (word merging, column detection, reading order) — it supplies material, not the engine.
+- It doesn't commit the generated PDFs — `build()` returns a `Buffer` in memory, consumed directly by `pdfjs.getDocument({ data: ... })`.

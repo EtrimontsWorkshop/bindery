@@ -1,8 +1,8 @@
 /**
- * Text-layer quality detector (MDD §6.2).
+ * Text-layer quality detector.
  *
- * Methodology empirically verified in phase 0 (spike) on 6 RPG manuals.
- * The spike sample came from a single re-emission pipeline (R-15) — these
+ * Methodology empirically verified in an initial spike on 6 RPG manuals.
+ * The spike sample came from a single re-emission pipeline — these
  * functions are a safety net for files outside that sample (old PDFs,
  * scans), not just diagnostics for the good case.
  *
@@ -101,7 +101,7 @@ export interface QualityVerdict {
 }
 
 /**
- * Classification per the thresholds from MDD §6.2.
+ * Classification per the quality thresholds.
  * `glyphCount` is the total number of characters on the sampled pages (before subtracting empty items).
  */
 export function classifyQuality(glyphCount: number, signals: QualitySignals): QualityVerdict {

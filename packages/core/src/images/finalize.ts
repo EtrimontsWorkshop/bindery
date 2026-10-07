@@ -6,41 +6,37 @@ import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { Diagnostic } from '../text/types.js';
 
 /**
- * Deduplication and target classification (Step 7 Z5, MDD phase 3). Only
- * AFTER decoding is `contentHash` available — we use it to (1) close
- * correlation for U1 beyond what positional correlation caught (step 5/6),
- * (2) deduplicate the final list, (3) the `scene`/`handout`/`portrait`
- * heuristics (defaults — phase-4 profiles override them).
+ * Deduplication and target classification. Only AFTER decoding is `contentHash` available — we
+ * use it to (1) close correlation beyond what positional correlation caught, (2) deduplicate the
+ * final list, (3) the `scene`/`handout`/`portrait` heuristics (defaults — profiles override
+ * them).
  *
- * `crypto.subtle` (Web Crypto) is used deliberately instead of
- * `node:crypto` — a web-platform standard ALSO available in Node (>=20), so
- * it works identically in the browser and in tests (the same pattern as
- * `OffscreenCanvas`, A1).
+ * `crypto.subtle` (Web Crypto) is used deliberately instead of `node:crypto` — a web-platform
+ * standard ALSO available in Node (>=20), so it works identically in the browser and in tests
+ * (the same pattern as `OffscreenCanvas`).
  *
- * [Step 7 Z6, memory budget] This function DELIBERATELY does not accept a
- * raw `DecodedImage` (48MB for a 4000x3000 image) — only an already-computed
- * `contentHash` + dimensions + an arbitrary "payload" (typically already-
- * encoded WebP/PNG bytes, far smaller). The orchestrator computes the hash
- * and encodes EVERY image separately, immediately after decode, and frees
- * the raw pixels BEFORE moving to the next one — only THEN (once all raw
- * buffers no longer exist) does it call `finalizeImages` on the lightweight
- * metadata list. Without this separation (computing the hash INSIDE
- * finalize, on the whole list at once) ALL of the document's decoded images
- * would have to be kept in memory simultaneously — exactly what the brief
- * forbids (a 1.2 GB RAM budget, "Twenty of these at once is 1 GB").
+ * This function DELIBERATELY does not accept a raw `DecodedImage` (48MB for a 4000x3000 image) —
+ * only an already-computed `contentHash` + dimensions + an arbitrary "payload" (typically
+ * already-encoded WebP/PNG bytes, far smaller). The orchestrator computes the hash and encodes
+ * EVERY image separately, immediately after decode, and frees the raw pixels BEFORE moving to
+ * the next one — only THEN (once all raw buffers no longer exist) does it call `finalizeImages`
+ * on the lightweight metadata list. Without this separation (computing the hash INSIDE
+ * finalize, on the whole list at once) ALL of the document's decoded images would have to be
+ * kept in memory simultaneously — exactly what the memory budget forbids (a 1.2 GB RAM budget:
+ * twenty such images at once is 1 GB).
  */
 
 export type ImageTargetKind = 'scene' | 'handout' | 'portrait' | 'unknown';
 
 /**
  * Absolute size below which an image is SUSPECTED of being too small to be
- * useful content — a value taken DIRECTLY from MDD §Phase 3 ("reject
+ * useful content — a value taken from a reference spec ("reject
  * intrinsicWidth < 100 || intrinsicHeight < 100"), NEVER verified against
  * real material. Checked HERE (after decode), not in `classify.ts` — see the
  * comment there for why (pdf.js doesn't reveal intrinsicWidth/Height before
  * resolving the object).
  *
- * [Step 43 Z1, fix for "silent loss" found in a constants audit — A10] The
+ * The
  * reclassification below used to land DIRECTLY in `decoration`, OVERRIDING
  * even the STRONGEST `content` signal (e.g. `Z1-large-relative-area`,
  * confidence 0.9) — with no calibration evidence and no chance for review.
@@ -55,14 +51,14 @@ export type ImageTargetKind = 'scene' | 'handout' | 'portrait' | 'unknown';
  * `buildImageExtraction.ts`), not `decoration`.
  */
 const MIN_ABSOLUTE_PX = 100;
-/** [Step 43 Z1] Confidence for the "too small" -> `undecided` reclassification — the same level as other single, not-confirmed-by-a-second-signal signals (see `Z13-extreme-aspect-ratio-undecided` in `classify.ts`), NOT `RECLASSIFIED_CONFIDENCE` (0.9) used by the actual hard reclassifications below. */
+/** Confidence for the "too small" -> `undecided` reclassification — the same level as other single, not-confirmed-by-a-second-signal signals (see `Z13-extreme-aspect-ratio-undecided` in `classify.ts`), NOT `RECLASSIFIED_CONFIDENCE` (0.9) used by the actual hard reclassifications below. */
 const TOO_SMALL_UNDECIDED_CONFIDENCE = 0.4;
 
 /**
- * [Step 8 Z2, discovery] Relative area (and even bbox aspect ratio) do NOT
+ * Relative area (and even bbox aspect ratio) do NOT
  * reliably distinguish a genuine illustration from a FLAT BACKGROUND TEXTURE
  * (e.g. a uniform "paper"/"parchment" used as decorative page background) —
- * observed directly on `CP-RED-InterfaceVol1_v1.pdf` AFTER deploying
+ * observed directly on a real rulebook AFTER deploying
  * `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` in `classify.ts`: two flat background
  * textures (area 0.193 and 0.279 of the page — WITHIN the genuine-content
  * range of 0.116-0.257) were falsely classified as `content`. The standard
@@ -77,13 +73,13 @@ const TOO_SMALL_UNDECIDED_CONFIDENCE = 0.4;
 const FLAT_TEXTURE_STDDEV_THRESHOLD = 20;
 
 /**
- * [Step 17, a live-reported bug] The "flat texture" reclassification below
+ * The "flat texture" reclassification below
  * only applies to entries with a WEAK `content` signal — exactly as it was
  * calibrated (both cases in the `FLAT_TEXTURE_STDDEV_THRESHOLD` comment are
  * `Z2-moderate-area-no-mask-evidence`, confidence 0.5). Observed directly on
- * `CHA23131 Call of Cthulhu 7th Edition Quick-Start Rules.pdf`: a
- * black-line-on-white-background drawn map ("Corbitt House Investigator
- * Map", `Z1-large-relative-area`, confidence 0.9 — a STRONG, unambiguous
+ * a real quick-start PDF: a
+ * black-line-on-white-background drawn map (an investigator's map,
+ * `Z1-large-relative-area`, confidence 0.9 — a STRONG, unambiguous
  * geometric signal) has a low luminance standard deviation for EXACTLY THE
  * SAME reason as a flat parchment texture (a dominant light background, a
  * sparse dark line) — the reclassification unconditionally overrode a
@@ -111,7 +107,7 @@ const UNIFORM_COLOR_TOLERANCE = 12;
 const UNIFORM_COLOR_MIN_FRACTION = 0.995;
 
 /**
- * [User request] SMOOTH BACKGROUND images — a paper/parchment texture or a
+ * SMOOTH BACKGROUND images — a paper/parchment texture or a
  * page-background wash: a soft vignette with only faint blotches, no edges,
  * no lines, no shapes. Not single-colored (so `UNIFORM_COLOR_*` misses it: a
  * vignette spreads the color) and with too high a luminance spread for
@@ -125,8 +121,8 @@ const UNIFORM_COLOR_MIN_FRACTION = 0.995;
  *   difference of neighboring blocks' luminance. Averaging blocks removes
  *   compression noise, so it doesn't depend on how noisy the source JPEG is.
  * - FINE: mean absolute luminance difference of neighboring pixels.
- * Measured on all 58 images extracted from "WFRP Ubersreik Adventures - If
- * Looks Could Kill" (Cubicle 7): the 15 paper/background images have coarse
+ * Measured on all 58 images extracted from a real published adventure PDF:
+ * the 15 paper/background images have coarse
  * 1.24-2.40 and fine 0.51-1.03; every genuine illustration (portraits, maps,
  * monsters, a faint pencil sketch on an alpha channel) has coarse >= 4.34
  * (fine >= 1.22). An image is hidden only when BOTH are below their
@@ -141,13 +137,13 @@ const SMOOTHNESS_COARSE_BLOCKS = 256;
 /** Images with a shorter side below this are too small to judge as "smooth" — never hidden by this rule. */
 const SMOOTHNESS_MIN_SIDE_PX = 16;
 
-/** "High resolution" (brief, `scene`) — the longer edge. To be verified during calibration against `samples/`. */
+/** "High resolution" (`scene`) — the longer edge. To be verified during calibration against real documents. */
 const SCENE_MIN_LONG_EDGE_PX = 1200;
-/** "Medium resolution" (brief, `handout`). */
+/** "Medium resolution" (`handout`). */
 const HANDOUT_MIN_LONG_EDGE_PX = 400;
 const SCENE_ASPECT_MIN = 0.5;
 const SCENE_ASPECT_MAX = 2.2;
-/** "Small" (brief, `portrait`) — upper bound on the longer edge. */
+/** "Small" (`portrait`) — upper bound on the longer edge. */
 const PORTRAIT_MAX_LONG_EDGE_PX = 400;
 const PORTRAIT_ASPECT_MIN = 0.6;
 const PORTRAIT_ASPECT_MAX = 1.1;
@@ -315,8 +311,8 @@ export interface CorrelationClosureResult {
  * Closes correlation via `contentHash` where positional (bbox) correlation
  * missed it — two entries with the same content hash are the same resource,
  * regardless of position. ALSO returns a count of what was already closed by
- * bbox, to compare the effectiveness of both mechanisms (brief: "report how
- * many such cases were found").
+ * bbox, to compare the effectiveness of both mechanisms (it reports how
+ * many such cases were found).
  */
 export function closeCorrelationByHash(entries: readonly { entry: ImageEntry; contentHash: string }[]): CorrelationClosureResult {
   const bboxCanonicalOf = (e: ImageEntry): string => e.correlatedWith ?? e.objId ?? '';
@@ -374,7 +370,7 @@ export interface TargetKindInput {
 }
 
 /**
- * DEFAULT heuristics (per the brief) — phase-4 profiles override them. Check
+ * DEFAULT heuristics — profiles override them. Check
  * order matters: `portrait` (small + proximity) is more specific than
  * `scene`/`handout` (resolution only), so it's checked first, so that a
  * small portrait near a statblock isn't caught by the more general
@@ -407,7 +403,7 @@ export function classifyTargetKind(input: TargetKindInput): ImageTargetKind {
 export interface PreparedEntryForFinalize<TPayload> {
   entry: ImageEntry;
   classification: ImageClassification;
-  /** [Step 11 Z4] See `ClassifiedImage.confidence` in `classify.ts`. */
+  /** See `ClassifiedImage.confidence` in `classify.ts`. */
   confidence: number;
   extractSource: ExtractSource;
   contentHash: string;
@@ -419,7 +415,7 @@ export interface PreparedEntryForFinalize<TPayload> {
   uniformColorFraction?: number;
   /** See `computeSmoothnessMetrics`. Optional — no value skips the "smooth background" rule (e.g. in unit tests with no real pixels). */
   smoothness?: SmoothnessMetrics;
-  /** [Step 17] See `detectGrid.ts` — a grid auto-detection suggestion, `undefined` when not computed (e.g. tests) or when `detectGrid` found no periodicity. */
+  /** See `detectGrid.ts` — a grid auto-detection suggestion, `undefined` when not computed (e.g. tests) or when `detectGrid` found no periodicity. */
   suggestedGrid?: GridDetectionResult;
   payload: TPayload;
 }
@@ -427,7 +423,7 @@ export interface PreparedEntryForFinalize<TPayload> {
 export interface FinalizedImage<TPayload> {
   entry: ImageEntry;
   classification: ImageClassification;
-  /** [Step 11 Z4] See `ClassifiedImage.confidence` in `classify.ts`. */
+  /** See `ClassifiedImage.confidence` in `classify.ts`. */
   confidence: number;
   extractSource: ExtractSource;
   contentHash: string;
@@ -449,7 +445,7 @@ export interface FinalizeResult<TPayload> {
 }
 
 /**
- * Final step: reclassification by absolute size (deferred from Z1, see
+ * Final step: reclassification by absolute size (deferred from classification, see
  * `MIN_ABSOLUTE_PX`), closing correlation via hash, deduplication, target
  * classification. `prepared` MUST already be in deterministic order (e.g.
  * sorted by `objId` as in `imageRegistry.ts`) — the representative of each
@@ -460,11 +456,11 @@ export interface FinalizeResult<TPayload> {
 export function finalizeImages<TPayload>(
   prepared: readonly PreparedEntryForFinalize<TPayload>[],
   nearStatblockOrHeadingByObjId: ReadonlySet<string>,
-  // [Step 43 Z1] Optional — a caller with no need for diagnostics (e.g.
+  // Optional — a caller with no need for diagnostics (e.g.
   // existing unit tests) gets exactly the behavior from before this flag.
   diagnostics: Diagnostic[] = [],
 ): FinalizeResult<TPayload> {
-  // [Step 11 Z4] The "flat texture" reclassification below is a HARD,
+  // The "flat texture" reclassification below is a HARD,
   // unambiguous signal (a measured luminance stddev, applying EXCLUSIVELY to
   // already-weak `content` — see `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`) —
   // it gets high confidence, it does NOT inherit the old `content` confidence
@@ -498,9 +494,9 @@ export function finalizeImages<TPayload>(
       });
       return { ...d, classification: 'undecided' as ImageClassification, confidence: TOO_SMALL_UNDECIDED_CONFIDENCE };
     }
-    // [Step 8 Z2] A flat texture (e.g. a paper background) — area/aspect
+    // A flat texture (e.g. a paper background) — area/aspect
     // ratio alone do NOT distinguish it from a genuine illustration, see the
-    // comment on `FLAT_TEXTURE_STDDEV_THRESHOLD`. [Step 17] EXCLUSIVELY for a
+    // comment on `FLAT_TEXTURE_STDDEV_THRESHOLD`. EXCLUSIVELY for a
     // WEAK `content` signal — see `FLAT_TEXTURE_RECLASSIFY_MAX_CONFIDENCE`.
     if (
       d.classification === 'content' &&

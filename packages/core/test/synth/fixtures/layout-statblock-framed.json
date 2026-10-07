@@ -1,6 +1,6 @@
 {
   "id": "layout-statblock-framed",
-  "description": "Blok krotkich linii mniejszym fontem otoczony ramka wektorowa (fill) — testuje U3: krawedz regionu wektorowego jako granica bloku.",
+  "description": "A block of short lines in a smaller font surrounded by a vector frame (fill) — tests the edge of a vector region as a block boundary.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 14
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: 4 linie 'przed' (size 10, y=700..640), 4 linie bloku (size 8, y=600..555) WEWNATRZ prostokata wypelnionego (x=65-315,y=548-610), 4 linie 'po' (size 10, y=500..440) POZA prostokatem. Region wektorowy 'fill' o tym bboxie musi znalezc sie w InventoryResult.vectors. buildSemanticBlocks() musi wydzielic blok wewnatrz ramki jako OSOBNY blok (granica na krawedzi regionu wektorowego), niezaleznie od tego czy zmiana fontu/interlinii sama w sobie by to zrobila. totalItemCount=14 (nie 12): pdf.js wstawia pusty synteryczny TextItem przy kazdej mid-stream zmianie rozmiaru fontu (Tf miedzy Tj) — tu 2 tranzycje (10->8 przed blokiem, 8->10 po), stad 12 linii + 2 puste = 14."
+    "note": "Construction fact: 4 'before' lines (size 10, y=700..640), 4 block lines (size 8, y=600..555) INSIDE a filled rectangle (x=65-315,y=548-610), 4 'after' lines (size 10, y=500..440) OUTSIDE the rectangle. A vector region 'fill' with that bbox must appear in InventoryResult.vectors. buildSemanticBlocks() must separate the block inside the frame as a SEPARATE block (a boundary at the edge of the vector region), regardless of whether the font/line-spacing change alone would do it. totalItemCount=14 (not 12): pdf.js inserts an empty synthetic TextItem at every mid-stream font size change (Tf between Tj) — here 2 transitions (10->8 before the block, 8->10 after), hence 12 lines + 2 empty = 14."
   }
 }

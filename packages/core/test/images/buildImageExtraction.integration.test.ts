@@ -21,19 +21,17 @@ async function run(buf: Buffer) {
 }
 
 /**
- * Testy integracyjne orkiestratora na fixture'ach GRUPY A/KROK-4 (nie zbudowanych
- * z myslą o kroku 7) — celowo ograniczone do tego, co te fixture'y faktycznie
- * uzasadniaja: maska (region-render zamiast surowego zasobu bez maski) i klaster
- * (jeden wynik, nie N). Scenariusze wymagajace konkretnych progow klasyfikacji
- * (content jednoznacznie, region czysto wektorowy pokrywajacy strone, ozdobnik
- * na wielu stronach obok prawdziwej tresci) maja WLASNE, celowo zbudowane
- * fixture'y w Z7 (`test/synth/fixtures/extract-*.ts`) — patrz
- * `buildImageExtraction.groupD.test.ts`.
+ * Integration tests of the orchestrator on fixtures built independently of it — deliberately
+ * limited to what those fixtures actually justify: the mask (region-render instead of the raw
+ * mask-less resource) and the cluster (one result, not N). Scenarios that require specific
+ * classification thresholds (unambiguous content, a purely vector region covering the page, a
+ * decoration on many pages next to real content) have their OWN, deliberately built fixtures
+ * (`test/synth/fixtures/extract-*.ts`) — see `buildImageExtraction.groupD.test.ts`.
  */
-describe('buildImageExtraction — integracja pelnego potoku (Z1-Z6) na prawdziwych fixturach', () => {
-  it('obraz maskowany (maly, ponizej progu duzej powierzchni) idzie przez region-render, nie surowa ekstrakcje bez maski', async () => {
+describe('buildImageExtraction — an integration of the full pipeline on real fixtures', () => {
+  it('a masked image (small, below the large-area threshold) goes through a region-render, not a raw extraction without the mask', async () => {
     const result = await run(buildImagesLuminosityMask());
-    // Forma samej maski ('mask') jest wykluczona z wyniku; zostaje tylko zasob maskowany.
+    // The mask form itself ('mask') is excluded from the result; only the masked resource remains.
     expect(result.images).toHaveLength(1);
     const maskedContent = result.images[0]!;
     expect(maskedContent.classification).not.toBe('mask');
@@ -41,15 +39,15 @@ describe('buildImageExtraction — integracja pelnego potoku (Z1-Z6) na prawdziw
     expect(maskedContent.width).toBeGreaterThan(0);
   }, 30000);
 
-  it('klaster nakladajacych sie obrazow (baza + 4 ikony na niej) daje JEDEN wpis; obraz calkowicie osobny daje DRUGI', async () => {
+  it('a cluster of overlapping images (a base + 4 icons on it) gives ONE entry; a completely separate image gives a SECOND', async () => {
     const result = await run(buildImagesOverlapping());
-    // 6 obrazow: 5 wzajemnie nakladajacych sie (klaster) + 1 calkowicie osobny (bez nakladania).
+    // 6 images: 5 mutually overlapping (a cluster) + 1 completely separate (no overlap).
     expect(result.images).toHaveLength(2);
     const clustered = result.images.find((img) => img.extractSource === 'region-render');
     expect(clustered).toBeDefined();
   }, 30000);
 
-  it('determinizm: dwa przebiegi na tym samym pliku daja identyczne metadane i hashe (nie porownujemy surowych pikseli renderu, tylko hash tresci)', async () => {
+  it('determinism: two runs on the same file give identical metadata and hashes (we don\'t compare the raw render pixels, only the content hash)', async () => {
     const buf = buildImagesLuminosityMask();
     const r1 = await run(buf);
     const r2 = await run(buf);
@@ -69,10 +67,10 @@ describe('buildImageExtraction — integracja pelnego potoku (Z1-Z6) na prawdziw
     expect(r1.correlationClosedByHash).toBe(r2.correlationClosedByHash);
   }, 30000);
 
-  it('AbortSignal przerywa W POLOWIE — po pierwszej jednostce z trzech, nie tylko gdy juz przerwany na starcie', async () => {
-    // `extract-decorated-3pages` ma 3 strony, KAZDA z wlasna jednostka do ekstrakcji
-    // (osobny obraz tresci per strona, patrz Z7) — wystarczajaco, zeby odroznic
-    // "przerwane na starcie" (test nizej) od "przerwane W TRAKCIE petli po jednostkach".
+  it('an AbortSignal interrupts IN THE MIDDLE — after the first of three units, not only when already aborted at the start', async () => {
+    // `extract-decorated-3pages` has 3 pages, EACH with its own extraction unit (a separate content
+    // image per page) — enough to tell "aborted at the start" (test below) from "aborted DURING the
+    // loop over units".
     const buf = buildExtractDecorated3pages();
     const invDoc = await openDoc(buf);
     const inv = await buildInventory(invDoc as never);
@@ -85,17 +83,17 @@ describe('buildImageExtraction — integracja pelnego potoku (Z1-Z6) na prawdziw
         signal: controller.signal,
         onProgress: (done) => {
           progressCalls++;
-          if (done === 1) controller.abort(); // przerwij PO pierwszej jednostce, PRZED druga
+          if (done === 1) controller.abort(); // abort AFTER the first unit, BEFORE the second
         },
       }),
     ).rejects.toThrow();
-    // Dowod, ze przerwanie faktycznie nastapilo W POLOWIE (co najmniej jedna jednostka
-    // zdazyla sie przetworzyc PRZED zgloszeniem AbortError), nie na samym starcie.
+    // Proof that the abort really happened IN THE MIDDLE (at least one unit had been processed
+    // BEFORE the AbortError was raised), not right at the start.
     expect(progressCalls).toBeGreaterThanOrEqual(1);
     expect(progressCalls).toBeLessThan(3);
   }, 30000);
 
-  it('AbortSignal juz przerwany przerywa cala ekstrakcje natychmiast, nawet gdy nie ma jednostek do przetworzenia', async () => {
+  it('an already aborted AbortSignal aborts the whole extraction immediately, even when there are no units to process', async () => {
     const invDoc = await openDoc(buildImagesLuminosityMask());
     const inv = await buildInventory(invDoc as never);
     const doc = await openDoc(buildImagesLuminosityMask());

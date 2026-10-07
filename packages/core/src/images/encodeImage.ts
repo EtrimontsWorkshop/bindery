@@ -1,8 +1,8 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * Encoding into the target format (Step 7 Z6, MDD phase 3). WebP by default
- * (brief: "maps go out to every player, size matters"), PNG for images with
+ * Encoding into the target format. WebP by default
+ * ("maps go out to every player, size matters"), PNG for images with
  * alpha where WebP falls short — the caller (orchestrator) decides which to
  * use when, this module just executes.
  *
@@ -31,15 +31,14 @@ export interface ImageEncoder {
 
 export const DEFAULT_OUTPUT_FORMAT: OutputFormat = 'webp';
 /**
- * [Calibrated in Step 43 Z2, see `RAPORT-KROK-43.md` for the method]
- * Measured on two real images from `sample/ZewCthulhu-WRAK.pdf` with
+ * Measured on two real images from a real rulebook PDF with
  * DIFFERENT character (p. 20, a ship cross-section — large flat/textured
- * areas of sky and ice; p. 26, an "Isaac Klein" portrait — smooth skin
+ * areas of sky and ice; p. 26, a portrait — smooth skin
  * gradients, fine detail) at six quality levels
  * (0.70/0.75/0.82/0.88/0.92/0.95): file size and mean absolute per-pixel
  * error (RGB) relative to the original AFTER re-decoding the WebP.
  *
- * [discovery, surprising relative to the brief's assumption] A painted,
+ * [discovery, surprising relative to the initial assumption] A painted,
  * TEXTURED illustration (the ship cross-section) is MORE tolerant of
  * compression, not LESS — its own brush noise/texture masks blocking
  * artifacts so effectively that q=0.70 and q=0.95 are visually
@@ -50,12 +49,12 @@ export const DEFAULT_OUTPUT_FORMAT: OutputFormat = 'webp';
  * file is over 2x larger (79KB vs 37KB for this crop) — pure cost with no
  * benefit.
  *
- * `0.82` (the original value, "from the brief") sits RIGHT at the boundary
+ * `0.82` (the original value) sits RIGHT at the boundary
  * where artifacts on the most sensitive case (the portrait) disappear,
  * without wasting bytes on quality that's already imperceptible — confirmed
- * visually by the product owner (`AskUserQuestion`, Step 43). Splitting by
+ * visually by the product owner. Splitting by
  * purpose (map vs. token) was CONSIDERED and REJECTED: if anything, the
- * relationship is the OPPOSITE of the brief's assumption (maps/textured
+ * relationship is the OPPOSITE of the initial assumption (maps/textured
  * scenes need LESS, not more) — and a single value already works well for
  * BOTH extreme cases in this sample, so the added complexity isn't
  * justified without further evidence.

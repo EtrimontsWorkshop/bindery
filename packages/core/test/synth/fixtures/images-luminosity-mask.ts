@@ -3,11 +3,10 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb, luminosityMaskForm, luminosityExtGState } from '../images.js';
 
 /**
- * Jeden obraz namalowany pod maska luminancyjna (/ExtGState /SMask /Luminosity).
- * Testuje: pdf.js raportuje beginGroup z smask.subtype === "Luminosity" w operator
- * liscie (MDD F0, faza 3 — isMaskLayer). Zweryfikowane wprost w zrodle
- * PartialEvaluator.buildFormXObject (pdf.worker.mjs): beginGroup wymaga, zeby
- * cel /G maski mial wlasny /Group /S /Transparency.
+ * One image painted under a luminosity mask (/ExtGState /SMask /Luminosity). Tests: pdf.js reports
+ * beginGroup with smask.subtype === "Luminosity" in the operator list (isMaskLayer). Verified
+ * directly in the source of PartialEvaluator.buildFormXObject (pdf.worker.mjs): beginGroup
+ * requires the mask's /G target to have its own /Group /S /Transparency.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

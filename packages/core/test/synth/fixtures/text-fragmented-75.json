@@ -1,6 +1,6 @@
 {
   "id": "text-fragmented-75",
-  "description": "10 slow scalonych + 30 pojedynczych znakow, kazdy token na wlasnym wierszu = dokladnie 75% fragmentacji.",
+  "description": "10 merged words + 30 single characters, every token on its own row = exactly 75% fragmentation.",
   "targetPhase": 2,
   "claims": {
     "pageCount": 1,
@@ -8,7 +8,7 @@
     "nonEmptyItemCount": 40
   },
   "expected": {
-    "note": "Kazdy token na osobnym wierszu (Y) unika syntetycznych itemow spacji, ktore pdf.js wstawia miedzy tokenami na TEJ SAMEJ linii (patrz RAPORT-KROK-3.md) — daje w pelni przewidywalna liczbe itemow.",
+    "note": "Each token on a separate row (Y) avoids the synthetic space items that pdf.js inserts between tokens on THE SAME line — it gives a fully predictable number of items.",
     "pages": [{ "lines": [
       { "text": "the" }, { "text": "and" }, { "text": "run" }, { "text": "big" }, { "text": "red" },
       { "text": "sky" }, { "text": "day" }, { "text": "old" }, { "text": "new" }, { "text": "sun" }

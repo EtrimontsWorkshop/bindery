@@ -7,9 +7,9 @@ import { embedFont } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 /**
- * /ToUnicode mapujacy litery na Private Use Area (+) zamiast prawdziwych
- * znakow — symuluje uszkodzone ToUnicode czesto spotykane w realnych PDF-ach
- * (MDD §6.2, detektor jakosci). Testuje unicodeConfidence z src/quality.ts.
+ * A /ToUnicode mapping letters to the Private Use Area (+) instead of real characters — simulates
+ * the broken ToUnicode often found in real PDFs (the text-layer quality detector). Tests
+ * unicodeConfidence from src/quality.ts.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -17,8 +17,8 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRef = writer.reserveObj();
 
-  // Kazda litera A-Z (0x41-0x5A) mapowana na PUA zamiast na siebie sama —
-  // cale slowa napisane "poprawnym" kodem stana sie ciagiem znakow z E000+.
+  // Every letter A-Z (0x41-0x5A) mapped to the PUA instead of itself — whole words written in
+  // "correct" code become a sequence of characters from E000+.
   const toUnicode = new Map<number, string>();
   for (let c = 0x20; c <= 0x7e; c++) toUnicode.set(c, String.fromCharCode(c));
   for (let c = 0x41; c <= 0x5a; c++) toUnicode.set(c, String.fromCharCode(0xe000 + (c - 0x41)));

@@ -6,26 +6,25 @@ test/fixtures-private/
 *.tsbuildinfo
 .DS_Store
 
-# Zestaw referencyjny klasyfikacji obrazow, pochodny prawdziwych podrecznikow
-# (nawet w postaci samych metadanych/bbox) — NIGDY nie publikowany w tym repo.
+# A reference set for image classification, derived from real rulebooks (even as
+# metadata/bbox only) — NEVER published in this repo.
 test/reference/
 
-# Obrazy wyeksportowane z samples/ przez tools/calibrate-images.ts (kontrola
-# reczna, KROK-7) — pochodne PDF-ow objetych R1, nigdy nie commitowane.
+# Images exported from samples/ by tools/calibrate-images.ts (a manual check) —
+# derived from PDFs of third parties, never committed.
 tools/.calibrate-images-review/
 
-# KROK-14 Z1: miniatury w zestawie referencyjnym sa wycinkami PRAWDZIWYCH
-# stron PDF (R1 — nigdy nie commitowac tresci wydawcow, nawet jako fixture).
-# test/reference/images-*.json (same metadane + etykiety uzytkownika, zero
-# pikseli) JEST commitowane jako trwaly artefakt kalibracyjny — tylko
-# miniatury (i wygenerowane z nich narzedzie HTML, ktore je osadza jako
-# base64) sa wykluczone.
+# Thumbnails in the reference set are crops of REAL PDF pages (never commit
+# publisher content, not even as a fixture). test/reference/images-*.json (only
+# metadata + user labels, zero pixels) IS committed as a lasting calibration
+# artifact — only the thumbnails (and the HTML tool generated from them, which
+# embeds them as base64) are excluded.
 test/reference/thumbnails/
 test/reference/label.html
 
-# Ten katalog repo jest tez folderem modulu lokalnej instalacji Foundry.
-# Ponizsze sa artefaktami builda (packages/module/dist skopiowany tu przez
-# scripts/sync-local-module.mjs do lokalnych testow) — zrodlo to packages/module/*.
+# This repo directory is also the module folder of a local Foundry install.
+# The entries below are build artifacts (packages/module/dist copied here by
+# scripts/sync-local-module.mjs for local testing) — the source is packages/module/*.
 /module.json
 /scripts/
 /styles/
@@ -34,27 +33,17 @@ test/reference/label.html
 /lib/
 /module.zip
 
-# Zrodlowy zip fontow (rozpakowane, potrzebne pliki skopiowane do
-# packages/core/test/synth/assets/fonts/) — nie trzeba go trzymac w repo.
+# The source zip of the fonts (unpacked, the needed files copied to
+# packages/core/test/synth/assets/fonts/) — no need to keep it in the repo.
 /Lato,Roboto.zip
 
-# KROK-12/13: spike'y statblokow. W odroznieniu od spike/ fazy 0 (celowo
-# zachowany do wgladu), brifi tych krokow mowia wprost "kod z tego kroku
-# zostanie wyrzucony — liczy sie raport" — nie mieszaja sie z produkcyjnym
-# kodem/historia.
+# Throwaway exploration code (statblock and player-character export spikes):
+# only its findings matter, so it stays out of the production code and history.
 /spike/statblocks/
 /spike/statblocks2/
+/spike/bohaterowie/
 
-# KROK-14 Z5, audyt R1: te dwa katalogi byly (bledem) commitowane wczesniej —
-# sample-full-res.png byl pelnorozdzielczosciowym renderem prawdziwej strony
-# tytulowej, text-dumps/*.json byly surowym tekstem 3 stron z KAZDEGO z 6
-# prawdziwych plikow w samples/. Usuniete z drzewa (RAPORT-KROK-14.md) — te
-# skrypty (dump-text.ts/save-one-png.ts) mozna nadal uruchamiac lokalnie do
-# debugowania, wynik po prostu juz nigdy nie ląduje w repo.
+# Outputs of local debugging scripts (dump-text.ts/save-one-png.ts): a full-resolution
+# render of a real title page and raw text dumps of real files — never committed.
 /spike/out/images/
 /spike/out/text-dumps/
-
-# KROK-38: rekonesans eksportu gotowych bohaterow graczy. Brief mowi wprost
-# "kod z tego kroku jest do wyrzucenia — liczy sie raport" — ten sam wzorzec
-# co spike'y statblokow (krok 12/13) powyzej.
-/spike/bohaterowie/

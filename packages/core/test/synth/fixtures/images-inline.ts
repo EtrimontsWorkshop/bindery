@@ -3,10 +3,10 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { solidRgb } from '../images.js';
 
 /**
- * Obraz inline (BI/ID/EI) — jedyny fixture przechodzacy `paintInlineImageXObject`
- * przez PRAWDZIWY pdf.js (KROK-6 Z1c). Brak referencji do obiektu PDF (dane
- * wprost w strumieniu tresci), stad KROK-4 ustalilo empirycznie: ten opcode
- * NIGDY nie ma objId — `extractImageObjId` zwraca dla niego zawsze null.
+ * An inline image (BI/ID/EI) — the only fixture that passes `paintInlineImageXObject` through a
+ * REAL pdf.js. No reference to a PDF object (the data is directly in the content stream), hence
+ * established empirically: this opcode NEVER has an objId — `extractImageObjId` always returns
+ * null for it.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

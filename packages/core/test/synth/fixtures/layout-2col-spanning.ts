@@ -1,11 +1,10 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Dwie kolumny + PELNOWYMIAROWY naglowek w SRODKU strony (nie na gorze/dole) —
- * dzieli strone na pasmo gorne i dolne, kazde ze swoja para kolumn. Testuje
- * Z2 (rozpinajace vs kolumnowe — bez tego naglowek niszczy dolina rynny) i
- * pasma w Z4 (kolejnosc czytania: gorne pasmo lewo->prawo, naglowek, dolne
- * pasmo lewo->prawo).
+ * Two columns + a FULL-WIDTH header in the MIDDLE of the page (not at the top/bottom) — it splits
+ * the page into an upper and a lower band, each with its own pair of columns. Tests spanning vs
+ * columnar lines (without it the header destroys the gutter valley) and the bands in reading
+ * order (the upper band left->right, the header, the lower band left->right).
  */
 export function build(): Buffer {
   const col = (prefix: string, x: number, yStart: number) =>

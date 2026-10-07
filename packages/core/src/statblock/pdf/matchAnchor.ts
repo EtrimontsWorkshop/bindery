@@ -1,7 +1,7 @@
 import type { PageTextElement, ReconstructedLine } from '../extract/types.js';
 import type { DetectionConfig } from '../profile/schema.js';
 
-/** Shared text-matching helper — exact trimmed match for plain text, a (safely-compiled) regex otherwise. An invalid regex degrades to "never matches" rather than throwing (A7). */
+/** Shared text-matching helper — exact trimmed match for plain text, a (safely-compiled) regex otherwise. An invalid regex degrades to "never matches" rather than throwing. */
 export function matchesTextPattern(text: string, pattern: string, isRegex?: boolean): boolean {
   const trimmed = text.trim();
   if (!isRegex) return trimmed === pattern;

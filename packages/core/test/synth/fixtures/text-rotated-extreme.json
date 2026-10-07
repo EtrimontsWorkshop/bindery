@@ -1,12 +1,12 @@
 {
   "id": "text-rotated-extreme",
-  "description": "2 linie poziome + 18 linii pionowych (90°) = ~90% itemow obroconych — skrajnosc z Q6 fazy 0 (do 94%).",
+  "description": "2 horizontal lines + 18 vertical lines (90°) = ~90% of items rotated — an extreme case from the initial spike (up to 94%).",
   "targetPhase": 2,
   "claims": {
     "pageCount": 1,
     "rotatedItemRatio": { "min": 0.85 }
   },
   "expected": {
-    "note": "DoD KROK-3: rotatedItemRatio > 0.85, potwierdzone wyjsciem harnessu."
+    "note": "Acceptance criterion: rotatedItemRatio > 0.85, confirmed by the harness output."
   }
 }

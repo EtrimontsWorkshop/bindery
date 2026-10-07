@@ -1,12 +1,12 @@
 {
   "id": "layout-running-heads",
-  "description": "6 stron z naglowkiem stalym (pozycja/font/szerokosc) ale zmiennym numerem strony w tekscie, plus stopka z samym numerem strony — testuje Z5 dopasowanie po koniunkcji, nie po dokladnym tekscie.",
+  "description": "6 pages with a constant header (position/font/width) but a varying page number in the text, plus a footer with the page number alone — tests matching by conjunction, not by exact text.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 6,
     "nonEmptyItemCount": 36
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: kazda z 6 stron ma 1 linie naglowka (x=72,y=760, w pasmie >93% wysokosci), 4 linie ciala (y=650..590), 1 linie stopki (x=300,y=30, w pasmie <7% wysokosci, tekst = sam numer strony). Tekst naglowka/stopki ROZNI sie na kazdej stronie (numer strony). detectRunningElements() powinien wykryc naglowek NA WSZYSTKICH 6 stronach mimo roznego tekstu (dopasowanie po pozycji+foncie+szerokosci, nie po tekscie) oraz stopke analogicznie."
+    "note": "Construction fact: each of the 6 pages has 1 header line (x=72,y=760, in the band >93% of the height), 4 body lines (y=650..590), 1 footer line (x=300,y=30, in the band <7% of the height, the text = the page number alone). The header/footer text DIFFERS on every page (the page number). detectRunningElements() should detect the header ON ALL 6 pages despite the different text (matching by position+font+width, not by text) and the footer likewise."
   }
 }

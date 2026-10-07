@@ -5,20 +5,19 @@ import { build as buildLuminosityMask } from '../synth/fixtures/images-luminosit
 import { build as buildVectorsRectangle } from '../synth/fixtures/vectors-rectangle.js';
 
 /**
- * Test integracyjny PRAWDZIWEGO pdf.js (nie mockow) — weryfikuje, ze
- * `PdfPageForRender` (interfejs wywnioskowany z typow pdf.js) faktycznie
- * pasuje do prawdziwego `PDFPageProxy.getViewport()`/`render()`, i ze render
- * regionu daje sensowne, nie-puste piksele we wlasciwym miejscu. Uzywa
- * `nodeCanvasRenderer.ts` BEZPOSREDNIO ze zrodel (nie przez `@bindery/core`) —
- * patrz komentarz w tamtym pliku, dlaczego jest celowo nieeksportowany.
+ * An integration test of the REAL pdf.js (not mocks) — verifies that `PdfPageForRender` (an
+ * interface inferred from the pdf.js types) really fits the real `PDFPageProxy.getViewport()`/
+ * `render()`, and that a region render yields sensible, non-empty pixels in the right place. Uses
+ * `nodeCanvasRenderer.ts` DIRECTLY from the sources (not through `@bindery/core`) — see the
+ * comment in that file for why it is deliberately not exported.
  */
-describe('nodeCanvasRegionRenderer — integracja z prawdziwym pdf.js', () => {
-  it('renderuje region wokol obrazu, wynik ma oczekiwane wymiary i nie jest calkowicie przezroczysty/pusty', async () => {
+describe('nodeCanvasRegionRenderer — an integration with a real pdf.js', () => {
+  it('renders a region around an image, the result has the expected dimensions and is not completely transparent/empty', async () => {
     const buf = buildLuminosityMask();
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
 
-    // Fixture rysuje obraz 100x100 (przestrzen strony) w cm(100,0,0,100,50,600) — patrz images-luminosity-mask.ts.
+    // The fixture draws a 100x100 image (page space) at cm(100,0,0,100,50,600) — see images-luminosity-mask.ts.
     const bbox = { minX: 50, minY: 600, maxX: 150, maxY: 700 };
     const result = await nodeCanvasRegionRenderer.renderRegion(page as never, bbox, { targetLongEdgePx: 200 });
 
@@ -26,8 +25,8 @@ describe('nodeCanvasRegionRenderer — integracja z prawdziwym pdf.js', () => {
     expect(result.height).toBe(200);
     expect(result.rgba.length).toBe(200 * 200 * 4);
 
-    // Obraz zrodlowy to jednolity czerwony (200,30,30) — przynajmniej czesc pikseli powinna to odzwierciedlac
-    // (maska luminancyjna moze przyciemnic, ale nie powinna dac calkowicie czarnego/przezroczystego wyniku).
+    // The source image is a flat red (200,30,30) — at least some of the pixels should reflect that
+    // (a luminosity mask may darken it, but shouldn't give a completely black/transparent result).
     let anyNonBlack = false;
     for (let i = 0; i < result.rgba.length; i += 4) {
       if (result.rgba[i]! > 10 || result.rgba[i + 1]! > 10 || result.rgba[i + 2]! > 10) {
@@ -40,7 +39,7 @@ describe('nodeCanvasRegionRenderer — integracja z prawdziwym pdf.js', () => {
     page.cleanup();
   });
 
-  it('renderuje region z czystej grafiki wektorowej (brak obrazu) bez bledu — sciezka fallback dla map rysowanych', async () => {
+  it('renders a region of pure vector graphics (no image) without an error — the fallback path for drawn maps', async () => {
     const buf = buildVectorsRectangle();
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
@@ -51,7 +50,7 @@ describe('nodeCanvasRegionRenderer — integracja z prawdziwym pdf.js', () => {
     page.cleanup();
   });
 
-  it('AbortSignal juz przerwany przed wywolaniem odrzuca natychmiast', async () => {
+  it('an AbortSignal already aborted before the call rejects immediately', async () => {
     const buf = buildLuminosityMask();
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);

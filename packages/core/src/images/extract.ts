@@ -4,20 +4,19 @@ import { normalizeDecodedImage, type DecodedImage } from './normalizeDecodedImag
 import type { PdfPageForRender, RegionRenderer, RenderRegionOptions } from './regionRenderer.js';
 
 /**
- * Direct extraction (Step 7 Z4, MDD phase 3 "Pass 2"). A three-stage path in
- * a fixed order: `page.objs` -> `page.commonObjs` -> region-render fallback
- * (Z3). Every result goes through `normalizeDecodedImage()` (U2). Failed
+ * Direct extraction. A three-stage path in
+ * a fixed order: `page.objs` -> `page.commonObjs` -> region-render fallback. Every result goes through `normalizeDecodedImage()`. Failed
  * decoding -> a `Diagnostic` (warning), NEVER a silent skip (U6 — JPX
  * without `wasmUrl` silently returns `undefined`, doesn't throw).
  *
- * [Step 7, discovery] The `objId` of resources that pdf.js decides upfront
+ * The `objId` of resources that pdf.js decides upfront
  * are "shared across pages" (e.g. a decoration from the same PDF object in
  * the Resources of several pages) carries a `"g_"` prefix (e.g.
  * `"g_d0_img_p1_1"`) — pdf.js ITSELF distinguishes them this way (`pdf.mjs`:
  * `data.startsWith("g_") ? commonObjs.get(data) : objs.get(data)`). Measured
  * empirically: RIGHT AFTER a single page's `getOperatorList()`,
  * `commonObjs` is COMPLETELY EMPTY for such a resource — the promise of
- * "promotion" (see U1/RAPORT-KROK-4.md) hasn't been fulfilled yet (it needs
+ * "promotion" hasn't been fulfilled yet (it needs
  * further processing — other pages and/or a render). For such resources,
  * BOTH paths (`objs`/`commonObjs`) legitimately fail at this stage, and the
  * code correctly falls back to a region render — THIS IS NOT A BUG, it's
@@ -113,20 +112,20 @@ async function tryResolveFromRegistries(page: PdfPageForExtract, objId: string, 
 
 /**
  * Attempts to extract image `objId` directly (via `page.objs` or
- * `page.commonObjs`), and if that fails — renders `bbox` as a fallback (Z3).
+ * `page.commonObjs`), and if that fails — renders `bbox` as a fallback.
  * Always returns a result (the render fallback doesn't fail for lack of an
  * object — it works even for purely vector graphics, `objId=null`).
  *
- * [Step 16 Z2, fix for a live-reported bug] Between the first attempt and
+ * Between the first attempt and
  * finally giving up in favor of a region render there is one MORE attempt,
  * AFTER a warmup render — observed directly on a large document (250+
- * pages, `Cienie_posrod_mgie.pdf`): for ordinary (non-`g_`) `objId` values,
+ * pages): for ordinary (non-`g_`) `objId` values,
  * which normally should resolve via `page.objs` right after
  * `getOperatorList()`, `has()` sometimes returns `false` on both paths —
  * pdf.js only "promises" a resource's promotion to the registry AFTER a
  * full page render (`page.render()`), not after the operator list alone
  * (see the comment at the top of the file, the same non-determinism already
- * documented for `g_` resources back in phase 0/MDD risk R-13 — here
+ * documented for `g_` resources earlier — here
  * revealed to also apply to ordinary `objId` values on sufficiently large
  * documents). Before this fact was known, the code immediately fell back to
  * rendering the REGION (a page fragment) as the final result — which WORKS
@@ -174,7 +173,7 @@ export async function extractDirect(
 }
 
 /**
- * [Step 8 Z3] Probes the NATIVE (source) length of image `objId`'s longer
+ * Probes the NATIVE (source) length of image `objId`'s longer
  * edge in pixels, without deciding on an extraction strategy — used by the
  * orchestrator to determine the target resolution of a region render (see
  * `renderResolution.ts`), NOT for extraction itself. The same `objs` ->

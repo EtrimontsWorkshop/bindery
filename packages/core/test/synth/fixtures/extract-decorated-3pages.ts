@@ -3,14 +3,12 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb, checkerboardRgb } from '../images.js';
 
 /**
- * 3 strony: ozdobnik WSPOLDZIELONY (ten sam obiekt PDF w Resources kazdej
- * strony, maly, stala pozycja) + tresc DUZA (>=40%), UNIKALNA per strona
- * (inna pozycja/kolor). Testuje U1: ozdobnik musi byc sklasyfikowany jako
- * `decoration` na WSZYSTKICH TRZECH stronach, W TYM PIERWSZEJ — bez korelacji
- * pozycyjnej (`correlatedWith`) pierwsze wystapienie kazdego takiego zasobu
- * wyglada jak unikalna tresc (MDD faza 3), bo pdf.js nie przydziela stabilnego
- * `objId` od pierwszego uzycia (rozpada sie na `pageRefs=[1]` i
- * `pageRefs=[2,3]` jako DWA osobne wpisy rejestru).
+ * 3 pages: a SHARED decoration (the same PDF object in each page's Resources, small, fixed
+ * position) + LARGE content (>=40%), UNIQUE per page (a different position/color). Tests that the
+ * decoration must be classified as `decoration` on ALL THREE pages, INCLUDING THE FIRST — without
+ * positional correlation (`correlatedWith`) the first occurrence of each such resource looks like
+ * unique content, because pdf.js doesn't assign a stable `objId` from the first use (it splits
+ * into `pageRefs=[1]` and `pageRefs=[2,3]` as TWO separate registry entries).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -21,10 +19,9 @@ export function build(): Buffer {
   const decorationRef = imageXObject(writer, { width: 2, height: 2, rgb: solidRgb(2, 2, 10, 10, 10) });
 
   for (let p = 0; p < 3; p++) {
-    // Rozmiar WEWNETRZNY >=100px (jak extract-single-clean) — inaczej finalize.ts
-    // (MIN_ABSOLUTE_PX, odrzucenie "za maly zeby byc tresciа" po dekodowaniu)
-    // przeklasyfikowuje na `decoration` mimo duzej powierzchni WZGLEDNEJ (Z1).
-    // Szachownica, nie jednolity kolor (KROK-8 Z2) — patrz komentarz w `extract-single-clean.ts`.
+    // INTERNAL size >=100px (like extract-single-clean) — otherwise finalize.ts (MIN_ABSOLUTE_PX,
+    // rejecting "too small to be content" after decoding) reclassifies it as `decoration` despite a
+    // large RELATIVE area. A checkerboard, not a flat color — see the comment in `extract-single-clean.ts`.
     const contentImgRef = imageXObject(writer, {
       width: 120,
       height: 100,
@@ -32,7 +29,7 @@ export function build(): Buffer {
     });
     const cs = new ContentStreamBuilder();
     cs.save().cm(30, 0, 0, 30, 10, 10).doXObject('Decor').restore();
-    // Pozycja tresci lekko rozna per strona (>0.5pt) — bez przypadkowej korelacji bboksem miedzy stronami.
+    // The content position differs slightly per page (>0.5pt) — no accidental bbox correlation between pages.
     cs.save().cm(500, 0, 0, 600, 56, 96 + p * 2).doXObject('Content').restore();
     const contentRef = writer.addStreamObj('', cs.toBuffer());
 

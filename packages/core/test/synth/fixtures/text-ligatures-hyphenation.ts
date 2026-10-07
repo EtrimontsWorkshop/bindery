@@ -10,9 +10,9 @@ const CODE_FI = 0x12; // -> U+FB01 ligatura "fi"
 const CODE_FL = 0x13; // -> U+FB02 ligatura "fl"
 
 /**
- * Ligatury U+FB01/U+FB02 (nierozwiniete — widoczne tylko z disableNormalization:true,
- * dokladnie jak w metodyce fazy 0) oraz wyraz przeniesiony lacznikiem na koncu
- * linii. Testuje rozwijanie ligatur i sklejanie przeniesien (faza 2, krok 1).
+ * The ligatures U+FB01/U+FB02 (not expanded — visible only with disableNormalization:true, exactly
+ * like in the spike methodology) and a word hyphenated at the end of a line. Tests ligature
+ * expansion and joining of hyphenation breaks.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -35,7 +35,7 @@ export function build(): Buffer {
   // fl + "ame" -> "flame" z ligatura fl
   cs.setTextMatrix(1, 0, 0, 1, 72, 670);
   cs.showTextHex([CODE_FL, ...asciiCodes('ame')]);
-  // wyraz przeniesiony lacznikiem na koncu linii: "encyclo-" / "pedia"
+  // a word hyphenated at the end of a line: "encyclo-" / "pedia"
   cs.setTextMatrix(1, 0, 0, 1, 72, 640);
   cs.showTextHex(asciiCodes('encyclo-'));
   cs.setTextMatrix(1, 0, 0, 1, 72, 620);

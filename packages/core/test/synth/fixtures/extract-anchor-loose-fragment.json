@@ -1,6 +1,6 @@
 {
   "id": "extract-anchor-loose-fragment",
-  "description": "Jedna kotwica (25.9% strony) + jeden maly fragment (0.19% strony) stykajacy sie WYLACZNIE waskim naroznikiem (overlapRatio wzgledem wlasnej powierzchni fragmentu ~10%, ponizej progu 20%).",
+  "description": "One anchor (25.9% of the page) + one small fragment (0.19% of the page) touching it ONLY with a narrow corner (overlapRatio relative to the fragment's own area ~10%, below the 20% threshold).",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "hasOverlappingImages": true
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: kotwica 320x392pt (25.9% strony) + maly fragment 30x30pt (0.19% strony) stykajace sie na pasku 3x30pt (overlapRatio ~10% wzgledem fragmentu). KROK-16 Z2 (trzecia iteracja): partitionCandidatesIntoGroups (buildImageExtraction.ts) NIE powinien dolaczac fragmentu do kotwicy, bo overlapRatio < EDGE_TOUCH_MAX_OVERLAP_RATIO (20%) — powinny wyjsc DWIE osobne jednostki, nie jedna z rozciagnietym union bboksem. Przed ta iteracja (tylko partycjonowanie kotwic, bez minimalnego progu dolaczania fragmentow) fragment byl dolaczany do JEDYNEJ kotwicy na stronie bez wzgledu na sile nakladania, odtwarzajac zbyt szeroki wynik (zaobserwowane na Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf str. 14, img_p13_1+img_p13_4)."
+    "note": "Construction fact: an anchor 320x392pt (25.9% of the page) + a small fragment 30x30pt (0.19% of the page) touching on a 3x30pt strip (overlapRatio ~10% relative to the fragment). partitionCandidatesIntoGroups (buildImageExtraction.ts) should NOT attach the fragment to the anchor, because overlapRatio < EDGE_TOUCH_MAX_OVERLAP_RATIO (20%) — TWO separate units should come out, not one with a stretched bbox union. Before this fix (only partitioning of anchors, with no minimum threshold for attaching fragments) the fragment was attached to the ONLY anchor on the page regardless of the overlap strength, reproducing an overly wide result (observed on a real rulebook page, img_p13_1+img_p13_4)."
   }
 }

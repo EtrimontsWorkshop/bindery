@@ -1,10 +1,10 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [at the user's request, after the "Wrak" fix] Some publications export
+ * [at the user's request, after the fix] Some publications export
  * EVERY page as ONE flat raster (background + illustration + everything),
  * with no separate PDF resource for the illustration itself — confirmed
- * directly on Wrak.pdf (`buildInventory`: exactly ONE `ImageEntry` per such
+ * directly on a real rulebook PDF (`buildInventory`: exactly ONE `ImageEntry` per such
  * page, bbox ~the whole MediaBox). `treatFullBleedAsContent` (classify.ts)
  * correctly reveals such an image as `content`, but the "whole canvas"
  * itself can be mostly empty margin/paper around a small illustration (e.g.
@@ -15,7 +15,7 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  * Deliberately EXPERIMENTAL and opt-in (`autoCropUniformMargins`, see
  * `buildImageExtraction.ts`) — this is a heuristic, not structure parsing: pages where the
  * illustration fills nearly the whole canvas (e.g. a ship cross-section
- * spread, Wrak.pdf p. 11) are meant to deliberately NOT be cropped, because
+ * spread, p. 11 of a real rulebook PDF) are meant to deliberately NOT be cropped, because
  * their edges are already part of the content themselves (texture, frame),
  * not empty margin — the algorithm below is deliberately CONSERVATIVE
  * (prefers NOT cropping when uncertain) for exactly this reason.
@@ -29,7 +29,7 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  * edge we crop while the MOVING AVERAGE (`WINDOW_PX` neighboring
  * rows/columns) of this coefficient stays >= `WINDOW_COVERAGE_THRESHOLD`.
  *
- * [Calibrated on real Wrak.pdf, p. 25 — a key discovery] A single sharp
+ * [Calibrated on a real rulebook PDF, p. 25 — a key discovery] A single sharp
  * threshold (the earlier version, WITHOUT a window) failed on real data:
  * thin decorative strips touching the edge (a top ribbon with the title, a
  * bottom one with the page number, a folded corner) have their OWN, though
@@ -54,7 +54,7 @@ export interface PixelBounds {
 /**
  * Max deviation of an RGB channel from the row/column average for a pixel to
  * count as "the same boring color" — tolerates paper/texture noise, doesn't
- * tolerate an illustration edge. [Calibrated on real Wrak.pdf, p. 25] The
+ * tolerate an illustration edge. [Calibrated on a real rulebook PDF, p. 25] The
  * first attempt (18) was drastically too sharp for real "aged paper" with
  * visible grain/texture — measured directly: even purely decorative rows
  * (leather strip, blank paper) only reached 22-66% coverage at a tolerance
@@ -65,7 +65,7 @@ export interface PixelBounds {
 const COLOR_TOLERANCE = 45;
 /**
  * Window size (in rows/columns) averaging the "boringness" coefficient —
- * see the rationale in the file header. [Calibrated on Wrak.pdf p. 27/28,
+ * see the rationale in the file header. [Calibrated on p. 27/28 of a real rulebook PDF,
  * second iteration] The first attempt (80px) turned out to be TOO LARGE:
  * when genuine content (a portrait) starts soon after the end of a ribbon
  * (~140px of decoration), an 80px window starts "seeing" the upcoming
@@ -87,11 +87,11 @@ const WINDOW_COVERAGE_THRESHOLD = 0.75;
  * Safety margin added back around the detected content, so as not to cut
  * off the illustration's edge flush.
  *
- * [Measured directly on a real report, Wrak.pdf p. 20 (`img_p19_1`)] The
+ * [Measured directly on a real report, p. 20 of a real rulebook PDF (`img_p19_1`)] The
  * original value (12) was UNCALIBRATED against real data (unlike
  * `COLOR_TOLERANCE`/`WINDOW_PX` above) — on this image `topTrim` (before
  * adding the margin) came out at y=134, and per-row coverage shows that the
- * actual edge of the "CALL OF CTHULHU" title ribbon (together with the
+ * actual edge of the book title ribbon (together with the
  * double line and text) ends around y=125 (the last row below the 0.75
  * threshold). A 12px margin pulled the boundary back to y=122 — STILL
  * INSIDE the ribbon — leaving a visible sliver of text in the exported

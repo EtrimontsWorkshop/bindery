@@ -26,9 +26,9 @@
 
     {{#if isStepReview}}
       <div class="bindery-rail-line"></div>
-      {{! [KROK-20, na zyczenie uzytkownika] Zakladki "Sceny" i "Journale" (auto-detekcja
-          core'a) wylaczone "na razie" — patrz komentarz w #runImport, ktory tez pomija
-          tworzenie z doc.scenes/doc.journals gdy wylaczone. }}
+      {{! The "Scenes" and "Journals" tabs (core's auto-detection) are switched off for now —
+          see the comment in #runImport, which also skips creating documents from
+          doc.scenes/doc.journals while they are off. }}
       <nav class="bindery-tabs-rail" role="tablist">
         <button type="button" role="tab" aria-selected="{{isTabImages}}" data-action="switchTab" data-tab="images" class="bindery-tab {{#if isTabImages}}active{{/if}}">
           <span>{{localize "BINDERY.review.tabImages"}}</span>
@@ -230,7 +230,7 @@
             <label>{{localize "BINDERY.review.namePrefixLabel"}}</label>
             <input type="text" name="namePrefix" value="{{targets.namePrefix}}" placeholder="{{localize "BINDERY.review.namePrefixPlaceholder"}}" />
           </div>
-          {{! [KROK-20] Sceny/journale z CIF wylaczone "na razie" — podsumowanie liczy tylko obrazy, jedyna aktywna sciezka. }}
+          {{! Scenes/journals from the CIF are switched off for now — the summary counts only images, the only active path. }}
           <p class="hint">
             {{localize "BINDERY.review.targetSummary"}}: {{importableImageCount}} {{localize "BINDERY.review.images"}}{{#if statblockCount}}, {{statblockCount}} {{localize "BINDERY.review.tabStatblocks"}}{{/if}}
           </p>

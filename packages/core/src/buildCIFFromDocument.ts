@@ -10,8 +10,7 @@ import { buildPageLayouts } from './layout/buildPageLayout.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
 
 /**
- * [Step 9 Z3/Z4/Z5] Entry point analogous to `extractImagesFromDocument`
- * (Step 8) — pdf.js is opened ONLY here, and ALL FOUR pipelines (inventory,
+ * Entry point analogous to `extractImagesFromDocument` — pdf.js is opened ONLY here, and ALL FOUR pipelines (inventory,
  * text/layout, bookmarks, images) are stitched together into a single
  * `CIFDocument`. Same architectural reason as there: `pdfjs-dist` is
  * external in ALL Vite configurations, and the bare-specifier redirect is
@@ -58,7 +57,7 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     perPage: inv.perPage,
   });
 
-  // Step 9 Z2 (see classify.ts) — `body`+`caption`, the same map is used here
+  // Bboxes of `body`+`caption` blocks (see classify.ts) — the same map is used here
   // AND for images, without needing an additional `getDocument()` call (we
   // already have `blocks`).
   const bodyBlockBoxesByPage = new Map<number, Rect[]>();

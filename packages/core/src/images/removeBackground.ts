@@ -2,7 +2,6 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { featherAlpha } from './featherAlpha.js';
 
 /**
- * [Step 42 Z1, "a token with no transparency sits ON the map, not IN it"]
  * Removes the textured page background around an illustration meant for a
  * token — the classic "corner flood fill with tolerance" from image
  * editors: assumes ALL 4 image corners belong to the background (almost
@@ -24,8 +23,7 @@ export interface RemoveBackgroundOptions {
   /** [safeguard] If the fill would cover MORE than this share of the total area (0-1), abort and remove NOTHING — this means the background is NOT uniform (an image mostly "background" by tolerance = a false detection), not that the token genuinely has that much background to remove. */
   maxAreaFraction: number;
   /**
-   * [background-click-in report Z1, "a hat merging with the body creates a
-   * closed pocket of background"] Additional flood-fill seed points, BEYOND
+   * Additional flood-fill seed points, BEYOND
    * the 4 corners — pixels manually pointed out by the user in background
    * areas NOT CONNECTED to the image's edge. The classic limitation of any
    * "corner flood fill" (magic wand): a background area cut off from the
@@ -52,8 +50,7 @@ export interface RemoveBackgroundResult {
 }
 
 /**
- * [Calibrated on a real portrait from `sample/ZewCthulhu-WRAK.pdf` (p. 26,
- * "Isaac Klein"), see `RAPORT-KROK-42.md` for the method] Painted/sketched
+ * Painted/sketched
  * illustrations (the typical style of NPC portraits in rulebooks) often have
  * a SOFT, gradually shaded transition from background to content (no sharp
  * edge) — on this specific image, any tolerance >=16 chain-spread across the
@@ -113,7 +110,7 @@ export function removeBackground(image: DecodedImage, opts: RemoveBackgroundOpti
   const extraSeeds = opts.extraSeeds ?? [];
   const seeds: Array<[number, number]> = [...corners, ...extraSeeds.map((s): [number, number] => [Math.round(s.x), Math.round(s.y)])];
   for (const [cx, cy] of seeds) {
-    if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue; // [background-click-in report Z1] a clicked coordinate outside the image — safe no-op
+    if (cx < 0 || cx >= width || cy < 0 || cy >= height) continue; // a clicked coordinate outside the image — safe no-op
     const seedPos = cy * width + cx;
     if (visited[seedPos]) continue; // the same corner/point may already be visited via a fill from ANOTHER seed (small images: width or height == 1; a click into an already-removed area)
     visited[seedPos] = 1;

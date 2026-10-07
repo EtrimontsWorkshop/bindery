@@ -1,12 +1,12 @@
 {
   "id": "extract-decorated-3pages",
-  "description": "3 strony: ozdobnik wspoldzielony (ten sam obiekt PDF) + tresc duza unikalna per strona.",
+  "description": "3 pages: a shared decoration (the same PDF object) + large content, unique per page.",
   "targetPhase": 7,
   "claims": {
     "pageCount": 3,
     "minImagesPerPage": 2
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: JEDEN wspolny obiekt PDF ozdobnika (2x2px, x=10-40,y=10-40, stala pozycja na WSZYSTKICH 3 stronach) + jeden UNIKALNY obraz tresci per strona (4x4px, ~0.62 powierzchni strony, pozycja rozna o >0.5pt miedzy stronami). Poniewaz pdf.js nie przydziela stabilnego objId od pierwszego uzycia (U1), imageRegistry.ts (krok 4) prawdopodobnie rozbije ozdobnik na DWA wpisy: pageRefs=[1] (pierwsze wystapienie) i pageRefs=[2,3] (kolejne), POWIAZANE przez correlatedWith (identyczny skwantowany bbox pierwszego wystapienia). classifyImages() (Z1, krok 7) musi uzyc SKORELOWANEJ liczby stron (nie surowego pageRefs.length) i sklasyfikowac OBA wpisy ozdobnika jako 'decoration' — WLACZNIE z tym o pageRefs=[1] (pierwsza strona). Tresc na kazdej stronie (3 rozne wpisy, kazdy pageRefs.length=1, rozna pozycja) powinna zostac 'content'."
+    "note": "Construction fact: ONE shared PDF object of a decoration (2x2px, x=10-40,y=10-40, a constant position on ALL 3 pages) + one UNIQUE content image per page (4x4px, ~0.62 of the page area, the position differing by >0.5pt between pages). Because pdf.js doesn't assign a stable objId from the first use, imageRegistry.ts will probably split the decoration into TWO entries: pageRefs=[1] (the first occurrence) and pageRefs=[2,3] (the later ones), LINKED through correlatedWith (the identical quantized bbox of the first occurrence). classifyImages() must use the CORRELATED page count (not the raw pageRefs.length) and classify BOTH decoration entries as 'decoration' — INCLUDING the one with pageRefs=[1] (the first page). The content on each page (3 different entries, each pageRefs.length=1, a different position) should stay 'content'."
   }
 }

@@ -1,12 +1,12 @@
 {
   "id": "images-mask-geometry",
-  "description": "Dwa obrazy narysowane bezposrednio po sobie pod ta sama CTM (bbox identyczny, roznica index=2) — pozytywny przypadek sciezki dowodowej 'geometry'. Trzeci, kontrolny obraz daleko bez nakladania nie powinien dostac zadnego dowodu.",
+  "description": "Two images drawn directly one after the other under the same CTM (an identical bbox, index difference=2) — a positive case of the 'geometry' evidence path. A third, control image far away with no overlap should get no evidence.",
   "targetPhase": 4,
   "claims": {
     "pageCount": 1,
     "imageCount": 3
   },
   "expected": {
-    "note": "Over1 musi dostac maskEvidence='geometry' (bbox pokrywa sie z Under1 w 100%, index diff=2<=3); Under1 i Control1 bez zadnego dowodu maski."
+    "note": "Over1 must get maskEvidence='geometry' (the bbox overlaps Under1 100%, index diff=2<=3); Under1 and Control1 with no mask evidence."
   }
 }

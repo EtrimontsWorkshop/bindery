@@ -1,6 +1,6 @@
 {
   "id": "text-ligatures-hyphenation",
-  "description": "Ligatury fi/fl (nierozwiniete) + wyraz 'encyclopedia' przeniesiony lacznikiem na koncu linii.",
+  "description": "The ligatures fi/fl (not expanded) + the word 'encyclopedia' hyphenated at the end of a line.",
   "targetPhase": 2,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "nonEmptyItemCount": 4
   },
   "expected": {
-    "note": "Faza 2 musi rozwinac ligatury (fi->fi, fl->fl jako dwa znaki) i skleic 'encyclo-'+'pedia' w 'encyclopedia', usuwajac twardy lacznik na koncu linii."
+    "note": "Text hygiene must expand the ligatures (fi->fi, fl->fl as two characters) and join 'encyclo-'+'pedia' into 'encyclopedia', removing the hard hyphen at the end of the line."
   }
 }

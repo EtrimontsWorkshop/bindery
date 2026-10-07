@@ -3,13 +3,13 @@ import type { Diagnostic } from '../text/types.js';
 import type { TextLine } from './lineCluster.js';
 
 /**
- * Column detection (Step 6 Z3) — density histogram on the X axis, ONLY the 0°
- * stream, ONLY COLUMNAR lines (Z2 must run first — otherwise a spanning
+ * Column detection — density histogram on the X axis, ONLY the 0°
+ * stream, ONLY COLUMNAR lines (the spanning split must run first — otherwise a spanning
  * header destroys the gutter valley). Projects LINE bboxes, not item bboxes
- * (U1: items are fragmentary, lines are not).
+ * (items are fragmentary, lines are not).
  *
  * No clear valleys -> a single column, with confidence=1. That is the CORRECT
- * answer (per the brief), not a detection failure.
+ * answer, not a detection failure.
  */
 
 export interface ColumnRegion {
@@ -26,24 +26,24 @@ export interface ColumnDetectionResult {
 }
 
 const HISTOGRAM_BIN_WIDTH_PT = 2;
-/** A gutter must be at least this many points wide to count as a candidate (calibrated on samples/, see RAPORT-KROK-6.md). */
+/** A gutter must be at least this many points wide to count as a candidate. */
 const MIN_VALLEY_WIDTH_PT = 10;
 /** Density in a valley below this fraction of the histogram maximum counts as "empty". */
 const MAX_VALLEY_DENSITY_RATIO = 0.05;
 /**
- * Vertical validation (per the brief): a true gutter is empty across MOST of the
+ * Vertical validation: a true gutter is empty across MOST of the
  * height of the text block. A valley visible only in the top quarter of the page
  * (a short paragraph ending early) is a geometric coincidence, not a true column gutter.
  */
 const MIN_VERTICAL_EMPTY_RATIO = 0.7;
 /**
- * [Step 6, discovery] A gutter can be real (empty across most of the height) and
+ * A gutter can be real (empty across most of the height) and
  * still NOT separate two true reading columns — a sidebar (a vector frame with
  * short text next to a column) creates exactly this situation: the narrow
  * "column" on its side of the gutter exists only over a small SLICE of the
  * block height (empirically: fixture layout-2col-sidebar, the sidebar covers
- * ~33% of the block height). Per the brief (DoD): a sidebar should be its own
- * BLOCK (Z6, vector-region signal), NOT a third column. A column candidate whose
+ * ~33% of the block height). A sidebar should be its own
+ * BLOCK (vector-region signal in the block builder), NOT a third column. A column candidate whose
  * OWN content covers less than this fraction of the block height gets merged
  * with its neighbor instead of counted as a separate reading column.
  */
@@ -78,7 +78,7 @@ function singleColumn(textBlock: Rect): ColumnDetectionResult {
 }
 
 /**
- * Detects columns on ONE page from already-separated columnar lines (Z2).
+ * Detects columns on ONE page from already-separated columnar lines.
  * `pageNumber` is used solely for `Diagnostic.pageNumber`.
  */
 export function detectColumns(columnarLines: readonly TextLine[], pageNumber: number): ColumnDetectionResult {
@@ -183,11 +183,10 @@ function verticalSpanRatio(lines: readonly TextLine[], blockHeight: number): num
 /**
  * Removes columns from the list whose OWN content covers too small a slice of
  * the block height (see MIN_COLUMN_VERTICAL_SPAN_RATIO) — does NOT merge their
- * bbox into the neighbor's (deliberately, Step 6 discovery on files from
- * `samples/`): widening the neighbor's bbox with the sidebar area would erase
- * exactly the geometric signal that Z6 (blockBuilder) uses to recognize
+ * bbox into the neighbor's: widening the neighbor's bbox with the sidebar area would erase
+ * exactly the geometric signal that the block builder uses to recognize
  * "outside the column layout" — a sidebar must stay OUTSIDE the bbox of every
- * true column, otherwise the `sidebar` rule in Z6 could never tell it apart
+ * true column, otherwise the `sidebar` rule in the block builder could never tell it apart
  * from ordinary body text inside a column.
  */
 function mergeSparseColumns(
@@ -220,7 +219,7 @@ function mergeSparseColumns(
 }
 
 /**
- * [Step 6 Z3] CROSS-PAGE validation: column count is usually stable within a
+ * CROSS-PAGE validation: column count is usually stable within a
  * chapter. A page that deviates from its NEIGHBORS (previous/next) is a
  * warning signal — it records a `Diagnostic`, but NEVER forces agreement or
  * changes that page's detection result.

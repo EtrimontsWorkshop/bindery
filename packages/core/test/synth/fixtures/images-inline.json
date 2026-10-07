@@ -1,6 +1,6 @@
 {
   "id": "images-inline",
-  "description": "Obraz inline (BI/ID/EI, bez referencji do obiektu PDF) — jedyny fixture przechodzacy paintInlineImageXObject przez prawdziwy pdf.js (KROK-6 Z1c).",
+  "description": "An inline image (BI/ID/EI, no PDF object reference) — the only fixture that passes paintInlineImageXObject through a real pdf.js.",
   "targetPhase": 4,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "imageCount": 1
   },
   "expected": {
-    "note": "imageRegistry (KROK-4) musi oznaczyc ten obraz z objId=null (brak referencji obiektu PDF dla obrazow inline, wprowadzone jako osobny wpis rejestru)."
+    "note": "imageRegistry must mark this image with objId=null (there is no PDF object reference for inline images; introduced as a separate registry entry)."
   }
 }

@@ -1,6 +1,6 @@
 {
   "id": "text-empty-items",
-  "description": "5 slow na tej samej linii z duzymi odstepami — pdf.js wstawia 4 wlasne syntetyczne itemy spacji miedzy nimi. Najblizszy realnie osiagalny odpowiednik 'pustych' itemow do filtrowania (patrz uwaga w .ts o str==\"\" i falsy-fallback w pdf.js).",
+  "description": "5 words on the same line with large gaps — pdf.js inserts 4 synthetic space items of its own between them. The closest realistically reachable equivalent of 'empty' items to filter (see the note in the .ts about str==\"\" and the falsy fallback in pdf.js).",
   "targetPhase": 2,
   "claims": {
     "pageCount": 1,
@@ -9,6 +9,6 @@
     "whitespaceOnlyItemCount": 4
   },
   "expected": {
-    "note": "Itemy zlozone wylacznie z bialych znakow musza wypasc przed liczeniem fragmentationRatio i innych statystyk merge'u, tak samo jak prawdziwe puste itemy by musialy."
+    "note": "Items made up solely of whitespace must be dropped before computing fragmentationRatio and other merge statistics, just as real empty items would have to be."
   }
 }

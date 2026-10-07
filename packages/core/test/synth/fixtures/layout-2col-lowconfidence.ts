@@ -1,23 +1,19 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * KROK-10 Z5 — bezpiecznik progu ufnosci: uklad kolumnowy o NIEJEDNOZNACZNYCH
- * kolumnach (jeden IZOLOWANY, wiekszy element czesciowo wchodzi w obszar
- * rynny na fragmencie wysokosci bloku), obnizajac `confidence`
- * (`detectColumns`) ponizej progu naprawy (0.85), ale wciaz POWYZEJ progu
- * samego wykrycia kolumn (0.7 w `columns.ts`) — kolumny SA wykryte, tylko
- * niepewnie. Plus dokladnie ten sam wzorzec falszywego sklejenia co
- * `layout-2col-false-merge`. Przy niepewnej detekcji kolumn przebieg
- * naprawczy NIE MOZE ciac — "nie wiadomo gdzie SA kolumny" (brief) — lepiej
- * zostawic istniejacy blad niz wprowadzic nowy.
+ * The confidence-threshold safeguard: a columnar layout with AMBIGUOUS columns (one ISOLATED, larger
+ * element partly enters the gutter area over a fragment of the block height), lowering `confidence`
+ * (`detectColumns`) below the repair threshold (0.85), but still ABOVE the column detection
+ * threshold itself (0.7 in `columns.ts`) — the columns ARE detected, only with low confidence.
+ * Plus exactly the same false-merge pattern as `layout-2col-false-merge`. With uncertain column
+ * detection the repair pass MUST NOT cut — "we don't know where the columns ARE" — better to leave
+ * an existing bug than introduce a new one.
  *
- * [technika] Element wiekszego rozmiaru fontu ODIZOLOWANY pionowo (daleko od
- * kazdego innego wiersza — poza zasiegiem sciezki "indeks gorny/dolny" w
- * `sameLine`, zeby uniknac kaskadowego sklejenia z sasiadami) daje WIEKSZA
- * WYSOKOSC bboksa (proporcjonalna do rozmiaru fontu) przy gestosci=1 (jedna
- * linia) — latwo przezywa filtr gestosci `detectColumns` (5% maksimum przy
- * ~25 "normalnych" wierszach w tle), a jego WYSOKOSC znaczaco obniza
- * `coveredHeight`/`emptyRatio` dla kandydata na rynne, ktory czesciowo przecina.
+ * [technique] A larger-font element ISOLATED vertically (far from every other row — out of reach of
+ * the "superscript/subscript" path in `sameLine`, to avoid a cascading merge with neighbors) gives a
+ * LARGER bbox HEIGHT (proportional to the font size) at density=1 (one line) — it easily survives
+ * `detectColumns`'s density filter (5% of the maximum at ~25 "normal" background rows), and its
+ * HEIGHT significantly lowers `coveredHeight`/`emptyRatio` for a gutter candidate that it partly crosses.
  */
 export function build(): Buffer {
   const rowCount = 25;
@@ -35,18 +31,16 @@ export function build(): Buffer {
     y: startY - i * rowSpacing,
   }));
 
-  // Izolowany duzy element — Y daleko od kazdego normalnego wiersza (w
-  // dedykowanej przerwie), wiec nie moze sklejic sie z zadnym z nich
-  // (przekracza kazdy prog `sameLine`, wlacznie ze sciezka indeksu
-  // gorny/dolny). X siega w rynne. Pozostaje w [0,792] (domyslny MediaBox) —
-  // Y poza tym zakresem falszywie trafia w pasmo naglowka/stopki (Z2, `spanning.ts`).
+  // An isolated large element — Y far from every normal row (in a dedicated gap), so it can't merge
+  // with any of them (it exceeds every `sameLine` threshold, including the superscript/subscript
+  // path). X reaches into the gutter. Stays within [0,792] (the default MediaBox) — a Y outside that
+  // range would falsely land in the header/footer band (`spanning.ts`).
   const mainRowsBottom = startY - (rowCount - 1) * rowSpacing;
   const bigIntrusion = [{ text: 'INTRUDES HERE', x: 150, y: mainRowsBottom - 90, size: 51 }];
 
   const baseY = mainRowsBottom - 210;
-  // [KROK-11, odkrycie] Ten sam wzorzec jest TERAZ dodatkowo zlapany o wiele
-  // wczesniej przez `lineEdgeSplit.ts` (Z1, dziala PRZED `gutterRepair.ts`,
-  // NIE zalezy od confidence kolumn w ogole) — patrz `groupEFixtures.test.ts`.
+  // The same pattern is NOW additionally caught much earlier by `lineEdgeSplit.ts` (it runs BEFORE
+  // `gutterRepair.ts` and doesn't depend on column confidence at all) — see `groupEFixtures.test.ts`.
   const anomaly = [
     { text: 'Short left end here', x: 45, y: baseY + 30 },
     { text: 'Sidebar Title', x: 313, y: baseY + 22, size: 14 },

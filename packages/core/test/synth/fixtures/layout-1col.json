@@ -1,6 +1,6 @@
 {
   "id": "layout-1col",
-  "description": "Uklad jednokolumnowy, 10 linii, zero rynny — testuje ze brak dolin w histogramie daje jedna kolumne (KROK-6 Z3).",
+  "description": "A single-column layout, 10 lines, zero gutter — tests that the absence of valleys in the histogram gives one column.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 10
   },
   "expected": {
-    "note": "Konstrukcja: 10 linii, kazda na wlasnym Y (700, 680, ..., 520), wszystkie zaczynajace sie x=72, konczace sie w x zakresie ~350-500 (naturalnie rozne dlugosci, brak stalej rynny). detectColumns() powinien zwrocic DOKLADNIE 1 ColumnRegion z confidence=1 (brak kandydatow na dolin)."
+    "note": "Construction: 10 lines, each on its own Y (700, 680, ..., 520), all starting at x=72, ending in the x range ~350-500 (naturally different lengths, no constant gutter). detectColumns() should return EXACTLY 1 ColumnRegion with confidence=1 (no valley candidates)."
   }
 }

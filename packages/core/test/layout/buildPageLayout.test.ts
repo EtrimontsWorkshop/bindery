@@ -22,8 +22,8 @@ async function runFullPipeline(buf: Buffer) {
   return { inv, textLayout, result };
 }
 
-describe('buildPageLayouts — pipeline end-to-end na prawdziwych fixturach', () => {
-  it('text-rotated-marginalia: strumien 0° i 90° obecne, marginalia sklasyfikowane, kolejnosc czytania zachowana', async () => {
+describe('buildPageLayouts — an end-to-end pipeline on real fixtures', () => {
+  it('text-rotated-marginalia: the 0° and 90° streams present, marginalia classified, reading order preserved', async () => {
     const { result } = await runFullPipeline(buildTextRotatedMarginalia());
     expect(result.pages).toHaveLength(1);
     const page = result.pages[0]!;
@@ -41,14 +41,14 @@ describe('buildPageLayouts — pipeline end-to-end na prawdziwych fixturach', ()
     expect(result.blocks.every((b) => typeof b.matchedRuleId === 'string')).toBe(true);
   });
 
-  it('text-fragmented-75: 40 linie oddzielne (rozne Y) -> jedna kolumna, brak wyjatku', async () => {
+  it('text-fragmented-75: 40 lines separate (different Y) -> one column, no exception', async () => {
     const { result } = await runFullPipeline(buildTextFragmented75());
     expect(result.pages).toHaveLength(1);
     expect(result.pages[0]!.columns.length).toBeGreaterThanOrEqual(1);
     expect(result.blocks.length).toBeGreaterThan(0);
   });
 
-  it('determinizm: dwa uruchomienia na tym samym pliku daja identyczny wynik', async () => {
+  it('determinism: two runs on the same file give an identical result', async () => {
     const buf = buildTextRotatedMarginalia();
     function serialize(r: Awaited<ReturnType<typeof runFullPipeline>>['result']) {
       return JSON.stringify(r);

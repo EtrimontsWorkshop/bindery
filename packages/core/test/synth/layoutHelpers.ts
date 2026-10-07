@@ -7,10 +7,9 @@ import { embedFont, asciiIdentityMap } from './fonts.js';
 const FONT_PATH = join(import.meta.dirname, 'assets', 'fonts', 'Lato-Regular.ttf');
 
 /**
- * Helper wspoldzielony przez fixture'y grupy C (KROK-6 Z7) — kazda linia na
- * WLASNYM Y (jeden Tj per linia, jak w grupie B) daje w pelni przewidywalna,
- * dokladnie kontrolowana geometrie: jeden TextItem = jedna linia, bez
- * fragmentacji i bez zaleznosci od progow scalania pdf.js.
+ * A helper shared by the group C fixtures — each line on its OWN Y (one Tj per line, like in
+ * group B) gives a fully predictable, precisely controlled geometry: one TextItem = one line,
+ * with no fragmentation and no dependence on pdf.js's merging thresholds.
  */
 export interface TextLineSpec {
   text: string;
@@ -24,7 +23,7 @@ export interface RectSpec {
   y: number;
   w: number;
   h: number;
-  /** 'fill' | 'stroke' | 'both' — domyslnie 'fill'. */
+  /** 'fill' | 'stroke' | 'both' — 'fill' by default. */
   mode?: 'fill' | 'stroke' | 'both';
 }
 
@@ -79,7 +78,7 @@ export function buildLayoutPage(spec: PageLayoutSpec): Buffer {
   return writer.finish(catalogRef);
 }
 
-/** Buduje N stron z ta sama funkcja generujaca spec per numer strony (1-based) — dla fixture'ow wielostronicowych (np. layout-running-heads). */
+/** Builds N pages with the same function generating the spec per page number (1-based) — for multi-page fixtures (e.g. layout-running-heads). */
 export function buildMultiPageDocument(pageCount: number, specFor: (pageNumber: number) => PageLayoutSpec): Buffer {
   const writer = new PdfWriter();
   const catalogRef = writer.reserveObj();

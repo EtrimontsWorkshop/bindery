@@ -145,7 +145,7 @@ const profileFieldSchema = z.object({
   /** Dot path into `actor.system`, discovered via schema introspection — never a literal in module code. */
   actorSchemaPath: z.string().min(1),
   dataType: profileFieldDataTypeSchema,
-  /** The ORIGINAL example the profile author pointed at — kept for the profile-builder UI's own reference, never used at extraction time. */
+  /** The ORIGINAL example the profile author pointed at — kept for an authoring tool's own reference, never used at extraction time. */
   capture: fieldCaptureSchema,
   /**
    * The GENERALIZED extraction rule the engine actually runs against every OTHER statblock instance the detector finds —

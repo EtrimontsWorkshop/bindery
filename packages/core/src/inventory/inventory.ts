@@ -6,9 +6,9 @@ import { buildVectorRegions, type VectorRegion } from './vectorRegistry.js';
 import { walkOperators } from './walkOperators.js';
 
 /**
- * Orchestration of the inventory pass (MDD annex A8, Step 4 Z5). Page by
- * page, sequentially — NEVER Promise.all across all pages (performance
- * rule #2 from MDD §12). Zero `objs.get()`, zero `render()`.
+ * Orchestration of the inventory pass. Page by
+ * page, sequentially — NEVER Promise.all across all pages (a performance
+ * rule). Zero `objs.get()`, zero `render()`.
  */
 
 export interface InventoryResult {
@@ -106,7 +106,7 @@ export async function buildInventory(
         const baseFont = fontObj?.name;
         if (!baseFont) continue;
 
-        // [Step 9, discovery] MUST be EXACTLY the same formula as
+        // MUST be EXACTLY the same formula as
         // `fontSizeFromTransform` (layout/textGeometry.ts, used by the entire
         // downstream text/layout layer to build `TextLine.dominantFont.key`) —
         // before this fix, this file computed size from transform[2]/[3] (the
@@ -117,9 +117,9 @@ export async function buildInventory(
         // ended up in `TextLine` — lines using such a font never found their
         // role in `fontRoles` (the key was missing from the registry), which
         // was measured as 284/369 `unknown` blocks on
-        // Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf, whose dominant key was
-        // `CaxtonStd-Book@7.5`, which was NOT in `inv.fonts` (the real
-        // registry had `CaxtonStd-Book@8` and `@8.5`, built with the same
+        // a real rulebook, whose dominant key was
+        // `BodyFont@7.5`, which was NOT in `inv.fonts` (the real
+        // registry had `BodyFont@8` and `@8.5`, built with the same
         // formula as here now).
         const transform = item['transform'] as number[] | undefined;
         const size = transform ? fontSizeFromTransform(transform) : 0;

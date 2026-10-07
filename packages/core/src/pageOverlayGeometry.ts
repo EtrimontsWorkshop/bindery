@@ -1,14 +1,14 @@
 import type { Rect } from './geometry.js';
 
 /**
- * [Step 11 Z3] Conversion of a PDF bbox (Y up) -> screen/SVG-overlay
- * coordinates over the rendered page preview (Y down) — the brief states
- * directly: "write ONE conversion function, unit-test it, use ONLY it".
- * This is the FOURTH occurrence of the same bug class in the project (step
- * 4: the shape of `cm` arguments; step 5: `constructPath`; step 6:
+ * Conversion of a PDF bbox (Y up) -> screen/SVG-overlay
+ * coordinates over the rendered page preview (Y down) — ONE conversion
+ * function, unit-tested and the ONLY one to use.
+ * This is the FOURTH occurrence of the same bug class in the project (the
+ * shape of `cm` arguments, `constructPath`,
  * `item.width` already in device space) — hence it lives in
  * `packages/core`, not `packages/module` (which has NO test
- * infrastructure, see CLAUDE.md/package.json), so it can actually be
+ * infrastructure), so it can actually be
  * verified with a unit test, not just "eyeballed" in the browser.
  */
 
@@ -32,10 +32,10 @@ export interface RenderedPageGeometry {
  * (`pageOverlayGeometry.test.ts`) on directly computed examples. The
  * `90`/`180`/`270` cases have formulas derived from the same model (Y
  * flip, then rotation following pdf.js's `page.rotate` convention —
- * rotating the CONTENT clockwise), but due to the absence in `samples/`
- * (gitignored, R1) of even a single real file with rotation != 0, they
+ * rotating the CONTENT clockwise), but due to the absence of even a
+ * single real file with rotation != 0, they
  * have NOT been visually verified on a real page — marked as "to be
- * confirmed on the first real case" in RAPORT-KROK-11.md.
+ * confirmed on the first real case"
  */
 export function pdfPointToScreen(x: number, y: number, page: RenderedPageGeometry): [number, number] {
   const { pageBox, imageWidthPx, imageHeightPx, rotation } = page;
@@ -100,7 +100,7 @@ export function pdfRectToScreen(rect: Rect, page: RenderedPageGeometry): Rect {
 }
 
 /**
- * [Step 18, "Select and crop"] The INVERSE of `pdfPointToScreen` — a screen
+ * The INVERSE of `pdfPointToScreen` — a screen
  * pixel (of the overlay over the rendered page preview) -> a PDF point.
  * Needed when the user draws a bbox with the mouse themselves (we're not
  * reading an already-existing `provenance.bbox`, like `pdfRectToScreen`,

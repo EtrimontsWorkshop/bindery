@@ -3,12 +3,11 @@ import { detectGrid } from '../../src/images/detectGrid.js';
 import type { DecodedImage } from '../../src/images/normalizeDecodedImage.js';
 
 /**
- * Piksele luminancji = suma DWOCH niezaleznych funkcji "pila" (jedna w X,
- * jedna w Y), kazda z wlasnym okresem/offsetem. Gradient POZIOMY (d/dx)
- * zalezy WYLACZNIE od skladnika X (skladnik Y jest stala wzdluz wiersza) i
- * odwrotnie dla gradientu PIONOWEGO — daje to CZYSTY, jednoznaczny (jeden
- * ostry skok na okres, nie dwie krawedzie jak przy narysowanej linii) sygnal
- * okresowosci na kazdej osi z osobna, latwy do przewidzenia w testach.
+ * Luminance pixels = the sum of TWO independent "sawtooth" functions (one in X, one in Y), each
+ * with its own period/offset. The HORIZONTAL gradient (d/dx) depends ONLY on the X component (the
+ * Y component is constant along a row) and vice versa for the VERTICAL gradient — this gives a
+ * CLEAN, unambiguous periodicity signal on each axis separately (one sharp jump per period, not
+ * two edges as with a drawn line), easy to predict in tests.
  */
 function sawtooth(pos: number, size: number, offset: number): number {
   return ((((pos - offset) % size) + size) % size) / size;
@@ -35,7 +34,7 @@ function flatImage(width: number, height: number, value: number): DecodedImage {
 }
 
 describe('detectGrid', () => {
-  it('wykrywa kwadratowa siatke o znanym rozmiarze/offsecie (obie osie zgodne)', () => {
+  it('detects a square grid of a known size/offset (both axes agree)', () => {
     const img = makeGridImage(200, 200, 40, 5, 40, 12);
     const result = detectGrid(img, { minSize: 10, maxSize: 80 });
     expect(result).not.toBeNull();
@@ -45,7 +44,7 @@ describe('detectGrid', () => {
     expect(result!.confidence).toBeGreaterThan(0.3);
   });
 
-  it('dwie osie o ROZNYCH okresach -> rozmiar to srednia, pewnosc obnizona przez brak zgodnosci', () => {
+  it('two axes with DIFFERENT periods -> the size is the mean, the confidence lowered by the disagreement', () => {
     const img = makeGridImage(300, 300, 40, 0, 60, 0);
     const agreeing = detectGrid(makeGridImage(300, 300, 40, 0, 40, 0), { minSize: 10, maxSize: 100 });
     const disagreeing = detectGrid(img, { minSize: 10, maxSize: 100 });
@@ -54,8 +53,8 @@ describe('detectGrid', () => {
     expect(disagreeing!.confidence).toBeLessThan(agreeing!.confidence);
   });
 
-  it('tylko JEDNA os ma okresowosc (druga stala) -> wykrywa z niej rozmiar, offset drugiej osi = 0', () => {
-    // Skladnik Y stale 0 -> rowProfile calkowicie plaski -> brak sygnalu na tej osi.
+  it('only ONE axis has periodicity (the other constant) -> detects the size from it, the offset of the other axis = 0', () => {
+    // The Y component constantly 0 -> rowProfile completely flat -> no signal on this axis.
     const img = makeGridImage(200, 200, 30, 7, 1, 0);
     const result = detectGrid(img, { minSize: 10, maxSize: 60 });
     expect(result).not.toBeNull();
@@ -64,29 +63,29 @@ describe('detectGrid', () => {
     expect(result!.offsetY).toBe(0);
   });
 
-  it('obraz calkowicie plaski (brak jakiejkolwiek krawedzi) -> null, nie zgaduje', () => {
+  it('a completely flat image (no edge at all) -> null, doesn\'t guess', () => {
     const img = flatImage(200, 200, 128);
     expect(detectGrid(img)).toBeNull();
   });
 
-  it('obraz ponizej minimalnej krawedzi -> null', () => {
+  it('an image below the minimum edge -> null', () => {
     const img = makeGridImage(20, 20, 5, 0, 5, 0);
     expect(detectGrid(img)).toBeNull();
   });
 
-  it('maxSize <= minSize (np. bardzo maly obraz wzgledem opcji) -> null, nie rzuca', () => {
+  it('maxSize <= minSize (e.g. a very small image relative to the options) -> null, doesn\'t throw', () => {
     const img = makeGridImage(50, 50, 10, 0, 10, 0);
     expect(detectGrid(img, { minSize: 100, maxSize: 50 })).toBeNull();
   });
 
-  it('determinizm: dwa wywolania na tych samych danych daja identyczny wynik', () => {
+  it('determinism: two calls on the same data give an identical result', () => {
     const img = makeGridImage(150, 150, 25, 3, 25, 8);
     const a = detectGrid(img);
     const b = detectGrid(img);
     expect(a).toEqual(b);
   });
 
-  it('nie znajduje falszywej wielokrotnosci okresu (np. 2x prawdziwy rozmiar)', () => {
+  it('doesn\'t find a false multiple of the period (e.g. 2x the real size)', () => {
     const img = makeGridImage(240, 240, 30, 0, 30, 0);
     const result = detectGrid(img, { minSize: 10, maxSize: 100 });
     expect(result!.size).toBe(30);

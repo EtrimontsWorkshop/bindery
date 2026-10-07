@@ -3,7 +3,7 @@ import type { SchemaFieldDescriptor } from './types.js';
 /**
  * Minimal, dependency-free re-implementation of
  * `foundry.utils.getProperty` for a dot path — deliberately NOT imported
- * from Foundry (core has zero Foundry dependency, A1/`check:boundary`).
+ * from Foundry (core has zero Foundry dependency, `check:boundary`).
  * `''` (the synthetic root path) resolves to `data` itself.
  */
 function getAtPath(data: unknown, path: string): unknown {

@@ -16,16 +16,16 @@ async function textItemsOf(buf: Buffer): Promise<PdfTextItemLike[]> {
   return (tc.items as PdfTextItemLike[]).filter((i) => 'str' in i);
 }
 
-describe('runHygiene — fixture text-empty-items (grupa B)', () => {
-  it('4 itemy syntetycznej spacji pdf.js odfiltrowane jako wordBoundaries, 5 slow zachowane', async () => {
+describe('runHygiene — fixture text-empty-items (group B)', () => {
+  it('4 pdf.js synthetic space items filtered out as wordBoundaries, 5 words kept', async () => {
     const res = runHygiene(await textItemsOf(buildTextEmptyItems()));
     expect(res.items.map((i) => i.str)).toEqual(['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
     expect(res.wordBoundaries).toHaveLength(4);
   });
 });
 
-describe('runHygiene — fixture text-positional-duplicates (grupa B)', () => {
-  it('Goblin zredukowany do 1, Orc scalony z syntheticBold, Kobold bez zmian', async () => {
+describe('runHygiene — fixture text-positional-duplicates (group B)', () => {
+  it('Goblin reduced to 1, Orc merged with syntheticBold, Kobold unchanged', async () => {
     const res = runHygiene(await textItemsOf(buildTextPositionalDuplicates()));
     expect(res.items).toHaveLength(3);
     const goblin = res.items.find((i) => i.str === 'Goblin');
@@ -37,23 +37,23 @@ describe('runHygiene — fixture text-positional-duplicates (grupa B)', () => {
   });
 });
 
-describe('runHygiene — fixture text-ligatures-hyphenation (grupa B)', () => {
-  it('ligatury fi/fl rozwiniete; sklejanie przeniesienia NIE nalezy do Z1 (patrz Z5)', async () => {
+describe('runHygiene — fixture text-ligatures-hyphenation (group B)', () => {
+  it('the fi/fl ligatures expanded; joining a hyphenation break is NOT part of text hygiene (see line clustering)', async () => {
     const res = runHygiene(await textItemsOf(buildTextLigaturesHyphenation()));
     expect(res.items.map((i) => i.str)).toEqual(['office', 'flame', 'encyclo-', 'pedia']);
   });
 });
 
-describe('runHygiene — fixture text-combining-diacritics (grupa B)', () => {
-  it('obie linie identyczne po NFC', async () => {
+describe('runHygiene — fixture text-combining-diacritics (group B)', () => {
+  it('both lines identical after NFC', async () => {
     const res = runHygiene(await textItemsOf(buildTextCombiningDiacritics()));
     expect(res.items).toHaveLength(2);
     expect(res.items[1]!.str).toBe('Siła');
   });
 });
 
-describe('runHygiene — fixture text-broken-tounicode (grupa B)', () => {
-  it('unicodeConfidence < 0.3, scalanie nie wywala sie', async () => {
+describe('runHygiene — fixture text-broken-tounicode (group B)', () => {
+  it('unicodeConfidence < 0.3, merging doesn\'t blow up', async () => {
     const res = runHygiene(await textItemsOf(buildTextBrokenToUnicode()));
     expect(res.metrics.unicodeConfidence).toBeLessThan(0.3);
     expect(res.items.length).toBeGreaterThan(0);

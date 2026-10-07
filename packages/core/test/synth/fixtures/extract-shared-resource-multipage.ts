@@ -3,32 +3,26 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, checkerboardRgb } from '../images.js';
 
 /**
- * [KROK-16 Z2, czwarta iteracja naprawy] JEDEN wspoldzielony obiekt PDF (ten
- * sam `objId`, pdf.js nie duplikuje zasobu miedzy stronami) narysowany na
- * DWOCH stronach w DWOCH, kompletnie roznych miejscach — jak wspoldzielona
- * ikona/plansza uzyta kontekstowo w dwoch osobnych miejscach dokumentu, NIE
- * powtarzajacy sie ornament w tej samej pozycji (por. `extract-decorated-3pages`,
- * gdzie ozdobnik jest w TEJ SAMEJ pozycji na kazdej stronie). Kazde
- * wystapienie samo w sobie jest duze (>=40% strony, jednoznacznie `content`),
- * ale strona 1 i strona 2 uzywaja RUZNYCH wspolrzednych i proporcji.
+ * ONE shared PDF object (the same `objId`, pdf.js doesn't duplicate a resource between pages)
+ * drawn on TWO pages in TWO completely different places — like a shared icon/board used
+ * contextually in two separate places of a document, NOT a repeating ornament in the same
+ * position (cf. `extract-decorated-3pages`, where the decoration is in THE SAME position on every
+ * page). Each occurrence is large on its own (>=40% of the page, an unambiguous `content`), but
+ * page 1 and page 2 use DIFFERENT coordinates and proportions.
  *
- * Strona 1 ma DODATKOWO maly "pomocnik" nakladajacy sie rogiem na "Shared" —
- * wymusza `clusterMemberCount > 1` (strategia region-render, patrz
- * `decideExtractionStrategy` w `strategy.ts`), bo pojedynczy "czysty" obraz
- * bez klastra idzie ekstrakcja BEZPOSREDNIA (ignoruje bbox jednostki
- * calkowicie, zwraca surowe wymiary zrodlowe 200x150) — bez pomocnika test
- * nie przecwiczylby wcale liczenia unii bboksow. Strona 2 zostaje solo
- * (nieistotna dla asercji — sprawdzamy WYLACZNIE stronę 1).
+ * Page 1 has an ADDITIONAL small "helper" overlapping "Shared" with a corner — it forces
+ * `clusterMemberCount > 1` (the region-render strategy, see `decideExtractionStrategy` in
+ * `strategy.ts`), because a single "clean" image without a cluster goes through DIRECT extraction
+ * (ignoring the unit's bbox entirely, returning the raw source dimensions 200x150) — without the
+ * helper the test wouldn't exercise the bbox-union computation at all. Page 2 stays solo
+ * (irrelevant to the assertions — we check ONLY page 1).
  *
- * Testuje ze `groupIntoUnits` (buildImageExtraction.ts) liczy unie bboksow
- * jednostki WYLACZNIE z wystapien NA TEJ SAMEJ stronie co jednostka — bbox
- * jednostki renderowanej na stronie 1 NIE moze zawierac wspolrzednych z
- * wystapienia na stronie 2. Zaobserwowane wprost: `g_d0_img_p7_8` z
- * `Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf` (jeden zasob uzyty w 5 roznych
- * miejscach na 5 roznych stronach) — bbox jednostki renderowanej na jednej
- * stronie obejmowal wspolrzedne ze WSZYSTKICH 5 stron, lapiac przy renderze
- * regionu niemal cala tresc tej strony (cala strone statbloku wyekstrahowana
- * jako "obraz").
+ * Tests that `groupIntoUnits` (buildImageExtraction.ts) computes the unit's bbox union ONLY from
+ * occurrences ON THE SAME page as the unit — the bbox of a unit rendered on page 1 MUST NOT contain
+ * coordinates from the occurrence on page 2. Observed directly on a real rulebook (one resource
+ * used in 5 different places on 5 different pages) — the bbox of a unit rendered on one page
+ * covered the coordinates from ALL 5 pages, catching nearly all of that page's content when the
+ * region was rendered (a whole statblock page extracted as an "image").
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -39,8 +33,8 @@ export function build(): Buffer {
   const imgRef = imageXObject(writer, { width: 200, height: 150, rgb: checkerboardRgb(200, 150, [10, 10, 10], [240, 240, 240]) });
   const helperRef = imageXObject(writer, { width: 2, height: 2, rgb: checkerboardRgb(2, 2, [50, 50, 50], [200, 200, 200]) });
 
-  // Strona 1: waski i wysoki prostokat (aspekt ~0.32), x[20,270],y[8,784] — 40.0% powierzchni.
-  // Plus maly pomocnik (90x90pt, x[30,120],y[20,110]) nakladajacy sie na rog "Shared".
+  // Page 1: a narrow, tall rectangle (aspect ~0.32), x[20,270],y[8,784] — 40.0% of the area.
+  // Plus a small helper (90x90pt, x[30,120],y[20,110]) overlapping the corner of "Shared".
   const cs1 = new ContentStreamBuilder()
     .save()
     .cm(250, 0, 0, 776, 20, 8)
@@ -52,11 +46,10 @@ export function build(): Buffer {
     .restore();
   const contentRef1 = writer.addStreamObj('', cs1.toBuffer());
 
-  // Strona 2: TEN SAM zasob "Shared", szeroki i niski prostokat (aspekt ~1.85),
-  // x[6,606],y[6,330] — 40.1% powierzchni. Bez pomocnika (solo -> ekstrakcja
-  // bezposrednia, nieistotna dla tego testu). Zamierzenie: unia bboksow ze
-  // STRONY 1 i STRONY 2 (blad sprzed naprawy) dalaby aspekt ~0.77 —
-  // jednoznacznie odrozniane progiem < 0.5 od poprawnego wyniku (~0.32).
+  // Page 2: THE SAME "Shared" resource, a wide, short rectangle (aspect ~1.85),
+  // x[6,606],y[6,330] — 40.1% of the area. No helper (solo -> direct extraction,
+  // irrelevant to this test). Intent: the bbox union from PAGE 1 and PAGE 2 (the pre-fix bug) would
+  // give an aspect of ~0.77 — clearly told apart by the < 0.5 threshold from the correct result (~0.32).
   const cs2 = new ContentStreamBuilder().save().cm(600, 0, 0, 324, 6, 6).doXObject('Shared').restore();
   const contentRef2 = writer.addStreamObj('', cs2.toBuffer());
 

@@ -85,7 +85,7 @@ function make(mod: { build(): Buffer }, gt: FixtureGroundTruth): Fixture {
 
 export const fixtures: Fixture[] = [
   make(helloWorld, helloWorldGT as FixtureGroundTruth),
-  // Grupa A — inwentaryzacja (obrazy, fonty)
+  // Group A — inventory (images, fonts)
   make(imagesLuminosityMask, imagesLuminosityMaskGT as FixtureGroundTruth),
   make(imagesDecorated, imagesDecoratedGT as FixtureGroundTruth),
   make(imagesBleedBackground, imagesBleedBackgroundGT as FixtureGroundTruth),
@@ -94,7 +94,7 @@ export const fixtures: Fixture[] = [
   make(imagesMaskGeometry, imagesMaskGeometryGT as FixtureGroundTruth),
   make(vectorsRectangle, vectorsRectangleGT as FixtureGroundTruth),
   make(imagesInline, imagesInlineGT as FixtureGroundTruth),
-  // Grupa D — klasyfikacja i ekstrakcja obrazow (faza 3)
+  // Group D — image classification and extraction
   make(extractSingleClean, extractSingleCleanGT as FixtureGroundTruth),
   make(extractMasked, extractMaskedGT as FixtureGroundTruth),
   make(extractCluster, extractClusterGT as FixtureGroundTruth),
@@ -105,7 +105,7 @@ export const fixtures: Fixture[] = [
   make(extractIndependentTouching, extractIndependentTouchingGT as FixtureGroundTruth),
   make(extractAnchorLooseFragment, extractAnchorLooseFragmentGT as FixtureGroundTruth),
   make(extractSharedResourceMultipage, extractSharedResourceMultipageGT as FixtureGroundTruth),
-  // Grupa C — uklad (kolumny, kolejnosc czytania, bloki semantyczne)
+  // Group C — layout (columns, reading order, semantic blocks)
   make(layout1col, layout1colGT as FixtureGroundTruth),
   make(layout2col, layout2colGT as FixtureGroundTruth),
   make(layout3col, layout3colGT as FixtureGroundTruth),
@@ -117,7 +117,7 @@ export const fixtures: Fixture[] = [
   make(layoutStatblockPlain, layoutStatblockPlainGT as FixtureGroundTruth),
   make(fontsNoSuffix, fontsNoSuffixGT as FixtureGroundTruth),
   make(fontsSubsetPrefix, fontsSubsetPrefixGT as FixtureGroundTruth),
-  // Grupa B — higiena i scalanie tekstu
+  // Group B — text hygiene and merging
   make(textFragmented75, textFragmented75GT as FixtureGroundTruth),
   make(textFragmented20, textFragmented20GT as FixtureGroundTruth),
   make(textEmptyItems, textEmptyItemsGT as FixtureGroundTruth),

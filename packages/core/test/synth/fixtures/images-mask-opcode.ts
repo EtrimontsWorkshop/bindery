@@ -2,10 +2,10 @@ import { PdfWriter, catalogDict, pagesDict, pageDict } from '../rawPdf.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * Obraz-maska rysowany operatorem paintImageMaskXObject (opcode 83, /ImageMask
- * true) — sciezka dowodowa "opcode" wykrywania masek (KROK-4 Z3), jednoznaczna
- * z definicji formatu PDF (w odroznieniu od "group"/Luminosity i slabszej
- * "geometry"). Osobno: zwykly obraz tresciowy bez zadnego dowodu maski.
+ * A mask image drawn with the paintImageMaskXObject operator (opcode 83, /ImageMask true) — the
+ * "opcode" evidence path of mask detection, unambiguous by the definition of the PDF format
+ * (unlike "group"/Luminosity and the weaker "geometry"). Separately: an ordinary content image
+ * with no mask evidence.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -13,9 +13,9 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRef = writer.reserveObj();
 
-  // Maska stencilowa 2x2, 1 bit/piksel, /ImageMask true — zweryfikowane empirycznie
-  // (KROK-4): argsArray paintImageMaskXObject to POJEDYNCZY obiekt {data:objId,...},
-  // NIE string wprost jak przy paintImageXObject.
+  // A 2x2 stencil mask, 1 bit/pixel, /ImageMask true — verified empirically: the argsArray of
+  // paintImageMaskXObject is a SINGLE object {data:objId,...}, NOT a plain string like with
+  // paintImageXObject.
   const maskData = Buffer.from([0b11000000]);
   const maskRef = writer.addStreamObj(
     '/Type /XObject /Subtype /Image /Width 2 /Height 2 /ImageMask true /Decode [0 1] /BitsPerComponent 1',

@@ -10,17 +10,16 @@ import type { ResolvedOutlineNode } from './outline.js';
 import type { CIFDocument, CIFImage, CIFJournal, CIFJournalPage, Provenance } from './types.js';
 
 /**
- * CIF builder (Step 9 Z3/Z4/Z5): `SemanticBlock[]` of the whole document +
- * bookmarks (optional) + finalized images -> `CIFDocument`. Ties Z4
- * (journal hierarchy) and Z5 (blocks -> HTML) together into one pass,
- * mirroring the pattern of the project's other orchestrators
- * (`buildPageLayout.ts`, `buildImageExtraction.ts`).
+ * CIF builder: `SemanticBlock[]` of the whole document + bookmarks (optional)
+ * + finalized images -> `CIFDocument`. Ties the journal hierarchy and the
+ * blocks -> HTML conversion together into one pass, mirroring the pattern of
+ * the project's other orchestrators (`buildPageLayout.ts`,
+ * `buildImageExtraction.ts`).
  *
  * ALSO returns `imageBytesById` — the bytes of already-encoded images,
- * SEPARATELY from `CIFDocument` (which is pure data/JSON-serializable, MDD
- * §5.3). The Foundry layer (`packages/module`) uploads these bytes and
- * replaces `CIFImage.assetRef` (a placeholder here = its own `id`) with the
- * real path.
+ * SEPARATELY from `CIFDocument` (which is pure, JSON-serializable data). The
+ * Foundry layer (`packages/module`) uploads these bytes and replaces
+ * `CIFImage.assetRef` (a placeholder here = its own `id`) with the real path.
  */
 
 export interface BuildCIFDocumentInput {
@@ -32,7 +31,7 @@ export interface BuildCIFDocumentInput {
   blocks: readonly SemanticBlock[];
   /** [] when the PDF has no bookmarks — the heading-based fallback (Z4b) kicks in automatically. */
   outline: readonly ResolvedOutlineNode[];
-  /** [Step 11 Z4] `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here) — see `buildCIFImages`. */
+  /** `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here) — see `buildCIFImages`. */
   images: readonly FinalizedImage<EncodedImage>[];
   diagnostics: readonly Diagnostic[];
 }
@@ -48,10 +47,10 @@ function buildCIFImages(images: readonly FinalizedImage<EncodedImage>[]): { cifI
   const imageBytesById = new Map<string, { bytes: Uint8Array; format: string }>();
   let autoIndex = 0;
   for (const img of images) {
-    // [Step 11 Z4] `undecided` now ALSO enters the CIF (previously only
+    // `undecided` now ALSO enters the CIF (previously only
     // `content` did) — the review screen (phase 9) must show it to the
     // user, unchecked by default, instead of silently dropping it BEFORE
-    // the review phase (see KROK-11-przeglad.md Z4). `decoration`/`mask`
+    // the review phase. `decoration`/`mask`
     // are still rejected — those are already DECIDED negatives, there's
     // nothing to show for review.
     if (img.classification !== 'content' && img.classification !== 'undecided') continue;
@@ -78,17 +77,16 @@ function buildCIFImages(images: readonly FinalizedImage<EncodedImage>[]): { cifI
 }
 
 function buildJournalPage(page: JournalPageDraft, allImages: readonly EmbeddedImageForHtml[], journalIndex: number, pageIndex: number): CIFJournalPage {
-  // A3: rawText covers ALL blocks of this page, INCLUDING header/footer
-  // (skipped in `html`, but they NEVER disappear entirely).
+  // rawText covers ALL blocks of this page, INCLUDING header/footer (skipped in
+  // `html`, but they NEVER disappear entirely).
   const rawText = page.blocks.map((b) => b.rawText).join('\n\n');
   const contentBlocks = page.blocks; // header/footer/marginalia handled INSIDE blocksToHtml
-  // [Step 9, discovery] `blocksToHtml` appends images WITHOUT any block on
-  // their page to the END of its result (A3 — so as not to lose them
-  // entirely) — without this filter, EVERY journal page (each separate
-  // call) received ALL images of the entire document (measured on
-  // Wrath_&_Glory: 5/5 images on EACH of the 13 journal pages). Filtered
-  // down to the physical PDF pages actually covered by THIS journal page —
-  // one image lands on EXACTLY ONE page.
+  // `blocksToHtml` appends images WITHOUT any block on their page to the END of
+  // its result (so as not to lose them entirely) — without this filter, EVERY
+  // journal page (each separate call) received ALL images of the entire document
+  // (measured on a real book: 5/5 images on EACH of its 13 journal pages).
+  // Filtered down to the physical PDF pages actually covered by THIS journal
+  // page — one image lands on EXACTLY ONE page.
   const pagesCovered = new Set(page.blocks.map((b) => b.pageNumber));
   const images = allImages.filter((img) => pagesCovered.has(img.pageNumber));
   const { html, imageRefs } = blocksToHtml(contentBlocks, images);

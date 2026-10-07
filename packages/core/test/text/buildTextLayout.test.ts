@@ -18,15 +18,15 @@ async function openFixture(buf: Buffer): Promise<PdfDocumentLike> {
   return doc as unknown as PdfDocumentLike;
 }
 
-/** Buduje fontSizeByKey z InventoryResult.fonts — dokladnie tak, jak zrobi to prawdziwy wywolujacy (orkiestracja fazy 2). */
+/** Builds fontSizeByKey from InventoryResult.fonts — exactly as a real caller (the layout orchestration) will. */
 async function fontSizeMapFor(buf: Buffer): Promise<Map<string, number>> {
   const doc = await openFixture(buf);
   const inv = await buildInventory(doc as never);
   return new Map(inv.fonts.map((f) => [f.key, f.size]));
 }
 
-describe('buildTextLayout — text-fragmented-75/20 (kazdy token na wlasnym wierszu)', () => {
-  it('text-fragmented-75: 40 linii, pierwsze 10 to WHOLE_WORDS bez zmian (nic sie nie sklejalo przez rozne Y)', async () => {
+describe('buildTextLayout — text-fragmented-75/20 (every token on its own row)', () => {
+  it('text-fragmented-75: 40 lines, the first 10 are WHOLE_WORDS unchanged (nothing merged thanks to the different Y)', async () => {
     const buf = buildTextFragmented75();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
@@ -34,17 +34,17 @@ describe('buildTextLayout — text-fragmented-75/20 (kazdy token na wlasnym wier
     expect(lines.slice(0, 10).map((l) => l.text)).toEqual(['the', 'and', 'run', 'big', 'red', 'sky', 'day', 'old', 'new', 'sun']);
   });
 
-  it('text-fragmented-20: 50 linii w oryginalnej kolejnosci emisji', async () => {
+  it('text-fragmented-20: 50 lines in the original emission order', async () => {
     const buf = buildTextFragmented20();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
     expect(lines).toHaveLength(50);
-    expect(lines[4]!.text).toBe('a'); // splice((0+1)*4+0=4, 0, 'a') — pierwszy pojedynczy znak na pozycji 4
+    expect(lines[4]!.text).toBe('a'); // splice((0+1)*4+0=4, 0, 'a') — the first single character at position 4
   });
 });
 
-describe('buildTextLayout — text-empty-items (grupa B)', () => {
-  it('5 slow na jednej linii, syntetyczne spacje pdf.js odfiltrowane, jedna linia tekstu ze spacjami', async () => {
+describe('buildTextLayout — text-empty-items (group B)', () => {
+  it('5 words on one line, pdf.js synthetic spaces filtered out, one line of text with spaces', async () => {
     const buf = buildTextEmptyItems();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
@@ -53,8 +53,8 @@ describe('buildTextLayout — text-empty-items (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — text-positional-duplicates (grupa B)', () => {
-  it('Goblin zdedupowany, Orc syntheticBold=true na linii, Kobold bez zmian', async () => {
+describe('buildTextLayout — text-positional-duplicates (group B)', () => {
+  it('Goblin deduplicated, Orc syntheticBold=true on the line, Kobold unchanged', async () => {
     const buf = buildTextPositionalDuplicates();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
@@ -65,8 +65,8 @@ describe('buildTextLayout — text-positional-duplicates (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — text-rotated-marginalia (grupa B)', () => {
-  it('dwa strumienie: 0° isPrimary=true z 5 liniami, 90° isPrimary=false', async () => {
+describe('buildTextLayout — text-rotated-marginalia (group B)', () => {
+  it('two streams: 0° isPrimary=true with 5 lines, 90° isPrimary=false', async () => {
     const buf = buildTextRotatedMarginalia();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const streams = result.pages[0]!.streams;
@@ -84,8 +84,8 @@ describe('buildTextLayout — text-rotated-marginalia (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — text-rotated-extreme (grupa B)', () => {
-  it('strumien 90° dominujacy, obsluzone bez bledu', async () => {
+describe('buildTextLayout — text-rotated-extreme (group B)', () => {
+  it('a dominant 90° stream, handled without an error', async () => {
     const buf = buildTextRotatedExtreme();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const streams = result.pages[0]!.streams;
@@ -95,8 +95,8 @@ describe('buildTextLayout — text-rotated-extreme (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — text-broken-tounicode (grupa B)', () => {
-  it('nie wywala sie na uszkodzonym ToUnicode (PUA)', async () => {
+describe('buildTextLayout — text-broken-tounicode (group B)', () => {
+  it('doesn\'t blow up on a broken ToUnicode (PUA)', async () => {
     const buf = buildTextBrokenToUnicode();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
@@ -104,25 +104,25 @@ describe('buildTextLayout — text-broken-tounicode (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — text-combining-diacritics (grupa B)', () => {
-  it('linia juz w NFC ("Siła") pozostaje bez zmian; NFC jest stosowane i idempotentne', async () => {
+describe('buildTextLayout — text-combining-diacritics (group B)', () => {
+  it('a line already in NFC ("Siła") stays unchanged; NFC is applied and idempotent', async () => {
     const buf = buildTextCombiningDiacritics();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
     expect(lines).toHaveLength(2);
-    // Linia 2 to "ł" precomponowane (juz NFC) — musi pozostac dokladnie "Siła".
+    // Line 2 is a precomposed "ł" (already NFC) — it must stay exactly "Siła".
     expect(lines[1]!.text).toBe('Siła');
-    // Linia 1 to namiastka "l" + U+0335 (nie prawdziwa dekompozycja NFD "ł" —
-    // Unicode NIE definiuje "ł" jako rozkladajace sie na "l"+znak laczacy, patrz
-    // komentarz w fixture .ts), wiec normalize('NFC') jest tu no-opem z definicji —
-    // sprawdzamy idempotencje, NIE rownosc z linia 2 (to bylby blad zalozenia).
+    // Line 1 is a stand-in "l" + U+0335 (not a real NFD decomposition of "ł" — Unicode does NOT
+    // define "ł" as decomposing into "l" + a combining mark, see the comment in the .ts fixture),
+    // so normalize('NFC') is a no-op here by definition — we check idempotence, NOT equality with
+    // line 2 (that would be a faulty assumption).
     expect(lines[0]!.text).toBe(lines[0]!.text.normalize('NFC'));
     expect(lines[0]!.text).not.toBe(lines[1]!.text);
   });
 });
 
-describe('buildTextLayout — text-ligatures-hyphenation (grupa B)', () => {
-  it('ligatury rozwiniete, przeniesienie "encyclo-"/"pedia" sklejone w "encyclopedia"', async () => {
+describe('buildTextLayout — text-ligatures-hyphenation (group B)', () => {
+  it('ligatures expanded, the hyphenation "encyclo-"/"pedia" joined into "encyclopedia"', async () => {
     const buf = buildTextLigaturesHyphenation();
     const result = await buildTextLayout(await openFixture(buf), await fontSizeMapFor(buf));
     const lines = result.pages[0]!.streams.find((s) => s.angle === 0)!.lines;
@@ -130,8 +130,8 @@ describe('buildTextLayout — text-ligatures-hyphenation (grupa B)', () => {
   });
 });
 
-describe('buildTextLayout — determinizm', () => {
-  it('dwa uruchomienia na tym samym pliku daja identyczny wynik (po serializacji)', async () => {
+describe('buildTextLayout — determinism', () => {
+  it('two runs on the same file give an identical result (after serialization)', async () => {
     const buf = buildTextRotatedMarginalia();
     const sizeMap = await fontSizeMapFor(buf);
     function serialize(r: Awaited<ReturnType<typeof buildTextLayout>>) {

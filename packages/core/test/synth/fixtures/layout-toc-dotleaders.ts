@@ -1,12 +1,10 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Gesty spis tresci z wypunktowaniem kropkowym (5+ kropek pod rzad) — testuje
- * Z1a (profil hierarchiczny nie sklejal odrebnych pozycji na gestych stronach,
- * KROK-5/6 naprawa) i wskazowke kropkowa (BlockKind:'table' po ciagu kropek).
- * Kazda pozycja na WLASNYM Y (jeden Tj) — nie testuje scalania fragmentow (to
- * juz pokrywa grupa B), tylko poprawna klasyfikacje i brak wyjatku na gestej
- * stronie.
+ * A dense table of contents with dot leaders (5+ dots in a row) — tests gap-based word merging and
+ * the dot-leader hint (BlockKind:'table' after a run of dots). Each entry on its OWN Y (one Tj) —
+ * doesn't test fragment merging (the word-merge tests cover that), only the correct classification
+ * and no exception on a dense page.
  */
 export function build(): Buffer {
   const chapters = [

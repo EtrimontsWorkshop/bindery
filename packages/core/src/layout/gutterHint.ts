@@ -1,23 +1,23 @@
 /**
- * Gutter hint (Step 6, discovery on `samples/`) — a lightweight density
- * histogram on the X axis, the same methodology as `detectColumns` (Z3), but
+ * Gutter hint — a lightweight density
+ * histogram on the X axis, the same methodology as `detectColumns`, but
  * WITHOUT full vertical validation and WITHOUT the `ColumnRegion[]` shape:
- * this is just a HINT for line clustering (Z5, `lineCluster.ts`), not the
- * authoritative answer about columns (that still belongs solely to Z3, on
+ * this is just a HINT for line clustering (`lineCluster.ts`), not the
+ * authoritative answer about columns (that still belongs solely to column detection, on
  * already correctly split lines).
  *
  * Why this is needed at all: on real files (not synthetic fixtures) the
  * gutter between columns can be narrow (~1.2x font size, measured on
- * Cienie_posrod_mgie.pdf p. 46) — indistinguishable from an ordinary, wide
+ * a real two-column page) — indistinguishable from an ordinary, wide
  * inter-word space by distance alone, nor by the presence of a pdf.js
  * boundary (`WordBoundary`): both signals fail in exactly the same value
  * range. The only reliable signal is the CONSISTENCY of X positions across
  * multiple ROWS (rowId) at once — exactly what the histogram below computes,
- * but this MUST happen BEFORE line clustering (Z5), otherwise two columns on
- * the same row are already merged into one line before Z3 even gets a chance
+ * but this MUST happen BEFORE line clustering, otherwise two columns on
+ * the same row are already merged into one line before column detection even gets a chance
  * to see it.
  *
- * [Step 6, second fix — the first version counted density by TOKEN, not
+ * [second fix — the first version counted density by TOKEN, not
  * ROW: on a single line with 2-5 words (e.g. fixture text-empty-items) every
  * gap between words looked like a "100% empty valley" relative to the
  * handful of tokens on that one line, falsely recognized as a gutter.
@@ -41,12 +41,12 @@ export interface SpanWithRow {
 const HISTOGRAM_BIN_WIDTH_PT = 2;
 const MAX_VALLEY_ROW_RATIO = 0.05;
 /**
- * [Step 6, discovery] A lower threshold than in `detectColumns` (10pt there) —
- * this hint operates on RAW TOKENS (noisier than Z3's finished lines), and
+ * A lower threshold than in `detectColumns` (10pt there) —
+ * this hint operates on RAW TOKENS (noisier than finished lines), and
  * its error in one direction is cheap (worst case, it unnecessarily splits a
  * line with an unusually wide gap), while in the other direction it's costly
- * (a silent bug merging columns into text). Measured on
- * Cienie_posrod_mgie.pdf p. 20: the true ~10pt gutter on raw tokens
+ * (a silent bug merging columns into text). Measured on a real
+ * two-column page: the true ~10pt gutter on raw tokens
  * sometimes measures a bit narrower than on the final lines (a wider token
  * overlaps the edge of the gutter), so at threshold=10pt the whole candidate
  * was rejected and the merge came back.

@@ -3,13 +3,12 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb, luminosityExtGState } from '../images.js';
 
 /**
- * Obraz duzy (>=40% strony, jednoznaczne `content`) pod maska luminancyjna
- * NIEJEDNOLITA — lewa polowa maski biala (widoczna), prawa czarna (ukryta).
- * Celowo NIEJEDNOLITA (nie jak `luminosityMaskForm` w images.ts, ktory dla
- * innych testow uzywa jednolitej bieli) — pozwala PO renderze zweryfikowac
- * fakt: lewa i prawa polowa WYNIKU musza byc WYRAZNIE rozne (maska faktycznie
- * zastosowana), zamiast tylko sprawdzac, ze `strategy==='region-render'`
- * (co udowadnia tylko wybor sciezki, nie EFEKT).
+ * A large image (>=40% of the page, an unambiguous `content`) under a NON-UNIFORM luminosity mask —
+ * the left half of the mask white (visible), the right black (hidden). Deliberately NON-UNIFORM
+ * (unlike `luminosityMaskForm` in images.ts, which uses a uniform white for other tests) — it
+ * lets us verify AFTER the render that the left and right halves of the RESULT are CLEARLY
+ * different (the mask was actually applied), instead of only checking that
+ * `strategy==='region-render'` (which proves only the choice of path, not the EFFECT).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -19,47 +18,41 @@ export function build(): Buffer {
 
   const contentImgRef = imageXObject(writer, { width: 4, height: 4, rgb: solidRgb(4, 4, 220, 40, 40) });
 
-  // Maska 2x1: lewy piksel bialy (widoczny), prawy czarny (ukryty).
+  // A 2x1 mask: the left pixel white (visible), the right black (hidden).
   //
-  // [KROK-7, odkrycie] BBox/cm formy MUSI odpowiadac jednostce kwadratu
-  // ([0 0 1 1], bez dodatkowego wewnetrznego skalowania) — CTM w momencie
-  // wykonania `gs` (a wiec i formy maski) JEST JUZ tym samym CTM co przy
-  // rysowaniu tresci (500x/600x, ustawionym przez zewnetrzny `cm` PRZED `gs`).
-  // Wczesniejsza wersja tego fixture'u dodawala WEWNATRZ formy JESZCZE JEDNO
-  // `100 0 0 100 0 0 cm` (z BBox [0 0 100 100]) — to mnozylo sie z zewnetrznym
-  // skalowaniem (500*100=50000), przez co widoczny (po przycieciu do strony)
-  // fragment maski obejmowal WYLACZNIE pierwszy (bialy) piksel zrodla —
-  // czarna polowa ladowala w device-space daleko poza strona. Zweryfikowane
-  // empirycznie (debug: skan wiersza sklejonego platna maski pokazywal biel
-  // na CALEJ szerokosci, mimo poprawnie zdekodowanych bajtow [255,255,255,0,0,0]
-  // w `page.objs`) — to byl blad konstrukcji fixture'u, nie pdf.js/@napi-rs/canvas.
+  // The form's BBox/cm MUST correspond to the unit square ([0 0 1 1], with no additional internal
+  // scaling) — the CTM at the moment of `gs` (and so of the mask form) IS ALREADY the same CTM as
+  // when drawing the content (500x/600x, set by the outer `cm` BEFORE `gs`). An earlier version of
+  // this fixture added INSIDE the form ANOTHER `100 0 0 100 0 0 cm` (with BBox [0 0 100 100]) —
+  // that multiplied with the outer scaling (500*100=50000), so the part of the mask visible (after
+  // clipping to the page) covered ONLY the first (white) source pixel — the black half landed
+  // far outside the page in device space. Verified empirically (debug: scanning a row of the
+  // flattened mask canvas showed white across the WHOLE width, despite correctly decoded bytes
+  // [255,255,255,0,0,0] in `page.objs`) — it was a bug in the fixture's construction, not in
+  // pdf.js/@napi-rs/canvas.
   //
-  // [KROK-7, odkrycie #3 — pdf.js x @napi-rs/canvas] /CS /DeviceRGB tutaj
-  // NIE /DeviceGray (mimo ze DeviceGray jest tekstowo-poprawnym/typowym
-  // wyborem dla maski luminancyjnej) — CELOWO, zeby ominac PRAWDZIWY blad w
-  // renderze Node: `CanvasGraphics.prototype.#convertGroupToGray` (pdf.mjs,
-  // wywolywane w `endGroup` gdy `group.isGray===true`, co evaluator ustawia
-  // dokladnie wtedy gdy Group dict formy ma `/CS /DeviceGray`) probuje
-  // "odszarzyc" platno grupy przez SAMO-blit: `groupCtx.filter='grayscale(1)';
-  // groupCtx.globalCompositeOperation='copy'; groupCtx.drawImage(canvas,0,0)`
-  // gdzie `canvas === groupCtx.canvas` (zrodlo = cel TEGO SAMEGO rysowania).
-  // Zweryfikowane empirycznie (debug: dump pikseli platna maski TUZ PRZED i
-  // TUZ PO tym wywolaniu): PRZED — poprawny podzial bialy/czarny; PO — CALE
-  // platno jednolicie biale. `@napi-rs/canvas` nie implementuje faktycznie
-  // filtra `grayscale(1)` (`FeatureTest.isCanvasFilterSupported` mylnie
-  // raportuje wsparcie, bo tylko sprawdza `ctx.filter !== undefined` — patrz
-  // tez `NodeFilterFactory.addLuminosityFilter` ktore z tego samego powodu
-  // zwraca `"none"`, wymuszajac osobna, POPRAWNA reczna sciezke konwersji
-  // luminancja->alfa w `_bakeSMaskCanvas`), a samo-blit z `globalCompositeOperation
-  // ='copy'` w tej sytuacji zeruje/zamazuje tresc zamiast ja kopiowac.
-  // TO NIE JEST blad w tym repo ani w naszym fixture — to blad w interakcji
-  // pdf.js(Node/`NodeCanvasFactory`)+`@napi-rs/canvas`, ktory NIE dotyczy
-  // prawdziwego Foundry/przegladarki (`browserRegionRenderer`, OffscreenCanvas,
-  // gdzie `DOMFilterFactory` buduje prawdziwy filtr SVG). Omijamy go tutaj
-  // przez `/CS /DeviceRGB` (nie ustawia `group.isGray`, semantyka Luminosity
-  // nadal pochodzi z `/S /Luminosity` w ExtGState, nie z Group CS) — patrz
-  // RAPORT-KROK-7.md, sekcja "odkrycia pdf.js", po pelny opis i ocene ryzyka
-  // dla prawdziwych PDF-ow uzywajacych DeviceGray (typowa/zalecana praktyka).
+  // /CS /DeviceRGB here, NOT /DeviceGray (although DeviceGray is the textually correct/typical choice
+  // for a luminosity mask) — DELIBERATELY, to avoid a REAL bug in the Node render:
+  // `CanvasGraphics.prototype.#convertGroupToGray` (pdf.mjs, called in `endGroup` when
+  // `group.isGray===true`, which the evaluator sets exactly when the form's Group dict has
+  // `/CS /DeviceGray`) tries to "desaturate" the group's canvas by SELF-blitting:
+  // `groupCtx.filter='grayscale(1)'; groupCtx.globalCompositeOperation='copy';
+  // groupCtx.drawImage(canvas,0,0)` where `canvas === groupCtx.canvas` (source = target of the SAME
+  // draw). Verified empirically (debug: a dump of the mask canvas pixels RIGHT BEFORE and RIGHT
+  // AFTER that call): BEFORE — a correct white/black split; AFTER — the WHOLE canvas uniformly
+  // white. `@napi-rs/canvas` doesn't actually implement the `grayscale(1)` filter
+  // (`FeatureTest.isCanvasFilterSupported` wrongly reports support, because it only checks
+  // `ctx.filter !== undefined` — see also `NodeFilterFactory.addLuminosityFilter`, which for the
+  // same reason returns `"none"`, forcing a separate, CORRECT manual luminance->alpha conversion
+  // path in `_bakeSMaskCanvas`), and a self-blit with `globalCompositeOperation='copy'` in that
+  // situation wipes out the content instead of copying it. THIS IS NOT a bug in this repo or in our
+  // fixture — it is a bug in the interaction of pdf.js (Node/`NodeCanvasFactory`) +
+  // `@napi-rs/canvas`, which does NOT affect real Foundry/the browser (`browserRegionRenderer`,
+  // OffscreenCanvas, where `DOMFilterFactory` builds a real SVG filter). We bypass it here with
+  // `/CS /DeviceRGB` (it doesn't set `group.isGray`; the Luminosity semantics still come from
+  // `/S /Luminosity` in the ExtGState, not from the Group CS) — see the pdf.js findings notes for
+  // the full description and risk assessment for real PDFs using DeviceGray (the typical,
+  // recommended practice).
   const maskPixels = Buffer.from([255, 255, 255, 0, 0, 0]);
   const maskImgRef = imageXObject(writer, { width: 2, height: 1, rgb: maskPixels });
   const maskFormContent = Buffer.from('/MaskImg Do\n', 'latin1');

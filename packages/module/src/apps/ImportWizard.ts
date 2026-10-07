@@ -15,20 +15,20 @@ interface WizardState {
 }
 
 /**
- * Risk I3: pdf.js is NOT imported at the module level — only inside
+ * pdf.js is NOT imported at the module level — only inside
  * #onAnalyze, when the user actually opens the window and clicks analyze.
- * Verified in Z7: a world that never opens this window should not download
+ * Verified: a world that never opens this window should not download
  * pdf.mjs or @bindery/core (which re-exports types, but the inspectDocument
  * code inside it also dynamically imports pdfjs-dist — @bindery/core itself
  * is small).
  *
- * [Step 11] `ReviewScreen` is DYNAMICALLY imported only in `#onOpenReview`
- * (the same I3 reason — not loading the <40KB world-startup budget with the
+ * `ReviewScreen` is DYNAMICALLY imported only in `#onOpenReview`
+ * (for the same reason — not loading the <40KB world-startup budget with the
  * whole review screen's code, virtualization etc., which are needed ONLY
  * after the button is actually clicked). This file no longer creates any
  * Foundry documents by itself — it ONLY builds a `CIFDocument` and hands
  * control to `ReviewScreen`, which is the ONLY place that creates
- * Scene/JournalEntry documents (A5: a human always reviews before saving).
+ * Scene/JournalEntry documents (a human always reviews before saving).
  */
 export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
@@ -43,7 +43,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       // [redesign 2a] 480 -> 560: the drop zone + profile card need more
       // breathing room than the old, cramped tabular layout.
       width: 560,
-      // [Step 8, discovery] `height: 'auto'` doesn't allow scrolling when
+      // `height: 'auto'` doesn't allow scrolling when
       // the content (the extracted-images grid) grows beyond the visible
       // area — the window simply clips the rest with no scrollbar. A fixed
       // height + CSS `overflow-y` on `.window-content` (Foundry's default)
@@ -188,7 +188,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     } catch (err: unknown) {
       this.#state.status = 'error';
       const name = (err as { name?: string } | null)?.name;
-      // R4: an encrypted PDF -> a readable message, zero attempts to bypass
+      // An encrypted PDF -> a readable message, zero attempts to bypass
       // protections, zero unhandled exception in the console.
       this.#state.errorMessage =
         name === 'PasswordException'
@@ -201,7 +201,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Step 11] Replaces the old extractImages->buildJournals->createJournals
+   * Replaces the old extractImages->buildJournals->createJournals
    * chain (each step creating documents IMMEDIATELY, with no review) — it
    * now builds the whole `CIFDocument` (images+scenes+journals+diagnostics),
    * opens a page preview, and hands EVERYTHING to the review screen. Zero

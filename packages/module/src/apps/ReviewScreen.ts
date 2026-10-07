@@ -17,11 +17,11 @@ import { eraseImage } from './ImageEraseApp.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
-/** [Step 17] Below this threshold, the grid auto-detection suggestion (`detectGrid.ts`) is too weak to guess anything from — see `#pickGridForImage`. */
+/** Below this threshold, the grid auto-detection suggestion (`detectGrid.ts`) is too weak to guess anything from — see `#pickGridForImage`. */
 const MIN_GRID_SUGGESTION_CONFIDENCE = 0.4;
 
 /**
- * [Step 20, at user request] Core's auto-detection of "this is a whole
+ * Core's auto-detection of "this is a whole
  * scene/map" (`doc.scenes`, CIFScene) and "this is the full book text as a
  * journal" (`doc.journals`, CIFJournal from the PDF bookmark hierarchy) is
  * disabled "for now" — a flag instead of removing the code, so it can be
@@ -71,15 +71,13 @@ export interface ReviewScreenResult {
 }
 
 /**
- * [Step 11] Review screen (phase 9) — split-pane ApplicationV2, virtualized
- * lists (Z2), page preview + bbox overlays (Z3), selection model (Z4), a
- * read-only journal tree (Z5), the target screen (Z6), the diagnostics panel
- * (Z7). PURE presentation/selection over an already-built `CIFDocument` —
- * zero decision logic (classification/CIF is built EXCLUSIVELY in
- * `packages/core`, check:boundary A1).
+ * Review screen — split-pane ApplicationV2, virtualized lists, page preview + bbox overlays,
+ * selection model, a read-only journal tree, the target screen, the diagnostics panel. PURE
+ * presentation/selection over an already-built `CIFDocument` — zero decision logic
+ * (classification/CIF is built EXCLUSIVELY in `packages/core`, `check:boundary`).
  *
  * Opened dynamically (see `ImportWizard.ts`) — NOT statically imported from
- * `main.ts`, so as not to burden the <40KB world-startup budget (I3).
+ * `main.ts`, so as not to burden the <40KB world-startup budget.
  */
 export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   static override DEFAULT_OPTIONS = {
@@ -177,7 +175,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   static readonly #PAGE_CACHE_SIZE = 5;
   #pageRenderToken = 0;
 
-  /** [Step 11 Z3] Id of the image highlighted by a click ON THE LIST OR on the bbox overlay — works both ways. */
+  /** Id of the image highlighted by a click ON THE LIST OR on the bbox overlay — works both ways. */
   #highlightedImageId: string | null = null;
   #overlayImages: readonly CIFImage[] = [];
 
@@ -202,7 +200,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   /** [User request, "I'd prefer a smaller angle than 90 degrees, e.g. every 10"] Step for a single `#rotateImage` click — a minor correction (e.g. a slightly skewed scanned map), not a full quarter-turn. */
   static readonly #IMAGE_ROTATE_STEP_DEG = 10;
 
-  // ---- [Step 18] "Select and crop" — manual selection of a page fragment --------
+  // ---- "Select and crop" — manual selection of a page fragment --------
   /** Mode toggled on/off by a button in the page-preview toolbar — see `#onToggleSelectMode`. */
   #isSelectMode = false;
   /** Counter for `id`s of manually added images (`manual-crop-N`) — unique within THIS review session, which is the only requirement (see `buildCIFImages` in core: `id` is merely a local key for this document). */
@@ -238,8 +236,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    */
   #imageAdjustRotation: { imageId: string; rotationRad: number } | null = null;
   /**
-   * [Step 19, bug reported live: "I pick Journal and change page, and it
-   * reverts to Scene"] The bulk-operations bar (`bulkDestination`/
+   * The bulk-operations bar (`bulkDestination`/
    * `bulkJournalGroup`) is a plain `<select>`/`<input>` in the Handlebars
    * markup, with NO `{{value}}` bound to persistent state (unlike e.g.
    * `targets.namePrefix`) — every `render()` (including plain ◄/► page
@@ -515,7 +512,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return super.close(options);
   }
 
-  // ---- Page preview (Z3) ----------------------------------------------
+  // ---- Page preview ----------------------------------------------
 
   async #ensurePageImage(pageNumber: number): Promise<void> {
     if (this.#pageImageCache.has(pageNumber)) return;
@@ -566,8 +563,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const height = img.naturalHeight || img.clientHeight;
       if (!width || !height) return;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      // [Step 18, fix for reported bug "misses, it's shifted to the
-      // right"] The overlay's CSS box MUST have exactly the same proportions
+      // The overlay's CSS box MUST have exactly the same proportions
       // as the viewBox, otherwise SVG's default `preserveAspectRatio`
       // ("xMidYMid meet") adds invisible bars and centers/scales the SVG
       // content within its own box — `width:100%;height:100%` from CSS is
@@ -624,7 +620,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#wireSelectDrag(svg, img, draw);
   }
 
-  // ---- [Step 18] "Select and crop" ---------------------------------------
+  // ---- "Select and crop" ---------------------------------------
 
   static async #onToggleSelectMode(this: ReviewScreen): Promise<void> {
     this.#isSelectMode = !this.#isSelectMode;
@@ -1258,7 +1254,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Step 42, "token as a product"] Opens `TokenPrepApp` on the CURRENT
+   * Opens `TokenPrepApp` on the CURRENT
    * image bytes (`this.#data.imageBytesById`, NOT the PDF — background
    * removal, crop/zoom, mask and frame work on already-cropped content,
    * exactly like `#rotateImage`); on confirmation it replaces the
@@ -1533,7 +1529,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
   }
 
-  // ---- Image list (Z2/Z4) ---------------------------------------------
+  // ---- Image list ---------------------------------------------
 
   #mountImageList(images: CIFImage[]): void {
     // [Redesign 2a] The row stacks three lines in `.bindery-row-name-wrap`
@@ -1604,8 +1600,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const nameWrap = document.createElement('div');
     nameWrap.className = 'bindery-row-name-wrap';
 
-    // [Step 20, gap reported live: "I'm missing the ability to name selected
-    // images"] Image name directly editable IN the row — mirrors the
+    // Image name directly editable IN the row — mirrors the
     // pattern from `#buildJournalRow` (there `nameInput` mutates
     // `row.journal.name` directly on the core object). `image.caption` is
     // an ALREADY existing, optional `CIFImage` field (see
@@ -1635,7 +1630,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     meta.textContent = `${image.width}×${image.height}`;
     nameWrap.appendChild(meta);
 
-    // [Step 19] Journal group name — only makes sense for the `journal`
+    // Journal group name — only makes sense for the `journal`
     // destination (see `ReviewSelection.imageJournalGroup`), hence hidden
     // for other destinations instead of removed from the DOM (a simpler
     // visibility toggle below, in the `destSelect` change handler). A third
@@ -1653,7 +1648,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     nameWrap.appendChild(groupInput);
 
-    // [Step 42, "token as a product"] The same pattern as `groupInput`
+    // The same pattern as `groupInput`
     // above — a third line in `nameWrap`, visible SOLELY for the `token`
     // destination (the `.bindery-image-row` grid has a FIXED number of
     // columns, see `bindery.css`, so a new button must go into the ALREADY
@@ -1675,7 +1670,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     row.appendChild(nameWrap);
 
-    // [Step 14 Z4] Per-image destination — suggested from `CIFImage.targetKind`
+    // Per-image destination — suggested from `CIFImage.targetKind`
     // [User request, "all images end up in Unassigned, the user assigns
     // manually"] Always `unassigned` by default (see
     // `defaultImageDestination`) — overridable here.
@@ -1700,7 +1695,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     destSelect.addEventListener('change', () => {
       const destination = destSelect.value as ImageDestination;
       this.#selection.setImageDestination(image.id, destination);
-      // [Step 16 Z2, fix for reported bug] `#runImport` processes SOLELY
+      // `#runImport` processes SOLELY
       // selected images (checkbox) — without this, choosing a destination
       // for an image that starts UNCHECKED (EVERY image, see
       // `ReviewSelection.fromDocument` — user request, all images start
@@ -1782,7 +1777,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  // [Step 16 Z2, fix for reported bug] Journals (full book text) now start
+  // Journals (full book text) now start
   // unchecked (see `ReviewSelection.fromDocument`) — these two buttons are
   // an explicit bulk opt-in, so a user who ACTUALLY wants full-text journals
   // doesn't have to click every chapter individually.
@@ -1822,7 +1817,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Step 19, fix for reported bug] Restores the last choice in the bulk
+   * Restores the last choice in the bulk
    * operations bar (`bulkDestination`/`bulkJournalGroup`) AFTER every mount
    * of the Images tab — see the comment next to `#bulkDestinationValue`
    * above for why, without this, the choice was silently lost on every page
@@ -1892,7 +1887,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     el.textContent = `${this.#selection.selectedImageCount} / ${this.#data.document.images.length} ${game.i18n!.localize('BINDERY.review.images' as never)}`;
   }
 
-  /** [Step 11 Z3] Updates the highlight class on the already-rendered image list rows, without a full `render()` (see `#redrawOverlay`). */
+  /** Updates the highlight class on the already-rendered image list rows, without a full `render()` (see `#redrawOverlay`). */
   #refreshImageRowHighlights(): void {
     const rows = this.element.querySelectorAll<HTMLElement>('.bindery-image-row');
     for (const row of rows) {
@@ -1922,7 +1917,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return row;
   }
 
-  // ---- Journal tree (Z5) ------------------------------------------------
+  // ---- Journal tree ------------------------------------------------
 
   #mountJournalList(): void {
     this.#journalList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="journals"]'), 'journals', this.#journalRows, 40, (row) => this.#buildJournalRow(row));
@@ -1964,7 +1959,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return el;
   }
 
-  // ---- Diagnostics (Z7) -----------------------------------------------------
+  // ---- Diagnostics -----------------------------------------------------
 
   #mountDiagnosticList(container: HTMLElement | null, diagnostics?: readonly Diagnostic[]): void {
     if (!container) return;
@@ -2008,7 +2003,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return row;
   }
 
-  // ---- Tabs / step (Z2/Z6) -----------------------------------------------
+  // ---- Tabs / step -----------------------------------------------
 
   static #onSwitchTab(this: ReviewScreen, _ev: PointerEvent, target: HTMLElement): void {
     const tab = target.dataset['tab'] as ReviewTab | undefined;
@@ -2094,7 +2089,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  // ---- Import (Z6) --------------------------------------------------------
+  // ---- Import --------------------------------------------------------
 
   static async #onConfirmImport(this: ReviewScreen): Promise<void> {
     this.#isImporting = true;
@@ -2136,7 +2131,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     // Scenes — SOLELY the selected ones.
     const sceneFolderId = await ensureFolder(this.#targets.sceneFolder, 'Scene');
-    // [Step 14 Z4, fixed in Step 16 Z2] Images already handled via CIFScene
+    // Images already handled via CIFScene
     // (below) or embedded in a journal (further down) do NOT pass through
     // the per-image destination loop again — the same image shouldn't get
     // TWO documents. SOLELY for scenes/journals/pages that are ACTUALLY
@@ -2147,7 +2142,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     // image got NO document at all, contrary to the user's intent set in
     // the dropdown).
     const usedImageIds = new Set<string>();
-    // [Step 20] See the comment next to `SCENES_JOURNALS_FROM_CIF_ENABLED`
+    // See the comment next to `SCENES_JOURNALS_FROM_CIF_ENABLED`
     // at the top of the file — CIFScene/CIFJournal auto-detection is
     // disabled "for now", the same images are still available in the Images
     // tab with a Scene/Journal Destination.
@@ -2205,8 +2200,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const defaultImageName = game.i18n!.localize('BINDERY.review.defaultImageName' as never);
 
-    // [Step 19, gap reported live: "I'm missing better sorting of
-    // journals"] Images with the `journal` destination AND a non-empty
+    // Images with the `journal` destination AND a non-empty
     // group name (set in the Images tab — per-image or in bulk) go
     // TOGETHER into ONE JournalEntry (multiple image-type pages), instead of
     // each getting its own separate journal as before. Images with an EMPTY
@@ -2241,7 +2235,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           uploadedPathByImageId.set(image.id, upload.path);
           pages.push({ name: withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`), imagePath: upload.path });
         } catch (err) {
-          // [Step 27 Z1] A code distinct from `REVIEW_IMAGE_DESTINATION_FAILED` below —
+          // A code distinct from `REVIEW_IMAGE_DESTINATION_FAILED` below —
           // a different parameter shape (imageId+groupName, not name+destination), so
           // a shared code would give an inconsistent localization template.
           runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_JOURNAL_GROUP_FAILED', params: { imageId: image.id, groupName, error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
@@ -2256,22 +2250,17 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
 
-    // [Step 35 Z2] The UPLOADED `token` image path per `CIFImage.id` — the
-    // only bridge between the Images tab (what was ACTUALLY uploaded,
-    // below) and the Actors tab (what the author CHOSE as token/portrait,
-    // `ctx.imagePathResolver` passed to the adapter). Intent: an image
-    // chosen as token that for some reason didn't end up HERE (deselected
-    // in the Images tab, destination changed, upload error — see the
-    // `catch` below) simply has no entry here, so the resolver returns
-    // `null` and the adapter degrades with an explicit warning instead of
-    // writing a path to a nonexistent file (A3/A7, Z2 brief).
+    // The UPLOADED `token` image path per `CIFImage.id` — records what was ACTUALLY uploaded for
+    // images whose destination is `token`. An image that for some reason didn't end up HERE
+    // (deselected in the Images tab, destination changed, upload error — see the `catch` below)
+    // simply has no entry, instead of a path to a nonexistent file.
     const uploadedTokenImagePathById = new Map<string, string>();
 
-    // [Step 14 Z4] Per-image destination (Images tab) — SOLELY selected
+    // Per-image destination (Images tab) — SOLELY selected
     // images that have NOT already been handled as a CIFScene, embedded in
     // a journal, or gathered into a journal group above. `scene`/`journal`/
-    // `token` are created directly from a SINGLE image (MDD v2.1 §1.2, P1);
-    // `unassigned` (formerly `skip` — user request, see
+    // `token` are created directly from a SINGLE image;
+    // `unassigned` (formerly `skip`, see
     // `defaultImageDestination`) is skipped.
     for (const image of doc.images) {
       if (usedImageIds.has(image.id)) continue;
@@ -2296,15 +2285,15 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           const created = await createJournalHandoutFromImage({ name, imagePath: upload.path, folder: journalFolderId });
           entries.push({ label: name, uuid: created.uuid });
         } else {
-          // [Step 14 Z4, fixed in Step 16 Z2] 'token' — saved to disk,
-          // without creating a document (brief). Originally, a label
+          // 'token' — saved to disk,
+          // without creating a document. Originally, a label
           // without a path was INDISTINGUISHABLE from "nothing happened"
           // ("I can't see where the tokens are being saved") — we append
           // the real path returned by `FilePicker.upload()`, the only trace
           // of this save visible to the user (no document, hence no
           // `uuid`/link to open).
           entries.push({ label: `${name} — ${upload.path}` });
-          // [Step 35 Z2] Recorded AFTER a successful upload — see the
+          // Recorded AFTER a successful upload — see the
           // comment next to `uploadedTokenImagePathById` above.
           uploadedTokenImagePathById.set(image.id, upload.path);
         }
@@ -2348,7 +2337,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   /**
-   * [Step 16 Z2, wiring in GridPicker] Opens `GridPicker` (built in step 8,
+   * Opens `GridPicker` (built in step 8,
    * never called from anywhere until now — dead code) with a LIVE preview of
    * the SPECIFIC image, instead of giving every scene the same, ill-fitting
    * starting point. The user can confirm (the calibration is saved as
@@ -2362,7 +2351,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const mime = bytes.format === 'png' ? 'image/png' : 'image/webp';
     const url = URL.createObjectURL(new Blob([new Uint8Array(bytes.bytes)], { type: mime }));
     try {
-      // [Step 17] The auto-detection suggestion is passed SOLELY when
+      // The auto-detection suggestion is passed SOLELY when
       // confidence exceeds the "worth showing" threshold — below it, the
       // last manual calibration (`lastGridConfig`, see `GridPickerApp.pick`)
       // is a better starting point than guessing on a weak signal.

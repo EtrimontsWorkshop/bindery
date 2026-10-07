@@ -1,22 +1,15 @@
 /* ============================================================================
-   BINDERY — redesign 2a ("Kolumna kroków — ciemny motyw")
-   Zrodlo: design_handoff_bindery_redesign/README.md. Dotyczy ReviewScreen
-   (.bindery-review-app) i ImportWizard (.bindery-wizard).
-   [Profile Studio usunięte — "nie jestem zadowolony w jaką stronę to
-   poszło, spróbujemy zrobić to od początku"] Do tego momentu Profile
-   Studio miała WŁASNĄ sekcję niżej (`.bindery-studio-*`, zakresowaną
-   `.bindery-profile-studio .xxx`), bo dzieliła kilka klas strukturalnych
-   z ReviewScreen (.bindery-review-list, .bindery-page-nav,
-   .bindery-page-canvas-wrap, .bindery-page-overlay, .bindery-select-mode*,
-   .bindery-review-row) i potrzebowała osobnego retintingu na te same
-   `--bindery-*` tokeny. Ta sekcja i jej zakresowane reguły zostały
-   usunięte razem z resztą Profile Studio — jeśli następna wersja Studia
-   znów reużyje tych klas, przeczytaj to jeszcze raz, zanim zaczniesz
-   kopiować reguły koloru/typografii z pamięci.
+   BINDERY — dark-theme step-column layout. Applies to ReviewScreen (.bindery-review-app)
+   and ImportWizard (.bindery-wizard).
+   
+   A new window that reuses structural classes of ReviewScreen (.bindery-review-list,
+   .bindery-page-nav, .bindery-page-canvas-wrap, .bindery-page-overlay,
+   .bindery-select-mode*, .bindery-review-row) needs its own scoped rules and a separate
+   re-tint onto the same `--bindery-*` tokens — read the notes on those rules before
+   copying color/typography rules from memory.
    ============================================================================ */
 
-/* ---------- GridPicker — osobna aplikacja, POZA zakresem tego redesignu;
-   arkusz nietkniety, przeniesiony tu bez zmian. ---------- */
+/* ---------- GridPicker — a separate application, OUTSIDE the scope of the redesign; its stylesheet is carried over unchanged. ---------- */
 .bindery-grid-picker {
   display: flex;
   flex-direction: column;
@@ -56,8 +49,7 @@
   opacity: 0.8;
 }
 
-/* ---------- TokenPrepApp (KROK-42) — osobna aplikacja, ten sam minimalny
-   poziom stylizacji co GridPicker powyzej (poza zakresem redesignu 2a). ---------- */
+/* ---------- TokenPrepApp — a separate application, the same minimal level of styling as GridPicker above (outside the scope of the redesign). ---------- */
 .bindery-token-prep {
   display: flex;
   flex-direction: column;
@@ -141,7 +133,7 @@
   opacity: 0.8;
 }
 
-/* ---------- Design tokens (zakresowane do .bindery, NIE :root) ---------- */
+/* ---------- Design tokens (scoped to .bindery, NOT :root) ---------- */
 .bindery {
   --bindery-bg:        #17140f;
   --bindery-window:    #1b1815;
@@ -188,11 +180,10 @@
   --bindery-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
 }
 
-/* ---------- Fonty zwendorowane lokalnie (packages/module/fonts/) ----------
-   Okno musi dzialac offline — zero twardej zaleznosci od zapytania do Google
-   Fonts w runtime. Kazda rodzina/waga ma dwa pliki (latin-ext, potem latin
-   jako uzupelnienie) — ten sam podzial subsetow co oryginalne pliki Google,
-   zeby polskie znaki diakrytyczne (w latin-ext) dzialaly poprawnie. */
+/* ---------- Locally vendored fonts (packages/module/fonts/) ----------
+   The window must work offline — no runtime dependency on a request to Google Fonts. Each
+   family/weight has two files (latin-ext, then latin as a supplement) — the same subset split
+   as the original Google files, so Polish diacritics (in latin-ext) work correctly. */
 @font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
 @font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
 @font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Figtree-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
@@ -206,7 +197,7 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/JetBrainsMono-Medium-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../fonts/JetBrainsMono-Medium-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
 
-/* ---------- Ramka okna, pasek tytulu, tresc — wspolne dla obu okien ---------- */
+/* ---------- Window frame, title bar, content — shared by both windows ---------- */
 .bindery.application {
   background: var(--bindery-window);
   border: 1px solid rgba(246, 239, 227, 0.13);
@@ -226,7 +217,7 @@
   border-bottom: 1px solid var(--bindery-line);
 }
 
-/* Kropka statusu zastepuje ikone czcionkowa z window.icon. */
+/* The status dot replaces the icon font from window.icon. */
 .bindery .window-header::before {
   content: "";
   width: 8px;
@@ -277,14 +268,12 @@
   opacity: 1;
 }
 
-/* [redesign 2a, naprawa zgloszona na zywo] Foundry v13+ owija CSS modulow
-   (`module.json` -> "styles") automatycznie w `@layer modules.bindery` —
-   ale `:focus-visible` w core'owym `foundry2.css` jest NIEWARSTWOWY
-   (bez `@layer`), a niewarstwowa regula ZAWSZE wygrywa z warstwowa (CSS
-   Cascade Layers), niezaleznie od specyficznosci selektora czy kolejnosci w
-   pliku — std. specyficznosc/kolejnosc tu nie dzialaja. `!important` to
-   jedyny niezawodny sposob, zeby wlasny fokus (wymagany explicite w
-   design-handoff: "nigdy domyslny fokus przegladarki") faktycznie wygral. */
+/* Foundry v13+ wraps module CSS (`module.json` -> "styles") in `@layer modules.bindery`
+   automatically — but `:focus-visible` in Foundry's core `foundry2.css` is UNLAYERED, and an
+   unlayered rule ALWAYS beats a layered one (CSS Cascade Layers), regardless of selector
+   specificity or file order — so specificity/order don't help here. `!important` is the only
+   reliable way to make our own focus style win (required explicitly by the design: never the
+   browser's default focus). */
 .bindery :focus-visible {
   outline: 2px solid var(--bindery-accent) !important;
   outline-offset: 2px !important;
@@ -330,7 +319,7 @@
   color: var(--bindery-text-4);
 }
 
-/* ---------- Kontrolki wspolne (przyciski/select/input/checkbox/range) ---------- */
+/* ---------- Shared controls (buttons/select/input/checkbox/range) ---------- */
 .bindery-btn {
   position: relative;
   display: inline-flex;
@@ -446,17 +435,14 @@
   font-weight: 600;
   color: var(--bindery-text);
   font-family: var(--bindery-font-body);
-  /* [ZGŁOSZENIE na zywo, "TO SELECTED... ucięty, nie widać co jest wybrane"]
-     Bez jawnego `line-height` przegladarka liczy je jako `normal` — wartosc
-     zalezna od WEWNETRZNYCH metryk konkretnego fontu (`--bindery-font-body`,
-     lokalny .woff2), nie od `font-size`. Dla niektorych fontow `normal` bywa
-     znaczaco wieksze niz oczekiwane ~1.2-1.4x, co rozdmuchuje wysokosc
-     natywnego <select> (linia tekstu > padding), a tekst opcji zostaje
-     wyrenderowany przez silnik natywny bliżej gornej krawedzi zamiast na
-     srodku — sprawia wrazenie "uciecia", mimo ze caly napis TECHNICZNIE
-     istnieje. Jawna, liczbowa wartosc usuwa te zaleznosc od metryk fontu.
-     `box-sizing: border-box`, zeby padding nie powiekszal calkowitej
-     wysokosci ponad to, co jawnie tu ustawione. */
+  /* Without an explicit `line-height` the browser computes it as `normal` — a value that
+     depends on the INTERNAL metrics of the specific font (`--bindery-font-body`, a local
+     .woff2), not on `font-size`. For some fonts `normal` is noticeably larger than the expected
+     ~1.2-1.4x, which inflates the height of a native <select> (the text line > padding) while
+     the option text is rendered by the native engine nearer the top edge instead of centered —
+     it looks "cut off" although the whole label technically exists. An explicit numeric value
+     removes the dependence on font metrics. `box-sizing: border-box` so padding doesn't enlarge
+     the total height beyond what is set here. */
   line-height: 1.3;
   box-sizing: border-box;
 }
@@ -464,26 +450,18 @@
   border-color: var(--bindery-line-ctrl);
 }
 
-/* [ZGŁOSZENIE na żywo, Forge, "od/do zakresu stron renderują się jako kółka"
-   — POPRAWKA po zbadaniu w devtoolsach, poprzednia teoria (zwykla
-   specyficznosc) byla BLEDNA] `.bindery .bindery-input` (ponizej) NIE
-   wystarczylo — devtools (Firefox, zaznaczony element) pokazaly regule
-   wygrywajaca jako `@layer variables.base { input, select, textarea... }`
-   i `@layer reset { input, button... }` z rdzennego `foundry2.css`, NIE z
-   systemu CoC7. To DOKLADNIE ten sam mechanizm, ktory juz raz zlapal
-   `:focus-visible` nizej w tym pliku (patrz ten komentarz): Foundry v13+
-   owija CSS MODULOW automatycznie w `@layer modules.bindery`, ale
-   `foundry2.css`'s WLASNE warstwy (`reset`, `variables.base`) sa
-   zadeklarowane W INNEJ KOLEJNOSCI wzgledem `modules` — a w CSS Cascade
-   Layers KOLEJNOSC WARSTW rozstrzyga PRZED specyficznoscia selektora,
-   niezaleznie od tego, ile klas dopiszemy. Podniesienie specyficznosci
-   (`.bindery .bindery-input` zamiast `.bindery-input`) nie mogло wiec nigdy
-   zadzialac — to byl zly model mentalny problemu. Jedyny niezawodny sposob
-   (zweryfikowany juz raz dla `:focus-visible`) to `!important` na
-   WLASCIWOSCIACH KSZTALTUJACYCH (`width`/`min-width`/`border-radius`) —
-   dlaczego to dziala mimo warstw: `!important` w warstwie NIEWARSTWOWANEJ
-   (albo najpozniej zadeklarowanej) i tak przebija zwykle deklaracje w
-   warstwach wczesniejszych, per specyfikacja CSS Cascade Layers. */
+/* A rule `.bindery .bindery-input` alone was NOT enough: devtools showed the winning rule as
+   `@layer variables.base { input, select, textarea... }` and `@layer reset { input, button... }`
+   from Foundry's core `foundry2.css`, not from a game system. This is EXACTLY the same
+   mechanism that already caught `:focus-visible` further down in this file: Foundry v13+ wraps
+   MODULE CSS in `@layer modules.bindery` automatically, but `foundry2.css`'s OWN layers
+   (`reset`, `variables.base`) are declared in a DIFFERENT ORDER relative to `modules` — and in
+   CSS Cascade Layers the LAYER ORDER decides BEFORE selector specificity, however many classes
+   we add. Raising specificity (`.bindery .bindery-input` instead of `.bindery-input`) could
+   therefore never work. The only reliable way (already verified for `:focus-visible`) is
+   `!important` on the SHAPING PROPERTIES (`width`/`min-width`/`border-radius`) — why it works
+   despite layers: `!important` in an UNLAYERED (or latest-declared) layer still beats ordinary
+   declarations in earlier layers, per the CSS Cascade Layers spec. */
 .bindery .bindery-input {
   background: var(--bindery-bg);
   border: 1px solid var(--bindery-line-ctrl);
@@ -495,17 +473,15 @@
   font-size: 13px;
   box-sizing: border-box;
 }
-/* [KROK-35+ redesign, ProfileStudio] Pola liczbowe/waskie (np. zakres stron,
-   promien wyszukiwania) nie potrzebuja 150px minimum jak pole tekstowe —
-   bez tego nadpisania `min-width` wygrywalby nad wezszymi regulami
-   kontekstowymi (np. `.bindery-studio-page-range-row input { width: 5rem }`),
-   wymuszajac szerokosc mimo jawnie mniejszej wartosci `width`. */
+/* Numeric/narrow fields (e.g. a page range, a search radius) don't need a 150px minimum like a
+   text field — without this override `min-width` would win over narrower contextual rules,
+   forcing the width despite an explicitly smaller `width`. */
 .bindery .bindery-input--narrow {
   min-width: 4.5rem !important;
   width: 4.5rem !important;
 }
-/* Wieloliniowe pole (np. `<textarea>` regexu) nie powinno miec ksztaltu
-   pigulki — promien karty pasuje lepiej do prostokatnego bloku tekstu. */
+/* A multi-line field (e.g. a regex `<textarea>`) shouldn't be pill-shaped — a card radius suits
+   a rectangular block of text better. */
 .bindery textarea.bindery-input {
   border-radius: var(--bindery-r-card) !important;
 }
@@ -541,10 +517,9 @@
 /* ============================================================================
    ImportWizard — "Bindery — import PDF"
    ============================================================================ */
-/* [redesign 2a] ApplicationV2 wymaga, zeby szablon czesci "main" renderowal
-   DOKLADNIE JEDEN element korzenny — `.bindery-wizard-body` (przewijana tresc,
-   flex:1) i `.bindery-footer` (przypiety dol, flex:0 0 auto) sa rodzenstwem,
-   wiec potrzebuja wspolnego, jednego opakowania. */
+/* ApplicationV2 requires the template of the "main" part to render EXACTLY ONE root element —
+   `.bindery-wizard-body` (scrollable content, flex:1) and `.bindery-footer` (pinned bottom,
+   flex:0 0 auto) are siblings, so they need a single common wrapper. */
 .bindery-wizard-root {
   display: flex;
   flex-direction: column;
@@ -620,10 +595,10 @@
 .bindery-wizard-dropzone.bindery-dragover {
   background: rgba(214, 127, 72, 0.16);
 }
-/* Input pozostaje w DOM-ie i skupialny Tabem (label-owe przekazanie klikniecia
-   dziala niezaleznie od widocznosci) — WYLACZNIE wizualnie ukryty, zeby caly
-   obszar etykiety byl klikalny przez natywna semantyke <label>, bez
-   dekoracyjnego <button> bez wlasnego dzialania w kolejnosci Tab. */
+/* The input stays in the DOM and Tab-focusable (label click forwarding works regardless of
+   visibility) — only VISUALLY hidden, so the whole label area is clickable through native
+   <label> semantics, without a decorative <button> that has no action of its own in the Tab
+   order. */
 .bindery-wizard-dropzone input[type="file"] {
   position: absolute;
   width: 1px;
@@ -700,7 +675,7 @@
 }
 
 /* ============================================================================
-   ReviewScreen — "Bindery — przegląd"
+   ReviewScreen — "Bindery — review"
    ============================================================================ */
 .bindery-review {
   display: grid;
@@ -839,16 +814,12 @@
   opacity: 0.55;
 }
 
-/* [zgloszenie uzytkownika, "dwie zakladki: automatycznie i recznie" +
-   podzakladki Scena/Journal/Token, potem "też powinny być z prawej strony
-   bezpośrednio pod Automatycznie wykryto i Zaznaczono ręcznie"] Wariant
-   POZIOMY `.bindery-tab` — dwa poziomy podzakladek zakladki Obrazy, OBA
-   WEWNATRZ `.bindery-image-table` (prawa kolumna, na wysokosci podgladu
-   strony), jedne pod drugimi: zrodlo obrazu (Automatycznie wykryte/
-   Zaznaczone recznie) NAD przeznaczeniem (Scena/Journal/Token/Pomin,
-   `-secondary`, nieco cichszy wyglad — mniejszy font/padding, zeby
-   czytelnie wyrozniac POZIOM zagniezdzenia), bezposrednio nad naglowkiem
-   listy, ktora oba poziomy razem filtruja. */
+/* Horizontal `.bindery-tab` variant — two levels of sub-tabs of the Images tab, BOTH INSIDE
+   `.bindery-image-table` (right column, at the height of the page preview), one under the
+   other: the image SOURCE (Automatically detected / Selected manually) ABOVE the destination
+   (Scene/Journal/Token/Skip, `-secondary`, a slightly quieter look — smaller font/padding — to
+   make the nesting level clear), directly above the header of the list that both levels filter
+   together. */
 .bindery-subtabs {
   display: flex;
   gap: 4px;
@@ -860,8 +831,8 @@
   padding: 8px 8px 0;
   background: var(--bindery-panel);
 }
-/* Drugi (i kolejny) rzad podzakladek w tym samym panelu — bez powtorzonego
-   gornego paddingu, zeby dwa rzedy czytaly sie jako jedna, zwarta grupa. */
+/* The second (and following) row of sub-tabs in the same panel — without the repeated top
+   padding, so two rows read as one compact group. */
 .bindery-image-table .bindery-subtabs + .bindery-subtabs {
   padding-top: 4px;
 }
@@ -972,17 +943,7 @@
   min-height: 0;
   align-items: start;
 }
-/* [zgloszenie uzytkownika, "podglad pdf powinien zajmowac okolo polowy okna,
-   ciezko tam poprawnie zaznaczac rzeczy"] WYLACZNIE Profile Studio — tutaj
-   podglad strony to NARZEDZIE DO PRECYZYJNEGO KLIKANIA (wskazywanie tokenow,
-   zaznaczanie obszaru), nie tylko odniesienie wizualne jak w ReviewScreen
-   (gdzie 340px z design-handoffu zostaje NIETKNIETE — literalny wymiar
-   zatwierdzonego prototypu). `1fr 1fr` zamiast stalych 340px rosnie/maleje
-   razem z oknem (ktore jest `resizable: true`), zawsze ~polowa szerokosci.
-   `align-items: stretch` (nadpisuje `start` z bazowej reguly) jest CZESCIA
-   TEJ SAMEJ naprawy co ponizej (`.bindery-page-canvas-wrap`) — bez tego
-   `.bindery-review-preview` nie dostaje zadnej wysokosci do wypelnienia,
-   patrz komentarz tam. */
+
 
 
 .bindery-review-preview {
@@ -1081,10 +1042,9 @@
   background: var(--bindery-panel);
 }
 
-/* [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"] Grupa
-   −/procent/+ wewnatrz `.bindery-page-nav` — wlasny, ciasny `gap`, zeby trzy
-   elementy czytaly sie jako JEDEN klaster kontrolny, nie trzy osobne przyciski
-   rozrzucone w szerszym `gap:8px` rodzica. */
+/* The −/percent/+ group inside `.bindery-page-nav` — its own tight `gap`, so the three elements
+   read as ONE control cluster rather than three separate buttons spread across the parent's
+   wider `gap:8px`. */
 .bindery-page-zoom {
   display: flex;
   align-items: center;
@@ -1096,104 +1056,57 @@
 }
 
 
-/* [zgloszenie uzytkownika, "możliwość przybliżenia PDFa w importerze"] Powyzej
-   100% zoomu przelacza ramke ReviewScreen z domyslnego, letterboxowanego
-   `object-fit:contain` (regula bazowa powyzej) w tryb przewijany — mirror
-   JUZ istniejacego, sprawdzonego ukladu `.bindery-profile-studio` nizej w
-   pliku (`overflow:auto`, obraz skalowany WYLACZNIE szerokoscia, `<img>`
-   jako wlasny scrollport). Klasa i szerokosc obrazu naklada JS
-   (`ReviewScreen.ts`'s `#applyZoomToDom`), nie Handlebars — dziala wiec
-   identycznie po pelnym renderze (nawigacja stron) i po samym kliknieciu
-   +/− (surgical, bez `render()`, patrz `#setZoom`).
-   [zgloszenie uzytkownika, "rośnie też okno w którym jest pdf" — DRUGA,
-   poprawna naprawa] `aspect-ratio: 3/4` (regula bazowa) CELOWO NIE jest tu
-   usuwane — to WLASNIE ono trzyma ramke w STALYM rozmiarze (wysokosc =
-   szerokosc * 4/3, szerokosc niezalezna od zoomu, bo naklada ja `flex`
-   rodzica, nie tresc). Pierwsza proba tej naprawy (`aspect-ratio: unset` +
-   reczny pomiar/blokada wysokosci w JS, `getBoundingClientRect()` przed
-   kazdym przejsciem w zoom) faktycznie zatrzymywala WZROST ramki, ale
-   zepsula SAM ZOOM: kolejne kliknieta "+" przestawaly cokolwiek zmieniac
-   (zmierzona-i-zablokowana wysokosc JS przy DRUGIM kliknieciu, gdy `<img>`
-   juz mial `object-fit:none`, znowu mierzyla WLASNIE-PRZYCIETY, nie
-   prawdziwy "100%" rozmiar). `aspect-ratio` daje TEN SAM efekt (stala,
-   przewijalna ramka) w 100% CSS, bez zadnego pomiaru w JS do zepsucia. */
+/* Above 100% zoom the ReviewScreen frame switches from the default, letterboxed
+   `object-fit:contain` (the base rule above) to a scrollable mode (`overflow:auto`, the image
+   scaled by width ONLY, the `<img>` as its own scrollport). The class and the image width are
+   applied by JS (`ReviewScreen.ts`'s `#applyZoomToDom`), not by Handlebars — so it behaves
+   identically after a full render (page navigation) and after just clicking +/− (surgical,
+   without `render()`, see `#setZoom`).
+   `aspect-ratio: 3/4` (the base rule) is deliberately NOT removed here — it is exactly what
+   keeps the frame at a FIXED size (height = width * 4/3, width independent of zoom, because it
+   is imposed by the parent's `flex`, not by the content). A first attempt (`aspect-ratio:
+   unset` + a manual height measure/lock in JS, `getBoundingClientRect()` before every zoom
+   step) did stop the frame from growing, but broke the ZOOM itself: successive clicks of "+"
+   stopped changing anything (the height measured and locked on the SECOND click, when the
+   `<img>` already had `object-fit:none`, measured the already-CROPPED size, not the true
+   "100%" size). `aspect-ratio` gives the SAME effect (a fixed, scrollable frame) in pure CSS,
+   with no JS measurement to break. */
 .bindery-review-app .bindery-page-canvas-wrap.bindery-zoomed {
   overflow: auto;
 }
 .bindery-review-app .bindery-page-canvas-wrap.bindery-zoomed .bindery-page-image {
   height: auto;
-  /* [zgloszenie uzytkownika, "przybliżenie zatrzymuje się na 125%, dalej nic
-     się nie dzieje"] Foundry'owy reset (`reset.less`: goly selektor `img {
-     max-width: 100%; }`, laduje sie globalnie dla calej aplikacji) przycina
-     KAZDY `<img>` do 100% jego kontenera, NIEZALEZNIE od jawnie ustawionej
-     `width` (inline czy nie — `max-width` zawsze wygrywa z `width` w
-     algorytmie CSS, to nie jest kwestia specyficznosci selektora). Pierwsze
-     klikniecie "+" (100% -> 125%) i tak WYGLADALO na dzialajace, bo
-     jednoczesnie znika letterboxing bazowej reguly (`object-fit:contain`) —
-     ale faktyczna szerokosc zostawala przycieta do 100%, wiec KAZDE kolejne
-     klikniecie bylo bez wizualnego efektu (wszystkie wartosci >100% dawaly
-     dokladnie ten sam, przycięty wynik).
-     [zgloszenie uzytkownika, DRUGI blad, zmierzony na zywo przez DevTools
-     uzytkownika] Powyzsza naprawa (`max-width:none!important` nizej)
-     faktycznie zdjela limit — `<img style="width:150%">` mierzone w DevTools
-     PRAWIDLOWO rosnie (423x597px -> 507x717px, dokladnie +20%, zgodnie ze
-     zmiana 125%->150%) — ale WIZUALNIE "tylko przesuwa obraz", bez
-     powiekszenia. Przyczyna: `object-fit: none` (poprzednia wersja tej
-     reguly) oznacza "NIE skaluj tresci obrazu do pudelka wcale" — obraz
-     renderuje sie w SWOIM NATURALNYM rozmiarze (tu: 990x1400px, niezaleznie
-     od `width`/`height` pudelka), wysrodkowany (`object-position: 50% 50%`
-     domyslnie) i PRZYCIETY do pudelka. Rosnace pudelko (125%->150%) nie
-     POWIEKSZA wiec obrazu — odkrywa jedynie NIECO WIECEJ wysrodkowanego
-     kadru, WCIAZ w tej samej, naturalnej rozdzielczosci — stad wrazenie
-     "przesuniecia" zamiast przyblizenia. `object-fit: fill` (ta wersja)
-     ROZCIAGA tresc obrazu, zeby DOKLADNIE wypelnila pudelko — a poniewaz
-     proporcje pudelka (`height:auto` z NATURALNEGO stosunku obrazu) i tak
-     zawsze odpowiadaja proporcjom samego obrazu, rozciagniecie jest
-     RONOMIERNE (zero znieksztalcenia), po prostu skaluje CALA tresc razem z
-     rosnacym pudelkiem — dokladnie prawdziwe przyblizenie. */
+  /* Foundry's reset (`reset.less`: the bare selector `img { max-width: 100%; }`, loaded globally
+     for the whole app) clamps EVERY `<img>` to 100% of its container, REGARDLESS of an explicitly
+     set `width` (inline or not — `max-width` always wins over `width` in the CSS algorithm, it is
+     not a matter of selector specificity). The first click of "+" (100% -> 125%) still LOOKED
+     like it worked, because the letterboxing of the base rule (`object-fit:contain`) disappears
+     at the same time — but the real width stayed clamped to 100%, so EVERY further click had no
+     visual effect (all values >100% gave exactly the same clamped result).
+     
+     The fix above (`max-width:none!important` below) did lift the limit — `<img
+     style="width:150%">` measured in DevTools grows correctly (423x597px -> 507x717px, exactly
+     +20%, matching the change 125%->150%) — but VISUALLY it "only shifts the image", without
+     enlarging it. Cause: `object-fit: none` (the previous version of this rule) means "do NOT
+     scale the image content to the box at all" — the image renders at its OWN NATURAL size (here
+     990x1400px, regardless of the box's `width`/`height`), centered (`object-position: 50% 50%`
+     by default) and CROPPED to the box. A growing box (125%->150%) therefore does not ENLARGE the
+     image — it only reveals A LITTLE MORE of the centered crop, STILL at the same natural
+     resolution — hence the impression of a "shift" instead of zoom. `object-fit: fill` (this
+     version) STRETCHES the image content to fill the box EXACTLY — and since the box's
+     proportions (`height:auto` from the image's NATURAL ratio) always match the image's own
+     proportions anyway, the stretch is UNIFORM (zero distortion), it simply scales the WHOLE
+     content together with the growing box — a true zoom. */
   object-fit: fill;
-  /* `!important`: Foundry'owy `img{}` reset zyje we WLASNEJ warstwie
-     (`@layer reset` w `foundry2.css`) — przy rownej/nizszej pewnosci
-     warstwy sama wyzsza specyficznosc selektora moze NIE WYSTARCZYC (patrz
-     analogiczny, juz istniejacy przypadek `:focus-visible` w tym pliku).
-     `!important` wygrywa z nie-`!important` regulą Foundry niezaleznie od
-     warstwy/specyficznosci — najbezpieczniejszy wybor bez mozliwosci
-     przetestowania kolejnosci warstw na zywo. */
+  /* `!important`: Foundry's `img{}` reset lives in its OWN layer (`@layer reset` in
+     `foundry2.css`) — with equal/lower layer priority, higher selector specificity alone may NOT
+     be enough (see the analogous, already existing `:focus-visible` case in this file).
+     `!important` beats Foundry's non-`!important` rule regardless of layer/specificity — the
+     safest choice, since the layer order can't be tested live. */
   max-width: none !important;
 }
 
-/* [zgloszenie uzytkownika, "w nowej szacie graficznej nie da sie zaznaczac
-   obszaru"] Naprawa REGRESJI wprowadzonej redesignem 2a. MUSI byc zadeklarowana
-   PO dwoch regulach powyzej (`.bindery-page-canvas-wrap`/`.bindery-page-image`)
-   — ten sam selektor `.bindery-profile-studio .xxx` wystepuje w obu, wiec przy
-   rownej specyficznosci wygrywa kolejnosc w PLIKU, nie "waznosc" komentarza
-   (pierwsza wersja tej naprawy byla zadeklarowana WCZESNIEJ w pliku i przez to
-   byla calkowicie bez efektu — zmierzone wprost przez porownanie wynikowej
-   geometrii w przegladarce, nie zalozone). Bazowa regula wymusza STALY ksztalt
-   `aspect-ratio: 3/4` + `overflow: hidden`, a `.bindery-page-image` dostaje
-   `object-fit: contain` — dla ReviewScreen to celowa rama wizualna (literalny
-   wymiar z design-handoffu), ale strona PDF rzadko ma DOKLADNIE proporcje 3:4
-   (typowy list/A4 to ok. 0.77, blisko, ale nie identycznie) — `object-fit:
-   contain` wtedy DOKLADA puste marginesy (letterboxing) wewnatrz ramki, tak by
-   obraz zmiescil sie caly bez przyciecia.
-   Profile Studio NIE MOZE tego tolerowac: `#svgToOverlayPoint` (patrz komentarz
-   tam, "zaznaczam obszar, ale trafiam dużo niżej niz statblock" — dokladnie
-   TEN SAM ksztalt bledu, JUZ RAZ naprawiony przed tym redesignem) liczy skale
-   klik->piksel-PDF z `img.clientWidth/clientHeight` — ktore, przy wymuszonym
-   `width:100%;height:100%`, ZAWSZE rownaja sie rozmiarowi RAMKI (3:4), NIE
-   rozmiarowi faktycznie widocznego (letterboxowanego) obrazu. Skala liczona
-   z niewlasciwego rozmiaru = kazde przeciagniecie ladowalo w zly punkt/zly
-   rozmiar obszaru — potwierdzone bezposrednio na syntetycznej stronie 612x792
-   (proporcja 0.773, blisko 3:4=0.75, ale wystarczajaco inna, zeby klikniecie
-   20% w glab strony mapowalo sie z bledem rzedu kilku-kilkunastu jednostek
-   PDF na tej geometrii — i rosnacym dla stron mocniej odbiegajacych od 3:4).
-   Naprawa: dla Profile Studio wracamy do ksztaltu SPRZED redesignu — brak
-   wymuszonych proporcji, `<img>` skaluje sie WYLACZNIE szerokoscia (`height:
-   auto`), wiec jego wlasny box ZAWSZE dokladnie odpowiada widocznej tresci
-   (zero letterboxingu, zero przyciecia). Strona wyzsza niz dostepna wysokosc
-   przewija sie (`overflow: auto`), tak jak przed redesignem — `align-items:
-   stretch` na `.bindery-review-split` (powyzej w pliku) daje kontenerowi
-   realna wysokosc, w ktora `flex: 1` moze wejsc. */
+
 
 
 .bindery-review-app .bindery-page-overlay rect.bindery-overlay-selected {
@@ -1208,8 +1121,7 @@
   stroke-width: 3;
   fill: rgba(214, 127, 72, 0.15);
 }
-/* [zgloszenie uzytkownika, "mozliwosc zmiany rozmiaru automatycznie znalezionego
-   obrazu"] Uchwyty na rogach/srodkach krawedzi prostokata PODSWIETLONEGO obrazu. */
+/* Handles at the corners/edge midpoints of the rectangle of the HIGHLIGHTED image. */
 .bindery-review-app .bindery-resize-handle {
   fill: var(--bindery-accent-hi);
   stroke: var(--bindery-window);
@@ -1218,11 +1130,7 @@
   vector-effect: non-scaling-stroke;
   touch-action: none;
 }
-/* [zgloszenie uzytkownika, "zaznacza, ale nie widac obszaru jaki zaznaczam"]
-   Ten sam wzorzec braku co poprzednia naprawa (`#svgToOverlayPoint`) — regula
-   byla zakresowana WYLACZNIE do `.bindery-review-app`, wiec prostokat
-   przeciagania w Profile Studio istnial i mial poprawna geometrie (naprawiona
-   poprzednio), ale bez fill/stroke — calkowicie przezroczysty, niewidoczny. */
+
 
 
 .bindery-select-mode-toggle.active {
@@ -1233,9 +1141,8 @@
   margin: 0;
 }
 
-/* [zgloszenie uzytkownika, "obrocic zaznaczony obszar przed wycieciem"] Prostokat
-   w trakcie dostrajania obrotu — rysowany WEWNATRZ `<g transform="rotate(...)">`
-   (patrz `#renderPendingCropOverlay`), wiec sam nie potrzebuje wlasnego transformu. */
+/* A rectangle while its rotation is being fine-tuned — drawn INSIDE `<g transform="rotate(...)">`
+   (see `#renderPendingCropOverlay`), so it needs no transform of its own. */
 .bindery-review-app .bindery-pending-crop-rect {
   fill: rgba(74, 138, 122, 0.18);
   stroke: var(--bindery-sage);
@@ -1282,7 +1189,7 @@
   background: rgba(214, 127, 72, 0.14) !important;
 }
 
-/* ---- Tabela obrazow: tory kolumn IDENTYCZNE w naglowku i kazdym wierszu ---- */
+/* ---- Image table: IDENTICAL column tracks in the header and every row ---- */
 .bindery-image-table {
   border: 1px solid var(--bindery-line);
   border-radius: var(--bindery-r-card);
@@ -1321,11 +1228,9 @@
   padding: 7px 12px;
   white-space: nowrap;
 }
-/* [zgloszenie uzytkownika, "obrocenie juz wycietego obrazu — mapa zajmuje
-   cala strone, zaznaczenie by ja zle wycielo"] Obrot TRESCI juz wycietego
-   obrazu (piksele, bez ponownego renderu z PDF-a) — niezalezne od uchwytow
-   obrotu/zmiany rozmiaru na podgladzie strony (te dotycza WYBORU obszaru
-   PRZED wycieciem). Dwa male przyciski w ostatniej kolumnie wiersza. */
+/* Rotating the CONTENT of an already cropped image (pixels, without re-rendering from the PDF)
+   — independent of the rotation/resize handles on the page preview (those concern CHOOSING the
+   region BEFORE the crop). Two small buttons in the last column of the row. */
 .bindery-row-rotate {
   display: flex;
   gap: 4px;
@@ -1421,7 +1326,7 @@
   border-color: rgba(246, 239, 227, 0.12);
   color: var(--bindery-text-2);
 }
-/* [KROK-42, "token jako produkt"] Ten sam wzorzec co `.bindery-row-journal-group` — trzecia linia w `nameWrap`, widoczna wylacznie dla przeznaczenia `token`. */
+/* The same pattern as `.bindery-row-journal-group` — a third line in `nameWrap`, visible only for the `token` destination. */
 .bindery-row-prepare-token-btn {
   font-family: var(--bindery-font-mono);
   font-size: 11px;
@@ -1465,7 +1370,7 @@
   color: var(--bindery-accent-hi);
 }
 
-/* ---- Krok "Import" (docelowe foldery) i podsumowanie ---- */
+/* ---- The "Import" step (target folders) and the summary ---- */
 .bindery-target-screen {
   display: flex;
   flex-direction: column;
@@ -1515,7 +1420,7 @@
   color: var(--bindery-accent-hi);
 }
 
-/* ---- Journale (grupowanie stron) ---- */
+/* ---- Journals (grouping pages) ---- */
 .bindery-journal-preview {
   margin: 0.25rem 0;
   padding-left: 1.25rem;
@@ -1540,199 +1445,6 @@
   align-items: center;
   gap: 8px;
 }
-
-/* ============================================================================
-   ProfileStudio — WYLACZNIE stary, NIETKNIETY arkusz (poza tym zlecen niem).
-   ============================================================================ */
-
-
-/* Nie wirtualizowane (odkrycie #5 kroku 21) — `.bindery-review-row` zaklada
-   sztywna `height:100%` przydatna WYLACZNIE dla wierszy pozycjonowanych
-   bezwzglednie przez `VirtualList`; wiersze encji Studio sa zwyklymi
-   dziecmi w normalnym przeplywie, wiec potrzebuja wlasnej, naturalnej wysokosci. */
-
-
-/* [KROK-29 Z4, O3] Wzorzec trafiajacy podejrzanie czesto wzgledem liczby encji — bursztynowe, nie czerwone (nie jest to blokujacy blad jak `zero-count`, tylko sygnal "sprawdz ten regex"). */
-
-
-/* [KROK-29 Z4] Lista znalezionych encji zakladki "Sprawdz" — kazdy wiersz to JEDNA encja (nazwa/placeholder, strona, kategoria, ewentualnie czego brakuje), nie zagregowana liczba per strone. */
-
-
-/* Nakladki dopasowan (Z2) — kolor per rodzaj obszaru, TA SAMA nakladka SVG co
-   ImportWizard/ReviewScreen (`pdfRectToScreen`), tylko wlasna paleta klas.
-   [zmierzony na zywo problem] `viewBox` nakladki jest ZAWSZE wieksza niz
-   wyswietlany rozmiar (np. 990x1400 -> 528x746px, ok. 2x pomniejszenie) —
-   bez `vector-effect: non-scaling-stroke` grubosc obwodki (i wzor kreski u
-   `.bindery-studio-overlap`) skaluje sie RAZEM z tym pomniejszeniem, wiec
-   male regiony (pojedyncze slowo) staja sie niemal niewidoczne, nawet gdy
-   dane/rysunek sa poprawne (zweryfikowane wprost przez zrzut SVG z konsoli
-   uzytkownika — element byl obecny, po prostu ~1px grubosci na ekranie). */
-
-
-/* [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Wlasny kolor,
-   zeby na PDF-ie dalo sie odroznic obszar nazwy od obszaru zawodu/typu —
-   sasiaduja ze soba geometrycznie (ta sama linia), wiec identyczny kolor
-   uniemozliwilby rozroznienie ktory jest ktorym na pierwszy rzut oka. */
-
-
-/* [zmierzony na zywo problem] Samo pogrubienie obwodki (2px->4px) na
-   WSZYSTKICH regionach danej encji na raz bylo zbyt subtelne, zeby
-   uzytkownik zauwazyl EFEKT klikniecia w ostrzezenie — dodany kontrastowy
-   zloty kolor, nie tylko grubosc, zeby podswietlenie bylo jednoznacznym
-   sygnalem "to tutaj", nie tylko nieco grubsza linia w tym samym kolorze. */
-
-
-/* [Sedno etapu 1] Zachodzenie — czerwone wyroznienie WPROST na obszarze
-   przeciecia dwoch roznych encji, patrz brief kroku 22 Z2 ("ostatni wiersz
-   jest najwazniejszy"). */
-
-
-/* [KROK-23] Edytor profilu. */
-
-
-/* [zgloszenie uzytkownika, "nie da sie kliknac w zaden atak/walke na
-   obszarze zaznaczonym"] `.bindery-profile-studio .bindery-page-overlay rect`
-   (redesign "krok 35", wyzej w pliku) ma WYZSZA specyficznosc (2 klasy + typ)
-   niz bylo tu (1 klasa) — nadpisywalo `fill`/`cursor` tych prostokatow bez
-   wzgledu na kolejnosc w pliku. Prefiks `.bindery-profile-studio
-   .bindery-page-overlay rect.xxx` (3 klasy + typ) przywraca dominacje w
-   sposob NIEZALEZNY od kolejnosci deklaracji. */
-
-
-/* [KROK-29 Z2] `#regexInput`/`#regexTextarea` zwracaja teraz OPAKOWANIE (pole
-   + komunikat bledu + podpowiedz JSON), nie sam input/textarea -- wiec TO
-   OPAKOWANIE, nie samo pole, jest bezposrednim dzieckiem `.bindery-studio-form-row`
-   i musi przejac `flex: 1 1 auto` po dawnym selektorze `> input/select/textarea`. */
-
-
-/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #2, poprzednia teoria (warstwy CSS)
-   byla bledna] Wyliczony styl w devtoolsach pokazal `width: 30px` mimo
-   `width: 5rem !important` powyzej — winowajca to NIE kaskada/warstwy, tylko
-   flexbox: `.bindery-studio-form-row input { flex: 1 1 auto; min-width: 0; }`
-   (regula dzielona przez WSZYSTKIE pola w wierszach formularza) zdejmuje
-   "podloge" (`min-width:0`), wiec gdy kontener ma za malo miejsca (np. wezsze
-   okno Profile Studio niz lokalnie), przegladarka kurczy pole PONIZEJ
-   zadeklarowanej `width` — `!important` na `width` nie pomaga, bo we flexboksie
-   `width`/`flex-basis` to tylko PUNKT STARTOWY, kurczenie (`flex-shrink`)
-   dziala PO nim. Naprawa: zablokowac kurczenie tego konkretnego pola
-   (`flex-shrink: 0`), zamiast dalej „przebijac” szerokosc. */
-
-/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #3] Rozmiar pól "od"/"do" jest juz
-   poprawny (zweryfikowane w devtoolsach: 80px calosci, bez kurczenia) —
-   ALE 0.3rem odstepu (dziedziczone z `.bindery-studio-page-range-row`
-   wyzej, wspoldzielone z innymi listami wierszy) miedzy szerokim polem
-   "do" a okraglym przyciskiem usuwania sprawialo wrazenie, ze zlewaja sie
-   w jeden ksztalt (cyfra wyrownana do lewej zostawia "puste" tlo pigulki
-   tuz przy przycisku) — autor klikajacy w to miejsce trafial w przycisk
-   zamiast w pole. Wiekszy odstep TYLKO dla tego wiersza (nie zmieniamy
-   wspoldzielonej reguly bazowej, zeby nie ruszac innych list — etykiety
-   cech, reguly dolaczania). */
-
-/* [ZGŁOSZENIE na żywo, Forge — POPRAWKA #5, PRAWDZIWA przyczyna calego
-   "nachodzenia"] `.bindery-studio-form-row > span { flex: 0 0 180px; }`
-   (wspoldzielona regula, zaprojektowana dla DLUGICH etykiet gdzie indziej w
-   Studiu, np. "itemPattern") rezerwuje 180px na sam podpis "od"/"do" —
-   dwa krotkie znaki w bardzo szerokim, w wiekszosci PUSTYM pudelku. To ta
-   pusta przestrzen (nie kurczenie ani rozciaganie pola, POPRAWKI #2/#4)
-   tworzyla wrazenie, ze etykieta i jej wartosc naleza do roznych miejsc —
-   podpis "od" renderowal sie daleko od WLASNEGO pola, ktore z kolei
-   wizualnie ladowalo blisko przycisku usuwania NASTEPNEGO elementu.
-   Podpisy "od"/"do" nie potrzebuja rezerwacji szerokosci — dopasuj do
-   wlasnej tresci, TYLKO w tym wierszu (nie zmieniamy wspoldzielonej reguly
-   uzywanej przez dluzsze etykiety w innych zakladkach). */
-
-
-/* [KROK-34 Z2] Zakladka "Notatki" — lista blokow prozy dolaczanych geometrycznie. */
-
-
-/* [KROK-24 Z2] Pomiar geometrii per regula dolaczenia. */
-
-
-/* [KROK-24 Z3] Weryfikacja mapowan mechanika. */
-
-
-/* [KROK-24 Z1] Propozycja wzorca z zaznaczenia obszaru. */
-
-
-/* [KROK-25 Z1] Para nizszej pewnosci (wartosc nie wygladajaca na liczbe) -- widoczna, nie odrzucona milczaco (brief: "falszywy pozytyw kosztuje jedno klikniecie, falszywy negatyw kosztuje blad w profilu"). */
-
-
-/* [KROK-28] Panel budowania profilu wskazywaniem — zakladka Strona. */
-
-
-/* Kandydat na wartosc podswietlony po niejednoznacznym kliknieciu etykiety (Z2) — wyrazniej niz zwykly klikalny token. */
-
-
-/* Zasieg aktywnej sekcji (Z3) — obszar + przeciagalna dolna krawedz.
-   [zgloszenie uzytkownika, "nie da sie kliknac w zaden atak/walke na
-   obszarze zaznaczonym"] Ten prostokat rysuje sie NAD tokenami do klikania
-   (`#mountSectionBoundaryOverlay` woluje sie PO `#mountPickableTokens`), wiec
-   `pointer-events: none` tutaj jest KONIECZNY zeby klikniecia "przechodzily"
-   do atakow/pozycji pod spodem. Redesign "krok 35" dodal wyzej w pliku
-   `.bindery-profile-studio .bindery-page-overlay rect` z WYZSZA
-   specyficznoscia (2 klasy+typ vs 1 klasa tutaj), co nadpisywalo to
-   `pointer-events: none` z powrotem na `all` — dokladnie ten zgloszony objaw.
-   Prefiks `.bindery-profile-studio .bindery-page-overlay rect.xxx` (3
-   klasy+typ) przywraca dominacje niezaleznie od kolejnosci w pliku. */
-
-
-/* [zgloszenie uzytkownika, "nie mozna zmienic rozmiaru obszaru"] Element
-   uchwytu to `<line>` (patrz `#mountSectionBoundaryOverlay`), NIE `<rect>` —
-   selektor z typem `rect.xxx` (wzorzec uzyty wyzej dla `bindery-studio-*`
-   prostokatow) nigdy tu nie pasowal, wiec uchwyt tracil CALY swoj styl
-   (w tym `pointer-events: all` potrzebne do zlapania przeciagniecia).
-   Generyczna regula `.bindery-profile-studio .bindery-page-overlay rect`
-   (typ `rect`) i tak nigdy nie dotyczyla `<line>`, wiec typ tutaj to
-   `line`, nie `rect`. */
-
-
-/* [KROK-29 Z1] "Natychmiastowy podglad na PDF-ie" -- ktore pozycje itemPattern
-   zlapal (zielone) a ktore nie (bursztynowe), wewnatrz zasiegu sekcji.
-   `pointer-events: none` z tego samego powodu co `bindery-studio-section-extent`
-   powyzej — patrz komentarz tam. */
-
-
-/* [KROK-22, scalone w KROK-28] Profile Studio — kontener calego okna.
-   `overflow-y: auto` to siatka bezpieczenstwa zmierzona na zywo: gdy
-   rozwiniete Metadane (patrz .bindery-studio-metadata-header) dodaja
-   wysokosc do tej kolumny, a wewnetrzne panele (.bindery-review-list)
-   nie zdolaja sie skurczyc na tyle, calosc ma wciaz dokad sie przewinac
-   zamiast po prostu obcinac tresc bez dostepu. */
-
-
-/* [zgloszenie uzytkownika, "najpierw okno uzupelnienia metadanych"] Krok
-   miedzy ekranem wejsciowym a budowaniem — ten sam formularz co zwijany
-   naglowek "Metadane i zakres stron" na ekranie budowania (`#buildMetadataSection`,
-   jedno zrodlo prawdy), ale TU zawsze rozwiniety i blokujacy dalsze przejscie. */
-
-
-/* Ekran budowania: pasek trwaly (nazwy plikow, zapis) + naglowek metadanych
-   zwiniety domyslnie + zakladki-wzorce + tresc aktywnej zakladki. */
-
-
-/* [KROK-39 Z2] Przelacznik trasy NAD zakladkami-wzorcami — te same zakladki
-   (Cechy/Pochodne/Ataki/...) sluza obu trasom, budowane z innego zestawu
-   danych zaleznie od tego, ktory przycisk tutaj jest aktywny. Ten sam
-   segmentowany wyglad co `.bindery-studio-name-submode-toggle` (dwa tryby w
-   jednej zakladce "Nazwa"), zeby ekran nie mnozyl nowych konwencji wizualnych. */
-
-
-/* [KROK-39 Z2] Znacznik trasy per wiersz encji na zakladce "Sprawdz" — lista
-   miesza encje OBU tras (auto-routowane per strona), znacznik nazywa WPROST,
-   ktorej dotyczy dany wiersz (brief: "Sprawdź musi pokazywać, której trasy
-   dotyczy"). Ten sam ksztalt pigulki co `.bindery-studio-entity-category`. */
-
-
-/* [KROK-28 korekta, sedno] Zakladki to WZORCE profilu, nie widoki — kazda
-   niesie znacznik stanu (pusta/liczba/ostrzezenie), zeby autor widzial na
-   pierwszy rzut oka co zostalo do zrobienia. Pasek POZIOMY (nie pionowy rail
-   jak w ReviewScreen) — Profile Studio ma jedna, plaska liste wzorcow, nie
-   tor krokow + zakladki. Pojedyncze przyciski reuzywaja `.bindery-tab`. */
-
-
-/* [ZGŁOSZENIE po kroku 30, "Rozdzielenie nazwy od typu/zawodu"] Dwa tryby
-   wskazywania w JEDNEJ zakladce "Nazwa" — podkreslenie aktywnego trybu. */
-
 
 /* ---------- Thumbnail hover preview + ImageEraseApp ---------- */
 .bindery-row-thumb {
@@ -1818,213 +1530,15 @@
   gap: 0.5rem;
 }
 
-/* Statblock profile-builder window — own, self-contained rules (no
-   reuse of `.bindery-review-app`'s review-specific selectors, see
-   ProfileBuilderApp.ts's own header comment). */
-.bindery-profile-builder-app .bindery-pb-list-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.bindery-profile-builder-app .bindery-pb-profile-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.bindery-profile-builder-app .bindery-pb-profile-list li {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.35rem 0.25rem;
-  border-bottom: 1px solid var(--color-border-light-tertiary, #ccc);
-}
-.bindery-profile-builder-app .bindery-pb-profile-name {
-  flex: 1;
-  font-weight: 600;
-}
-.bindery-profile-builder-app .bindery-pb-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
-}
-.bindery-profile-builder-app .bindery-pb-header-actions {
-  display: flex;
-  gap: 0.35rem;
-  margin-left: auto;
-}
-.bindery-profile-builder-app .bindery-pb-mode-toggle button.active {
-  font-weight: 700;
-  text-decoration: underline;
-}
-.bindery-profile-builder-app .bindery-pb-validation-issues {
-  background: rgba(200, 60, 60, 0.12);
-  border: 1px solid rgba(200, 60, 60, 0.4);
-  border-radius: 4px;
-  padding: 0.4rem 0.6rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.85em;
-}
-.bindery-profile-builder-app .bindery-pb-tabs {
-  display: flex;
-  gap: 1rem;
-  border-bottom: 1px solid var(--color-border-light-tertiary, #ccc);
-  margin-bottom: 0.5rem;
-}
-.bindery-profile-builder-app .bindery-pb-tabs a {
-  padding: 0.25rem 0;
-  cursor: pointer;
-}
-.bindery-profile-builder-app .bindery-pb-tabs a.active {
-  font-weight: 700;
-  border-bottom: 2px solid currentColor;
-}
-.bindery-profile-builder-app .bindery-pb-grid {
-  display: grid;
-  grid-template-columns: 1.05fr 1fr 1.2fr;
-  gap: 0.75rem;
-  align-items: start;
-}
-.bindery-profile-builder-app .bindery-pb-page-wrap {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  background: #222;
-  overflow: hidden;
-}
-.bindery-profile-builder-app .bindery-pb-page-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-.bindery-profile-builder-app .bindery-pb-page-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-.bindery-profile-builder-app .bindery-pb-element {
-  fill: rgba(80, 160, 255, 0.12);
-  stroke: rgba(80, 160, 255, 0.6);
-  stroke-width: 1;
-  cursor: pointer;
-}
-.bindery-profile-builder-app .bindery-pb-element:hover {
-  fill: rgba(80, 160, 255, 0.3);
-}
-.bindery-profile-builder-app .bindery-pb-drag-rect {
-  fill: rgba(255, 180, 60, 0.2);
-  stroke: rgba(255, 150, 30, 0.9);
-  stroke-width: 1.5;
-  stroke-dasharray: 4 3;
-}
-.bindery-profile-builder-app .bindery-pb-page-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-bottom: 0.3rem;
-}
-.bindery-profile-builder-app .bindery-pb-capture-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.4rem;
-  font-size: 0.85em;
-}
-.bindery-profile-builder-app .bindery-pb-schema-tree {
-  list-style: none;
-  margin: 0.3rem 0 0;
-  padding: 0;
-  max-height: 420px;
-  overflow-y: auto;
-}
-.bindery-profile-builder-app .bindery-pb-tree-item {
-  display: block;
-  padding: 0.15rem 0.3rem;
-  cursor: pointer;
-  border-radius: 3px;
-}
-.bindery-profile-builder-app .bindery-pb-tree-item.mapped {
-  color: #2e7d32;
-}
-.bindery-profile-builder-app .bindery-pb-tree-item.selected {
-  background: rgba(80, 160, 255, 0.2);
-}
-.bindery-profile-builder-app .bindery-pb-tree-group {
-  font-weight: 700;
-  opacity: 0.7;
-  padding: 0.2rem 0.3rem;
-}
-.bindery-profile-builder-app .bindery-pb-transform-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.3rem 0;
-}
-.bindery-profile-builder-app .bindery-pb-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: rgba(0, 0, 0, 0.06);
-  border-radius: 999px;
-  padding: 0.1rem 0.5rem;
-  font-size: 0.8em;
-}
-.bindery-profile-builder-app .bindery-pb-add-transform,
-.bindery-profile-builder-app .bindery-pb-add-field {
-  display: flex;
-  gap: 0.3rem;
-  margin-top: 0.3rem;
-}
-.bindery-profile-builder-app .bindery-pb-preview-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.85em;
-  padding: 0.1rem 0;
-}
-.bindery-profile-builder-app .bindery-pb-ok {
-  color: #2e7d32;
-}
-.bindery-profile-builder-app .bindery-pb-warn {
-  color: #b45309;
-}
-.bindery-profile-builder-app .bindery-pb-collection {
-  border: 1px solid var(--color-border-light-tertiary, #ccc);
-  border-radius: 4px;
-  padding: 0.5rem;
-  margin-top: 0.5rem;
-}
-.bindery-profile-builder-app .bindery-pb-collection-header {
-  display: flex;
-  gap: 0.3rem;
-  margin-bottom: 0.3rem;
-}
-.bindery-profile-builder-app .bindery-pb-collection-fields {
-  list-style: none;
-  margin: 0.3rem 0;
-  padding: 0;
-}
-.bindery-profile-builder-app .bindery-pb-collection-fields li {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-.bindery-profile-builder-app .bindery-pb-detection-results {
-  list-style: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
 .bindery-review .bindery-sb-panel { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
 .bindery-review .bindery-sb-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .bindery-review .bindery-sb-row { display: grid; grid-template-columns: auto 48px 1fr minmax(120px, 220px); gap: 0.5rem; align-items: center; }
 .bindery-review .bindery-sb-thumb { width: 48px; height: 48px; object-fit: contain; background: rgba(255, 255, 255, 0.05); border-radius: 4px; }
 .bindery-review .bindery-sb-thumb-empty { display: inline-block; }
 
-.bindery-profile-builder-app .bindery-pb-grid-two { grid-template-columns: 1.2fr 1fr; }
-.bindery-profile-builder-app .bindery-pb-anchor-summary { font-weight: 600; }
-.bindery-profile-builder-app .bindery-pb-anchor-modes { display: flex; gap: 0.25rem; }
-.bindery-profile-builder-app .bindery-pb-anchor-modes button.active { outline: 2px solid currentColor; }
+.bindery-profiles-app .bindery-profiles { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
+.bindery-profiles-app .bindery-profiles-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.bindery-profiles-app .bindery-profiles-list li { display: grid; grid-template-columns: 1fr auto; gap: 0.1rem 0.5rem; align-items: center; padding: 0.35rem 0.5rem; border: 1px solid var(--color-border-light-tertiary, #888); border-radius: 4px; }
+.bindery-profiles-app .bindery-profiles-name { font-weight: 600; }
+.bindery-profiles-app .bindery-profiles-meta { grid-column: 1; font-size: 0.85em; opacity: 0.8; }
+.bindery-profiles-app .bindery-profiles-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 0.25rem; }

@@ -8,9 +8,9 @@ const BBOX = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
 function objsAlwaysUnresolved(): PdfObjectsLike {
   return {
     has: () => false,
-    // Jesli to kiedykolwiek zostanie wywolane pomimo has()===false, test MUSI to wykryc — patrz test nizej.
+    // If this is ever called despite has()===false, the test MUST detect it — see the test below.
     get: () => {
-      throw new Error('get() nie powinno byc wywolane bez uprzedniego has()===true — zawiesiloby sie w nieskonczonosc na prawdziwym pdf.js');
+      throw new Error('get() must not be called without a prior has()===true — it would hang forever on a real pdf.js');
     },
   };
 }
@@ -45,7 +45,7 @@ function makePage(objs: PdfObjectsLike, commonObjs: PdfObjectsLike): PdfPageForE
 }
 
 describe('extractDirect', () => {
-  it('sukces przez page.objs — nie probuje commonObjs ani renderu', async () => {
+  it('success through page.objs — doesn\'t try commonObjs or a render', async () => {
     const rgbData = { width: 2, height: 2, kind: 2, data: new Uint8ClampedArray(2 * 2 * 3) };
     const objs = objsResolvedWith(rgbData);
     const commonObjs = objsAlwaysUnresolved();
@@ -57,7 +57,7 @@ describe('extractDirect', () => {
     expect(result.diagnostics).toHaveLength(0);
   });
 
-  it('brak w page.objs (has=false) -> proba commonObjs, sukces tam', async () => {
+  it('missing in page.objs (has=false) -> tries commonObjs, succeeds there', async () => {
     const objs = objsAlwaysUnresolved();
     const rgbData = { width: 3, height: 3, kind: 2, data: new Uint8ClampedArray(3 * 3 * 3) };
     const commonObjs = objsResolvedWith(rgbData);
@@ -68,7 +68,7 @@ describe('extractDirect', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('brak w obu rejestrach -> fallback do renderu regionu, z poprawnym bbox', async () => {
+  it('missing in both registries -> falls back to a region render, with the correct bbox', async () => {
     const objs = objsAlwaysUnresolved();
     const commonObjs = objsAlwaysUnresolved();
     const { renderer, calls } = fakeRenderer(FALLBACK_IMAGE);
@@ -79,7 +79,7 @@ describe('extractDirect', () => {
     expect((calls[0] as { bbox: unknown }).bbox).toEqual(BBOX);
   });
 
-  it('[U6] rozwiazanie do null/undefined (cichy blad dekodowania JPX) daje Diagnostic i probuje nastepna sciezke', async () => {
+  it('resolving to null/undefined (a silent JPX decode failure) gives a Diagnostic and tries the next path', async () => {
     const objs = objsResolvedWith(undefined);
     const rgbData = { width: 2, height: 2, kind: 2, data: new Uint8ClampedArray(2 * 2 * 3) };
     const commonObjs = objsResolvedWith(rgbData);
@@ -92,7 +92,7 @@ describe('extractDirect', () => {
     expect(result.diagnostics[0]!.severity).toBe('warning');
   });
 
-  it('[U6] gdy WSZYSTKIE sciezki zawodza (null wszedzie), koncowy fallback to render regionu, z dwoma Diagnostic', async () => {
+  it('when ALL paths fail (null everywhere), the final fallback is a region render, with two Diagnostics', async () => {
     const objs = objsResolvedWith(null);
     const commonObjs = objsResolvedWith(undefined);
     const { renderer, calls } = fakeRenderer(FALLBACK_IMAGE);
@@ -102,13 +102,12 @@ describe('extractDirect', () => {
     expect(result.diagnostics.filter((d) => d.code === 'IMAGE_DECODE_EMPTY')).toHaveLength(2);
   });
 
-  // [KROK-16 Z2, naprawa zgloszonego bledu na zywo] Zasob "obiecany" dopiero
-  // po renderze strony (pdf.js: promocja do objs/commonObjs wymaga page.render(),
-  // nie samej getOperatorList()) — has()===false PRZED renderem, true PO.
-  it('has()=false na obu rejestrach PRZED renderem, true PO — uzywa CZYSTYCH pikseli zasobu, nie zrzutu regionu', async () => {
+  // A resource "promised" only after a page render (pdf.js: promotion to objs/commonObjs
+  // requires page.render(), not getOperatorList() alone) — has()===false BEFORE the render, true AFTER.
+  it('has()=false on both registries BEFORE the render, true AFTER — uses the CLEAN pixels of the resource, not a region snapshot', async () => {
     const rgbData = { width: 5, height: 5, kind: 2, data: new Uint8ClampedArray(5 * 5 * 3) };
     let promoted = false;
-    const objs: PdfObjectsLike = { has: () => false, get: () => { throw new Error('nie powinno byc wywolane — has()===false'); } };
+    const objs: PdfObjectsLike = { has: () => false, get: () => { throw new Error('must not be called — has()===false'); } };
     const commonObjs: PdfObjectsLike = {
       has: () => promoted,
       get: (_objId, callback) => callback(rgbData),
@@ -116,30 +115,30 @@ describe('extractDirect', () => {
     const { renderer, calls } = fakeRenderer(FALLBACK_IMAGE);
     const warmingRenderer: RegionRenderer = {
       renderRegion: async (page, bbox, opts) => {
-        promoted = true; // symuluje promocje pdf.js WEWNATRZ page.render()
+        promoted = true; // simulates pdf.js's promotion INSIDE page.render()
         return renderer.renderRegion(page, bbox, opts);
       },
     };
     const result = await extractDirect(makePage(objs, commonObjs), 'img1', BBOX, warmingRenderer, { targetLongEdgePx: 100 }, 1);
     expect(result.source).toBe('commonObjs');
     expect(result.image.width).toBe(5);
-    expect(calls).toHaveLength(1); // rozgrzewka — DOKLADNIE jeden render, nie zero i nie dwa
+    expect(calls).toHaveLength(1); // warmup — EXACTLY one render, not zero and not two
     expect(result.diagnostics).toHaveLength(0);
   });
 
-  it('has()=false na obu rejestrach, POZOSTAJE false po renderze — uzywa JUZ WYRENDEROWANYCH pikseli, bez DRUGIEGO renderu', async () => {
+  it('has()=false on both registries, STAYS false after the render — uses the ALREADY RENDERED pixels, without a SECOND render', async () => {
     const objs = objsAlwaysUnresolved();
     const commonObjs = objsAlwaysUnresolved();
     const { renderer, calls } = fakeRenderer(FALLBACK_IMAGE);
     const result = await extractDirect(makePage(objs, commonObjs), 'img1', BBOX, renderer, { targetLongEdgePx: 100 }, 1);
     expect(result.source).toBe('region-render');
     expect(result.image).toBe(FALLBACK_IMAGE);
-    expect(calls).toHaveLength(1); // NIE dwa — piksele z rozgrzewki uzyte jako wynik koncowy, zero dodatkowego renderu
+    expect(calls).toHaveLength(1); // NOT two — the warmup pixels used as the final result, zero extra renders
   });
 
-  it('pierwsza proba COS probowala i dekodowanie zawiodlo -> BEZ ponawiania po rozgrzewce (te same bajty daja ten sam blad)', async () => {
-    // has()===true od razu (nie "jeszcze nie gotowe") — resolve do null (U6).
-    // Retry po rozgrzewce bylby bez sensu: ten sam `get()` zwrociloby to samo null.
+  it('the first attempt TRIED SOMETHING and decoding failed -> NO retry after the warmup (the same bytes give the same error)', async () => {
+    // has()===true right away (not "not ready yet") — resolves to null.
+    // A retry after the warmup would be pointless: the same `get()` would return the same null.
     let resolveCalls = 0;
     const objs: PdfObjectsLike = {
       has: () => true,
@@ -153,12 +152,12 @@ describe('extractDirect', () => {
     const result = await extractDirect(makePage(objs, commonObjs), 'img1', BBOX, renderer, { targetLongEdgePx: 100 }, 1);
     expect(result.source).toBe('region-render');
     expect(calls).toHaveLength(1);
-    expect(resolveCalls).toBe(1); // NIE dwa — brak ponawiania po nieudanej-ale-faktycznej probie
+    expect(resolveCalls).toBe(1); // NOT two — no retry after a failed-but-genuine attempt
     expect(result.diagnostics.filter((d) => d.code === 'IMAGE_DECODE_EMPTY')).toHaveLength(1);
   });
 
-  it('blad rzucony przez normalizeDecodedImage (nieznany ksztalt) daje Diagnostic i probuje nastepna sciezke', async () => {
-    const objs = objsResolvedWith({ width: 1, height: 1 }); // brak "data" i brak "bitmap" -> normalizeDecodedImage rzuca
+  it('an error thrown by normalizeDecodedImage (an unknown shape) gives a Diagnostic and tries the next path', async () => {
+    const objs = objsResolvedWith({ width: 1, height: 1 }); // no "data" and no "bitmap" -> normalizeDecodedImage throws
     const rgbData = { width: 2, height: 2, kind: 2, data: new Uint8ClampedArray(2 * 2 * 3) };
     const commonObjs = objsResolvedWith(rgbData);
     const { renderer } = fakeRenderer(FALLBACK_IMAGE);
@@ -168,7 +167,7 @@ describe('extractDirect', () => {
     expect(result.diagnostics[0]!.code).toBe('IMAGE_DECODE_FAILED');
   });
 
-  it('objId=null (region czysto wektorowy) idzie WPROST do renderu regionu, bez probowania objs/commonObjs', async () => {
+  it('objId=null (a purely vector region) goes STRAIGHT to a region render, without trying objs/commonObjs', async () => {
     const objs = objsAlwaysUnresolved();
     const commonObjs = objsAlwaysUnresolved();
     const { renderer, calls } = fakeRenderer(FALLBACK_IMAGE);
@@ -177,9 +176,9 @@ describe('extractDirect', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('NIGDY nie wywoluje get() na obiekcie ktory nie ma has()===true — nie zawiesza sie (weryfikacja negatywna)', async () => {
+  it('NEVER calls get() on an object that doesn\'t have has()===true — doesn\'t hang (a negative verification)', async () => {
     const getSpy = vi.fn(() => {
-      throw new Error('nie powinno byc wywolane');
+      throw new Error('must not be called');
     });
     const objs: PdfObjectsLike = { has: () => false, get: getSpy };
     const commonObjs: PdfObjectsLike = { has: () => false, get: getSpy };
@@ -189,8 +188,8 @@ describe('extractDirect', () => {
   });
 });
 
-describe('[KROK-8 Z3] probeIntrinsicLongEdgePx', () => {
-  it('zwraca dluzsza krawedz (px) obiektu rozwiazanego przez page.objs', async () => {
+describe('probeIntrinsicLongEdgePx', () => {
+  it('returns the longer edge (px) of an object resolved through page.objs', async () => {
     const rgbData = { width: 300, height: 200, kind: 2, data: new Uint8ClampedArray(300 * 200 * 3) };
     const objs = objsResolvedWith(rgbData);
     const commonObjs = objsAlwaysUnresolved();
@@ -198,7 +197,7 @@ describe('[KROK-8 Z3] probeIntrinsicLongEdgePx', () => {
     expect(result).toBe(300);
   });
 
-  it('probuje commonObjs, gdy objs nie ma tego objId', async () => {
+  it('tries commonObjs when objs doesn\'t have this objId', async () => {
     const objs = objsAlwaysUnresolved();
     const rgbData = { width: 100, height: 400, kind: 2, data: new Uint8ClampedArray(100 * 400 * 3) };
     const commonObjs = objsResolvedWith(rgbData);
@@ -206,23 +205,23 @@ describe('[KROK-8 Z3] probeIntrinsicLongEdgePx', () => {
     expect(result).toBe(400);
   });
 
-  it('zwraca null gdy zaden rejestr nie ma tego objId — best-effort, nie rzuca', async () => {
+  it('returns null when no registry has this objId — best-effort, doesn\'t throw', async () => {
     const objs = objsAlwaysUnresolved();
     const commonObjs = objsAlwaysUnresolved();
     const result = await probeIntrinsicLongEdgePx(makePage(objs, commonObjs), 'img1');
     expect(result).toBeNull();
   });
 
-  it('zwraca null (nie rzuca) gdy dekodowanie rozwiazuje sie do null (U6, np. JPX bez wasmUrl)', async () => {
+  it('returns null (doesn\'t throw) when decoding resolves to null (e.g. JPX without a wasmUrl)', async () => {
     const objs = objsResolvedWith(null);
     const commonObjs = objsResolvedWith(undefined);
     const result = await probeIntrinsicLongEdgePx(makePage(objs, commonObjs), 'img1');
     expect(result).toBeNull();
   });
 
-  it('NIGDY nie wywoluje get() bez uprzedniego has()===true (ten sam niezmiennik co extractDirect, U3)', async () => {
+  it('NEVER calls get() without a prior has()===true (the same invariant as extractDirect)', async () => {
     const getSpy = vi.fn(() => {
-      throw new Error('nie powinno byc wywolane');
+      throw new Error('must not be called');
     });
     const objs: PdfObjectsLike = { has: () => false, get: getSpy };
     const commonObjs: PdfObjectsLike = { has: () => false, get: getSpy };

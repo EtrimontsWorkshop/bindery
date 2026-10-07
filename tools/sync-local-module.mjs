@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// Ten katalog repo JEST folderem modulu w lokalnej instalacji Foundry
-// (Data/modules/bindery). packages/module/dist/ to samodzielny, zbudowany
-// modul (module.json, scripts/, styles/, lang/, templates/, lib/). Ten skrypt
-// kopiuje go do korzenia repo, zeby Foundry mogl go zaladowac bez dodatkowej
-// konfiguracji. Wylacznie do lokalnego developmentu/testow (Z7) — CI pakuje
-// packages/module/dist/** bezposrednio do module.zip, bez tego kroku.
+// For local development: when this repository IS the module folder of a local
+// Foundry install (Data/modules/<module id>), Foundry can only load the BUILT
+// module from the repository root. `packages/module/dist/` is that self-contained
+// module (module.json, scripts/, styles/, lang/, templates/, lib/); this script
+// copies it to the repository root. CI packages `packages/module/dist/**`
+// directly into module.zip and does not use this step. When the repository is
+// NOT the module folder, use `npm run deploy:foundry` instead.
 import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -21,4 +22,4 @@ for (const entry of DEPLOYED_ENTRIES) {
 mkdirSync(REPO_ROOT, { recursive: true });
 cpSync(DIST, REPO_ROOT, { recursive: true });
 
-console.log(`sync-local-module: skopiowano ${DIST} -> ${REPO_ROOT}`);
+console.log(`sync-local-module: copied ${DIST} -> ${REPO_ROOT}`);

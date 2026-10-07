@@ -1,9 +1,9 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * TEN SAM uklad tekstu co layout-statblock-framed, ale BEZ ramki wektorowej —
- * testuje ze granica bloku nadal powstaje z INNYCH sygnalow (zmiana rozmiaru
- * fontu, interlinia), gdy brak sygnalu wizualnego (regionu wektorowego).
+ * THE SAME text layout as layout-statblock-framed, but WITHOUT the vector frame — tests that the
+ * block boundary still arises from OTHER signals (a font size change, line spacing) when there is
+ * no visual signal (a vector region).
  */
 export function build(): Buffer {
   const bodyBefore = Array.from({ length: 4 }, (_, i) => ({ text: `Body text before the box line ${i}`, x: 72, y: 700 - i * 20 }));

@@ -22,13 +22,13 @@ export interface InspectOptions {
 }
 
 /**
- * The only real function of phase 1 (walking skeleton).
+ * The only real function of the walking skeleton.
  * Opens the document, retrieves metadata/outline, and computes a quality
  * score for the text layer on a sample of pages (methodology from the
- * phase 0 spike, see quality.ts).
+ * initial spike, see quality.ts).
  *
  * Throws PDFException/PasswordException from pdf.js without catching —
- * R4 requires a readable message for an encrypted PDF, but that is the
+ * a readable message for an encrypted PDF is required, but that is the
  * responsibility of the UI layer (packages/module), not core. Core never
  * silently hides errors.
  */
@@ -37,12 +37,12 @@ export async function inspectDocument(
   opts: InspectOptions,
 ): Promise<DocumentSummary> {
   // pdf.js configuration (not Foundry) — a single source of truth, works
-  // the same in Node (tests) as in the browser (risk I1). In Node, pdf.js
+  // the same in Node (tests) as in the browser. In Node, pdf.js
   // uses a fake worker automatically, so this line is a no-op outside the browser.
   pdfjs.GlobalWorkerOptions.workerSrc = `${opts.assetBaseUrl}pdf.worker.mjs`;
 
   // `data.slice(0)` — a copy INDEPENDENT from `data`, NOT a view over it
-  // (Step 8 discovery: in a real browser pdf.js TRANSFERS the buffer to
+  // (discovery: in a real browser pdf.js TRANSFERS the buffer to
   // the Worker thread on `getDocument()`, which DETACHES the original
   // ArrayBuffer in the main thread). Without this copy the caller (e.g.
   // `ImportWizard`, which holds one `ArrayBuffer` per selected file)

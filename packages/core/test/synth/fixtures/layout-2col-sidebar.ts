@@ -1,10 +1,10 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Dwie kolumny glownego tekstu + ramka z tlem (vector fill) po prawej stronie
- * zawierajaca krotki "dymek" (sidebar). Testuje klasyfikacje `BlockKind:
- * 'sidebar'` (region wektorowy 'fill' + na uboczu ukladu kolumnowego) i
- * poprawna kolejnosc czytania (sidebar NIE wplatany w tok kolumn glownych).
+ * Two columns of main text + a frame with a background (vector fill) on the right containing a
+ * short "callout" (a sidebar). Tests the classification `BlockKind: 'sidebar'` (a vector 'fill'
+ * region + off to the side of the column layout) and the correct reading order (the sidebar is NOT
+ * woven into the flow of the main columns).
  */
 export function build(): Buffer {
   const col = (prefix: string, x: number) =>

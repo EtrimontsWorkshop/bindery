@@ -6,13 +6,12 @@ import { embedFont } from '../fonts.js';
 
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
-const CODE_DECOMPOSED_L = 0x10; // -> "l" + U+0335 (combining short stroke overlay) — namiastka "ł" nie-NFC
-const CODE_PRECOMPOSED_L = 0x11; // -> U+0142 "ł" wprost (NFC)
+const CODE_DECOMPOSED_L = 0x10; // -> "l" + U+0335 (combining short stroke overlay) — a non-NFC stand-in for "ł"
+const CODE_PRECOMPOSED_L = 0x11; // -> U+0142 "ł" directly (NFC)
 
 /**
- * "Siła" jako l + znak laczacy (namiastka nie-NFC — MDD F0/KROK-3), obok wersji
- * juz znormalizowanej NFC. Testuje normalizacje NFC (faza 2, krok 1) i detektor
- * jakosci (combiningCharCount z src/quality.ts).
+ * "Siła" as l + a combining mark, next to an already NFC-normalized version. Tests NFC
+ * normalization (text hygiene) and the quality detector (combiningCharCount from src/quality.ts).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -29,10 +28,10 @@ export function build(): Buffer {
   const fontRef = embedFont(writer, { baseFont: 'TestSans', ttfBytes, toUnicode });
 
   const cs = new ContentStreamBuilder().beginText().setFont('F1', 14);
-  // "Si" + [decomposed l] + "a" -> "Sil̵a", odczytywane jako "Siła" nie w NFC
+  // "Si" + [decomposed l] + "a" -> "Sil̵a", read as "Siła" but not in NFC
   cs.setTextMatrix(1, 0, 0, 1, 72, 700);
   cs.showTextHex([0x53, 0x69, CODE_DECOMPOSED_L, 0x61]);
-  // "Si" + [precomposed l] + "a" -> "Siła", "Siła" juz w NFC
+  // "Si" + [precomposed l] + "a" -> "Siła", "Siła" already in NFC
   cs.setTextMatrix(1, 0, 0, 1, 72, 670);
   cs.showTextHex([0x53, 0x69, CODE_PRECOMPOSED_L, 0x61]);
   cs.endText();

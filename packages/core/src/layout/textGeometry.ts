@@ -2,8 +2,8 @@ import type { StreamAngle } from '../text/types.js';
 export type { StreamAngle } from '../text/types.js';
 
 /**
- * Geometry shared by gap statistics (Z2), angular streams (Z3), and line
- * clustering (Z5) — MDD §5.1: angle from transform[1]/transform[2], rounded
+ * Geometry shared by gap statistics, angular streams, and line
+ * clustering — angle from transform[1]/transform[2], rounded
  * to 90°; the "cross-axis" position is the axis PERPENDICULAR to the text
  * direction, not always Y.
  */
@@ -21,15 +21,14 @@ export function computeStreamAngle(transform: readonly number[]): StreamAngle {
 export interface AxisPositions {
   /** Position along the READING direction (increases in the direction text flows). */
   along: number;
-  /** Position PERPENDICULAR to the text direction — the axis used for line clustering (Z5). */
+  /** Position PERPENDICULAR to the text direction — the axis used for line clustering. */
   cross: number;
 }
 
 /**
  * The "same baseline" tolerance as a fraction of font size — NOT a rigid
- * constant (per the Step 5 brief: "a tolerance derived from font size, not a
- * constant"). Shared between Z2 (gap statistics), Z4 (word merging), and Z5
- * (line clustering), so all three agree on what counts as "the same line".
+ * constant. Shared between gap statistics, word merging, and line
+ * clustering, so all three agree on what counts as "the same line".
  */
 const BASELINE_TOLERANCE_RATIO = 0.3;
 

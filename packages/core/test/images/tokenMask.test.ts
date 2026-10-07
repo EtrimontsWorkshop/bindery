@@ -17,52 +17,52 @@ function alphaAt(image: DecodedImage, x: number, y: number): number {
 }
 
 describe('isInsideShape', () => {
-  it('square: zawsze true, nawet w rogach — swiadomy brak maskowania', () => {
+  it('square: always true, even in the corners — a deliberate absence of masking', () => {
     expect(isInsideShape('square', 0, 0)).toBe(true);
     expect(isInsideShape('square', 1, 1)).toBe(true);
     expect(isInsideShape('square', -1, -1)).toBe(true);
   });
 
-  it('circle: srodek i granica wpisanego kola true, rog kwadratu (odleglosc √2) false', () => {
+  it('circle: the center and the boundary of the inscribed circle true, the corner of the square (distance √2) false', () => {
     expect(isInsideShape('circle', 0, 0)).toBe(true);
-    expect(isInsideShape('circle', 1, 0)).toBe(true); // dokladnie na promieniu 1
+    expect(isInsideShape('circle', 1, 0)).toBe(true); // exactly on radius 1
     expect(isInsideShape('circle', 0.99, 0)).toBe(true);
     expect(isInsideShape('circle', 1.01, 0)).toBe(false);
-    expect(isInsideShape('circle', 1, 1)).toBe(false); // rog, odleglosc √2 > 1
+    expect(isInsideShape('circle', 1, 1)).toBe(false); // a corner, distance √2 > 1
   });
 
-  it('roundedSquare: srodek i srodek krawedzi true, ostry rog kwadratu false, punkt w promieniu naroza tuz PRZED zaokragleniem true', () => {
+  it('roundedSquare: the center and the edge midpoint true, the sharp corner of the square false, a point within the corner radius right BEFORE the rounding true', () => {
     expect(isInsideShape('roundedSquare', 0, 0)).toBe(true);
-    expect(isInsideShape('roundedSquare', 1, 0)).toBe(true); // srodek krawedzi (nie naroze) — nie obcinany
-    expect(isInsideShape('roundedSquare', 1, 1)).toBe(false); // ostry rog kwadratu zawsze poza zaokraglonym ksztaltem
-    expect(isInsideShape('roundedSquare', 0.7, 0.7)).toBe(true); // wyraznie wewnatrz, daleko od naroza
+    expect(isInsideShape('roundedSquare', 1, 0)).toBe(true); // edge midpoint (not a corner) — not clipped
+    expect(isInsideShape('roundedSquare', 1, 1)).toBe(false); // a sharp corner of the square is always outside the rounded shape
+    expect(isInsideShape('roundedSquare', 0.7, 0.7)).toBe(true); // clearly inside, far from the corner
   });
 
-  it('hex (flat-top): srodek true, wierzcholek lewy/prawy (1,0) na granicy true, punkt POZA plaskim gornym bokiem (0,1) false, punkt na plaskim gornym boku (0, apotem) true', () => {
+  it('hex (flat-top): the center true, the left/right vertex (1,0) on the boundary true, a point BEYOND the flat top side (0,1) false, a point on the flat top side (0, apothem) true', () => {
     const apothem = Math.cos(Math.PI / 6);
     expect(isInsideShape('hex', 0, 0)).toBe(true);
     expect(isInsideShape('hex', 1, 0)).toBe(true);
     expect(isInsideShape('hex', 0, apothem)).toBe(true);
-    expect(isInsideShape('hex', 0, 1)).toBe(false); // powyzej plaskiej gornej krawedzi (heks NIE siega do y=1, w odroznieniu od kola/kwadratu)
-    expect(isInsideShape('hex', 0.5, 0.3)).toBe(true); // wyraznie wewnatrz
+    expect(isInsideShape('hex', 0, 1)).toBe(false); // above the flat top edge (the hex does NOT reach y=1, unlike the circle/square)
+    expect(isInsideShape('hex', 0.5, 0.3)).toBe(true); // clearly inside
   });
 });
 
 describe('applyTokenMask', () => {
-  it('circle na jednolitym, nieprzezroczystym plotnie: srodek zostaje nieprzezroczysty, rog staje sie przezroczysty (featherPx=0, ostra granica)', () => {
+  it('a circle on a uniform, opaque canvas: the center stays opaque, the corner becomes transparent (featherPx=0, a sharp boundary)', () => {
     const image = solidSquare(40);
     const result = applyTokenMask(image, 'circle', 0);
-    expect(alphaAt(result, 20, 20)).toBe(255); // srodek
-    expect(alphaAt(result, 0, 0)).toBe(0); // rog, daleko poza kolem
+    expect(alphaAt(result, 20, 20)).toBe(255); // the center
+    expect(alphaAt(result, 0, 0)).toBe(0); // a corner, far outside the circle
   });
 
-  it('square: brak zmian alfa NAWET w rogach (brak maskowania z definicji)', () => {
+  it('square: no alpha change EVEN in the corners (no masking by definition)', () => {
     const image = solidSquare(20);
     const result = applyTokenMask(image, 'square', 0);
     for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) expect(alphaAt(result, x, y)).toBe(255);
   });
 
-  it('RGB nigdy nie jest ruszane przez maskowanie', () => {
+  it('RGB is never touched by the masking', () => {
     const image = solidSquare(20);
     const result = applyTokenMask(image, 'circle', 0);
     for (let i = 0; i < result.rgba.length; i += 4) {
@@ -72,11 +72,11 @@ describe('applyTokenMask', () => {
     }
   });
 
-  it('featherPx > 0 daje POSREDNIA wartosc alfa tuz na granicy maski (nie ostry skok 0/255)', () => {
+  it('featherPx > 0 gives an INTERMEDIATE alpha value right at the mask boundary (not a sharp 0/255 jump)', () => {
     const image = solidSquare(60);
     const hard = applyTokenMask(image, 'circle', 0);
     const soft = applyTokenMask(image, 'circle', 3);
-    // Znajdz piksel na hard-masce, ktory jest na granicy (sasiaduje z przezroczystym).
+    // Find a pixel on the hard mask that is on the boundary (adjacent to a transparent one).
     let boundaryX = -1;
     let boundaryY = -1;
     outer: for (let y = 0; y < 60; y++) {
@@ -94,7 +94,7 @@ describe('applyTokenMask', () => {
     expect(softAlpha).toBeLessThan(255);
   });
 
-  it('nie mutuje wejscia', () => {
+  it('doesn\'t mutate the input', () => {
     const image = solidSquare(20);
     const snapshot = image.rgba.slice();
     applyTokenMask(image, 'hex', 1);

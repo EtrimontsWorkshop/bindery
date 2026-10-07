@@ -7,9 +7,8 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 /**
- * Identyczny str+transform powtorzony 2x (dokladny duplikat pozycyjny) oraz
- * duplikat przesuniety o 0.3pt (kandydat na syntetyczne pogrubienie — MDD F0,
- * §5.1 syntheticBold). Testuje deduplikacje w fazie 2, krok 5.
+ * An identical str+transform repeated 2x (an exact positional duplicate) and a duplicate shifted
+ * by 0.3pt (a candidate for synthetic bold — syntheticBold). Tests deduplication.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -22,20 +21,19 @@ export function build(): Buffer {
 
   const cs = new ContentStreamBuilder().beginText().setFont('F1', 14);
 
-  // Wiersz 1: dokladny duplikat — identyczny str + identyczna macierz transform.
+  // Row 1: an exact duplicate — an identical str + an identical transform matrix.
   cs.setTextMatrix(1, 0, 0, 1, 72, 700);
   cs.showTextHex(asciiCodes('Goblin'));
   cs.setTextMatrix(1, 0, 0, 1, 72, 700);
   cs.showTextHex(asciiCodes('Goblin'));
 
-  // Wiersz 2: duplikat przesuniety o 0.3pt — syntetyczne pogrubienie (podwojny
-  // druk z minimalnym przesunieciem, powszechna sztuczka bez prawdziwego bold).
+  // Row 2: a duplicate shifted by 0.3pt — synthetic bold (double printing with a minimal shift, a common trick without a real bold).
   cs.setTextMatrix(1, 0, 0, 1, 72, 670);
   cs.showTextHex(asciiCodes('Orc'));
   cs.setTextMatrix(1, 0, 0, 1, 72.3, 670);
   cs.showTextHex(asciiCodes('Orc'));
 
-  // Wiersz 3: kontrolny, unikalny tekst bez duplikatu.
+  // Row 3: a control, unique text without a duplicate.
   cs.setTextMatrix(1, 0, 0, 1, 72, 640);
   cs.showTextHex(asciiCodes('Kobold'));
 

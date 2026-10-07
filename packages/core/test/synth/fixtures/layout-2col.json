@@ -1,6 +1,6 @@
 {
   "id": "layout-2col",
-  "description": "Uklad dwukolumnowy: lewa x=72..~260, prawa x=310..~500, rynna x=260..310 pusta na calej wysokosci (KROK-6 Z3).",
+  "description": "A two-column layout: left x=72..~260, right x=310..~500, the gutter x=260..310 empty over the whole height.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 16
   },
   "expected": {
-    "note": "Fakt konstrukcyjny (nie wynik detekcji): itemy istnieja WYLACZNIE w pasmach x∈[72,~260] i x∈[310,~500], zero itemow w x∈[260,310], na WSZYSTKICH 8 wierszach (y=700..560). detectColumns() powinien zwrocic 2 ColumnRegion posortowane lewo->prawo, confidence wysoki (rynna pusta na 100% wysokosci)."
+    "note": "Construction fact (not a detection result): items exist ONLY in the bands x∈[72,~260] and x∈[310,~500], zero items in x∈[260,310], on ALL 8 rows (y=700..560). detectColumns() should return 2 ColumnRegions sorted left->right, high confidence (the gutter empty over 100% of the height)."
   }
 }

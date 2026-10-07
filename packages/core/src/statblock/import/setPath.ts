@@ -1,6 +1,6 @@
 /**
  * A pure, Foundry-free equivalent of `foundry.utils.setProperty` —
- * core cannot import that (A1/`check:boundary`), and `buildActorData` needs
+ * core cannot import that (`check:boundary`), and `buildActorData` needs
  * to assign values at dot paths discovered by schema introspection into a plain `system` object it is building from scratch. Creates
  * intermediate objects as needed; never throws (a path that tries to descend
  * through a non-object value is simply overwritten, since the caller only

@@ -1,6 +1,6 @@
 /**
- * Buduje operatory strumienia tresci PDF-a jako plaska lista linii, laczone w Buffer
- * na koncu. Patrz szpargalka operatorowa w KROK-3-fixtures.md.
+ * Builds the operators of a PDF content stream as a flat list of lines, joined into a Buffer at
+ * the end. See the operator cheat sheet in
  */
 export class ContentStreamBuilder {
   private lines: string[] = [];
@@ -45,7 +45,7 @@ export class ContentStreamBuilder {
     return this;
   }
 
-  /** Macierz pozycji tekstu — a b c d e f Tm. Kluczowa dla rotacji (patrz szpargalka). */
+  /** The text position matrix — a b c d e f Tm. Key for rotation (see the cheat sheet). */
   setTextMatrix(a: number, b: number, c: number, d: number, e: number, f: number): this {
     this.lines.push(`${a} ${b} ${c} ${d} ${e} ${f} Tm`);
     return this;
@@ -56,15 +56,15 @@ export class ContentStreamBuilder {
     return this;
   }
 
-  /** Tj z kodami jako hex string — omija koniecznosc escapowania ( ) \ w stringach literalnych. */
+  /** Tj with codes as a hex string — avoids the need to escape ( ) \ in literal strings. */
   showTextHex(codes: number[]): this {
     this.lines.push(`<${codes.map((c) => c.toString(16).padStart(2, '0')).join('')}> Tj`);
     return this;
   }
 
   /**
-   * TJ z tablica hex-stringow i liczb kerningu (przesuniecie w tysiecznych em, dodatnie
-   * przesuwa w LEWO). Uzywane do kerningu-w-jednym-itemie z szpargalki.
+   * TJ with an array of hex strings and kerning numbers (a shift in thousandths of an em, positive
+   * moves LEFT). Used for in-one-item kerning from the cheat sheet.
    */
   showTextArrayHex(parts: (number[] | number)[]): this {
     const rendered = parts
@@ -74,19 +74,18 @@ export class ContentStreamBuilder {
     return this;
   }
 
-  /** Surowa linia operatora — furtka dla przypadkow nie pokrytych powyzej. */
+  /** A raw operator line — an escape hatch for cases not covered above. */
   raw(line: string): this {
     this.lines.push(line);
     return this;
   }
 
   /**
-   * Obraz inline (BI...ID...EI) — jedyny sposob osadzenia obrazu BEZ referencji
-   * do obiektu PDF (brak XObject), stad `paintInlineImageXObject` w pdf.js nigdy
-   * nie ma objId (KROK-4). `data` to SUROWE bajty (bez filtra), latin1-bezpieczne
-   * 1:1 z bajtami wyjsciowymi — dziala nawet gdy dane zawieraja bajt 0x0A, bo
-   * `join('\n')` tylko WSTAWIA separatory MIEDZY elementami tablicy, nie parsuje
-   * zawartosci kazdego elementu.
+   * An inline image (BI...ID...EI) — the only way to embed an image WITHOUT a reference to a PDF
+   * object (no XObject), hence `paintInlineImageXObject` in pdf.js never has an objId. `data` is the
+   * RAW bytes (no filter), latin1-safe 1:1 with the output bytes — works even when the data contains
+   * the byte 0x0A, because `join('\n')` only INSERTS separators BETWEEN array elements, it doesn't
+   * parse the contents of each element.
    */
   inlineImage(dictBody: string, data: Buffer): this {
     this.lines.push(`BI ${dictBody} ID`);
@@ -100,7 +99,7 @@ export class ContentStreamBuilder {
   }
 }
 
-/** Koduje string JS na tablice kodow 1-bajtowych 0..255 (identycznosc code point <-> bajt). */
+/** Encodes a JS string into an array of 1-byte codes 0..255 (code point <-> byte identity). */
 export function asciiCodes(s: string): number[] {
   const codes: number[] = [];
   for (let i = 0; i < s.length; i++) {

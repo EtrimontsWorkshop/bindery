@@ -1,18 +1,16 @@
 import type { StatblockProfile } from '@bindery/core';
 import { ImportWizard } from './apps/ImportWizard.js';
 import { STATBLOCK_IMPORT_ENABLED } from './statblock/enabled.js';
-import { ProfileBuilderLauncher } from './statblock/ui/ProfileBuilderLauncher.js';
+import { StatblockProfilesLauncher } from './statblock/ui/StatblockProfilesLauncher.js';
 
-// [User request] Renamed from 'bindery' — that id was already taken in
-// Foundry's official package directory by an unrelated module. Changing this
-// makes Foundry treat this as a DIFFERENT module: existing installs under the
-// old id keep their own settings (upload path, remembered grid, etc.), which
-// do not carry over — there is no migration, since the two ids never
-// coexisted for the same install in practice (this repo's public release
-// never got submitted to the directory under the old id).
+// The module id — the folder name under `Data/modules/`, the namespace of every
+// setting and the base of every asset path. It must stay unique among Foundry
+// packages. Besides this constant it is spelled out in the apps' template paths
+// (`modules/<id>/templates/...`) and in `global.d.ts`; `npm run check:manifest`
+// verifies that all of them match `module.json`.
 export const MODULE_ID = 'bindery-pdf-importer';
 
-/** Base path of pdf.js assets relative to the Foundry web server root (risk I1/I3). */
+/** Base path of pdf.js assets relative to the Foundry web server root (I3). */
 export const ASSET_BASE_URL = `modules/${MODULE_ID}/lib/`;
 
 export function registerSettings(): void {
@@ -27,20 +25,20 @@ export function registerSettings(): void {
     restricted: true,
   });
 
-  // The profile-builder window — same menu-button
-  // pattern as `openWizard` above.
+  // The statblock-profiles window (list, import, export, delete) — same
+  // menu-button pattern as `openWizard` above.
   if (STATBLOCK_IMPORT_ENABLED) {
-    game.settings!.registerMenu(MODULE_ID, 'openStatblockProfileBuilder', {
-      name: 'BINDERY.statblockProfileBuilder.openMenuLabel',
-      hint: 'BINDERY.statblockProfileBuilder.openMenuHint',
-      label: 'BINDERY.statblockProfileBuilder.openMenuLabel',
+    game.settings!.registerMenu(MODULE_ID, 'openStatblockProfiles', {
+      name: 'BINDERY.statblockProfiles.openMenuLabel',
+      hint: 'BINDERY.statblockProfiles.openMenuHint',
+      label: 'BINDERY.statblockProfiles.openMenuLabel',
       icon: 'fa-solid fa-dragon',
-      type: ProfileBuilderLauncher,
+      type: StatblockProfilesLauncher,
       restricted: true,
     });
   }
 
-  // Consent from the legal notice, §2.2 MDD — saved once per world.
+  // Consent from the legal notice — saved once per world.
   game.settings!.register(MODULE_ID, 'legalNoticeAcknowledged', {
     name: 'Legal notice acknowledged',
     scope: 'world',
@@ -49,9 +47,9 @@ export function registerSettings(): void {
     default: false,
   });
 
-  // [Step 8 Z4] The folder in the configured storage source (default 'data')
+  // The folder in the configured storage source (default 'data')
   // where exported images go — configurable, because worlds differ in
-  // directory conventions (and because R6/A1: this is ONLY a save location,
+  // directory conventions (and because this is ONLY a save location,
   // no decision logic).
   game.settings!.register(MODULE_ID, 'uploadPath', {
     name: 'BINDERY.settings.uploadPathLabel',
@@ -62,7 +60,7 @@ export function registerSettings(): void {
     default: `worlds/${game.world?.id ?? 'world'}/bindery-imports`,
   });
 
-  // [Step 8 Z5] The most recently used grid setting (GridPicker) —
+  // The most recently used grid setting (GridPicker) —
   // remembered per world, not shown in the settings screen (the user
   // changes it ONLY through GridPicker itself).
   game.settings!.register(MODULE_ID, 'lastGridConfig', {
@@ -73,13 +71,13 @@ export function registerSettings(): void {
     default: { size: 100, offsetX: 0, offsetY: 0 },
   });
 
-  // [Step 11 Z6] Target folders + name prefix from the target screen —
-  // remembered per world (brief: "settings remembered per world"), NOT
+  // Target folders + name prefix from the target screen —
+  // remembered per world, NOT
   // shown in the settings screen (the user changes them ONLY through the
   // target screen itself), the same pattern as `lastGridConfig`.
   // `imagePath` does NOT duplicate `uploadPath` above — the target screen
   // edits/shows THAT SAME value (`uploadPath` is already per-world,
-  // config:true, set since step 8).
+  // config:true).
   game.settings!.register(MODULE_ID, 'importTargets', {
     name: 'Import target folders',
     scope: 'world',
@@ -127,8 +125,8 @@ export function registerSettings(): void {
   // this world, keyed by `StatblockProfile.id` — one setting holding the
   // whole collection (not one setting per profile), so CRUD is a single
   // `get`/`set` round-trip. `config:false` — like the settings above,
-  // changed ONLY through the profile-builder UI (not yet built), never the
-  // settings screen. No explicit `type: Object` — same fvtt-types
+  // changed ONLY through the profiles window and the public API
+  // (`statblock/api.ts`), never the settings screen. No explicit `type: Object` — same fvtt-types
   // generic-inference limit noted at `tokenPrepDefaults` above.
   game.settings!.register(MODULE_ID, 'statblockProfiles', {
     name: 'Statblock import profiles',

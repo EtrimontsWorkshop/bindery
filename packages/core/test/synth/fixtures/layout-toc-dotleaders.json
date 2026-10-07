@@ -1,6 +1,6 @@
 {
   "id": "layout-toc-dotleaders",
-  "description": "Gesty spis tresci z wypunktowaniem kropkowym (20 kropek pod rzad per wpis) — testuje Z1a (brak sklejen) i wskazowke kropkowa (BlockKind:'table').",
+  "description": "A dense table of contents with dot leaders (20 dots in a row per entry) — tests the absence of merging and the dot-leader hint (BlockKind:'table').",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 12
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: 12 linii, kazda 'Tytul ....(20 kropek).... N', na wlasnym Y (700..480). Kazda linia zawiera ciag 20 kropek (>= 5 wymagane przez wskazowke). buildSemanticBlocks() powinien sklasyfikowac kazdy blok (linia) jako 'table' przez regule dot-leader, niezaleznie od roli fontu."
+    "note": "Construction fact: 12 lines, each 'Title ....(20 dots).... N', on its own Y (700..480). Each line contains a run of 20 dots (>= 5 required by the hint). buildSemanticBlocks() should classify each block (a line) as 'table' through the dot-leader rule, regardless of the font role."
   }
 }

@@ -1,12 +1,10 @@
 import { PdfWriter, catalogDict, pagesDict, pageDict } from '../rawPdf.js';
 
 /**
- * Prostokat wypelniony (fill) i osobny prostokat z obrysem+wypelnieniem
- * (fillStroke) — narysowane operatorem `re` (constructPath) wprost, bez
- * obrazow. KROK-4 nie miala ani jednego fixture'a przechodzacego
- * `constructPath` przez PRAWDZIWY pdf.js (obie fixtury pokrywajace ten
- * opcode w walkOperators.test.ts byly wylacznie na recznie napisanych
- * tablicach) — ten fixture zamyka te luke (KROK-5 Z7).
+ * A filled rectangle (fill) and a separate rectangle with outline+fill (fillStroke) — drawn with
+ * the `re` operator (constructPath) directly, without images. Before it there wasn't a single
+ * fixture passing `constructPath` through a REAL pdf.js (both fixtures covering this opcode in
+ * walkOperators.test.ts were only on hand-written arrays) — this fixture closes that gap.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

@@ -18,27 +18,27 @@ function pixelAt(image: DecodedImage, x: number, y: number): [number, number, nu
 }
 
 describe('applyBuiltInFrame', () => {
-  it('srodek (daleko wewnatrz) zachowuje oryginalny kolor tresci, pasmo tuz przy granicy ksztaltu dostaje kolor ramki', () => {
+  it('the center (far inside) keeps the original content color, the band right next to the shape boundary gets the frame color', () => {
     const image = solidSquare(60, 10, 20, 30);
     const result = applyBuiltInFrame(image, { shape: 'circle', thicknessNorm: 0.15, color: [255, 0, 0] });
-    expect(pixelAt(result, 30, 30).slice(0, 3)).toEqual([10, 20, 30]); // srodek
-    // Piksel tuz przy zewnetrznej krawedzi kola (promien ~29 z 30) powinien byc w pasmie ramki.
+    expect(pixelAt(result, 30, 30).slice(0, 3)).toEqual([10, 20, 30]); // the center
+    // A pixel right at the outer edge of the circle (radius ~29 of 30) should be in the frame band.
     expect(pixelAt(result, 59, 30).slice(0, 3)).toEqual([255, 0, 0]);
   });
 
-  it('alfa nigdy nie jest ruszana przez ramke', () => {
+  it('alpha is never touched by the frame', () => {
     const image = solidSquare(40, 10, 20, 30, 200);
     const result = applyBuiltInFrame(image, { shape: 'square', thicknessNorm: 0.1, color: [0, 255, 0] });
     for (let i = 3; i < result.rgba.length; i += 4) expect(result.rgba[i]).toBe(200);
   });
 
-  it('thicknessNorm=0 -> brak pasma (kazdy punkt "wewnatrz" jest tez wewnatrz nieskurczonego ksztaltu wewnetrznego) — obraz bez zmian', () => {
+  it('thicknessNorm=0 -> no band (every point "inside" is also inside the unshrunk inner shape) — the image unchanged', () => {
     const image = solidSquare(30, 10, 20, 30);
     const result = applyBuiltInFrame(image, { shape: 'square', thicknessNorm: 0, color: [255, 255, 255] });
     expect(Array.from(result.rgba)).toEqual(Array.from(image.rgba));
   });
 
-  it('nie mutuje wejscia', () => {
+  it('doesn\'t mutate the input', () => {
     const image = solidSquare(20, 10, 20, 30);
     const snapshot = image.rgba.slice();
     applyBuiltInFrame(image, { shape: 'circle', thicknessNorm: 0.2, color: [1, 2, 3] });
@@ -47,21 +47,21 @@ describe('applyBuiltInFrame', () => {
 });
 
 describe('compositeCustomFrame', () => {
-  it('w pelni nieprzezroczysta ramka calkowicie zaslania obraz pod spodem', () => {
+  it('a fully opaque frame completely covers the image beneath', () => {
     const image = solidSquare(10, 0, 0, 0, 255);
     const frame = solidSquare(10, 200, 150, 100, 255);
     const result = compositeCustomFrame(image, frame);
     expect(pixelAt(result, 5, 5)).toEqual([200, 150, 100, 255]);
   });
 
-  it('w pelni przezroczysta ramka nie zmienia obrazu pod spodem', () => {
+  it('a fully transparent frame doesn\'t change the image beneath', () => {
     const image = solidSquare(10, 40, 50, 60, 255);
     const frame = solidSquare(10, 200, 150, 100, 0);
     const result = compositeCustomFrame(image, frame);
     expect(pixelAt(result, 5, 5)).toEqual([40, 50, 60, 255]);
   });
 
-  it('ramka o polowicznej przezroczystosci nad w pelni nieprzezroczystym tlem daje 50/50 mieszanke koloru, pelna nieprzezroczystosc wyniku', () => {
+  it('a half-transparent frame over a fully opaque background gives a 50/50 mix of the color, with the result fully opaque', () => {
     const image = solidSquare(4, 0, 0, 0, 255);
     const frame = solidSquare(4, 255, 255, 255, 128);
     const result = compositeCustomFrame(image, frame);
@@ -72,13 +72,13 @@ describe('compositeCustomFrame', () => {
     expect(a).toBe(255);
   });
 
-  it('rzuca przy niezgodnym rozmiarze ramki i tokenu', () => {
+  it('throws on a mismatched frame and token size', () => {
     const image = solidSquare(10, 0, 0, 0);
     const frame = solidSquare(8, 255, 255, 255);
     expect(() => compositeCustomFrame(image, frame)).toThrow();
   });
 
-  it('nie mutuje wejscia', () => {
+  it('doesn\'t mutate the input', () => {
     const image = solidSquare(6, 10, 20, 30, 255);
     const frame = solidSquare(6, 200, 100, 50, 128);
     const imageSnapshot = image.rgba.slice();

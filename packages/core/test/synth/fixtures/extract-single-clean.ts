@@ -3,12 +3,11 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, checkerboardRgb } from '../images.js';
 
 /**
- * Jeden obraz, bez maski, bez sasiadow (wlasny klaster), duza powierzchnia
- * strony (>=40%) — jednoznaczna klasyfikacja `content` (Z1) i strategia
- * `direct` (Z2: brak maski, brak klastra). Rozmiar WEWNETRZNY (200x150px)
- * CELOWO inny niz skala rysowania na stronie (500x600pt) — bezposrednia
- * ekstrakcja musi zwrocic PELNA rozdzielczosc zrodlowa (200x150), niezalezna
- * od `targetLongEdgePx` (ten parametr dotyczy WYLACZNIE renderu regionu, Z3).
+ * One image, no mask, no neighbors (its own cluster), a large share of the page (>=40%) — an
+ * unambiguous `content` classification and the `direct` strategy (no mask, no cluster). The
+ * INTERNAL size (200x150px) is DELIBERATELY different from the drawing scale on the page
+ * (500x600pt) — direct extraction must return the FULL source resolution (200x150), independent
+ * of `targetLongEdgePx` (that parameter concerns ONLY the region render).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -16,10 +15,9 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRef = writer.reserveObj();
 
-  // Szachownica, nie jednolity kolor (KROK-8 Z2) — `computeLuminanceStdDev` w
-  // `finalize.ts` odrzucalby jednolity obraz jako "plaska tekstura" (stddev=0),
-  // co jest poprawnym zachowaniem dla prawdziwych plikow, ale mylace tutaj,
-  // gdzie fixture testuje co innego (pelna rozdzielczosc ekstrakcji bezposredniej).
+  // A checkerboard, not a flat color — `computeLuminanceStdDev` in `finalize.ts` would reject a
+  // uniform image as a "flat texture" (stddev=0), which is the correct behavior for real files, but
+  // misleading here, where the fixture tests something else (the full resolution of direct extraction).
   const imgRef = imageXObject(writer, { width: 200, height: 150, rgb: checkerboardRgb(200, 150, [10, 10, 10], [240, 240, 240]) });
 
   const content = new ContentStreamBuilder().save().cm(500, 0, 0, 600, 56, 96).doXObject('Im1').restore().toBuffer();

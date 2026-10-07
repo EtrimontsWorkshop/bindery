@@ -2,28 +2,27 @@ import { groupByQuantizedPosition } from '../collections.js';
 import { axisPositions, baselineTolerance, computeStreamAngle, fontSizeFromTransform } from '../layout/textGeometry.js';
 
 /**
- * Statistics on gaps between items, per font key (Step 5 Z2) — the
- * "enabler" for the whole step (assumption A8: this can't be computed on a
+ * Statistics on gaps between items, per font key — the
+ * "enabler" for the whole text layer (this can't be computed on a
  * single page).
  *
  * Valley-finding method: **a histogram with smoothing (moving average) +
  * explicit detection of the two highest peaks and the valley between them**.
- * Chosen AFTER rejecting Otsu (1979): calibration on synthetic distributions
- * (see RAPORT-KROK-5.md) showed that Otsu's eta (the ratio of between-class
+ * Chosen AFTER rejecting Otsu (1979): calibration on synthetic distributions showed that Otsu's eta (the ratio of between-class
  * to total variance) is NOT a measure of bimodality — even a purely
  * unimodal, wide uniform distribution gets an eta of ~0.75 (because Otsu
  * always finds the "best possible" two-class split, regardless of whether a
  * real valley exists). k-means was also rejected (iterative, sensitive to
  * initialization, non-deterministic without a fixed seed). Explicit peak
  * detection + the valley between them gives separation=0 when there is only
- * one peak (a truly unimodal distribution), as the brief requires.
+ * one peak (a truly unimodal distribution), as required.
  */
 
 export interface GapSample {
   fontKey: string;
   /** Horizontal gap (along the reading direction) between the end of the previous item and the start of the next, in pt. */
   gap: number;
-  /** [Step 6 Z1a] The page number the sample came from — enabler for the per-page profile. */
+  /** The page number the sample came from — enabler for the per-page profile. */
   page: number;
 }
 
@@ -36,7 +35,7 @@ export interface FontGapProfile {
   /** Quality of mode separation (Otsu's eta, 0-1). Low = unimodal distribution. */
   separation: number;
   sampleCount: number;
-  /** false when sampleCount is below the threshold OR separation is below the confidence threshold — Z4 condition #6 requires true to merge. */
+  /** false when sampleCount is below the threshold OR separation is below the confidence threshold — word merging requires true to merge. */
   reliable: boolean;
 }
 
@@ -44,7 +43,7 @@ const MIN_SAMPLE_COUNT = 50;
 const MIN_SEPARATION = 0.3;
 /** A +/-15% margin around the found valley — a safety zone (P1: never merge at the boundary of uncertainty). */
 const VALLEY_MARGIN_RATIO = 0.15;
-/** Fallback values from the brief: 0.25x font size for the intra-word threshold. */
+/** Fallback values: 0.25x font size for the intra-word threshold. */
 const FALLBACK_INTRA_RATIO = 0.25;
 const FALLBACK_INTER_RATIO = 0.6;
 const HISTOGRAM_BINS = 48;
@@ -57,7 +56,7 @@ export interface GapAwareItem {
 
 /**
  * Collects gap samples from items on ONE page (already past hygiene — no
- * whitespace items, see Z1). Groups by (angle, approximate cross-axis
+ * whitespace items, see hygiene). Groups by (angle, approximate cross-axis
  * position), sorts along the reading direction, computes gaps between the
  * END of the previous item and the START of the next. The gap is assigned
  * to the font key of the PRECEDING item (a property of its metrics/kerning).
@@ -131,7 +130,7 @@ function findPeaks(histogram: readonly number[]): number[] {
 /**
  * Finds the valley between the two highest, sufficiently distant peaks of
  * the smoothed histogram. No two distinct peaks -> separation=0 (a unimodal
- * distribution, per the brief §Z2: "low separation = unimodal distribution").
+ * distribution: low separation = unimodal distribution).
  */
 function findValley(values: readonly number[]): ValleyResult {
   const max = Math.max(...values);
@@ -175,7 +174,7 @@ function fallbackProfile(fontKey: string, size: number, sampleCount: number): Fo
 /**
  * Builds a gap profile per font key from samples collected across the WHOLE
  * document. `fontSizeByKey` (from InventoryResult.fonts) feeds the fallback
- * value when there are too few samples OR the distribution is unimodal (Z2
+ * value when there are too few samples OR the distribution is unimodal (these
  * safeguards). Never extrapolates one font's profile onto another — a
  * missing entry in `fontSizeByKey` for a key with no samples gets a fallback
  * with size 1 (last resort, always reliable=false).
@@ -212,7 +211,7 @@ function groupGapsByFont(samples: readonly GapSample[]): Map<string, number[]> {
 /**
  * Builds a gap profile per font key from samples collected across the WHOLE
  * document. `fontSizeByKey` (from InventoryResult.fonts) feeds the fallback
- * value when there are too few samples OR the distribution is unimodal (Z2
+ * value when there are too few samples OR the distribution is unimodal (these
  * safeguards). Never extrapolates one font's profile onto another — a
  * missing entry in `fontSizeByKey` for a key with no samples gets a fallback
  * with size 1 (last resort, always reliable=false).
@@ -231,8 +230,8 @@ export function buildFontGapProfiles(
 }
 
 /**
- * [Step 6 Z1a] Hierarchical profile: document-level + per-page. Fixes a
- * systematic bug from Step 5 (RAPORT-KROK-5.md): pages with a dense,
+ * Hierarchical profile: document-level + per-page. Fixes a
+ * systematic bug: pages with a dense,
  * atypical layout (tables of contents) have their OWN, tighter gap
  * distribution, which the document-level profile (averaged over the whole
  * file, including paragraphs with different geometry) fails to capture.
@@ -251,9 +250,9 @@ export interface HierarchicalGapProfile {
  * (MIN_SAMPLE_COUNT=50). A single page inherently has fewer samples than the
  * whole document — requiring the same threshold as the whole document would
  * make it practically impossible for any per-page profile to ever form
- * (verified empirically on Cienie_posrod_mgie.pdf p. 3: 32 samples for the
+ * (verified empirically on a real page: 32 samples for the
  * table-of-contents font, below 50, but that's ALREADY HALF of all
- * occurrences of that font in the entire document — the brief's "don't
+ * occurrences of that font in the entire document — the "don't
  * guess from a handful of samples" applies to a small handful of samples,
  * not to this case).
  */
@@ -287,7 +286,7 @@ export function buildHierarchicalGapProfiles(
       // the fallback (0.25x size) is still a legitimate, conservative estimate
       // "from this page", not a guess from a handful of samples (we already have
       // >= MIN_PAGE_SAMPLE_COUNT). This is exactly the case that lets dense pages
-      // (table of contents) "defend themselves" (per the Z1a brief) — their
+      // (table of contents) "defend themselves" — their
       // distribution often has no clean bimodal valley, because ALL observed gaps
       // are already inter-entry (each table-of-contents entry is one Tj, no
       // internal fragmentation), so the fallback is the CORRECT estimate here,
@@ -304,7 +303,7 @@ export function buildHierarchicalGapProfiles(
  * The effective profile for merging on a given page: when the page has its
  * OWN reliable profile for this font, it uses the MORE CONSERVATIVE (smaller)
  * of the two intra-word thresholds — document-level and page-level.
- * Otherwise (too few samples on this page, per the Z1a brief), it uses only
+ * Otherwise (too few samples on this page), it uses only
  * the document-level profile.
  */
 export function effectiveGapProfileForPage(hierarchical: HierarchicalGapProfile, page: number): FontGapProfile {
@@ -323,8 +322,8 @@ export function effectiveGapProfileForPage(hierarchical: HierarchicalGapProfile,
 }
 
 /**
- * [Step 6 Z1b] A reliability metric WEIGHTED BY GLYPHS — unlike raw counting
- * of font keys (`fontsWithUnreliableProfile`, RAPORT-KROK-5.md: 76-94%),
+ * A reliability metric WEIGHTED BY GLYPHS — unlike raw counting
+ * of font keys,
  * which treats a rare heading used on 5 glyphs the same as a body font
  * carrying 80% of the page's text. A font's `key` is font+size, so rare
  * combinations dominate the KEY count but carry a negligible share of actual

@@ -60,15 +60,6 @@ export async function deleteProfile(id: string): Promise<void> {
   await writeAll(all);
 }
 
-/** Copies an existing profile under a new id/name — the copy is independent from that point on (editing one never affects the other). */
-export async function duplicateProfile(id: string, newName: string): Promise<StatblockProfile | null> {
-  const source = getProfile(id);
-  if (!source) return null;
-  const copy: StatblockProfile = { ...source, id: foundry.utils.randomID(), name: newName };
-  await saveProfile(copy);
-  return copy;
-}
-
 /** Triggers a browser download of the profile as a standalone `.json` file — the sharing mechanism between worlds/users (world-setting storage alone can't cross that boundary). */
 export function exportProfile(id: string): void {
   const profile = getProfile(id);
@@ -78,7 +69,7 @@ export function exportProfile(id: string): void {
   foundry.utils.saveDataToFile(json, 'application/json', filename);
 }
 
-export type ImportProfileResult = { ok: true; profile: StatblockProfile } | { ok: false; issues: readonly string[] };
+export type ImportProfileResult = { ok: true; profile: StatblockProfile; /** A profile with the same id was already stored and has been overwritten. */ replaced: boolean } | { ok: false; issues: readonly string[] };
 
 /** Reads a user-picked `.json` file, migrates + validates it, and saves it into this world's collection on success. Never throws — a bad file is an expected case (the same contract as `validateProfile` itself). */
 export async function importProfileFromFile(file: File): Promise<ImportProfileResult> {
@@ -93,6 +84,7 @@ export async function importProfileFromFile(file: File): Promise<ImportProfileRe
   if (!migrated.ok) return { ok: false, issues: [migrated.issue] };
   const result = validateProfile(migrated.data);
   if (!result.ok) return result;
+  const replaced = getProfile(result.profile.id) !== undefined;
   await saveProfile(result.profile);
-  return { ok: true, profile: result.profile };
+  return { ok: true, profile: result.profile, replaced };
 }

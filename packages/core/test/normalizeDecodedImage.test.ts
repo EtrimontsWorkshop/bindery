@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeDecodedImage } from '../src/images/normalizeDecodedImage.js';
 
-describe('normalizeDecodedImage — ksztalt {kind, data} (Node, fazy 0 spike)', () => {
-  it('RGBA_32BPP (kind=3) przechodzi bez zmian', () => {
+describe('normalizeDecodedImage — the {kind, data} shape (Node, from the initial spike)', () => {
+  it('RGBA_32BPP (kind=3) passes through unchanged', () => {
     const data = new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]);
     const result = normalizeDecodedImage({ width: 2, height: 1, kind: 3, data });
     expect(result.width).toBe(2);
@@ -10,36 +10,36 @@ describe('normalizeDecodedImage — ksztalt {kind, data} (Node, fazy 0 spike)', 
     expect([...result.rgba]).toEqual([10, 20, 30, 255, 40, 50, 60, 255]);
   });
 
-  it('RGB_24BPP (kind=2) dostaje kanal alfa=255 doklejony', () => {
+  it('RGB_24BPP (kind=2) gets an alpha=255 channel appended', () => {
     const data = new Uint8ClampedArray([10, 20, 30, 40, 50, 60]);
     const result = normalizeDecodedImage({ width: 2, height: 1, kind: 2, data });
     expect([...result.rgba]).toEqual([10, 20, 30, 255, 40, 50, 60, 255]);
   });
 
-  it('GRAYSCALE_1BPP (kind=1) rozpakowuje bity do czerni/bieli RGBA', () => {
-    // 2x1 px: bit0=1 (bialy), bit1=0 (czarny) -> bajt 0b10000000 = 0x80
+  it('GRAYSCALE_1BPP (kind=1) unpacks the bits into black/white RGBA', () => {
+    // 2x1 px: bit0=1 (white), bit1=0 (black) -> byte 0b10000000 = 0x80
     const data = new Uint8ClampedArray([0b10000000]);
     const result = normalizeDecodedImage({ width: 2, height: 1, kind: 1, data });
     expect([...result.rgba]).toEqual([255, 255, 255, 255, 0, 0, 0, 255]);
   });
 
-  it('rzuca czytelny blad dla nieznanego kind', () => {
+  it('throws a readable error for an unknown kind', () => {
     expect(() => normalizeDecodedImage({ width: 1, height: 1, kind: 99, data: new Uint8ClampedArray([0]) })).toThrow(
       /unsupported kind/,
     );
   });
 });
 
-describe('normalizeDecodedImage — ksztalt {bitmap} (przegladarka)', () => {
-  it('w Node (bez OffscreenCanvas) rzuca czytelny blad zamiast cichego zawieszenia', () => {
-    // Prawdziwe rysowanie ImageBitmap na canvasie to zakres fazy 3 (KROK-3-fixtures.md, Z6) —
-    // tutaj tylko potwierdzamy, ze ksztalt jest rozpoznany i brak OffscreenCanvas
-    // w Node daje jasny, opisowy blad, a nie awarie.
+describe('normalizeDecodedImage — the {bitmap} shape (the browser)', () => {
+  it('in Node (without OffscreenCanvas) throws a readable error instead of a silent hang', () => {
+    // Real drawing of an ImageBitmap on a canvas is the scope of the image extraction stage — here we
+    // only confirm that the shape is recognized and that the lack of OffscreenCanvas in Node gives a
+    // clear, descriptive error, not a crash.
     const fakeBitmap = { width: 4, height: 4 };
     expect(() => normalizeDecodedImage({ width: 4, height: 4, bitmap: fakeBitmap })).toThrow(/OffscreenCanvas/);
   });
 
-  it('dziala poprawnie, gdy OffscreenCanvas jest dostepny (zamockowany)', () => {
+  it('works correctly when OffscreenCanvas is available (mocked)', () => {
     const drawnBitmaps: unknown[] = [];
     class FakeCanvas {
       constructor(
@@ -73,16 +73,16 @@ describe('normalizeDecodedImage — ksztalt {bitmap} (przegladarka)', () => {
   });
 });
 
-describe('normalizeDecodedImage — walidacja wejscia', () => {
-  it('rzuca dla null', () => {
+describe('normalizeDecodedImage — input validation', () => {
+  it('throws for null', () => {
     expect(() => normalizeDecodedImage(null)).toThrow(/expected an object/);
   });
 
-  it('rzuca, gdy brak width/height', () => {
+  it('throws when width/height are missing', () => {
     expect(() => normalizeDecodedImage({ data: new Uint8ClampedArray() })).toThrow(/width\/height/);
   });
 
-  it('rzuca dla nierozpoznanego ksztaltu (brak data i brak bitmap)', () => {
+  it('throws for an unrecognized shape (no data and no bitmap)', () => {
     expect(() => normalizeDecodedImage({ width: 1, height: 1 })).toThrow(/unrecognized input shape/);
   });
 });

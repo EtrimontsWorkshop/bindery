@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { brightenCroppedImage, type BrightenOptions } from '../../src/images/brightenImage.js';
 
-/** Buduje obraz jednolitego koloru (wszystkie piksele identyczne) — percentyl dolny = ta wartosc, niezaleznie od percentyla. */
+/** Builds a single-color image (all pixels identical) — the lower percentile = that value, regardless of the percentile. */
 function solidImage(gray: number, count = 100): { width: number; height: number; rgba: Uint8ClampedArray } {
   const rgba = new Uint8ClampedArray(count * 4);
   for (let i = 0; i < count; i++) {
@@ -13,55 +13,55 @@ function solidImage(gray: number, count = 100): { width: number; height: number;
   return { width: count, height: 1, rgba };
 }
 
-/** `contrastFactor: 1` = krok kontrastu bez efektu, zeby testy poziomow/gamma nie musialy sie martwic o trzeci krok. */
+/** `contrastFactor: 1` = the contrast step has no effect, so the level/gamma tests don't have to care about the third step. */
 const NEUTRAL_CONTRAST: Pick<BrightenOptions, 'contrastFactor' | 'contrastPivot'> = { contrastFactor: 1, contrastPivot: 128 };
 
 describe('brightenCroppedImage', () => {
-  it('rozjasnia srodkowe wartosci', () => {
+  it('brightens the middle values', () => {
     const image = solidImage(150);
     const out = brightenCroppedImage(image, { targetFloor: 75, floorPercentile: 0.01, gamma: 0.95, ...NEUTRAL_CONTRAST });
     expect(out.rgba[0]!).toBeGreaterThan(150);
-    expect(out.rgba[3]!).toBe(255); // alfa bez zmian
+    expect(out.rgba[3]!).toBe(255); // alpha unchanged
   });
 
-  it('[zmierzony na zywo problem, "rozjasnienie nie dziala" na portrecie z prawie-czarna winieta] podnosi PRAWDZIWA czern (0) do okolic targetFloor', () => {
+  it('[a problem measured live, "the brightening doesn\'t work" on a portrait with a near-black vignette] lifts a TRUE black (0) to around targetFloor', () => {
     const image = solidImage(0);
     const out = brightenCroppedImage(image, { targetFloor: 75, floorPercentile: 0.01, gamma: 0.95, ...NEUTRAL_CONTRAST });
-    expect(out.rgba[0]!).toBeGreaterThan(60); // gamma<1 podnosi jeszcze troche wyzej niz sam targetFloor
+    expect(out.rgba[0]!).toBeGreaterThan(60); // gamma<1 lifts it slightly higher than targetFloor alone
   });
 
-  it('biel zostaje biela (rozciagniecie i gamma nie przepalaja juz jasnych partii)', () => {
+  it('white stays white (the stretch and gamma no longer blow out the bright parts)', () => {
     const image = solidImage(255);
     const out = brightenCroppedImage(image, { targetFloor: 75, floorPercentile: 0.01, gamma: 0.95, ...NEUTRAL_CONTRAST });
     expect(out.rgba[0]!).toBe(255);
     expect(out.rgba[3]!).toBe(255);
   });
 
-  it('[sedno naprawy Z1] obraz z BARDZO ciemnym dnem (percentyl bliski 0) dostaje WIEKSZE rozjasnienie niz obraz, ktorego dno jest juz umiarkowanie jasne — jeden `targetFloor` nie oznacza tego samego przesuniecia dla obu', () => {
+  it('[the core of the fix] an image with a VERY dark bottom (a percentile close to 0) gets a LARGER brightening than an image whose bottom is already moderately bright — one `targetFloor` doesn\'t mean the same shift for both', () => {
     const nearBlackFloor = { width: 2, height: 1, rgba: new Uint8ClampedArray([5, 5, 5, 255, 200, 200, 200, 255]) };
     const moderateFloor = { width: 2, height: 1, rgba: new Uint8ClampedArray([21, 21, 21, 255, 200, 200, 200, 255]) };
     const opts = { targetFloor: 75, floorPercentile: 0.5, gamma: 0.95, ...NEUTRAL_CONTRAST };
     const outNearBlack = brightenCroppedImage(nearBlackFloor, opts);
     const outModerate = brightenCroppedImage(moderateFloor, opts);
-    // Obie zaczynaja od tego samego "wysokiego" piksela (200) -- porownujemy PRZESUNIECIE ich wlasnego dolnego percentyla.
+    // Both start from the same "high" pixel (200) — we compare the SHIFT of their own lower percentile.
     const shiftNearBlack = outNearBlack.rgba[0]! - 5;
     const shiftModerate = outModerate.rgba[0]! - 21;
     expect(shiftNearBlack).toBeGreaterThan(shiftModerate);
   });
 
-  it('gdy targetFloor rowna sie WLASNEMU dolnemu percentylowi obrazu, gamma=1 i kontrast neutralny, przeliczenie jest identycznoscia', () => {
-    const image = solidImage(100); // jednolity obraz -> dolny percentyl = 100 dla dowolnego progu
+  it('when targetFloor equals the image\'s OWN lower percentile, gamma=1 and contrast neutral, the transformation is an identity', () => {
+    const image = solidImage(100); // uniform image -> lower percentile = 100 for any threshold
     const out = brightenCroppedImage(image, { targetFloor: 100, floorPercentile: 0.5, gamma: 1, ...NEUTRAL_CONTRAST });
     expect(out.rgba[0]!).toBe(100);
   });
 
-  it('[zabezpieczenie] obraz, ktorego wlasny dolny percentyl jest JUZ jasniejszy niz targetFloor, nie zostaje przyciemniony (np. jasna sceneria bez glebokich cieni)', () => {
+  it('[safeguard] an image whose own lower percentile is ALREADY brighter than targetFloor is not darkened (e.g. a bright scene without deep shadows)', () => {
     const brightFloor = { width: 2, height: 1, rgba: new Uint8ClampedArray([120, 120, 120, 255, 220, 220, 220, 255]) };
     const out = brightenCroppedImage(brightFloor, { targetFloor: 75, floorPercentile: 0.5, gamma: 1, ...NEUTRAL_CONTRAST });
-    expect(out.rgba[0]!).toBeGreaterThanOrEqual(120); // nigdy ciemniej niz oryginal
+    expect(out.rgba[0]!).toBeGreaterThanOrEqual(120); // never darker than the original
   });
 
-  it('[zgloszenie uzytkownika, "jest teraz dosc jasno, ale straciło trochę kontrastu"] contrastFactor>1 ODDALA wartosci PONIZEJ pivotu od siebie mocniej niz contrastFactor=1 (rosnaca rozpietosc cieni, nie plaski wynik rozciagniecia)', () => {
+  it('[user report, "it is quite bright now, but it lost some contrast"] contrastFactor>1 pushes values BELOW the pivot further apart than contrastFactor=1 (a growing spread of the shadows, not a flat result of the stretch)', () => {
     const shadow = { width: 1, height: 1, rgba: new Uint8ClampedArray([60, 60, 60, 255]) };
     const darkerShadow = { width: 1, height: 1, rgba: new Uint8ClampedArray([40, 40, 40, 255]) };
     const flat = { targetFloor: 0, floorPercentile: 0, gamma: 1, contrastFactor: 1, contrastPivot: 150 };
@@ -71,7 +71,7 @@ describe('brightenCroppedImage', () => {
     expect(gapPunchy).toBeGreaterThan(gapFlat);
   });
 
-  it('zachowuje wymiary obrazu i nie modyfikuje wejscia w miejscu', () => {
+  it('preserves the image dimensions and doesn\'t modify the input in place', () => {
     const image = { width: 3, height: 2, rgba: new Uint8ClampedArray(3 * 2 * 4).fill(50) };
     const original = Array.from(image.rgba);
     const out = brightenCroppedImage(image);

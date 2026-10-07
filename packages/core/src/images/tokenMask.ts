@@ -2,13 +2,13 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { featherAlpha } from './featherAlpha.js';
 
 /**
- * [Step 42 Z2, "mask: circle, square, rounded square, hex"] Shapes defined
+ * Shapes defined
  * as PURE geometry (an "is the point inside" test on normalized coordinates
  * `[-1,1] x [-1,1]`, canvas center = (0,0)), NOT a canvas clip-path — the
  * same philosophy as the rest of `packages/core` ("zero-DOM", testable
  * without a browser/Node canvas). `square` is deliberately "no masking" (the
- * whole square canvas) — one of four equally valid choices from the brief's
- * table, not a special case.
+ * whole square canvas) — one of four equally valid choices, not a special
+ * case.
  */
 export type TokenMaskShape = 'circle' | 'square' | 'roundedSquare' | 'hex';
 

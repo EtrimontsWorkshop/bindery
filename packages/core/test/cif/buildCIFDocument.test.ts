@@ -57,7 +57,7 @@ function finalizedImage(objId: string, page: number, overrides: Partial<ImageEnt
 }
 
 describe('buildCIFDocument', () => {
-  it('caly dokument bez zakladek i bez naglowkow -> jeden journal, jedna strona, nic nie ginie (A3)', () => {
+  it('a whole document with no bookmarks and no headings -> one journal, one page, nothing is lost', () => {
     const blocks = [block('b0', 'body', 'Jedyny akapit calego dokumentu', 1)];
     const { document } = buildCIFDocument({
       fileName: 'plik.pdf',
@@ -75,7 +75,7 @@ describe('buildCIFDocument', () => {
     expect(document.journals[0]!.pages[0]!.html).toContain('Jedyny akapit calego dokumentu');
   });
 
-  it('KAZDY CIFJournal, CIFJournalPage i CIFImage ma niepuste provenance i (gdzie oczekiwane) rawText — DoD', () => {
+  it('EVERY CIFJournal, CIFJournalPage and CIFImage has a non-empty provenance and (where expected) rawText', () => {
     const blocks = [
       block('h0', 'heading', 'Rozdzial 1', 1, 20),
       block('b0', 'body', 'Tresc rozdzialu pierwszego', 1),
@@ -111,13 +111,13 @@ describe('buildCIFDocument', () => {
     for (const img of document.images) {
       expect(img.provenance.pageNumber).toBeGreaterThan(0);
       expect(img.provenance.bbox).toBeDefined();
-      expect(typeof img.rawText).toBe('string'); // ZAWSZE string (moze byc pusty, ale nigdy undefined — A3)
+      expect(typeof img.rawText).toBe('string'); // ALWAYS a string (may be empty, but never undefined)
     }
     expect(imageBytesById.get('img1')).toBeDefined();
     expect(imageBytesById.get('img1')!.bytes).toEqual(new Uint8Array([1, 2, 3]));
   });
 
-  it('obraz osadzony w tresci strony (imageRefs + <figure> w html)', () => {
+  it('an image embedded in the page content (imageRefs + <figure> in the html)', () => {
     const blocks = [block('b0', 'body', 'Tekst przed obrazkiem', 2, 10)];
     const images = [finalizedImage('img1', 2)];
     const { document } = buildCIFDocument({
@@ -132,10 +132,10 @@ describe('buildCIFDocument', () => {
     const page = document.journals[0]!.pages[0]!;
     expect(page.imageRefs).toContain('img1');
     expect(page.html).toContain('<figure>');
-    expect(page.html).toContain('src="img1"'); // placeholder = wlasne id, podmieniane pozniej przez warstwe Foundry
+    expect(page.html).toContain('src="img1"'); // placeholder = its own id, replaced later by the Foundry layer
   });
 
-  it('[regresja] obraz NIE wycieka na strony journala, do ktorych fizycznie nie nalezy', () => {
+  it('[regression] an image does NOT leak into journal pages it doesn\'t physically belong to', () => {
     const blocks = [
       block('h0', 'heading', 'Rozdzial 1', 1, 20),
       block('b0', 'body', 'tresc rozdzialu 1', 1),
@@ -163,7 +163,7 @@ describe('buildCIFDocument', () => {
     expect(journal2.pages[0]!.html).not.toContain('<figure>');
   });
 
-  it('obrazy decoration/mask NIE trafiaja do CIFImage[]', () => {
+  it('decoration/mask images do NOT end up in CIFImage[]', () => {
     const contentImg = finalizedImage('img-content', 1);
     const decorationImg = { ...finalizedImage('img-decoration', 1), classification: 'decoration' as const };
     const maskImg = { ...finalizedImage('img-mask', 1), classification: 'mask' as const };
@@ -179,7 +179,7 @@ describe('buildCIFDocument', () => {
     expect(document.images.map((i) => i.id)).toEqual(['img-content']);
   });
 
-  it('[KROK-11 Z4] obrazy undecided TRAFIAJA do CIFImage[] (ekran przegladu musi je zobaczyc), z zachowanymi classification/confidence', () => {
+  it('undecided images DO end up in CIFImage[] (the review screen must see them), with classification/confidence preserved', () => {
     const contentImg = { ...finalizedImage('img-content', 1), confidence: 0.9 };
     const undecidedImg = { ...finalizedImage('img-undecided', 1), classification: 'undecided' as const, confidence: 0.2 };
     const { document } = buildCIFDocument({
@@ -200,7 +200,7 @@ describe('buildCIFDocument', () => {
     expect(contentFound.confidence).toBe(0.9);
   });
 
-  it('diagnostics przekazane wprost bez zmian (zbierane po drodze przez wywolujacego)', () => {
+  it('diagnostics passed through unchanged (collected along the way by the caller)', () => {
     const { document } = buildCIFDocument({
       fileName: 'plik.pdf',
       fileHash: 'h',
@@ -213,7 +213,7 @@ describe('buildCIFDocument', () => {
     expect(document.diagnostics).toEqual([{ severity: 'warning', code: 'TEST_CODE', params: { detail: 'test' } }]);
   });
 
-  it('schemaVersion zawsze 1, source wypelniony z inputu', () => {
+  it('schemaVersion always 1, source filled from the input', () => {
     const { document } = buildCIFDocument({
       fileName: 'moj-plik.pdf',
       fileHash: 'deadbeef',

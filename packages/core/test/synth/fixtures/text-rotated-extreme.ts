@@ -7,9 +7,8 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 /**
- * ~90% itemow obroconych — skrajnosc z Q6 fazy 0 (do 94% na jednej ze stron
- * realnych PDF-ow). Testuje, ze kubelkowanie po kacie nie zaklada milczaco
- * wiekszosciowego strumienia 0°.
+ * ~90% of items rotated — an extreme from the initial spike (up to 94% on one page of real PDFs).
+ * Tests that bucketing by angle doesn't silently assume a majority 0° stream.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

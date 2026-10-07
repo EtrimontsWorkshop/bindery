@@ -7,12 +7,10 @@ import type { TextLine } from '../layout/lineCluster.js';
 import type { StreamAngle } from '../text/types.js';
 
 /**
- * Merging lines into semantic blocks + `BlockKind` classification (Step 6
- * Z6, MDD §5.2). Closes phase 2. Block boundaries: line spacing above a
+ * Merging lines into semantic blocks + `BlockKind` classification. Closes phase 2. Block boundaries: line spacing above a
  * multiple TYPICAL for the given font (computed from this page's
  * distribution, not a constant), first-line indent, a change of the
- * dominant font key, a column/stream boundary, the edge of a vector region
- * (U3 — the first real use of vector regions, see RAPORT-KROK-5/6.md).
+ * dominant font key, a column/stream boundary, the edge of a vector region.
  */
 
 export type BlockKind =
@@ -37,7 +35,7 @@ export interface SemanticBlock {
   lines: TextLine[];
   rawText: string;
   headingLevel?: number;
-  /** Which rule caught this block — the MDD directly requires this for debuggability. */
+  /** Which rule caught this block — required for debuggability. */
   matchedRuleId?: string;
 }
 
@@ -47,16 +45,16 @@ export interface ImageBBoxOnPage {
 
 export interface BlockBuilderInput {
   pageNumber: number;
-  /** The result of Z4 (buildReadingOrder) — already in correct reading order, with columnIndex set. */
+  /** The result of `buildReadingOrder` — already in correct reading order, with columnIndex set. */
   orderedLines: readonly OrderedLine[];
   fontRoles: ReadonlyMap<string, FontRole>;
   /** Vector regions of THIS page (from InventoryResult, step 4). */
   vectors: readonly VectorRegion[];
   /** Image bboxes of THIS page (from InventoryResult, simplified to just the bbox). */
   images: readonly ImageBBoxOnPage[];
-  /** lineId -> 'header'|'footer' from Z5 — ONLY lines actually confirmed as running elements. */
+  /** lineId -> 'header'|'footer' from running-element detection — ONLY lines actually confirmed as running elements. */
   runningElementKindByLineId: ReadonlyMap<string, 'header' | 'footer'>;
-  /** Columns of THIS page (Z3) — used by `sidebar` to check "off to the side of the column layout". */
+  /** Columns of THIS page — used by `sidebar` to check "off to the side of the column layout". */
   columns: readonly ColumnRegion[];
 }
 
@@ -68,7 +66,7 @@ const INDENT_BREAK_THRESHOLD_PT = 8;
 /** 5+ dots or middle dots in a row — the signature of a dot-leader (tables of contents/tables). */
 const DOT_LEADER_RE = /[.·]{5,}/;
 const MAX_TABLE_LINE_LENGTH = 40;
-/** [Step 9 Z1a] A gap ABOVE this multiple of the typical line spacing counts as vertical isolation (a heading). */
+/** A gap ABOVE this multiple of the typical line spacing counts as vertical isolation (a heading). */
 const ISOLATION_GAP_MULTIPLIER = 1.5;
 
 interface LineWithContext {
@@ -174,11 +172,11 @@ function dominantFontKey(lines: readonly TextLine[]): string {
 }
 
 /**
- * [Step 9 Z1a] Whether a group (before classification) is single-line and
+ * Whether a group (before classification) is single-line and
  * surrounded by a clear empty margin above AND below along the reading
  * axis (the typical shape of a heading) — the absence of a neighbor in the
- * same column/stream counts as isolation (top of the column/stream, MDD
- * §5.2 rule table for `accent`).
+ * same column/stream counts as isolation (top of the column/stream, as for
+ * the `accent` rule).
  */
 function computeIsolationFlags(groups: readonly OrderedLine[][], typicalGap: number): boolean[] {
   function gapToNeighbor(from: number, step: 1 | -1, col: number, angle: StreamAngle, selfLine: TextLine): boolean {
@@ -202,12 +200,12 @@ function computeIsolationFlags(groups: readonly OrderedLine[][], typicalGap: num
 }
 
 /**
- * [Step 6, discovery on `samples/`] "Off to the side of the column layout"
- * (brief, BlockKind table) — a block that does NOT overlap ANY DETECTED
- * column (Z3). Without this condition, every block inside any real column
+ * "Off to the side of the column layout"
+ * (the `sidebar` definition) — a block that does NOT overlap ANY DETECTED
+ * column. Without this condition, every block inside any real column
  * that happened to overlap a large decorative fill (a full-height page
  * background, common in real RPG PDFs) also ended up as `sidebar` —
- * measured on several `samples/` files: `body` counted 0 blocks across an
+ * measured on several real files: `body` counted 0 blocks across an
  * entire ~160-page document, `sidebar` >5000, because "hasColumns" was
  * almost always true (see the comment at its computation) and EVERY block
  * overlapped some fill.
@@ -254,9 +252,9 @@ function classify(
     return { kind: 'table', confidence: 0.4, matchedRuleId: 'Z6-short-regular-lines' };
   }
 
-  // [Step 9 Z1a] `accent` lumps together titles, editorial footers,
-  // illustrator credits, and in-text highlights (MDD §5.2, 459/648 `unknown`
-  // blocks in CP-RED had this role) — the structural rules below give it a
+  // `accent` lumps together titles, editorial footers,
+  // illustrator credits, and in-text highlights (459/648 `unknown`
+  // blocks in a real rulebook had this role) — the structural rules below give it a
   // chance to land somewhere other than `unknown` BEFORE checking
   // `heading`/`body` by role alone, so that e.g. a single-line, isolated
   // `accent` block at the top of a column becomes a heading before the
@@ -277,14 +275,13 @@ function classify(
     return { kind: 'body', confidence: 0.5, matchedRuleId: 'Z9-accent-multiline-in-column-body' };
   }
 
-  // [Step 6, discovery on `samples/`] The brief says "body role, multiple
+  // The expected rule was "body role, multiple
   // lines", but empirically MOST body-role blocks have EXACTLY 1 line
   // (short paragraphs/dialogue lines, block boundaries from
   // indent/line-spacing often cut down to single lines) — requiring >=2
-  // lines dumped them into `unknown` (on Cienie_posrod_mgie.pdf: 2825 out
+  // lines dumped them into `unknown` (on a real book: 2825 out
   // of 4562 `unknown` blocks, i.e. 62%, had the body role and exactly 1
-  // line). The role already distinguishes body from heading (Step 4:
-  // separate rankings), the line count is not needed for that.
+  // line). The role already distinguishes body from heading, the line count is not needed for that.
   if (role === 'body') {
     return { kind: 'body', confidence: 0.8, matchedRuleId: 'Z6-body-role' };
   }
@@ -294,15 +291,14 @@ function classify(
 
 /**
  * Builds `SemanticBlock[]` from the lines of ONE page already in reading
- * order (Z4). Order of steps: (1) group by column/stream/font/line-spacing
- * /indent boundaries, (2) additionally split along vector-region edges
- * (U3), (3) classify each group.
+ * order. Order of steps: (1) group by column/stream/font/line-spacing
+ * /indent boundaries, (2) additionally split along vector-region edges, (3) classify each group.
  */
 export function buildSemanticBlocks(input: BlockBuilderInput): SemanticBlock[] {
   const { pageNumber, fontRoles, vectors, images, runningElementKindByLineId, columns } = input;
   if (input.orderedLines.length === 0) return [];
 
-  // [Step 11] A mid-paragraph heading prefix is already split EARLIER, in
+  // A mid-paragraph heading prefix is already split EARLIER, in
   // `buildPageLayout.ts` (before `splitSpanningLines`/`gutterRepair.ts`) —
   // see `layout/lineEdgeSplit.ts`. Here `orderedLines` arrives already prepared.
   const orderedLines: readonly OrderedLine[] = input.orderedLines;
@@ -326,8 +322,8 @@ export function buildSemanticBlocks(input: BlockBuilderInput): SemanticBlock[] {
   if (current.length > 0) rawGroups.push(current);
 
   const groups = rawGroups.flatMap((g) => splitByVectorRegionEdges(g, vectors));
-  // [Step 6, discovery] columnIndex=-1 means "spanning line/marginalia/outside
-  // any detected column" (Z2/Z4), NOT "a second column" — it must be
+  // columnIndex=-1 means "spanning line/marginalia/outside
+  // any detected column", NOT "a second column" — it must be
   // filtered out, otherwise EVERY page with even one heading/spanning line
   // over single-column text (very common) would falsely count as "has
   // columns" (measured on `samples/`: without this filter, `sidebar`

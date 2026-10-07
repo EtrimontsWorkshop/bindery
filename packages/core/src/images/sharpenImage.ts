@@ -1,7 +1,7 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [Step 42 Z4, "sharpening — cheap, thrown in along the way"] A standard
+ * A standard
  * unsharp mask: blur the image (box blur, small radius — catches ONLY high
  * frequencies/detail, not the overall composition), subtract the blurred
  * version from the original (what the blur "lost" = detail), add it back to
@@ -9,9 +9,9 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  * (transparency from a mask/removed background) is untouched, just like
  * `brightenImage.ts`.
  *
- * [calibration, see RAPORT-KROK-42.md] Most noticeable on bitmap maps
- * scaled up (per the brief) — parameters tuned on portraits/illustrations
- * from `sample/ZewCthulhu-WRAK.pdf`.
+ * [calibration] Most noticeable on bitmap maps
+ * scaled up — parameters tuned on portraits/illustrations
+ * from a real rulebook PDF.
  */
 
 export interface SharpenOptions {

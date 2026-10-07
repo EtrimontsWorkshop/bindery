@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { pdfPointToScreen, pdfRectToScreen, screenPointToPdf, screenRectToPdf, screenRotatedRectToPdf, rotatedRectBounds, type RenderedPageGeometry } from '../src/pageOverlayGeometry.js';
 
 /**
- * [KROK-11 Z3] Ta konkretna funkcja jest odpowiedzialna za czwarta (per
- * historia projektu) wersje bledu "wszystko odbite w pionie" — dlatego
- * pokrycie testowe jest tu celowo gestsze niz gdzie indziej, z wprost
- * policzonymi, czytelnymi dla czlowieka przykladami (nie tylko round-trip).
+ * This particular function is responsible for the fourth version (in the project's history) of the
+ * "everything flipped vertically" bug — so the test coverage here is deliberately denser than
+ * elsewhere, with directly computed, human-readable examples (not only a round trip).
  */
 
 const LETTER_PAGE: RenderedPageGeometry = {
@@ -15,74 +14,74 @@ const LETTER_PAGE: RenderedPageGeometry = {
   rotation: 0,
 };
 
-describe('pdfPointToScreen — rotacja 0 (przypadek dominujacy, wszystkie 9 plikow samples/)', () => {
-  it('lewy-DOLNY róg strony PDF (0,0) -> lewy-DOLNY róg ekranu (0, imageHeightPx) — Y odbite', () => {
+describe('pdfPointToScreen — rotation 0 (the dominant case, every file used in development)', () => {
+  it('the BOTTOM-left corner of the PDF page (0,0) -> the BOTTOM-left corner of the screen (0, imageHeightPx) — Y flipped', () => {
     expect(pdfPointToScreen(0, 0, LETTER_PAGE)).toEqual([0, 792]);
   });
 
-  it('lewy-GORNY róg strony PDF (0, maxY) -> lewy-GORNY róg ekranu (0,0)', () => {
+  it('the TOP-left corner of the PDF page (0, maxY) -> the TOP-left corner of the screen (0,0)', () => {
     expect(pdfPointToScreen(0, 792, LETTER_PAGE)).toEqual([0, 0]);
   });
 
-  it('prawy-GORNY róg strony PDF (maxX, maxY) -> prawy-GORNY róg ekranu (imageWidthPx, 0)', () => {
+  it('the TOP-right corner of the PDF page (maxX, maxY) -> the TOP-right corner of the screen (imageWidthPx, 0)', () => {
     expect(pdfPointToScreen(612, 792, LETTER_PAGE)).toEqual([612, 0]);
   });
 
-  it('srodek strony -> srodek ekranu (Y-odbicie jest symetryczne w punkcie srodkowym)', () => {
+  it('the page center -> the screen center (the Y flip is symmetric at the midpoint)', () => {
     expect(pdfPointToScreen(306, 396, LETTER_PAGE)).toEqual([306, 396]);
   });
 
-  it('punkt w 3/4 wysokosci OD DOLU (blisko gory strony PDF) -> 1/4 wysokosci OD GORY ekranu', () => {
-    // y=594 to 75% wysokosci strony (0-792) liczac OD DOLU (konwencja PDF) —
-    // blisko GORY strony wizualnie. Po odbiciu powinno wypasc blisko gory ekranu (25% z 792 = 198).
+  it('a point at 3/4 of the height FROM THE BOTTOM (near the top of the PDF page) -> 1/4 of the height FROM THE TOP of the screen', () => {
+    // y=594 is 75% of the page height (0-792) counted FROM THE BOTTOM (the PDF convention) — visually
+    // near the TOP of the page. After the flip it should land near the top of the screen (25% of 792 = 198).
     const [, screenY] = pdfPointToScreen(0, 594, LETTER_PAGE);
     expect(screenY).toBeCloseTo(198, 5);
   });
 
-  it('skalowanie: podglad wyrenderowany W INNEJ rozdzielczosci niz 1:1pt->1px nadal trafia we wlasciwe miejsce proporcjonalnie', () => {
+  it('scaling: a preview rendered at a resolution OTHER than 1:1pt->1px still lands in the right place proportionally', () => {
     const scaledPage: RenderedPageGeometry = { pageBox: { minX: 0, minY: 0, maxX: 612, maxY: 792 }, imageWidthPx: 1224, imageHeightPx: 1584, rotation: 0 };
-    // Skala 2x w obu osiach — te same rogi, podwojone piksele.
+    // A 2x scale on both axes — the same corners, doubled pixels.
     expect(pdfPointToScreen(0, 0, scaledPage)).toEqual([0, 1584]);
     expect(pdfPointToScreen(612, 792, scaledPage)).toEqual([1224, 0]);
   });
 
-  it('pageBox z niezerowym minX/minY (np. crop/spad) — normalizacja wzgledem WLASNEGO rogu strony, nie (0,0) globalnie', () => {
+  it('a pageBox with a non-zero minX/minY (e.g. a crop/bleed) — normalization relative to the page\'s OWN corner, not the global (0,0)', () => {
     const offsetPage: RenderedPageGeometry = { pageBox: { minX: 50, minY: 100, maxX: 350, maxY: 500 }, imageWidthPx: 300, imageHeightPx: 400, rotation: 0 };
-    // Lewy-dolny róg strony (50,100) w przestrzeni PDF -> lewy-dolny róg ekranu (0, 400).
+    // The page's bottom-left corner (50,100) in PDF space -> the screen's bottom-left corner (0, 400).
     expect(pdfPointToScreen(50, 100, offsetPage)).toEqual([0, 400]);
-    // Lewy-gorny róg strony (50,500) -> lewy-gorny róg ekranu (0, 0).
+    // The page's top-left corner (50,500) -> the screen's top-left corner (0, 0).
     expect(pdfPointToScreen(50, 500, offsetPage)).toEqual([0, 0]);
   });
 });
 
-describe('pdfRectToScreen — rotacja 0', () => {
-  it('bbox w LEWYM-GORNYM rogu strony PDF (duze Y = blisko gory) -> bbox w LEWYM-GORNYM rogu ekranu (male Y)', () => {
-    // Prostokat 0<=x<=100, 692<=y<=792 (gorne 100pt strony, w PDF-Y-w-gore to DUZE y).
+describe('pdfRectToScreen — rotation 0', () => {
+  it('a bbox in the TOP-left corner of the PDF page (large Y = near the top) -> a bbox in the TOP-left corner of the screen (small Y)', () => {
+    // The rectangle 0<=x<=100, 692<=y<=792 (the top 100pt of the page, which in PDF Y-up is LARGE y).
     const screen = pdfRectToScreen({ minX: 0, minY: 692, maxX: 100, maxY: 792 }, LETTER_PAGE);
     expect(screen).toEqual({ minX: 0, maxX: 100, minY: 0, maxY: 100 });
   });
 
-  it('bbox w LEWYM-DOLNYM rogu strony PDF (male Y) -> bbox w LEWYM-DOLNYM rogu ekranu (duze Y, blisko imageHeightPx)', () => {
+  it('a bbox in the BOTTOM-left corner of the PDF page (small Y) -> a bbox in the BOTTOM-left corner of the screen (large Y, near imageHeightPx)', () => {
     const screen = pdfRectToScreen({ minX: 0, minY: 0, maxX: 100, maxY: 100 }, LETTER_PAGE);
     expect(screen).toEqual({ minX: 0, maxX: 100, minY: 692, maxY: 792 });
   });
 
-  it('bbox obejmujacy CALA strone -> bbox obejmujacy CALA bitmape', () => {
+  it('a bbox covering the WHOLE page -> a bbox covering the WHOLE bitmap', () => {
     const screen = pdfRectToScreen(LETTER_PAGE.pageBox, LETTER_PAGE);
     expect(screen).toEqual({ minX: 0, minY: 0, maxX: 612, maxY: 792 });
   });
 });
 
-describe('pdfPointToScreen — rotacje 90/180/270 (formula spojna wewnetrznie — patrz komentarz w naglowku pliku o braku realnej weryfikacji wizualnej)', () => {
-  it('rotacja 180: lewy-dolny róg PDF -> prawy-gorny róg ekranu (odwrotnosc rotacji 0 w obu osiach)', () => {
+describe('pdfPointToScreen — rotations 90/180/270 (the formula internally consistent — see the comment in the file header about the lack of real visual verification)', () => {
+  it('rotation 180: the bottom-left corner of the PDF -> the top-right corner of the screen (the inverse of rotation 0 on both axes)', () => {
     const page: RenderedPageGeometry = { ...LETTER_PAGE, rotation: 180 };
     expect(pdfPointToScreen(0, 0, page)).toEqual([612, 0]);
     expect(pdfPointToScreen(612, 792, page)).toEqual([0, 792]);
   });
 
-  it('rotacje 90/270 zamieniaja wymiary wyjsciowe (portret <-> pejzaz) — sprawdzone na obrazie o INNYCH proporcjach niz strona', () => {
+  it('rotations 90/270 swap the output dimensions (portrait <-> landscape) — checked on an image with DIFFERENT proportions than the page', () => {
     const rotated90: RenderedPageGeometry = { pageBox: { minX: 0, minY: 0, maxX: 612, maxY: 792 }, imageWidthPx: 792, imageHeightPx: 612, rotation: 90 };
-    // Punkt strony musi nadal wypasc W GRANICACH bitmapy [0,792]x[0,612].
+    // The page point must still fall WITHIN the bitmap bounds [0,792]x[0,612].
     const [x, y] = pdfPointToScreen(306, 396, rotated90);
     expect(x).toBeGreaterThanOrEqual(0);
     expect(x).toBeLessThanOrEqual(792);
@@ -90,33 +89,33 @@ describe('pdfPointToScreen — rotacje 90/180/270 (formula spojna wewnetrznie �
     expect(y).toBeLessThanOrEqual(612);
   });
 
-  it('rotacja 90 i 270 sa wzajemnie odwrotne dla tego samego punktu (round-trip przez obie o 360 st. wraca do zrodla, pomijajac zaokraglenia skali)', () => {
+  it('rotations 90 and 270 are mutually inverse for the same point (a round trip through both by 360 deg returns to the source, ignoring scale rounding)', () => {
     const base: RenderedPageGeometry = { pageBox: { minX: 0, minY: 0, maxX: 612, maxY: 792 }, imageWidthPx: 792, imageHeightPx: 612, rotation: 90 };
     const opposite: RenderedPageGeometry = { ...base, rotation: 270 };
     const p90 = pdfPointToScreen(100, 200, base);
     const p270 = pdfPointToScreen(100, 200, opposite);
-    // Rozne rotacje MUSZA dawac rozne wyniki dla tego samego punktu wejsciowego (dowod, ze rotacja faktycznie cos zmienia).
+    // Different rotations MUST give different results for the same input point (proof that rotation actually changes something).
     expect(p90).not.toEqual(p270);
   });
 });
 
-describe('pdfPointToScreen — przypadki brzegowe', () => {
-  it('zdegenerowany pageBox (zerowa szerokosc/wysokosc) nie rzuca, zwraca [0,0]', () => {
+describe('pdfPointToScreen — edge cases', () => {
+  it('a degenerate pageBox (zero width/height) doesn\'t throw, returns [0,0]', () => {
     const degenerate: RenderedPageGeometry = { pageBox: { minX: 10, minY: 10, maxX: 10, maxY: 500 }, imageWidthPx: 100, imageHeightPx: 100, rotation: 0 };
     expect(pdfPointToScreen(10, 10, degenerate)).toEqual([0, 0]);
   });
 });
 
-describe('screenPointToPdf — [KROK-18] odwrotnosc pdfPointToScreen, rotacja 0', () => {
-  it('lewy-DOLNY róg ekranu (0, imageHeightPx) -> lewy-DOLNY róg strony PDF (0,0)', () => {
+describe('screenPointToPdf — the inverse of pdfPointToScreen, rotation 0', () => {
+  it('the BOTTOM-left corner of the screen (0, imageHeightPx) -> the BOTTOM-left corner of the PDF page (0,0)', () => {
     expect(screenPointToPdf(0, 792, LETTER_PAGE)).toEqual([0, 0]);
   });
 
-  it('lewy-GORNY róg ekranu (0,0) -> lewy-GORNY róg strony PDF (0, maxY)', () => {
+  it('the TOP-left corner of the screen (0,0) -> the TOP-left corner of the PDF page (0, maxY)', () => {
     expect(screenPointToPdf(0, 0, LETTER_PAGE)).toEqual([0, 792]);
   });
 
-  it('round-trip PDF -> ekran -> PDF wraca do zrodla (dowolny punkt wewnatrz strony)', () => {
+  it('a round trip PDF -> screen -> PDF returns to the source (any point inside the page)', () => {
     for (const [x, y] of [
       [100, 200],
       [306, 396],
@@ -130,7 +129,7 @@ describe('screenPointToPdf — [KROK-18] odwrotnosc pdfPointToScreen, rotacja 0'
     }
   });
 
-  it('round-trip dziala tez przy innej rozdzielczosci renderu (skalowanie 2x) i niezerowym pageBox.min', () => {
+  it('the round trip also works at a different render resolution (2x scaling) and a non-zero pageBox.min', () => {
     const page: RenderedPageGeometry = { pageBox: { minX: 50, minY: 100, maxX: 350, maxY: 500 }, imageWidthPx: 600, imageHeightPx: 800, rotation: 0 };
     const [sx, sy] = pdfPointToScreen(200, 300, page);
     const [px, py] = screenPointToPdf(sx, sy, page);
@@ -139,13 +138,13 @@ describe('screenPointToPdf — [KROK-18] odwrotnosc pdfPointToScreen, rotacja 0'
   });
 });
 
-describe('screenRectToPdf — [KROK-18] odwrotnosc pdfRectToScreen', () => {
-  it('bbox ekranu w lewym-gornym rogu (male Y) -> bbox PDF w lewym-gornym rogu strony (duze Y)', () => {
+describe('screenRectToPdf — the inverse of pdfRectToScreen', () => {
+  it('a screen bbox in the top-left corner (small Y) -> a PDF bbox in the top-left corner of the page (large Y)', () => {
     const pdf = screenRectToPdf({ minX: 0, minY: 0, maxX: 100, maxY: 100 }, LETTER_PAGE);
     expect(pdf).toEqual({ minX: 0, maxX: 100, minY: 692, maxY: 792 });
   });
 
-  it('round-trip PDF -> ekran -> PDF na dowolnym prostokacie', () => {
+  it('a round trip PDF -> screen -> PDF on any rectangle', () => {
     const original = { minX: 120, minY: 250, maxX: 480, maxY: 600 };
     const screen = pdfRectToScreen(original, LETTER_PAGE);
     const roundTripped = screenRectToPdf(screen, LETTER_PAGE);
@@ -155,7 +154,7 @@ describe('screenRectToPdf — [KROK-18] odwrotnosc pdfRectToScreen', () => {
     expect(roundTripped.maxY).toBeCloseTo(original.maxY, 6);
   });
 
-  it('round-trip dziala tez pod rotacja 90/270 (nie tylko dominujacy przypadek 0)', () => {
+  it('the round trip also works under rotation 90/270 (not only the dominant case 0)', () => {
     for (const rotation of [90, 270] as const) {
       const page: RenderedPageGeometry = { pageBox: { minX: 0, minY: 0, maxX: 612, maxY: 792 }, imageWidthPx: 792, imageHeightPx: 612, rotation };
       const original = { minX: 100, minY: 150, maxX: 400, maxY: 600 };
@@ -169,10 +168,10 @@ describe('screenRectToPdf — [KROK-18] odwrotnosc pdfRectToScreen', () => {
   });
 });
 
-describe('screenRotatedRectToPdf — [zgloszenie uzytkownika, "Zaznacz i wytnij" — obrocone zaznaczenie]', () => {
-  it('rotationRad=0 (nieobrocony) -> ten sam wynik co zwykly screenRectToPdf (przypadek szczegolny)', () => {
+describe('screenRotatedRectToPdf — [user report, "select and crop" — a rotated selection]', () => {
+  it('rotationRad=0 (not rotated) -> the same result as the plain screenRectToPdf (a special case)', () => {
     const rotated = screenRotatedRectToPdf({ centerX: 300, centerY: 300, width: 100, height: 50, rotationRad: 0 }, LETTER_PAGE);
-    // Srodek ekranu (300,300), Y-odbicie (skala 1:1, LETTER_PAGE) -> PDF Y = 792-300 = 492.
+    // Screen center (300,300), Y flip (scale 1:1, LETTER_PAGE) -> PDF Y = 792-300 = 492.
     expect(rotated.centerX).toBeCloseTo(300, 6);
     expect(rotated.centerY).toBeCloseTo(492, 6);
     expect(rotated.width).toBeCloseTo(100, 6);
@@ -180,10 +179,10 @@ describe('screenRotatedRectToPdf — [zgloszenie uzytkownika, "Zaznacz i wytnij"
     expect(rotated.rotationRad).toBeCloseTo(0, 6);
   });
 
-  it('[wprost policzony przyklad] obrot 90° w ekranie -> obrot -90° w PDF (odbicie osi Y odwraca zmysl obrotu), wymiary bez zmian', () => {
-    // Wprost policzone na LETTER_PAGE (skala 1:1): 4 rogi prostokata
-    // srodek=(300,300), szerokosc=100, wysokosc=50, obrocone o 90° w ekranie,
-    // przepuszczone przez Y-odbicie (jedyna transformacja przy tej stronie/skali).
+  it('[a directly computed example] a 90° rotation on screen -> a -90° rotation in PDF (the Y axis flip reverses the sense of rotation), dimensions unchanged', () => {
+    // Directly computed on LETTER_PAGE (scale 1:1): the 4 corners of a rectangle with center=(300,300),
+    // width=100, height=50, rotated by 90° on the screen, passed through the Y flip (the only
+    // transformation for this page/scale).
     const rotated = screenRotatedRectToPdf({ centerX: 300, centerY: 300, width: 100, height: 50, rotationRad: Math.PI / 2 }, LETTER_PAGE);
     expect(rotated.centerX).toBeCloseTo(300, 6);
     expect(rotated.centerY).toBeCloseTo(492, 6);
@@ -192,7 +191,7 @@ describe('screenRotatedRectToPdf — [zgloszenie uzytkownika, "Zaznacz i wytnij"
     expect(rotated.rotationRad).toBeCloseTo(-Math.PI / 2, 6);
   });
 
-  it('dowolny kat (30°) — szerokosc/wysokosc zachowane (skala 1:1), srodek Y-odbity, obrot zanegowany', () => {
+  it('any angle (30°) — the width/height preserved (scale 1:1), the center Y-flipped, the rotation negated', () => {
     const rotated = screenRotatedRectToPdf({ centerX: 200, centerY: 400, width: 120, height: 60, rotationRad: Math.PI / 6 }, LETTER_PAGE);
     expect(rotated.centerX).toBeCloseTo(200, 6);
     expect(rotated.centerY).toBeCloseTo(392, 6);
@@ -201,7 +200,7 @@ describe('screenRotatedRectToPdf — [zgloszenie uzytkownika, "Zaznacz i wytnij"
     expect(rotated.rotationRad).toBeCloseTo(-Math.PI / 6, 6);
   });
 
-  it('dziala pod rotacja strony (90°) — wymiary nadal zachowane, bez zalamania na NaN/Infinity', () => {
+  it('works under a page rotation (90°) — the dimensions still preserved, no collapse to NaN/Infinity', () => {
     const page: RenderedPageGeometry = { pageBox: { minX: 0, minY: 0, maxX: 612, maxY: 792 }, imageWidthPx: 792, imageHeightPx: 612, rotation: 90 };
     const rotated = screenRotatedRectToPdf({ centerX: 300, centerY: 300, width: 100, height: 50, rotationRad: Math.PI / 4 }, page);
     expect(rotated.width).toBeCloseTo(100, 6);
@@ -213,12 +212,12 @@ describe('screenRotatedRectToPdf — [zgloszenie uzytkownika, "Zaznacz i wytnij"
 });
 
 describe('rotatedRectBounds', () => {
-  it('rotationRad=0 — otoczka to zwykly axis-aligned prostokat wokol srodka', () => {
+  it('rotationRad=0 — the envelope is an ordinary axis-aligned rectangle around the center', () => {
     const bounds = rotatedRectBounds({ centerX: 100, centerY: 200, width: 40, height: 20, rotationRad: 0 });
     expect(bounds).toEqual({ minX: 80, maxX: 120, minY: 190, maxY: 210 });
   });
 
-  it('rotationRad=45° — kwadrat obrocony o 45° ma otoczke o boku rownym przekatnej', () => {
+  it('rotationRad=45° — a square rotated by 45° has an envelope with a side equal to the diagonal', () => {
     const bounds = rotatedRectBounds({ centerX: 0, centerY: 0, width: 10, height: 10, rotationRad: Math.PI / 4 });
     const half = (10 * Math.SQRT2) / 2;
     expect(bounds.minX).toBeCloseTo(-half, 6);
@@ -227,7 +226,7 @@ describe('rotatedRectBounds', () => {
     expect(bounds.maxY).toBeCloseTo(half, 6);
   });
 
-  it('rotationRad=90° — prostokat "lezacy" po obrocie o 90° ma zamienione szerokosc/wysokosc otoczki', () => {
+  it('rotationRad=90° — a "lying" rectangle rotated by 90° has the envelope\'s width/height swapped', () => {
     const bounds = rotatedRectBounds({ centerX: 50, centerY: 50, width: 30, height: 10, rotationRad: Math.PI / 2 });
     expect(bounds).toEqual({ minX: 45, maxX: 55, minY: 35, maxY: 65 });
   });

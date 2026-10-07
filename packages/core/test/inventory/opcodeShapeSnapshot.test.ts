@@ -4,21 +4,17 @@ import { HANDLED_OPCODES } from '../../src/inventory/walkOperators.js';
 import { fixtures } from '../synth/index.js';
 
 /**
- * KROK-5 Z7, zamkniete wyczerpujaco w KROK-6 Z1c — ten test przepuszcza KAZDY
- * fixture przez prawdziwy `getOperatorList()` i zrzuca arnosc/typy (NIE
- * wartosci) argsArray dla kazdego opcode'u obslugiwanego w `walkOperators.ts`.
- *
- * KROK-5 wersja tego testu miala liste opcode'ow PRZEPISANA RECZNIE
- * (`HANDLED_OPCODE_NAMES`), niezalezna od `walkOperators.ts` — dokladnie ten
- * sam schemat bledu co dwa razy wczesniej (KROK-4: cm, KROK-5: constructPath),
- * tylko na poziomie "czy w ogole sprawdzamy ten opcode", nie "jaki ma ksztalt".
- * Teraz lista pochodzi z `HANDLED_OPCODES`, eksportowanego WPROST z tabeli
- * dispatch w `walkOperators.ts` (`[...HANDLERS.keys()]`) — dodanie obslugi
- * nowego opcode'u bez wpisu w snapshocie jest wykrywane MECHANICZNIE: nowy
- * klucz pojawi sie w raporcie i `toMatchSnapshot()` zaczerwieni sie na
- * niezgodnosci z zatwierdzonym plikiem `.snap`, dopoki ktos swiadomie go nie
- * zaakceptuje (i przy okazji zobaczy, czy ma jakiekolwiek pokrycie fixture'ami,
- * czy tylko pusta tablice — patrz przypadek paintImageXObjectRepeat nizej).
+ * Closed exhaustively by construction — this test runs EVERY fixture through a real
+ * `getOperatorList()` and dumps the arity/types (NOT the values) of argsArray for every opcode
+ * handled in `walkOperators.ts`. An earlier version of this test had the opcode list COPIED BY
+ * HAND (`HANDLED_OPCODE_NAMES`), independent of `walkOperators.ts` — exactly the same class of
+ * bug as twice before, only at the level of "do we check this opcode at all", not "what shape
+ * does it have". Now the list comes from `HANDLED_OPCODES`, exported DIRECTLY from the dispatch
+ * table in `walkOperators.ts` (`[...HANDLERS.keys()]`) — adding support for a new opcode
+ * without a snapshot entry is detected MECHANICALLY: the new key shows up in the report and
+ * `toMatchSnapshot()` goes red against the approved `.snap` file until someone consciously
+ * accepts it (and in passing sees whether it has any fixture coverage at all, or only an empty
+ * array — see the paintImageXObjectRepeat case below).
  */
 
 function opcodeNamesFromHandled(handled: ReadonlySet<number>): Map<number, string> {
@@ -30,7 +26,7 @@ function opcodeNamesFromHandled(handled: ReadonlySet<number>): Map<number, strin
   return nameByNumber;
 }
 
-/** Sygnatura ksztaltu wartosci — TYLKO typ/arnosc, nigdy sama wartosc. */
+/** A value-shape signature — ONLY the type/arity, never the value itself. */
 function shapeOf(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
@@ -49,7 +45,7 @@ function shapeOf(value: unknown): string {
   return typeof value;
 }
 
-/** Sygnatura ksztaltu calego `args` (argsArray[i]) — tablica top-level + ksztalt kazdego elementu. */
+/** A shape signature of the whole `args` (argsArray[i]) — the top-level array + the shape of each element. */
 function argsShape(args: unknown[]): string {
   return `arity=${args.length} [${args.map((a) => shapeOf(a)).join(', ')}]`;
 }
@@ -74,8 +70,8 @@ async function collectShapesForBuffer(buf: Buffer, nameByNumber: ReadonlyMap<num
   return shapesByOpcode;
 }
 
-describe('Z1c — snapshot ksztaltow argsArray wyczerpujacy z konstrukcji (KROK-6)', () => {
-  it('arnosc/typy argsArray dla KAZDEGO opcode z HANDLED_OPCODES (nie z recznej listy), zebrane ze WSZYSTKICH fixturow', async () => {
+describe('an exhaustive snapshot of the argsArray shapes, closed by construction', () => {
+  it('the arity/types of argsArray for EVERY opcode in HANDLED_OPCODES (not from a hand-written list), collected from ALL fixtures', async () => {
     const nameByNumber = opcodeNamesFromHandled(HANDLED_OPCODES);
     const merged = new Map<string, Set<string>>();
 
@@ -96,19 +92,19 @@ describe('Z1c — snapshot ksztaltow argsArray wyczerpujacy z konstrukcji (KROK-
     expect(report).toMatchSnapshot();
   });
 
-  it('kazdy numer w HANDLED_OPCODES odpowiada realnemu, znanemu opcode pdf.js (brak driftu miedzy wersjami)', () => {
+  it('every number in HANDLED_OPCODES corresponds to a real, known pdf.js opcode (no drift between versions)', () => {
     const nameByNumber = opcodeNamesFromHandled(HANDLED_OPCODES);
     expect(nameByNumber.size).toBe(HANDLED_OPCODES.size);
   });
 
-  it('[test negatywny Z1c] liczba obslugiwanych opcode-ow jest zamrozona na 13 — zmiana sygnalizuje dodanie/usuniecie handlera w walkOperators.ts, ktore MUSI przejsc przez powyzszy snapshot', () => {
-    // HANDLED_OPCODES jest MECHANICZNIE rowne kluczom tabeli dispatch (Map.keys())
-    // w walkOperators.ts — nie da sie dodac obslugi nowego opcode'u bez zmiany
-    // tej liczby, co natychmiast zmienia tez zawartosc snapshotu powyzej (nowy
-    // klucz w raporcie = niezgodnosc z zatwierdzonym .snap = test sie czerwieni).
-    // [KROK-7] 11->13: dodano paintFormXObjectBegin/End (patrz walkOperators.ts —
-    // odkrycie: wykonanie Form XObject NIE bylo scopowane jak save/restore, CTM
-    // z jego wnetrza przeciekal do wszystkiego narysowanego po nim na stronie).
+  it('[a negative test] the number of handled opcodes is frozen at 13 — a change signals adding/removing a handler in walkOperators.ts, which MUST go through the snapshot above', () => {
+    // HANDLED_OPCODES is MECHANICALLY equal to the keys of the dispatch table (Map.keys()) in
+    // walkOperators.ts — support for a new opcode can't be added without changing this number,
+    // which also immediately changes the snapshot content above (a new key in the report = a
+    // mismatch with the approved .snap = the test goes red).
+    // 11->13: paintFormXObjectBegin/End were added (see walkOperators.ts — discovery: executing a
+    // Form XObject was NOT scoped like save/restore, so the CTM from its inside leaked into
+    // everything drawn after it on the page).
     expect(HANDLED_OPCODES.size).toBe(13);
   });
 });

@@ -1,0 +1,26 @@
+<div class="bindery-profiles">
+  <div class="bindery-profiles-toolbar">
+    <button type="button" data-action="importProfile"><i class="fa-solid fa-file-import"></i> {{localize "BINDERY.statblockProfiles.import"}}</button>
+  </div>
+  {{#if hasProfiles}}
+    <ul class="bindery-profiles-list">
+      {{#each profiles}}
+        <li>
+          <span class="bindery-profiles-name">{{this.name}}</span>
+          <span class="bindery-profiles-meta">
+            {{localize "BINDERY.statblockProfiles.actorType"}}: {{this.actorType}}
+            · {{localize "BINDERY.statblockProfiles.fieldCount" count=this.fieldCount}}
+            · {{localize "BINDERY.statblockProfiles.collectionCount" count=this.collectionCount}}
+            {{#if this.language}}· {{this.language}}{{/if}}
+          </span>
+          <span class="bindery-profiles-actions">
+            <button type="button" data-action="exportProfile" data-id="{{this.id}}" title="{{localize 'BINDERY.statblockProfiles.export'}}"><i class="fa-solid fa-download"></i></button>
+            <button type="button" data-action="deleteProfile" data-id="{{this.id}}" title="{{localize 'BINDERY.statblockProfiles.delete'}}"><i class="fa-solid fa-trash"></i></button>
+          </span>
+        </li>
+      {{/each}}
+    </ul>
+  {{else}}
+    <p class="hint">{{localize "BINDERY.statblockProfiles.emptyList"}}</p>
+  {{/if}}
+</div>

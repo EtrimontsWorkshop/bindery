@@ -46,8 +46,8 @@ export interface RotatedPdfRegion {
  * matrix `page.getViewport({scale}).transform` (which itself accounts for
  * `page.rotate`, see `regionRenderer.ts`), NOT a naive scale+Y-flip computed
  * directly from `bbox`. That second formula was correct ONLY for pages with
- * `rotate === 0` (which is true for all 9 files in this project's
- * `samples/`, which is why the bug went unnoticed until now) — on a page
+ * `rotate === 0` (true for every file used in development, which is why
+ * the bug went unnoticed until now) — on a page
  * with real rotation it would give wrong coordinates with no error/warning
  * at all. `computeRenderPlan` is a PURE, deterministic function of the same
  * `bbox`/`targetLongEdgePx` the render above used, so calling it again here

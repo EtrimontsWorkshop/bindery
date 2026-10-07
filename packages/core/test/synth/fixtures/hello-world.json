@@ -1,6 +1,6 @@
 {
   "id": "hello-world",
-  "description": "Jedna linia tekstu na jednej stronie. Dowod, ze lancuch emiter -> pdf.js dziala.",
+  "description": "One line of text on one page. Proof that the emitter -> pdf.js chain works.",
   "targetPhase": 1,
   "claims": {
     "pageCount": 1,

@@ -1,9 +1,8 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Uklad trzykolumnowy: x=72..~190, x=230..~350, x=390..~500, dwie rynny
- * (190-230, 350-390) puste na calej wysokosci. Testuje detekcje WIECEJ niz
- * dwoch kolumn (KROK-6 Z3).
+ * A three-column layout: x=72..~190, x=230..~350, x=390..~500, two gutters (190-230, 350-390)
+ * empty over the whole height. Tests the detection of MORE than two columns.
  */
 export function build(): Buffer {
   const col = (prefix: string, x: number) =>

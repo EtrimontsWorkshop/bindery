@@ -14,7 +14,7 @@ function solidImage(w: number, h: number): DecodedImage {
 }
 
 describe('nodeCanvasImageEncoder', () => {
-  it('koduje do WebP domyslnie — sygnatura RIFF....WEBP', async () => {
+  it('encodes to WebP by default — the RIFF....WEBP signature', async () => {
     const result = await nodeCanvasImageEncoder.encode(solidImage(16, 16));
     expect(result.format).toBe('webp');
     expect(result.bytes.length).toBeGreaterThan(0);
@@ -23,7 +23,7 @@ describe('nodeCanvasImageEncoder', () => {
     expect(header.slice(8, 12)).toBe('WEBP');
   });
 
-  it('koduje do PNG na zadanie — sygnatura magicznych bajtow PNG', async () => {
+  it('encodes to PNG on request — the PNG magic bytes signature', async () => {
     const result = await nodeCanvasImageEncoder.encode(solidImage(16, 16), { format: 'png' });
     expect(result.format).toBe('png');
     const bytes = result.bytes;
@@ -33,9 +33,9 @@ describe('nodeCanvasImageEncoder', () => {
     expect(bytes[3]).toBe(0x47); // 'G'
   });
 
-  it('respektuje quality (nizsza jakosc -> mniejszy rozmiar dla tej samej tresci)', async () => {
-    // Obraz z realnym szumem (nie jednolity kolor) — WebP przy jednolitym
-    // kolorze kompresuje sie niemal identycznie niezaleznie od quality.
+  it('respects quality (a lower quality -> a smaller size for the same content)', async () => {
+    // An image with real noise (not a flat color) — WebP with a flat color compresses almost
+    // identically regardless of quality.
     const w = 64;
     const h = 64;
     const rgba = new Uint8ClampedArray(w * h * 4);

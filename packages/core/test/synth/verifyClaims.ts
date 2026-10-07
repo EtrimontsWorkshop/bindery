@@ -14,15 +14,15 @@ function checkRangeOrExact(name: string, actual: number, claim: number | ClaimRa
     return actual === claim ? null : `${name}: oczekiwano dokladnie ${claim}, otrzymano ${actual}`;
   }
   if (claim.min !== undefined && actual < claim.min) {
-    return `${name}: ${actual} ponizej min ${claim.min}`;
+    return `${name}: ${actual} below min ${claim.min}`;
   }
   if (claim.max !== undefined && actual > claim.max) {
-    return `${name}: ${actual} powyzej max ${claim.max}`;
+    return `${name}: ${actual} above max ${claim.max}`;
   }
   return null;
 }
 
-/** Porownuje policzone metryki z deklarowanymi claims. Zwraca liste czytelnych niezgodnosci (pusta = sukces). */
+/** Compares the computed metrics with the declared claims. Returns a list of readable mismatches (empty = success). */
 export function checkClaims(claims: FixtureClaims, computed: ComputedMetrics): string[] {
   const failures: string[] = [];
   const push = (f: string | null) => {
@@ -78,7 +78,7 @@ export function checkClaims(claims: FixtureClaims, computed: ComputedMetrics): s
     const worst = Math.min(...computed.imageCountPerPage);
     if (worst < claims.minImagesPerPage) {
       failures.push(
-        `minImagesPerPage: strona z najmniejsza liczba obrazow ma ${worst}, oczekiwano >= ${claims.minImagesPerPage} (per-page: ${computed.imageCountPerPage.join(',')})`,
+        `minImagesPerPage: the page with the fewest images has ${worst}, expected >= ${claims.minImagesPerPage} (per-page: ${computed.imageCountPerPage.join(',')})`,
       );
     }
   }

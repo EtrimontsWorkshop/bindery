@@ -11,17 +11,17 @@ function fakeDoc(overrides: Partial<PdfDocumentForOutline> = {}): PdfDocumentFor
 }
 
 describe('extractOutline', () => {
-  it('brak outline (getOutline zwraca null) -> []', async () => {
+  it('no outline (getOutline returns null) -> []', async () => {
     const result = await extractOutline(fakeDoc({ getOutline: async () => null }));
     expect(result).toEqual([]);
   });
 
-  it('pusta tablica outline -> []', async () => {
+  it('an empty outline array -> []', async () => {
     const result = await extractOutline(fakeDoc({ getOutline: async () => [] }));
     expect(result).toEqual([]);
   });
 
-  it('getOutline rzuca wyjatek -> [] (degraduj, nie failuj, A7)', async () => {
+  it('getOutline throws -> [] (degrade, don\'t fail)', async () => {
     const result = await extractOutline(
       fakeDoc({
         getOutline: async () => {
@@ -32,7 +32,7 @@ describe('extractOutline', () => {
     expect(result).toEqual([]);
   });
 
-  it('dest jako tablica jawna (bez getDestination) rozwiazuje sie przez getPageIndex', async () => {
+  it('dest as an explicit array (without getDestination) resolves through getPageIndex', async () => {
     const nodes: PdfOutlineNode[] = [{ title: 'Rozdzial 1', dest: ['ref1'], items: [] }];
     const result = await extractOutline(fakeDoc({ getOutline: async () => nodes, getPageIndex: async () => 4 }));
     expect(result).toHaveLength(1);
@@ -41,7 +41,7 @@ describe('extractOutline', () => {
     expect(result[0]!.depth).toBe(1);
   });
 
-  it('dest jako string (nazwana destynacja) rozwiazuje sie przez getDestination potem getPageIndex', async () => {
+  it('dest as a string (a named destination) resolves through getDestination, then getPageIndex', async () => {
     const nodes: PdfOutlineNode[] = [{ title: 'Rozdzial 1', dest: 'chapter1', items: [] }];
     const result = await extractOutline(
       fakeDoc({
@@ -53,7 +53,7 @@ describe('extractOutline', () => {
     expect(result[0]!.pageNumber).toBe(10);
   });
 
-  it('dest null (np. wpis grupujacy bez celu) -> pageNumber null, NIE failuje', async () => {
+  it('dest null (e.g. a grouping entry with no target) -> pageNumber null, does NOT fail', async () => {
     const nodes: PdfOutlineNode[] = [{ title: 'Grupa', dest: null, items: [{ title: 'Podrozdzial', dest: ['ref'], items: [] }] }];
     const result = await extractOutline(fakeDoc({ getOutline: async () => nodes, getPageIndex: async () => 2 }));
     expect(result[0]!.pageNumber).toBeNull();
@@ -62,7 +62,7 @@ describe('extractOutline', () => {
     expect(result[0]!.children[0]!.depth).toBe(2);
   });
 
-  it('dest nierozwiazywalny (getPageIndex rzuca, np. link zewnetrzny) -> pageNumber null, reszta drzewa dziala dalej', async () => {
+  it('an unresolvable dest (getPageIndex throws, e.g. an external link) -> pageNumber null, the rest of the tree keeps working', async () => {
     const nodes: PdfOutlineNode[] = [
       { title: 'Link zewnetrzny', dest: ['bad-ref'], items: [] },
       { title: 'Rozdzial normalny', dest: ['good-ref'], items: [] },
@@ -80,7 +80,7 @@ describe('extractOutline', () => {
     expect(result[1]!.pageNumber).toBe(1);
   });
 
-  it('glebokosc wieloportziomowa zachowana poprawnie (depth 1/2/3)', async () => {
+  it('multi-level depth preserved correctly (depth 1/2/3)', async () => {
     const nodes: PdfOutlineNode[] = [
       {
         title: 'Czesc I',
@@ -102,7 +102,7 @@ describe('extractOutline', () => {
 });
 
 describe('flattenOutline', () => {
-  it('splaszcza drzewo w kolejnosci DFS', () => {
+  it('flattens the tree in DFS order', () => {
     const tree = [
       { title: 'A', pageNumber: 1, depth: 1, children: [{ title: 'A1', pageNumber: 2, depth: 2, children: [] }] },
       { title: 'B', pageNumber: 3, depth: 1, children: [] },

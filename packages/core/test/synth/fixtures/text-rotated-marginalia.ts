@@ -7,9 +7,9 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 /**
- * Tekst poziomy (strumien podstawowy) + pionowy pasek na marginesie (~50%
- * itemow pod 90°). Testuje kubelkowanie po kacie PRZED czymkolwiek innym
- * (MDD F0, §5.1) — bez tego tekst pionowy rozwala histogram kolumn.
+ * Horizontal text (the primary stream) + a vertical strip in the margin (~50% of items at 90°).
+ * Tests bucketing by angle BEFORE anything else — without it vertical text wrecks the column
+ * histogram.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -24,14 +24,14 @@ export function build(): Buffer {
   const sidebarLines = ['Sidebar note', 'See page twelve', 'for more detail', 'on this creature', 'and its habits'];
 
   const cs = new ContentStreamBuilder().beginText().setFont('F1', 12);
-  // strumien podstawowy — poziomy, 0°
+  // the primary stream — horizontal, 0°
   let y = 750;
   for (const line of mainLines) {
     cs.setTextMatrix(1, 0, 0, 1, 72, y);
     cs.showTextHex(asciiCodes(line));
     y -= 20;
   }
-  // pasek boczny — pionowy, 90° (macierz "0 1 -1 0 x y Tm" z szpargalki)
+  // a side strip — vertical, 90° (the matrix "0 1 -1 0 x y Tm" from the cheat sheet)
   let sy = 200;
   for (const line of sidebarLines) {
     cs.setTextMatrix(0, 1, -1, 0, 560, sy);

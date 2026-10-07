@@ -32,7 +32,7 @@ export interface RotateAndCropOptions {
   /** Radians — see the comment on the function. */
   rotationRad: number;
   /**
-   * [Step 42 Z2, "crop and zoom inside the token mask"] How many SOURCE
+   * How many SOURCE
    * pixels correspond to ONE OUTPUT pixel — >1 ZOOMS OUT (more of the
    * source is visible, less detail per output pixel), <1 ZOOMS IN. Defaults
    * to 1 (no scale change) — FULL backward compatibility with prior

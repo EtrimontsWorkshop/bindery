@@ -1,12 +1,12 @@
 {
   "id": "extract-single-clean",
-  "description": "Jeden obraz (200x150px wewnetrznie, narysowany na 500x600pt = ~62% strony), bez maski, bez sasiadow.",
+  "description": "One image (200x150px internally, drawn at 500x600pt = ~62% of the page), no mask, no neighbors.",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
     "imageCount": 1
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: jeden obraz XObject, rozmiar wewnetrzny 200x150px (rozny od skali rysowania 500x600pt), powierzchnia wzgledna strony ~0.62 (500*600)/(612*792). classifyImages() powinien dac 'content' (duza powierzchnia), decideExtractionStrategy() powinien dac 'direct' (brak maski, brak klastra — ten wpis jest jedynym obrazem na stronie). Bezposrednia ekstrakcja (extractDirect przez page.objs) powinna zwrocic DecodedImage o wymiarach DOKLADNIE 200x150 — pelna rozdzielczosc zrodlowa, niezalezna od targetLongEdgePx (ten dotyczy tylko renderu regionu)."
+    "note": "Construction fact: one image XObject, the internal size 200x150px (different from the drawing scale of 500x600pt), the relative page area ~0.62 (500*600)/(612*792). classifyImages() should give 'content' (a large area), decideExtractionStrategy() should give 'direct' (no mask, no cluster — this entry is the only image on the page). Direct extraction (extractDirect through page.objs) should return a DecodedImage of EXACTLY 200x150 — the full source resolution, independent of targetLongEdgePx (which concerns only the region render)."
   }
 }

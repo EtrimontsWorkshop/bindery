@@ -13,15 +13,15 @@ import { detectRunningElements, type PageForRunningElements } from './runningEle
 import { splitSpanningLines } from './spanning.js';
 
 /**
- * Orchestration of phase 2, second half (Step 6) — wires Z2-Z6 into a single
- * pass per document, fed by `buildTextLayout` (step 5) and `buildInventory`
- * (step 4). Closes out phase 2 (MDD §8): output is `PageLayout[]` (columns +
- * streams in correct reading order) and `SemanticBlock[]` for the whole document.
+ * Page-layout orchestration, second half — wires spanning/column detection, running elements,
+ * reading order and the semantic block builder into a single pass per document, fed by
+ * `buildTextLayout` and `buildInventory`. Output is `PageLayout[]` (columns + streams in correct
+ * reading order) and `SemanticBlock[]` for the whole document.
  *
- * `images`/`quality` from MDD §5.1's `PageLayout` are NOT populated here — image
- * content/decoration classification belongs to phase 3, and `quality` (MDD §6.2) is
- * already a separate, document-level (not per-page) mechanism in `quality.ts`/`inspect.ts`.
- * This `PageLayout` type is DELIBERATELY narrower than the MDD one — exactly this step's scope.
+ * `images`/`quality` are NOT populated on `PageLayout` here — image content/decoration
+ * classification belongs to the image pipeline, and `quality` is already a separate,
+ * document-level (not per-page) mechanism in `quality.ts`/`inspect.ts`. This `PageLayout` type is
+ * DELIBERATELY narrower than the full design.
  */
 
 export interface PageLayout {
@@ -71,7 +71,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     }
   }
 
-  // Phase A (Z2+Z3, per page): spanning/columnar split + column detection.
+  // Phase A (per page): spanning/columnar split + column detection.
   interface PerPagePrep {
     pageNumber: number;
     primaryStream: TextStream | undefined;
@@ -88,7 +88,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     const pageInfo = pageBoxByNumber.get(pageNumber);
     const pageBox = pageInfo?.box ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
 
-    // [Step 11 Z1] Split off inline heading labels (line-start AND/OR
+    // Split off inline heading labels (line-start AND/OR
     // line-end prefix) BEFORE everything else — MUST operate on the RAW
     // lines from `lineCluster.ts` (`runs` still untouched), before
     // `splitSpanningLines`/`gutterRepair.ts` get a chance to classify/split
@@ -114,7 +114,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     const { columns, confidence, diagnostics: colDiagnostics } = detectColumns(rawSplit.columnar, pageNumber);
     diagnostics.push(...colDiagnostics);
 
-    // [Step 10] Repair pass AFTER column detection — splits lines that were
+    // Repair pass AFTER column detection — splits lines that were
     // falsely merged across two columns at the same height (discriminator:
     // no tokens INSIDE the gutter area), see gutterRepair.ts. Operates on
     // columns detected from lines that were ALREADY correctly columnar
@@ -141,7 +141,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     };
   });
 
-  // Phase B (Z5, WHOLE DOCUMENT — A8 pattern): running headers/footers.
+  // Phase B (WHOLE DOCUMENT): running headers/footers.
   const runningElementInput: PageForRunningElements[] = prep.map((p) => ({
     pageNumber: p.pageNumber,
     pageHeight: p.pageBox.maxY - p.pageBox.minY,
@@ -155,12 +155,12 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
     runningKindByPage.set(m.pageNumber, map);
   }
 
-  // Cross-page diagnostics on column-count stability (Z3) — informational only, never enforces agreement.
+  // Cross-page diagnostics on column-count stability — informational only, never enforces agreement.
   diagnostics.push(
     ...validateColumnStabilityAcrossPages(prep.map((p) => ({ pageNumber: p.pageNumber, columnCount: p.columns.length }))),
   );
 
-  // Phase C (Z4+Z6, per page): reading order + semantic blocks.
+  // Phase C (per page): reading order + semantic blocks.
   const pages: PageLayout[] = [];
   const allBlocks: SemanticBlock[] = [];
 

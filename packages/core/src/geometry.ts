@@ -1,9 +1,9 @@
 /**
- * 2D matrices and rectangles — math shared by the inventory pass (phase 2/3,
- * MDD appendix A). Reimplemented independently of pdfjs-dist (we do not
+ * 2D matrices and rectangles — math shared by the inventory pass.
+ * Reimplemented independently of pdfjs-dist (we do not
  * import `Util` from pdf.js here), so `walkOperators` stays a fully pure
  * function, testable on bare number arrays with zero dependencies — the
- * formula was verified directly against `Util.transform` in pdf.mjs (Step 4).
+ * formula was verified directly against `Util.transform` in pdf.mjs.
  */
 
 /** PDF affine matrix: [a, b, c, d, e, f], point' = (x*a + y*c + e, x*b + y*d + f). */
@@ -62,7 +62,7 @@ export function unitSquareBBox(ctm: Matrix): Rect {
  * `updateAdvanceScale` in pdf.worker.mjs) — NOT local pre-transform units like
  * with the `re` operator. Multiplying them by `transform[0]`/`transform[3]`
  * (as `localRectBBox` does) DOUBLES the scaling by the font size (e.g. 10x
- * for Tf 10) — discovered empirically in Step 6 during the first integration
+ * for Tf 10) — discovered empirically during the first integration
  * of column detection on real fixtures (line bboxes reached x=2000+ on a
  * 612pt-wide page). Instead: normalize direction from (a,b)/(c,d), scale by
  * the ALREADY-final width/height.

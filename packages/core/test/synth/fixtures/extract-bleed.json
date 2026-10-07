@@ -1,6 +1,6 @@
 {
   "id": "extract-bleed",
-  "description": "Tlo pelnospadowe: obraz wiekszy niz MediaBox, przesuniety na ujemne wspolrzedne, wychodzi poza kazda krawedz strony.",
+  "description": "A full-bleed background: an image larger than the MediaBox, shifted to negative coordinates, extending past every edge of the page.",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "hasBleedingImage": true
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: jeden obraz 692x892pt (wiekszy niz MediaBox 612x792) przesuniety o (-40,-50) — bbox wychodzi poza WSZYSTKIE cztery krawedzie strony, powierzchnia wzgledna >1.0 (100%+ strony). classifyImages() (Z1) MUSI sprawdzic pozycje pelnospadowa PRZED regula 'duza powierzchnia = tresc' — inaczej ten obraz (najwiekszy mozliwy sygnal 'duzej powierzchni') zostalby blednie zlapany jako 'content'/'scene', podczas gdy w rzeczywistosci to dekoracyjne tlo rozkladowkowe (MDD F0). Oczekiwana klasyfikacja: 'decoration', reason='Z1-full-bleed-background'."
+    "note": "Construction fact: one 692x892pt image (larger than the 612x792 MediaBox) shifted by (-40,-50) — the bbox extends past ALL four edges of the page, the relative area is >1.0 (100%+ of the page). classifyImages() MUST check the full-bleed position BEFORE the 'large area = content' rule — otherwise this image (the strongest possible 'large area' signal) would be wrongly caught as 'content'/'scene', when in reality it is a decorative spread background. Expected classification: 'decoration', reason='Z1-full-bleed-background'."
   }
 }

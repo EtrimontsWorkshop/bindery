@@ -4,16 +4,16 @@ import type { LineToken, TextLine } from './lineCluster.js';
 import type { SpanningSplit } from './spanning.js';
 
 /**
- * Repair pass AFTER column detection (Step 10) — fixes lines that
+ * Repair pass AFTER column detection — fixes lines that
  * `lineCluster.ts` falsely merged across two (or more) columns at the same
  * height, when the weak gutter hint (`gutterHint.ts`, runs BEFORE
  * clustering, on the raw histogram) wasn't enough.
  *
- * [architectural decision, per the brief] `gutterHint` runs BEFORE line
+ * [architectural decision] `gutterHint` runs BEFORE line
  * clustering and only has a coarse histogram available — strengthening it
  * there would mean fighting at the worst available information level, inside
  * the heavily tested core (`lineCluster.ts`/`sameLine`), with real regression
- * risk. Instead: AFTER column detection (Z3, `detectColumns`) we have CERTAIN
+ * risk. Instead: AFTER column detection (`detectColumns`) we have CERTAIN
  * knowledge of column boundaries — this module uses that knowledge
  * RETROACTIVELY, as a separate pass, without touching `lineCluster.ts`'s
  * decision logic.
@@ -64,7 +64,7 @@ function buildFragmentBBox(tokens: readonly LineToken[]): Rect {
   return tokens.map((t) => t.bbox).reduce<Rect | null>((acc, b) => (acc ? unionRect(acc, b) : b), null)!;
 }
 
-/** A line fragment after splitting — a new `TextLine` with a subset of tokens, text/bbox recomputed ONLY from them. `id` carries the link to the source line (provenance, per the brief). */
+/** A line fragment after splitting — a new `TextLine` with a subset of tokens, text/bbox recomputed ONLY from them. `id` carries the link to the source line (provenance). */
 function buildFragment(line: TextLine, tokens: readonly LineToken[], fragmentIndex: number): TextLine {
   return {
     ...line,
@@ -72,7 +72,7 @@ function buildFragment(line: TextLine, tokens: readonly LineToken[], fragmentInd
     text: tokens.map((t) => t.text).join(' '),
     bbox: buildFragmentBBox(tokens),
     tokens: [...tokens],
-    // `runs` (Step 9 Z1b) inherited from the source line are no longer valid
+    // `runs` inherited from the source line are no longer valid
     // for the fragment (they may reference tokens from the OTHER side of the
     // gutter) — cleared instead of introducing a silent bug further down the Z1b pipeline.
     runs: undefined,
@@ -105,7 +105,7 @@ export function repairGutterCrossingLines(split: SpanningSplit, columns: readonl
 
     const tokens = line.tokens;
     if (!tokens || tokens.length === 0) {
-      // Safeguard: no token data — don't cut without certainty (A7-like rule: degrade, don't guess).
+      // Safeguard: no token data — don't cut without certainty (degrade, don't guess).
       remainingSpanning.push(line);
       continue;
     }

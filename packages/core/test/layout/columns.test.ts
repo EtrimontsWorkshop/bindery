@@ -15,13 +15,13 @@ function line(id: string, minX: number, maxX: number, y: number): TextLine {
   };
 }
 
-/** Buduje N linii uniformnie rozlozonych pionowo w [minX,maxX], pokrywajace cala wysokosc bloku (0..height). */
+/** Builds N lines uniformly spread vertically in [minX,maxX], covering the whole block height (0..height). */
 function fillColumn(prefix: string, minX: number, maxX: number, count: number, height: number): TextLine[] {
   return Array.from({ length: count }, (_, i) => line(`${prefix}${i}`, minX, maxX, (height / count) * i));
 }
 
-describe('detectColumns — brak wyraznych dolin', () => {
-  it('jedna kolumna, confidence=1, gdy brak jakiejkolwiek rynny (uklad jednokolumnowy)', () => {
+describe('detectColumns — no clear valleys', () => {
+  it('one column, confidence=1, when there is no gutter at all (a single-column layout)', () => {
     const lines = fillColumn('p', 50, 550, 20, 600);
     const result = detectColumns(lines, 1);
     expect(result.columns).toHaveLength(1);
@@ -30,39 +30,39 @@ describe('detectColumns — brak wyraznych dolin', () => {
     expect(result.columns[0]!.bbox.maxX).toBe(550);
   });
 
-  it('pusta lista linii kolumnowych -> pusty wynik (np. cala strona to nagrupek rozpinajacy)', () => {
+  it('an empty list of columnar lines -> an empty result (e.g. the whole page is a spanning heading)', () => {
     const result = detectColumns([], 1);
     expect(result.columns).toHaveLength(0);
   });
 });
 
-describe('detectColumns — dwie kolumny z prawdziwa rynna', () => {
-  it('wykrywa dwie kolumny z rynna pusta na CALEJ wysokosci bloku', () => {
+describe('detectColumns — two columns with a real gutter', () => {
+  it('detects two columns with a gutter empty over the WHOLE height of the block', () => {
     const left = fillColumn('l', 50, 280, 20, 600);
     const right = fillColumn('r', 320, 550, 20, 600);
     const result = detectColumns([...left, ...right], 1);
     expect(result.columns).toHaveLength(2);
-    expect(result.columns[0]!.bbox.maxX).toBeLessThanOrEqual(280 + 2); // granica ~gdzie konczy sie lewa kolumna
+    expect(result.columns[0]!.bbox.maxX).toBeLessThanOrEqual(280 + 2); // the boundary ~where the left column ends
     expect(result.columns[1]!.bbox.minX).toBeGreaterThanOrEqual(320 - 2);
-    expect(result.confidence).toBeGreaterThan(0.9); // rynna calkowicie pusta na 100% wysokosci
+    expect(result.confidence).toBeGreaterThan(0.9); // a gutter completely empty over 100% of the height
   });
 
-  it('kolumny posortowane w kolejnosci czytania (lewo->prawo) niezaleznie od kolejnosci wejscia', () => {
+  it('columns sorted in reading order (left->right) regardless of the input order', () => {
     const left = fillColumn('l', 50, 280, 10, 600);
     const right = fillColumn('r', 320, 550, 10, 600);
-    const result = detectColumns([...right, ...left], 1); // prawa podana pierwsza
+    const result = detectColumns([...right, ...left], 1); // the right one given first
     expect(result.columns.map((c) => c.index)).toEqual([0, 1]);
     expect(result.columns[0]!.bbox.minX).toBeLessThan(result.columns[1]!.bbox.minX);
   });
 });
 
-describe('detectColumns — walidacja pionowa (brief: rynna tylko w gornej cwiartce to NIE kolumna)', () => {
-  it('rynna niska GESToscia (po liczbie linii) ale pokryta przez wysoka linie na duzej czesci wysokosci zostaje odrzucona', () => {
-    // 30 krotkich linii lewej "kolumny" (x=50..280) + 30 krotkich prawej (x=320..550) — duzo linii,
-    // wysoka gestosc po obu stronach rynny 280-320. JEDNA dodatkowa linia pelnej szerokosci
-    // (x=50..550) przecina rynne, ale jest wysoka (bbox 0..400 z 0..590 calkowitej wysokosci) —
-    // jej WYSOKOSC pokrywa >30% bloku, wiec walidacja pionowa (prog 70% pustki) odrzuca ta rynne,
-    // mimo ze gestosc PO LICZBIE LINII w rynnie jest bardzo niska (1 z ~31).
+describe('detectColumns — vertical validation (a gutter only in the upper quarter is NOT a column)', () => {
+  it('a gutter with a LOW density (by line count) but covered by a tall line over a large part of the height is rejected', () => {
+    // 30 short lines of the left "column" (x=50..280) + 30 short ones of the right (x=320..550) — many
+    // lines, high density on both sides of the 280-320 gutter. ONE extra full-width line (x=50..550)
+    // crosses the gutter, but it is tall (bbox 0..400 of a total height of 0..590) — its HEIGHT covers
+    // >30% of the block, so vertical validation (the 70% emptiness threshold) rejects this gutter,
+    // even though the density BY LINE COUNT in the gutter is very low (1 of ~31).
     const topLeft = Array.from({ length: 30 }, (_, i) => line(`tl${i}`, 50, 280, i * 20));
     const topRight = Array.from({ length: 30 }, (_, i) => line(`tr${i}`, 320, 550, i * 20));
     const tallCrossing: TextLine = { ...line('cross', 50, 550, 0), bbox: { minX: 50, minY: 0, maxX: 550, maxY: 400 } };
@@ -73,11 +73,11 @@ describe('detectColumns — walidacja pionowa (brief: rynna tylko w gornej cwiar
 });
 
 describe('validateColumnStabilityAcrossPages', () => {
-  it('strona ze wszystkimi (obu) sasiadami odstajacymi dostaje Diagnostic, nie wymusza zgodnosci', () => {
+  it('a page with ALL (both) neighbors disagreeing gets a Diagnostic, doesn\'t force agreement', () => {
     const perPage = [
       { pageNumber: 1, columnCount: 2 },
       { pageNumber: 2, columnCount: 2 },
-      { pageNumber: 3, columnCount: 1 }, // odstaje od obu sasiadow
+      { pageNumber: 3, columnCount: 1 }, // differs from both neighbors
       { pageNumber: 4, columnCount: 2 },
       { pageNumber: 5, columnCount: 2 },
     ];
@@ -87,18 +87,18 @@ describe('validateColumnStabilityAcrossPages', () => {
     expect(diagnostics[0]!.code).toBe('COLUMN_COUNT_UNSTABLE');
   });
 
-  it('strona zgodna z PRZYNAJMNIEJ jednym sasiadem nie dostaje diagnostyki', () => {
+  it('a page agreeing with AT LEAST one neighbor gets no diagnostic', () => {
     const perPage = [
       { pageNumber: 1, columnCount: 2 },
       { pageNumber: 2, columnCount: 2 },
-      { pageNumber: 3, columnCount: 1 }, // rozni sie od str.2, ale to koniec zakresu (brak nastepnej)
+      { pageNumber: 3, columnCount: 1 }, // differs from p.2, but it is the end of the range (no next one)
     ];
     const diagnostics = validateColumnStabilityAcrossPages(perPage);
-    expect(diagnostics).toHaveLength(1); // tylko strona 3 (rozni sie od jedynego sasiada, str.2)
+    expect(diagnostics).toHaveLength(1); // only page 3 (differs from its only neighbor, p.2)
     expect(diagnostics[0]!.pageNumber).toBe(3);
   });
 
-  it('pojedyncza strona bez sasiadow nigdy nie dostaje diagnostyki', () => {
+  it('a single page without neighbors never gets a diagnostic', () => {
     expect(validateColumnStabilityAcrossPages([{ pageNumber: 1, columnCount: 3 }])).toHaveLength(0);
   });
 });

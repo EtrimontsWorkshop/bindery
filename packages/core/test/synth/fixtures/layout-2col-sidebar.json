@@ -1,6 +1,6 @@
 {
   "id": "layout-2col-sidebar",
-  "description": "Dwie kolumny + ramka z tlem (vector fill) po prawej z krotkim sidebarem — testuje BlockKind:'sidebar' i kolejnosc czytania bez wplatania sidebara w tok glowny.",
+  "description": "Two columns + a frame with a background (vector fill) on the right with a short sidebar — tests BlockKind:'sidebar' and the reading order without weaving the sidebar into the main flow.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 20
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: 8 linii lewej kolumny (x=72), 8 prawej (x=300), 3 linie sidebara (x=490, wewnatrz prostokata wypelnionego x=480-600,y=590-690). Region wektorowy 'fill' o tym bboxie musi znalezc sie w InventoryResult.vectors. buildSemanticBlocks() powinien sklasyfikowac blok sidebara jako 'sidebar' (nakladanie z regionem fill + uklad wielokolumnowy), NIE jako trzecia kolumne w kolejnosci czytania glownego tekstu. totalItemCount=20 (nie 19): pdf.js wstawia pusty synteryczny TextItem przy mid-stream zmianie rozmiaru fontu (Tf miedzy Tj) — tu 1 tranzycja (10->9 przed sidebarem), stad 19 linii + 1 pusty = 20."
+    "note": "Construction fact: 8 lines of the left column (x=72), 8 of the right (x=300), 3 lines of the sidebar (x=490, inside a filled rectangle x=480-600,y=590-690). A vector region 'fill' with that bbox must appear in InventoryResult.vectors. buildSemanticBlocks() should classify the sidebar block as 'sidebar' (overlap with a fill region + a multi-column layout), NOT as a third column in the reading order of the main text. totalItemCount=20 (not 19): pdf.js inserts an empty synthetic TextItem at a mid-stream font size change (Tf between Tj) — here 1 transition (10->9 before the sidebar), hence 19 lines + 1 empty = 20."
   }
 }

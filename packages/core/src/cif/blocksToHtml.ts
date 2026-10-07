@@ -3,13 +3,12 @@ import type { SemanticBlock } from '../semantic/blockBuilder.js';
 
 /**
  * Converts `SemanticBlock[]` (already in reading order) into the HTML of a
- * journal page (Step 9 Z5, MDD phase 8). The mapping table comes directly
- * from the `KROK-9-journale.md` brief. Sanitization is MANDATORY — here the
- * content is driven ONLY by structure (which tags), and ALL text
- * (originating from the user's file) is escaped before insertion — we never
- * parse or pass through any raw external HTML, so a full sanitizer (e.g.
- * DOMPurify, which requires DOM/jsdom) is unnecessary: we construct EVERY
- * tag ourselves, text is ALWAYS only content, never structure.
+ * journal page. Sanitization is MANDATORY — here the content is driven ONLY by
+ * structure (which tags), and ALL text (originating from the user's file) is
+ * escaped before insertion — we never parse or pass through any raw external
+ * HTML, so a full sanitizer (e.g. DOMPurify, which requires DOM/jsdom) is
+ * unnecessary: we construct EVERY tag ourselves, text is ALWAYS only content,
+ * never structure.
  */
 
 /** Escapes special HTML characters — the only line of defense, because the ENTIRE tag structure is our own, never from user input. */
@@ -32,28 +31,21 @@ function joinLines(text: string): string {
 }
 
 /**
- * [Step 9, live check in Foundry; confirmed/kept in Step 11] Below this
- * length (characters, after trimming) a `heading` block does NOT get its
- * own <h#> — it is rendered as a plain <p>. A PARTIAL safeguard: it catches
+ * Below this length (characters, after trimming) a `heading` block does NOT get
+ * its own <h#> — it is rendered as a plain <p>. A PARTIAL safeguard: it catches
  * single/double characters ("m", "mn", "h").
  *
- * [Step 11, Z1] Longer merges (e.g. Za_lini_wroga p. 24/68 "Operation
- * Vanguard"+"Difficulty level...", Wrath & Glory "erosion of rebellion")
- * NOW have a real, dedicated fix source — `layout/lineEdgeSplit.ts` (Z1),
- * which splits a line with a label at the EDGE (start or end) — so this
- * length threshold is NO LONGER the only line of defense for this class of
- * bug. NOT lowered/removed: a check on `Cienie_posrod_mgie.pdf` p. 20
- * ("HOUSE OF HAMMERS", "PERFECT SUPPLIERS") showed that some of these
- * merges have a DEEPER cause that Z1 deliberately does not touch (a label
- * in the TRUE MIDDLE of the `runs` array, surrounded by the same font
- * family on both sides — the result of several physical lines/columns
- * being merged into one by an earlier clustering stage, not a simple edge
- * case) — see the comment in `lineEdgeSplit.ts` and RAPORT-KROK-11.md. Until
- * THIS class of bug has its own fix at the source, the length threshold
- * remains as a safety net. A deliberate, partial compromise (risk: a real
- * very short title, e.g. "I" or "A", will also land in a plain paragraph)
- * — accepted by the user after a live check in Foundry (Step 9), confirmed
- * again in Step 11.
+ * Longer false merges (a title glued to the text next to it) have a dedicated fix
+ * at the source — `layout/lineEdgeSplit.ts` splits a line with a label at its
+ * EDGE (start or end) — so this length threshold is no longer the only line of
+ * defense for that class of bug. It is NOT lowered or removed: some merges have a
+ * deeper cause that edge splitting deliberately does not touch (a label in the
+ * TRUE MIDDLE of the `runs` array, surrounded by the same font family on both
+ * sides — several physical lines/columns merged into one by an earlier
+ * clustering stage, not a simple edge case). Until that class has its own fix at
+ * the source, the length threshold remains as a safety net. A deliberate,
+ * partial compromise (a real very short title, e.g. "I" or "A", will also land
+ * in a plain paragraph), accepted after a live check in Foundry.
  */
 const MIN_HEADING_TEXT_LENGTH = 3;
 
@@ -62,7 +54,7 @@ function figureHtml(img: EmbeddedImageForHtml): string {
   return `<figure><img src="${escapeHtml(img.assetRef)}" alt="">${caption}</figure>`;
 }
 
-/** One block -> one HTML fragment, per the mapping table from the brief. `header`/`footer` are handled BEFORE the call (skipped in the content) — this function does not expect them. */
+/** One block -> one HTML fragment. `header`/`footer` are handled BEFORE the call (skipped in the content) — this function does not expect them. */
 function blockToHtmlFragment(b: SemanticBlock): string {
   switch (b.kind) {
     case 'heading': {
@@ -78,16 +70,15 @@ function blockToHtmlFragment(b: SemanticBlock): string {
     case 'caption':
       return `<figcaption>${escapeHtml(joinLines(b.rawText))}</figcaption>`;
     case 'table':
-      // Rough reconstruction — one row per source line, without reconstructing cells (brief: out of scope).
+      // Rough reconstruction — one row per source line, without reconstructing cells (out of scope).
       return `<table><tbody>${b.lines.map((l) => `<tr><td>${escapeHtml(l.text)}</td></tr>`).join('')}</tbody></table>`;
     case 'marginalia':
       return `<p>${escapeHtml(joinLines(b.rawText))}</p>`; // wrapped in a combined <aside> by the caller (see blocksToHtml)
     case 'statblock':
     case 'unknown':
     default:
-      // `statblock` is out of MVP scope (v2.0, Step 9 brief "what NOT to do"),
-      // `unknown` is what survived all the rules (Z1a) — both get a safe
-      // fallback instead of disappearing (A3: nothing is lost, even
+      // `statblock` is out of scope here, `unknown` is what survived all the rules —
+      // both get a safe fallback instead of disappearing (nothing is lost, even
       // unrecognized content ends up in the content).
       return `<p class="bindery-${b.kind}">${escapeHtml(joinLines(b.rawText))}</p>`;
   }
@@ -98,12 +89,11 @@ function blockToHtmlFragment(b: SemanticBlock): string {
  * reading order, may span MULTIPLE physical PDF pages —
  * `JournalPageDraft.blocks` from `buildJournalHierarchy.ts`) + images to
  * embed. An image between two blocks in reading order (same PDF page, Y
- * position) lands BETWEEN their corresponding fragments (brief: "requires
- * this explicitly"). `header`/`footer` are skipped in the content (but
- * their `rawText` survives separately in `CIFJournalPage.rawText`, built by
- * the caller from the FULL list of blocks — A3). `marginalia` is collected
- * into a single `<aside>` at the END of the page (brief: "not woven into
- * the flow").
+ * position) lands BETWEEN their corresponding fragments. `header`/`footer`
+ * are skipped in the content (but their `rawText` survives separately in
+ * `CIFJournalPage.rawText`, built by the caller from the FULL list of
+ * blocks). `marginalia` is collected into a single `<aside>` at the END of
+ * the page (not woven into the flow).
  */
 export function blocksToHtml(blocks: readonly SemanticBlock[], images: readonly EmbeddedImageForHtml[]): { html: string; imageRefs: string[] } {
   const imagesByPage = new Map<number, EmbeddedImageForHtml[]>();
@@ -157,7 +147,7 @@ export function blocksToHtml(blocks: readonly SemanticBlock[], images: readonly 
   }
 
   // Images without ANY text block on the same page (e.g. a purely
-  // graphical page) go at the end — we don't lose them entirely (A3).
+  // graphical page) go at the end — we don't lose them entirely.
   for (const img of images) {
     if (usedImageIds.has(img.id)) continue;
     usedImageIds.add(img.id);

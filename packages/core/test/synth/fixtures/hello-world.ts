@@ -6,7 +6,7 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
-/** Najprostszy mozliwy fixture — jedna linia tekstu. Dowod, ze lancuch emiter -> pdf.js dziala. */
+/** The simplest possible fixture — one line of text. Proof that the emitter -> pdf.js chain works. */
 export function build(): Buffer {
   const writer = new PdfWriter();
   const catalogRef = writer.reserveObj();

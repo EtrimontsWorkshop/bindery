@@ -6,19 +6,19 @@ import { nodeCanvasImageEncoder } from '../../src/images/nodeCanvasImageEncoder.
 import { build as buildVectorsRectangle } from '../synth/fixtures/vectors-rectangle.js';
 
 /**
- * [KROK-11 Z3] Test integracyjny PRAWDZIWEGO pdf.js (mirror wzorca
- * `nodeCanvasRenderer.integration.test.ts`) — `renderPagePreview` to CIENKI
- * orkiestrator nad juz zweryfikowanym `RegionRenderer`/`ImageEncoder`, wiec
- * ten test sprawdza WYLACZNIE spiecie (bbox calej strony trafia poprawnie,
- * wynik jest zakodowanymi bajtami), nie ponownie logike renderu samego w sobie.
+ * An integration test of the REAL pdf.js (mirrors the pattern of
+ * `nodeCanvasRenderer.integration.test.ts`) — `renderPagePreview` is a THIN orchestrator over the
+ * already verified `RegionRenderer`/`ImageEncoder`, so this test checks ONLY the wiring (the bbox
+ * of the whole page is passed correctly, the result is encoded bytes), not the rendering logic
+ * itself again.
  */
-describe('renderPagePreview — integracja z prawdziwym pdf.js', () => {
-  it('renderuje CALA strone (nie fragment) do zakodowanej bitmapy o oczekiwanych proporcjach', async () => {
+describe('renderPagePreview — an integration with a real pdf.js', () => {
+  it('renders the WHOLE page (not a fragment) into an encoded bitmap with the expected proportions', async () => {
     const buf = buildVectorsRectangle();
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
 
-    // Domyslny MediaBox testowych fixture'ow (layoutHelpers/rawPdf) to [0,0,612,792] — Letter.
+    // The default MediaBox of the test fixtures (layoutHelpers/rawPdf) is [0,0,612,792] — Letter.
     const pageBox = { minX: 0, minY: 0, maxX: 612, maxY: 792 };
     const result = await renderPagePreview(page as never, pageBox, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, {
       targetLongEdgePx: 400,
@@ -27,14 +27,14 @@ describe('renderPagePreview — integracja z prawdziwym pdf.js', () => {
 
     expect(result.format).toBe('png');
     expect(result.bytes.length).toBeGreaterThan(0);
-    // PNG magic bytes — potwierdza, ze faktycznie przeszlo przez enkoder, nie surowe RGBA.
+    // PNG magic bytes — confirms it actually went through the encoder, not raw RGBA.
     expect(result.bytes[0]).toBe(0x89);
     expect(result.bytes[1]).toBe(0x50); // 'P'
 
     page.cleanup();
   });
 
-  it('AbortSignal juz przerwany przed wywolaniem odrzuca natychmiast, bez wywolania enkodera', async () => {
+  it('an AbortSignal already aborted before the call rejects immediately, without calling the encoder', async () => {
     const buf = buildVectorsRectangle();
     const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);

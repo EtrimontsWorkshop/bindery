@@ -4,65 +4,32 @@ import { defineConfig, type Plugin } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 /**
- * [KROK-37 Z1, zgloszenie uzytkownika: "nadal zle" mimo wdrozonych i
- * zweryfikowanych poprawek — dwie rundy, obie okazaly sie cache'em
- * przegladarki] `scripts/bindery.js` (jedyny wpis `esmodules` w `module.json`)
- * ma STALA nazwe MIEDZY buildami — Rollup hashuje wylacznie zaleznie
- * ladowane chunki (`ReviewScreen-*.js` itp.), nie ten glowny plik wejsciowy.
- * Zwykle odswiezenie przegladarki NIE zawsze wymusza ponowne pobranie pliku
- * o tej samej nazwie — po aktualizacji modulu uzytkownik dostaje stara
- * wersje z cache'u, bez zadnego bledu/ostrzezenia.
+ * The entry script (`esmodules` in `module.json`) and the stylesheet carry the module version in
+ * their FILE NAME (`bindery-<version>.js`, `bindery-<version>.css`). Rollup only hashes
+ * dependently-loaded chunks (`ReviewScreen-*.js` etc.), never the main entry file, and a browser
+ * does not always re-download a file whose name is unchanged — after an update the user could
+ * keep running the old code from cache, with no error or warning.
  *
- * [KROK-39, zgloszenie uzytkownika na zywo: "Metadata validation failed...
- * scripts/bindery.js?v=0.9.0 does not exist"] Pierwsza wersja tej naprawy
- * (parametr zapytania w `esmodules`, Krok 37) zweryfikowala WYLACZNIE
- * sciezke klienta (`<script src>` w `main.hbs`) — ale `esmodules` jest TEZ
- * walidowane po stronie SERWERA, PRZED jakimkolwiek renderowaniem HTML.
- * Zmierzone wprost w `dist/packages/package.mjs` (zainstalowany Foundry
- * v14): `PackageAssetField.initialize` sprawdza istnienie pliku na dysku
- * dla KAZDEGO wpisu `esmodules` (`mustExist: true` domyslnie), `URL.parse`
- * na wzgledna sciezke z parametrem zapytania zwraca `null` (nie jest
- * absolutnym URL-em), wiec caly string (WLACZNIE z `?v=...`) trafia jako
- * LITERALNA nazwa pliku do `Files.resolveClientPaths` — zaden plik o takiej
- * nazwie nie istnieje, stad "does not exist" przy KAZDYM starcie/liscie
- * modulow, nie tylko w przegladarce. Parametr zapytania w `esmodules` jest
- * wiec fundamentalnie niekompatybilny z walidacja Foundry, niezaleznie od
- * implementacji — nie da sie tego naprawic inaczej niz zmieniajac PODEJSCIE.
+ * A query parameter (`bindery.js?v=...`) does not work: Foundry validates every `esmodules`
+ * entry on the SERVER, before any HTML is rendered, by checking that the file exists on disk
+ * (`PackageAssetField`, `mustExist`). A relative path with a query string is not an absolute
+ * URL, so the whole string — including `?v=...` — is looked up as a literal file name and
+ * reported as "does not exist". Putting the version into the file name itself avoids that: the
+ * file really exists, and the browser fetches a new URL on every version bump.
  *
- * Naprawa: wersja trafia do SAMEJ NAZWY PLIKU (`bindery-<version>.js`), nie
- * do parametru zapytania — plik o tej nazwie FAKTYCZNIE istnieje na dysku,
- * wiec walidacja serwera przechodzi, a przegladarka i tak pobiera go na
- * nowo przy kazdej zmianie wersji (inny URL, nie ten sam plik z innym
- * zapytaniem). Wersja WYLACZNIE z pola `version` w `packages/module/module.json`
- * (jedno zrodlo prawdy, bez zmian wobec Kroku 37) — czytana RAZ tutaj,
- * uzywana zarowno do nazwy pliku wyjsciowego (`build.lib.fileName` nizej),
- * jak i do przepisania wpisu `esmodules` w juz skopiowanym `dist/module.json`
- * (zrodlowy `packages/module/module.json` ma tam WCIAZ literalne
- * "scripts/bindery.js" — nietkniety, poprawiany dopiero PO viteStaticCopy).
+ * The version comes ONLY from the `version` field of `packages/module/module.json` (the single
+ * source of truth), read once here and used both for the output file names and to rewrite the
+ * `esmodules`/`styles` entries of the already-copied `dist/module.json` (the source
+ * `module.json` keeps the plain names). The rewrite runs in `closeBundle`, registered AFTER
+ * `viteStaticCopy` in `plugins`, so the copy of `module.json` is already on disk when it is read.
  *
- * Hak `closeBundle`, WYLACZNIE po `viteStaticCopy` w tablicy `plugins`
- * ponizej — Rollup wywoluje `closeBundle` KAZDEGO pluginu sekwencyjnie, w
- * kolejnosci rejestracji, wiec kopia `module.json` (`viteStaticCopy`, hak
- * `writeBundle`, wewnetrznie zaimplementowany jako `closeBundle` — sprawdzone
- * w `node_modules/vite-plugin-static-copy/dist/index.js`) jest juz na dysku,
- * zanim ten kod probuje ja odczytac.
- *
- * [tools/check-size.mjs] Ta nazwa pliku NIE jest juz stala literalnie
- * "bindery.js" — `check-size.mjs` czyta prawdziwa nazwe z `dist/module.json`'s
- * `esmodules[0]` zamiast zakladac konkretny string, wiec ten sam mechanizm
- * dziala bez zmian przy kolejnych podbiciach wersji.
+ * `tools/check-size.mjs` reads the real file name from `dist/module.json`'s `esmodules[0]`
+ * instead of assuming one, so this keeps working across version bumps.
  */
 const manifestVersion = (JSON.parse(readFileSync(join(import.meta.dirname, 'module.json'), 'utf8')) as { version: string }).version;
 const esmoduleFileName = `scripts/bindery-${manifestVersion}.js`;
-// [ZGŁOSZENIE na zywo po Kroku 39, "TO SELECTED nadal slabo widoczne" mimo
-// DWOCH kolejnych, zweryfikowanych w kodzie poprawek koloru] `esmodules`
-// dostal wersjonowana nazwe pliku w Kroku 37/39 (patrz komentarz nizej) —
-// ale `styles/bindery.css` NIGDY nie dostal tego samego traktowania, mimo ze
-// to DOKLADNIE ten sam mechanizm cache'u przegladarki (stala nazwa pliku
-// miedzy buildami = przegladarka moze go NIGDY nie pobrac ponownie). Kazda
-// zmiana w tym pliku CSS od tamtej pory mogla wygladac na "nie dziala",
-// mimo ze kod na dysku byl juz poprawny — dokladnie ten sam blad co
-// "scripts/bindery.js" przed Krokiem 37, tylko nigdy nie naprawiony dla CSS.
+// `styles/bindery.css` gets the same versioned name as the script, for the same browser-cache
+// reason — a CSS change could otherwise look like it "doesn't work" while the code on disk was already correct.
 const stylesFileName = `bindery-${manifestVersion}.css`;
 
 function fixManifestAssetPaths(): Plugin {
@@ -78,12 +45,18 @@ function fixManifestAssetPaths(): Plugin {
   };
 }
 
-// Wynik buildu (dist/) to samodzielny, gotowy do wdrozenia folder modulu Foundry:
-// module.json na szczycie, scripts/, styles/, lang/, templates/, lib/ (assety pdf.js).
-// CI pakuje dist/** wprost do module.zip (Z8). Do lokalnych testow (Z7) dist/
-// jest synchronizowany do korzenia repo skryptem scripts/sync-local-module.mjs,
-// bo ten wlasnie katalog repo JEST folderem modulu w lokalnej instalacji Foundry.
+// The build output (dist/) is a self-contained, deployable Foundry module folder: module.json at
+// the top, scripts/, styles/, lang/, templates/, lib/ (pdf.js assets). CI packs dist/** straight
+// into module.zip; for local testing dist/ is synced into the repo root by
+// tools/sync-local-module.mjs, because the repo directory IS the module folder of the local
+// Foundry install.
 export default defineConfig({
+  // Statblock import is switched off in every normal build (and so in every release). Set
+  // `BINDERY_STATBLOCKS=1` for the build to switch it on, e.g. to try it in a local Foundry:
+  // `BINDERY_STATBLOCKS=1 npm run build`. See `src/statblock/enabled.ts`.
+  define: {
+    __BINDERY_STATBLOCKS__: JSON.stringify(process.env['BINDERY_STATBLOCKS'] === '1'),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -94,62 +67,50 @@ export default defineConfig({
       fileName: () => esmoduleFileName,
     },
     rollupOptions: {
-      // pdf.js NIGDY nie jest bundlowany tutaj — @bindery/core go importuje
-      // dynamicznie w runtime (ryzyko I3). Musi zostac zewnetrzny takze tutaj,
-      // inaczej Vite wciagnie go do glownego chunka i zniweczy leniwe ladowanie.
+      // pdf.js is NEVER bundled here — @bindery/core imports it dynamically at runtime (lazy loading).
+      // It must stay external here too, otherwise Vite would pull it into the main chunk and defeat the
+      // lazy loading.
       external: ['pdfjs-dist/legacy/build/pdf.mjs', '@bindery/core'],
       output: {
-        // @bindery/core jest external, ale w runtime Foundry laduje go przez
-        // dynamiczny import('@bindery/core') w ImportWizard/api.ts — musimy
-        // przekierowac ta specyfikacje modulu na realna sciezke w dist/lib/core/.
+        // @bindery/core is external, but at runtime Foundry loads it through a dynamic
+        // import('@bindery/core') — that specifier must be redirected to the real path in dist/lib/core/.
         paths: {
-          // Relatywnie do dist/scripts/bindery-<version>.js (miejsca, gdzie ten kod faktycznie
-          // ladu je w przegladarce) — NIE relatywnie do zrodel. dist/lib/core/index.js
-          // jest kopiowany tam przez viteStaticCopy ponizej.
+          // Relative to dist/scripts/bindery-<version>.js (where this code actually loads in the browser),
+          // not to the sources. dist/lib/core/index.js is copied there by viteStaticCopy below.
           '@bindery/core': '../lib/core/index.js',
         },
-        // [KROK-11, odkrycie] `ReviewScreen` (Z2) jest dynamicznie importowany
-        // (I3, budzet <40KB), wiec Rollup domyslnie tworzy DODATKOWE pliki
-        // chunkow w KORZENIU `dist/` (nie `dist/scripts/`) — `sync-local-module.mjs`
-        // kopiuje CALY `dist/` do korzenia repo, wiec te chunki ladowaly tam
-        // BEZ pokrycia ignorow ESLint (`scripts/**` itp. zaklada, ze caly kod
-        // JS ląduje pod `scripts/`) — zlapane przez `npm run lint` (nie
-        // `check:size`/`check:imports`, ktore mierza/skanuja co innego).
-        // Wymuszenie WSZYSTKICH chunkow pod `scripts/` naprawia to u zrodla,
-        // zamiast dodawac kolejny ignore wzorzec w eslint.config.js.
+        // `ReviewScreen` is imported dynamically (to keep the world-startup budget < 40KB), so Rollup would
+        // by default create extra chunk files in the ROOT of `dist/`, outside `dist/scripts/`.
+        // `sync-local-module.mjs` copies the whole `dist/`, so those chunks would land in the repo root,
+        // where ESLint's ignores (which assume all JS lives under `scripts/`) don't cover them. Forcing ALL
+        // chunks under `scripts/` fixes it at the source instead of adding another ignore pattern.
         chunkFileNames: 'scripts/[name]-[hash].js',
       },
     },
   },
   plugins: [
     viteStaticCopy({
-      // Plugin domyslnie zachowuje pelna sciezke wzgledna globa pod dest
-      // (np. dist/lang/lang/en.json) — `rename: { stripBase: true }` daje plaska kopie.
+      // By default the plugin keeps the glob's full relative path under dest (e.g. dist/lang/lang/en.json) —
+      // `rename: { stripBase: true }` gives a flat copy.
       targets: [
         { src: 'module.json', dest: '.', rename: { stripBase: true } },
         { src: 'lang/*.json', dest: 'lang', rename: { stripBase: true } },
         { src: 'styles/bindery.css', dest: 'styles', rename: { stripBase: true, name: stylesFileName } },
         { src: 'templates/*.hbs', dest: 'templates', rename: { stripBase: true } },
-        // [redesign 2a] Fonty zwendorowane lokalnie (Caprasimo/Figtree/JetBrains
-        // Mono) — okno musi dzialac offline, zero twardej zaleznosci od Google
-        // Fonts w runtime (patrz komentarz w bindery.css przy @font-face).
+        // Fonts are vendored locally (Caprasimo/Figtree/JetBrains Mono): the window must work offline,
+        // with no hard runtime dependency on Google Fonts (see the comment at @font-face in bindery.css).
         { src: 'fonts/*.woff2', dest: 'fonts', rename: { stripBase: true } },
-        // [KROK-44 Z2, "jesli katalog wchodzi, licencje tez"] Teksty licencji
-        // SIL OFL 1.1 dla powyzszych trzech rodzin fontow — MUSZA plynac przez
-        // TEN SAM krok kopiowania co same pliki .woff2, inaczej
-        // `tools/sync-local-module.mjs` (kasuje i odtwarza `fonts/` z `dist/`
-        // przy kazdym lokalnym buildzie) je cicho gubi, bo nie sa czescia
-        // zbudowanego wyjscia.
+        // The SIL OFL 1.1 license texts for the three font families above must go through the SAME copy
+        // step as the .woff2 files, otherwise `tools/sync-local-module.mjs` (which deletes and recreates
+        // `fonts/` from `dist/` on every local build) silently drops them, since they are not part of the
+        // built output.
         { src: 'fonts/OFL-*.txt', dest: 'fonts', rename: { stripBase: true } },
-        // [KROK-44 Z2, odkrycie przy koncowej weryfikacji przed publikacja]
-        // `module.json`'s `license`/`readme` odwoluja sie do plikow "LICENSE"/
-        // "README.md" WZGLEDEM korzenia zainstalowanego modulu (czyli
-        // `packages/module/dist/**`, to samo co trafia do `module.zip`) — bez
-        // tego kopiowania te odniesienia wskazywalyby donikad po instalacji.
-        // `dest: '.'` z `src` WYCHODZACYM poza korzen vite (`../../LICENSE`)
-        // ladowal plik obok `packages/module/` (JEDEN poziom za wysoko), NIE
-        // do `dist/` — zmierzone wprost. Naprawa: kopie zrodlowe TUTAJ (ten
-        // sam wzorzec co `fonts/` — zwendorowane lokalnie, nie odwolanie w gore).
+        // `module.json`'s `license`/`readme` refer to "LICENSE"/"README.md" relative to the root of the
+        // installed module (i.e. `packages/module/dist/**`, which is what goes into `module.zip`) —
+        // without copying them those references would point nowhere after installation. Copying with
+        // `dest: '.'` from a `src` outside the vite root (`../../LICENSE`) landed the file next to
+        // `packages/module/` (ONE level too high), not in `dist/` — so the copies live here (the same
+        // pattern as `fonts/`: vendored locally, not a reference upward).
         { src: 'LICENSE', dest: '.', rename: { stripBase: true } },
         { src: 'README.md', dest: '.', rename: { stripBase: true } },
         {
@@ -163,8 +124,8 @@ export default defineConfig({
           rename: { stripBase: true },
         },
         {
-          // pdf.mjs samo (biblioteka glowna) — @bindery/core importuje ja
-          // dynamicznie pod przepisana sciezka '../pdf.mjs' (patrz packages/core/vite.config.ts).
+          // pdf.mjs itself (the main library) — @bindery/core imports it dynamically under the rewritten
+          // path '../pdf.mjs' (see packages/core/vite.config.ts).
           src: '../../node_modules/pdfjs-dist/legacy/build/pdf.mjs',
           dest: 'lib',
           rename: { stripBase: true },

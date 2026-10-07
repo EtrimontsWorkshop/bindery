@@ -5,13 +5,11 @@ import type { ImageEntry } from './inventory/imageRegistry.js';
 import type { CIFDocument } from './cif/types.js';
 
 /**
- * REFERENCE invariants gate (Step 10, second task) — complements the
+ * REFERENCE invariants gate — complements the
  * existing GEOMETRIC gate (§11.3, `mediaBoxInvariant.test.ts`). The font
  * size formula mismatch from step 9 (`inventory.ts` computed from
  * transform[2]/[3], `textGeometry.ts` from transform[0]/[1]) is the FOURTH
- * occurrence of the same bug class (Step 4: the shape of `cm` arguments;
- * Step 5: the shape of `constructPath` arguments; Step 6: `item.width`
- * already in device space) — all silent, none threw an exception, all
+ * occurrence of the same bug class — all silent, none threw an exception, all
  * found by accident. Principle: `undefined` as a silent failure mode is
  * the enemy — every key passed between pipeline stages MUST resolve;
  * failure to resolve must be COUNTED AND REPORTED, not tolerated.
@@ -55,7 +53,7 @@ export function checkFontRoleResolvesInvariant(lines: readonly TextLine[], fontR
   return { invariant: 'font-role-resolves-for-consumer', total: lines.length, violations, examples };
 }
 
-/** [3] Every `correlatedWith` points to an EXISTING `ImageEntry.objId` — catches correlation mismatches (Step 5/6). */
+/** [3] Every `correlatedWith` points to an EXISTING `ImageEntry.objId` — catches correlation mismatches. */
 export function checkCorrelatedWithInvariant(images: readonly ImageEntry[]): InvariantResult {
   const objIds = new Set(images.map((e) => e.objId).filter((id): id is string => id !== null));
   const withCorrelation = images.filter((e) => e.correlatedWith !== undefined);
@@ -70,7 +68,7 @@ export function checkCorrelatedWithInvariant(images: readonly ImageEntry[]): Inv
   return { invariant: 'correlated-with-points-to-existing-entry', total: withCorrelation.length, violations, examples };
 }
 
-/** [4] Every `Provenance.blockIds` points to an EXISTING block — catches data loss in CIF construction (Step 9). */
+/** [4] Every `Provenance.blockIds` points to an EXISTING block — catches data loss in CIF construction. */
 export function checkProvenanceBlockIdsInvariant(document: CIFDocument, validBlockIds: ReadonlySet<string>): InvariantResult {
   const examples: string[] = [];
   let total = 0;
@@ -96,7 +94,7 @@ export function checkProvenanceBlockIdsInvariant(document: CIFDocument, validBlo
   return { invariant: 'provenance-blockids-point-to-existing-blocks', total, violations, examples };
 }
 
-/** [5] Every `columnIndex >= 0` points to an EXISTING column (per page) — catches index mismatches (Step 6). */
+/** [5] Every `columnIndex >= 0` points to an EXISTING column (per page) — catches index mismatches. */
 export function checkColumnIndexInvariant(linesByPage: ReadonlyMap<number, readonly TextLine[]>, columnsByPage: ReadonlyMap<number, readonly ColumnRegion[]>): InvariantResult {
   const examples: string[] = [];
   let total = 0;
@@ -154,7 +152,7 @@ export function checkNoUnrepairedGutterCrossingInvariant(
 
 export interface ReferenceInvariantsReport {
   results: InvariantResult[];
-  /** A miss ratio BELOW this threshold counts as "OK" per invariant — brief: "≈0". */
+  /** A miss ratio BELOW this threshold counts as "OK" per invariant (≈0). */
   maxAcceptableMissRatio: number;
 }
 

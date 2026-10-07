@@ -1,6 +1,6 @@
 {
   "id": "images-decorated",
-  "description": "3 strony, 55 obrazow na kazdej: jeden ozdobnik dzielony miedzy wszystkimi stronami + 54 unikalne male obrazy per strona.",
+  "description": "3 pages, 55 images on each: one decoration shared between all pages + 54 unique small images per page.",
   "targetPhase": 3,
   "claims": {
     "pageCount": 3,
@@ -8,6 +8,6 @@
     "imageCount": { "min": 150 }
   },
   "expected": {
-    "note": "Ozdobnik (ten sam obiekt PDF na wszystkich 3 stronach) powinien zostac sklasyfikowany jako dekoracja po pageRefs.length === 3; unikalne obrazy per strona pozostaja kandydatami na tresc."
+    "note": "The decoration (the same PDF object on all 3 pages) should be classified as a decoration by pageRefs.length === 3; unique images per page remain content candidates."
   }
 }

@@ -1,10 +1,10 @@
 import { buildMultiPageDocument } from '../layoutHelpers.js';
 
 /**
- * 6 stron: naglowek biegnacy o STALEJ pozycji/foncie/szerokosci-w-przyblizeniu,
- * ale ZMIENNYM numerze strony wewnatrz tekstu. Testuje Z5: dopasowanie po
- * koniunkcji (pozycja+font+szerokosc+obecnosc na >=60% stron), NIGDY po
- * dokladnym tekscie (numer strony jest inny na kazdej stronie).
+ * 6 pages: a running header with a CONSTANT position/font/approximate width, but a VARYING page
+ * number inside the text. Tests running-element matching by a conjunction (position + font +
+ * width + presence on >=60% of pages), NEVER by exact text (the page number is different on every
+ * page).
  */
 export function build(): Buffer {
   return buildMultiPageDocument(6, (pageNumber) => {

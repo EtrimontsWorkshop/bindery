@@ -13,14 +13,14 @@ function item(id: string, bbox: Rect, page = 1): Item {
 }
 
 describe('clusterByOverlap', () => {
-  it('bez extraMergeGate: kazde nakladanie sie laczy (zachowanie sprzed KROK-16 Z2, niezmienione)', () => {
+  it('without extraMergeGate: every overlap merges (behavior from before the gate was added, unchanged)', () => {
     const a = item('a', { minX: 0, minY: 0, maxX: 100, maxY: 100 });
     const b = item('b', { minX: 90, minY: 0, maxX: 190, maxY: 100 });
     const result = clusterByOverlap([a, b], (i) => i.page, (i) => i.bbox);
     expect(result.get(a)).toBe(result.get(b));
   });
 
-  it('extraMergeGate zwracajacy false blokuje polaczenie mimo nakladania sie bboksow', () => {
+  it('an extraMergeGate returning false blocks the merge despite overlapping bboxes', () => {
     const a = item('a', { minX: 0, minY: 0, maxX: 100, maxY: 100 });
     const b = item('b', { minX: 90, minY: 0, maxX: 190, maxY: 100 });
     const result = clusterByOverlap(
@@ -32,7 +32,7 @@ describe('clusterByOverlap', () => {
     expect(result.get(a)).not.toBe(result.get(b));
   });
 
-  it('extraMergeGate NIE jest wolany dla par ktore sie w ogole nie nakladaja (nadal osobne klastry)', () => {
+  it('extraMergeGate is NOT called for pairs that don\'t overlap at all (still separate clusters)', () => {
     const a = item('a', { minX: 0, minY: 0, maxX: 10, maxY: 10 });
     const b = item('b', { minX: 500, minY: 500, maxX: 510, maxY: 510 });
     let calls = 0;
@@ -49,9 +49,9 @@ describe('clusterByOverlap', () => {
     expect(result.get(a)).not.toBe(result.get(b));
   });
 
-  it('extraMergeGate pozwala na selektywne polaczenie: transytywnosc przez trzeci element nadal dziala', () => {
-    // a-b: gate false (nie laczy), b-c: gate true (laczy) -> a i c NIE powinny wpasc w jeden klaster
-    // wylacznie przez zbitke pod-par ktorych gate zablokowal; ale b-c samo w sobie tworzy klaster {b,c}.
+  it('extraMergeGate allows a selective merge: transitivity through a third element still works', () => {
+    // a-b: gate false (doesn't link), b-c: gate true (links) -> a and c should NOT fall into one
+    // cluster solely through a chain of sub-pairs the gate blocked; but b-c on its own forms the cluster {b,c}.
     const a = item('a', { minX: 0, minY: 0, maxX: 100, maxY: 100 });
     const b = item('b', { minX: 90, minY: 0, maxX: 190, maxY: 100 });
     const c = item('c', { minX: 150, minY: 0, maxX: 250, maxY: 100 });

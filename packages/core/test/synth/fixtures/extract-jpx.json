@@ -1,12 +1,12 @@
 {
   "id": "extract-jpx",
-  "description": "Obraz zadeklarowany jako JPEG2000 (/Filter /JPXDecode) z nieprawidlowymi danymi strumienia.",
+  "description": "An image declared as JPEG2000 (/Filter /JPXDecode) with invalid stream data.",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
     "imageCount": 1
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: jeden obraz XObject z /Filter /JPXDecode i danymi, ktore NIE SA poprawnym kodstrumieniem JP2 (256 zerowych bajtow). Nie testuje poprawnego dekodowania JPEG2000 (do tego potrzebny prawdziwy plik, patrz tools/calibrate-images.ts na samples/) — testuje wylacznie, ze extractDirect() nigdy nie pomija cicho nieudanego dekodowania: albo page.objs.get()/commonObjs.get() rzuci/zwroci null-podobna wartosc i zostanie zgloszony Diagnostic (IMAGE_DECODE_FAILED/IMAGE_DECODE_EMPTY), albo (jesli pdf.js z jakiegos powodu zwroci cokolwiek) obraz zostanie znormalizowany bez bledu — oba wyniki sa akceptowalne (brief), cichy brak sladu nie."
+    "note": "Construction fact: one image XObject with /Filter /JPXDecode and data that is NOT a valid JP2 codestream (256 zero bytes). It does not test correct JPEG2000 decoding (that needs a real file, see tools/calibrate-images.ts) — it tests only that extractDirect() never silently skips a failed decode: either page.objs.get()/commonObjs.get() throws/returns a null-like value and a Diagnostic is reported (IMAGE_DECODE_FAILED/IMAGE_DECODE_EMPTY), or (if pdf.js for some reason returns anything) the image is normalized without an error — both outcomes are acceptable, a silent absence of a trace is not."
   }
 }

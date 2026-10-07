@@ -1,11 +1,10 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [Step 17, a live-reported request] Automatic grid detection from map
+ * Automatic grid detection from map
  * pixels — a SUGGESTION for pre-filling `GridPicker` (packages/module), NOT
- * a replacement for manual calibration. MDD/step 8 (see the dead
- * `CIFScene.suggestedGrid` in `cif/types.ts`) deliberately deferred FULL
- * auto-detection beyond the MVP — this is NOT the same thing: here the
+ * a replacement for manual calibration. FULL automatic detection is
+ * deliberately out of scope — this is NOT the same thing: here the
  * result is always best-effort + an explicit `confidence`, and the decision
  * "whether to show it as a pre-fill or ignore it" belongs to the caller
  * (`packages/module`, UI policy), not to this function (facts, not
@@ -29,7 +28,7 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  *
  * Confidence (`confidence`) is calibrated PROVISIONALLY (no reference set of
  * real maps with known grids yet, unlike the thresholds in
- * `classify.ts`/`finalize.ts`) — to be verified against `samples/` in a
+ * `classify.ts`/`finalize.ts`) — to be verified against real maps in a
  * later step, if the suggestions turn out to be systematically over/under-
  * confident.
  */

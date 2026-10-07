@@ -15,7 +15,7 @@ export interface PageForDetection {
   pageBox: Rect;
   /** Column x-ranges on this page, LEFT TO RIGHT, if the page has more than one — the "end of column" half of `endOfColumnOrPage`, and what keeps reading order sane on a multi-column layout (column 1 top-to-bottom, then column 2, ...). Absent/empty = single column spanning the whole `pageBox` width. */
   columns?: readonly Rect[];
-  /** Rectangular frame regions detected on this page (from vector graphics, e.g. `inventory/vectorRegistry.ts`'s `VectorRegion`) — an optional signal a profile's anchor/boundary can key off of for framed statblocks ("ramki"). */
+  /** Rectangular frame regions detected on this page (from vector graphics, e.g. `inventory/vectorRegistry.ts`'s `VectorRegion`) — an optional signal a profile's anchor/boundary can key off of for framed statblocks. */
   vectorFrames?: readonly Rect[];
 }
 

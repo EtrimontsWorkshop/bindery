@@ -15,10 +15,10 @@ export interface VectorRegion {
   /** Area relative to the page — distinguishes a stat-block frame from a full-page background. */
   relativeArea: number;
   /**
-   * [Step 5 Z6, debt from Step 4] The subtype of the parent group (e.g.
+   * The subtype of the parent group (e.g.
    * "Luminosity"), when this path/fill was drawn inside a beginGroup.
    * Without this field, luminosity masks whose form paints a vector fill
-   * instead of an image (see RAPORT-KROK-4.md) were completely invisible to
+   * instead of an image were completely invisible to
    * any future mask classification — this module only carries the
    * geometric fact, the classification decision still belongs to phase 3.
    */

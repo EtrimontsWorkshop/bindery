@@ -1,8 +1,8 @@
 import { MODULE_ID } from '../settings.js';
 
 /**
- * The write layer (Step 8 Z4) — EXCLUSIVELY `FilePicker.upload()`, zero
- * decision logic (A1, `check:boundary`). `packages/core` has already
+ * The write layer — EXCLUSIVELY `FilePicker.upload()`, zero
+ * decision logic (`check:boundary`). `packages/core` has already
  * decided WHAT is worth saving (classification, extraction) — this module
  * only writes the bytes under a safe file name.
  */
@@ -34,7 +34,7 @@ function sanitizeBaseName(name: string): string {
 }
 
 /**
- * [Step 8, discovery] `FilePicker.upload()` does NOT create the target
+ * `FilePicker.upload()` does NOT create the target
  * folder by itself — trying to upload to a nonexistent path ends with the
  * server error "Target directory ... does not exist.", verified directly on
  * a real Foundry instance (not assumed). Every level of the path

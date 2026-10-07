@@ -3,7 +3,7 @@
  * `foundry.data.fields.DataField` instance closely enough to walk it
  * generically — the same "verified empirically, zero import of the real
  * class" pattern as `PdfTextItemLike` in `text/types.ts` for pdf.js. Zero
- * dependency on Foundry globals (A1/`check:boundary`): the module layer
+ * dependency on Foundry globals (`check:boundary`): the module layer
  * builds these from real field instances via `field.constructor.name` +
  * the handful of properties every field subclass actually carries at
  * runtime (verified against `fvtt-types` for Foundry v14: `SchemaField`,
@@ -44,7 +44,7 @@ export interface FoundryFieldLike {
  * fact for a profile author picking a mapping target. `'unsupported'` is
  * for field classes with no sane generic representation (e.g.
  * `JavaScriptField`) — surfaced so the UI can grey them out instead of
- * silently omitting them (A7-style: degrade visibly, don't disappear).
+ * silently omitting them (degrade visibly, don't disappear).
  */
 export type SchemaFieldKind = 'string' | 'number' | 'boolean' | 'html' | 'choices' | 'array' | 'object' | 'unsupported';
 

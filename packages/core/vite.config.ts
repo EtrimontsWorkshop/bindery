@@ -10,18 +10,16 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     rollupOptions: {
-      // pdfjs-dist zostaje zewnetrzne — modul-konsument (packages/module) laduje je
-      // dynamicznym import() osobno (ryzyko I3), core nie ma go bundlowac na sztywno.
+      // pdfjs-dist stays external — the consuming module (packages/module) loads it with a dynamic
+      // import() separately, core must not bundle it in.
       external: ['pdfjs-dist/legacy/build/pdf.mjs'],
       output: {
-        // KRYTYCZNE (Z7): bez tego Rollup zostawia goly specyfikator
-        // 'pdfjs-dist/legacy/build/pdf.mjs' w zbudowanym kodzie. W Node dziala
-        // (rozwiazanie przez node_modules), ale w przegladarce (Foundry) to
-        // nieprawidlowa skladnia ESM — "Failed to resolve module specifier".
-        // Wykryte na zywym Foundry, nie w testach Node/Vitest.
-        // Sciezka wzgledna do dist/lib/core/index.js (gdzie ten plik faktycznie
-        // laduje w module), docelowo dist/lib/pdf.mjs (kopiowane w vite.config
-        // modulu obok pdf.worker.mjs).
+        // CRITICAL: without this Rollup leaves the bare specifier 'pdfjs-dist/legacy/build/pdf.mjs' in
+        // the built code. It works in Node (resolution through node_modules), but in a browser (Foundry)
+        // it is invalid ESM syntax — "Failed to resolve module specifier". Found in a live Foundry, not
+        // in Node/Vitest tests.
+        // A path relative to dist/lib/core/index.js (where this file actually lands in the module),
+        // ultimately dist/lib/pdf.mjs (copied in the module's vite.config next to pdf.worker.mjs).
         paths: {
           'pdfjs-dist/legacy/build/pdf.mjs': '../pdf.mjs',
         },

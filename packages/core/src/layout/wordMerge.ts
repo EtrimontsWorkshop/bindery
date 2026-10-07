@@ -5,12 +5,11 @@ import { effectiveGapProfileForPage, type HierarchicalGapProfile } from '../text
 import { axisPositions, baselineTolerance, fontSizeFromTransform, type StreamAngle } from './textGeometry.js';
 
 /**
- * Merges fragments into tokens with a high probability of cohesion (Step 5
- * Z4). Merges TWO adjacent items only when ALL conditions from the brief are
+ * Merges fragments into tokens with a high probability of cohesion. Merges TWO adjacent items only when ALL the conditions below are
  * met — missing even one means no merge. The result is NOT a "word" in the
  * linguistic sense (no dictionary validation, no language detection).
  *
- * P1 (Polish single-letter words: w, z, i, o, a, u, e): we NEVER use token
+ * Single-letter words (e.g. Polish w, z, i, o, a, u, e): we NEVER use token
  * length alone as grounds for merging — the conditions below never refer to
  * `str` length at all.
  */
@@ -53,8 +52,7 @@ function toToken(item: MergeCandidateItem): MergedToken {
 
 /**
  * The reason for the (non-)merge decision on a pair of adjacent items — used
- * both by `mergeWords` and by `tools/calibrate-merge.mjs` (Step 5, calibration
- * on files from `samples/`), so the diagnostic tool doesn't duplicate
+ * both by `mergeWords` and by `tools/calibrate-merge.mjs`, so the diagnostic tool doesn't duplicate
  * production logic.
  */
 export type MergeBlockReason =
@@ -67,11 +65,10 @@ export type MergeBlockReason =
   | 'overlapping';
 
 /**
- * Classifies whether `next` should merge with `prev` — ALL conditions from
- * the brief's table (Z4) must be met, checked in the same order as the
- * table. `angle` is the stream angle, shared across the whole mergeWords call
- * (condition #3 satisfied by definition, since the caller already splits
- * items into angular streams before calling — see Z3).
+ * Classifies whether `next` should merge with `prev` — ALL conditions must be met, checked in
+ * the order listed. `angle` is the stream angle, shared across the whole mergeWords call
+ * (condition #3 satisfied by definition, since the caller already splits items into angular
+ * streams before calling).
  */
 export function classifyMergeDecision(
   prev: MergeCandidateItem,
@@ -87,14 +84,14 @@ export function classifyMergeDecision(
   // #4 [U2, HARD] No wordBoundaries boundary between them.
   if (hasBoundaryBetween(wordBoundaries, prev.index, next.index)) return 'word-boundary';
 
-  // #2 Same baseline (tolerance shared with Z5, see textGeometry.ts).
+  // #2 Same baseline (tolerance shared with line clustering, see textGeometry.ts).
   const prevAxis = axisPositions(prev.transform, angle);
   const nextAxis = axisPositions(next.transform, angle);
   const tolerance = baselineTolerance(fontSizeFromTransform(prev.transform));
   if (Math.abs(prevAxis.cross - nextAxis.cross) > tolerance) return 'different-baseline';
 
-  // #6 The font profile must be reliable (separation above the confidence threshold) — Z2.
-  // [Step 6 Z1a] Uses the more conservative of the document-level and page-level thresholds (see effectiveGapProfileForPage).
+  // #6 The font profile must be reliable (separation above the confidence threshold).
+  // Uses the more conservative of the document-level and page-level thresholds (see effectiveGapProfileForPage).
   const hierarchical = gapProfiles.get(prev.fontKey);
   if (!hierarchical) return 'unreliable-profile';
   const profile = effectiveGapProfileForPage(hierarchical, page);
@@ -102,14 +99,14 @@ export function classifyMergeDecision(
 
   // #5 Gap STRICTLY below the intra-word threshold for this font.
   const gap = nextAxis.along - (prevAxis.along + prev.width);
-  // [Step 6, discovery] A NEGATIVE gap (items geometrically overlapping along
+  // A NEGATIVE gap (items geometrically overlapping along
   // the reading axis) is NOT "close" — it's always separate, discontinuous
   // elements (e.g. two dense columns of a table/table-of-contents that happen
   // to share a baseline), never a genuine fragmentation of one word. Without
   // this lower bound, `gap < intraWordThreshold` let through EVERY negative
   // gap (always "smaller" than any positive threshold) — verified
-  // empirically: this was the ACTUAL cause of merges on p. 3 of
-  // Cienie_posrod_mgie.pdf (Z1a), not threshold calibration.
+  // empirically: this was the ACTUAL cause of merges on a real table-of-contents
+  // page, not threshold calibration.
   if (gap < 0) return 'overlapping';
   if (!(gap < profile.intraWordThreshold)) return 'gap-too-large';
 
@@ -120,13 +117,7 @@ export function classifyMergeDecision(
  * Groups by APPROXIMATE baseline (cross-axis, rounded to the tolerance)
  * BEFORE sorting/merging along the reading axis — without this, merging
  * would compare fragments from DIFFERENT lines that happened to end up next
- * to each other in a global sort by the `along` axis alone (discovered
- * empirically via calibration on files from `samples/`, Step 5: on a
- * multi-line page, >90% of "adjacent" pairs after such a global sort were
- * from different lines — correctly blocked by condition #2, but wasting
- * work and, worse, potentially missing genuine merges if a fragment from
- * another line slots in between two fragments of the same line in the
- * sort). Same bucketing method as `collectGapSamples` (Z2).
+ * to each other in a global sort by the `along` axis alone. Same bucketing method as `collectGapSamples`.
  */
 function bucketByBaseline(items: readonly MergeCandidateItem[], angle: StreamAngle): MergeCandidateItem[][] {
   const buckets = groupByQuantizedPosition(items, (item) => {
@@ -140,10 +131,9 @@ function bucketByBaseline(items: readonly MergeCandidateItem[], angle: StreamAng
 }
 
 /**
- * Merges adjacent items from ONE angular stream (already past hygiene, Z1)
- * into tokens. The caller (orchestrator) supplies items for one angle at a
- * time (Z3 precedes Z4); input order doesn't matter — the function groups by
- * baseline and sorts along the reading axis within each group itself.
+ * Merges adjacent items from ONE angular stream (already past hygiene) into tokens. The caller
+ * (orchestrator) supplies items for one angle at a time; input order doesn't matter — the
+ * function groups by baseline and sorts along the reading axis within each group itself.
  */
 export function mergeWords(
   items: readonly MergeCandidateItem[],

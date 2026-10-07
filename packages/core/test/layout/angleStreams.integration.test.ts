@@ -14,8 +14,8 @@ async function textItemsOf(buf: Buffer): Promise<PdfTextItemLike[]> {
   return (tc.items as PdfTextItemLike[]).filter((i) => 'str' in i);
 }
 
-describe('groupByAngle — fixture text-rotated-marginalia (grupa B)', () => {
-  it('dwa strumienie: 0° isPrimary=true, 90° isPrimary=false', async () => {
+describe('groupByAngle — fixture text-rotated-marginalia (group B)', () => {
+  it('two streams: 0° isPrimary=true, 90° isPrimary=false', async () => {
     const clean = runHygiene(await textItemsOf(buildTextRotatedMarginalia()));
     const { streams } = groupByAngle(clean.items);
     expect(streams.map((s) => s.angle)).toEqual([0, 90]);
@@ -24,8 +24,8 @@ describe('groupByAngle — fixture text-rotated-marginalia (grupa B)', () => {
   });
 });
 
-describe('groupByAngle — fixture text-rotated-extreme (grupa B)', () => {
-  it('strumien 90° dominujacy, obsluzony bez bledu', async () => {
+describe('groupByAngle — fixture text-rotated-extreme (group B)', () => {
+  it('a dominant 90° stream, handled without an error', async () => {
     const clean = runHygiene(await textItemsOf(buildTextRotatedExtreme()));
     const { streams } = groupByAngle(clean.items);
     const total = streams.reduce((sum, s) => sum + s.items.length, 0);

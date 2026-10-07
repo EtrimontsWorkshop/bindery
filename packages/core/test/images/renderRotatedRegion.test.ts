@@ -6,17 +6,13 @@ import type { Rect } from '../../src/geometry.js';
 import type { DecodedImage } from '../../src/images/normalizeDecodedImage.js';
 
 /**
- * [naprawa zgloszonego bledu — recenzja calego designu, "rotated crop na
- * stronie z page.rotate != 0 wycina zle piksele"] Fabryka fałszywej strony —
- * `getViewport({scale})` zwraca `baseTransform` przeskalowany liniowo (tak
- * jak prawdziwe pdf.js: macierz viewportu przy skali S to macierz przy
- * skali 1 pomnozona przez S). `baseTransform` symuluje TO, co `page.rotate`
- * naprawde robi z macierza pdf.js — dla `rotate=0` to zwykle skalowanie +
- * odbicie Y (`[1,0,0,-1,0,0]`), dla realnej rotacji strony to macierz
- * MIESZAJACA X/Y (nie tylko skala+odbicie) — DOKLADNIE ten przypadek, ktory
- * naiwna, stara formula w `renderRotatedRegion.ts` (skalowanie+odbicie Y
- * liczone WPROST z bbox, bez udzialu `page.getViewport`) calkowicie
- * pomijala.
+ * A fake page factory — `getViewport({scale})` returns `baseTransform` scaled linearly (like the
+ * real pdf.js: the viewport matrix at scale S is the matrix at scale 1 multiplied by S).
+ * `baseTransform` simulates WHAT `page.rotate` really does to the pdf.js matrix — for `rotate=0`
+ * it is a plain scale + Y flip (`[1,0,0,-1,0,0]`), for a real page rotation it is a matrix that
+ * MIXES X/Y (not just scale+flip) — EXACTLY the case that the naive, old formula in
+ * `renderRotatedRegion.ts` (scale+Y flip computed DIRECTLY from the bbox, without
+ * `page.getViewport`) missed entirely.
  */
 function makeFakePage(baseTransform: readonly [number, number, number, number, number, number]): PdfPageForRender {
   return {
@@ -26,29 +22,26 @@ function makeFakePage(baseTransform: readonly [number, number, number, number, n
   } as PdfPageForRender;
 }
 
-/** Macierz strony BEZ rotacji (`page.rotate === 0`) — konwencja pdf.js: device_x = pdf_x, device_y = -pdf_y (odbicie Y wzgledem 0). Wszystkie 9 plikow w `samples/` tego projektu maja `page.rotate === 0`. */
+/** The page matrix WITHOUT rotation (`page.rotate === 0`) — the pdf.js convention: device_x = pdf_x, device_y = -pdf_y (a Y flip about 0). Every file used in development has `page.rotate === 0`. */
 const UNROTATED_PAGE = makeFakePage([1, 0, 0, -1, 0, 0]);
 
 /**
- * Macierz strony Z RZECZYWISTA ROTACJA — MIESZA X/Y (nie tylko skaluje i
- * odbija), tak jak prawdziwa macierz pdf.js dla strony z `/Rotate 90/180/270`
- * naprawde wyglada. Nie musi byc BAJT W BAJT tym, co pdf.js realnie zwraca
- * dla `rotation:90` (to zalezy od jego wewnetrznej implementacji) — wystarczy,
- * ze test dowodzi: `renderRotatedRegion` POPRAWNIE uzywa CALEJ macierzy z
- * `page.getViewport`, a nie tylko zakłada skalowanie+odbicie Y.
+ * The page matrix WITH A REAL ROTATION — it MIXES X/Y (not just scales and flips), the way a real
+ * pdf.js matrix for a page with `/Rotate 90/180/270` actually looks. It doesn't have to be
+ * BYTE-FOR-BYTE what pdf.js really returns for `rotation:90` (that depends on its internal
+ * implementation) — it is enough that the test proves: `renderRotatedRegion` CORRECTLY uses the
+ * WHOLE matrix from `page.getViewport`, rather than assuming scale+Y flip.
  */
 const ROTATED_PAGE = makeFakePage([0, 1, -1, 0, 0, 0]);
 
 /**
- * Falszywy renderer strony — dla DOWOLNEGO zadanego bboksa (PDF, Y w gore)
- * "renderuje" plaska, czarna bitmape z jednym jasnym markerem w PODANEJ
- * pozycji PDF, POPRAWNIE uwzgledniajac `page.getViewport` (tak jak prawdziwy
- * `regionRenderer.ts` — stad reuzycie `computeRenderPlan`/`transformPoint`,
- * ktore sa WLASNYMI, juz osobno przetestowanymi funkcjami `regionRenderer.ts`,
- * nie logika `renderRotatedRegion.ts` pod testem). Marker jest umieszczany
- * przez zastosowanie TEJ SAMEJ transformacji, wiec test dowodzi, ze
- * `renderRotatedRegion` poprawnie ODWRACA to mapowanie dla dowolnej strony —
- * nie tylko dla strony bez rotacji.
+ * A fake page renderer — for ANY given bbox (PDF, Y up) it "renders" a flat, black bitmap with one
+ * bright marker at the GIVEN PDF position, CORRECTLY accounting for `page.getViewport` (like the
+ * real `regionRenderer.ts` — hence the reuse of `computeRenderPlan`/`transformPoint`, which are
+ * `regionRenderer.ts`'s OWN, separately tested functions, not the logic of `renderRotatedRegion.ts`
+ * under test). The marker is placed by applying THE SAME transformation, so the test proves that
+ * `renderRotatedRegion` correctly REVERSES that mapping for any page — not only for a page
+ * without rotation.
  */
 function fakeRenderer(markerPdfX: number, markerPdfY: number, markerHalfSizePdf: number): RegionRenderer {
   return {
@@ -63,7 +56,7 @@ function fakeRenderer(markerPdfX: number, markerPdfY: number, markerHalfSizePdf:
       for (let oy = 0; oy < plan.outHeight; oy++) {
         for (let ox = 0; ox < plan.outWidth; ox++) {
           const idx = (oy * plan.outWidth + ox) * 4;
-          rgba[idx + 3] = 255; // czarne, nieprzezroczyste tlo
+          rgba[idx + 3] = 255; // a black, opaque background
           if (Math.abs(ox - markerPixelX) <= markerHalfSizePx && Math.abs(oy - markerPixelY) <= markerHalfSizePx) {
             rgba[idx] = 255;
             rgba[idx + 1] = 255;
@@ -93,8 +86,8 @@ function findMarkerCentroid(image: DecodedImage): { x: number; y: number } {
 }
 
 describe('renderRotatedRegion', () => {
-  it('rotationRad=0, znacznik na prawo od srodka regionu -> ladowuje sie na prawo od srodka wyjscia', () => {
-    const renderer = fakeRenderer(330, 300, 5); // 30pt na prawo (PDF +X) od srodka regionu (300,300)
+  it('rotationRad=0, a marker to the right of the region\'s center -> lands to the right of the output\'s center', () => {
+    const renderer = fakeRenderer(330, 300, 5); // 30pt to the right (PDF +X) of the region's center (300,300)
     return renderRotatedRegion(UNROTATED_PAGE, { centerX: 300, centerY: 300, width: 100, height: 100, rotationRad: 0 }, renderer, { targetLongEdgePx: 200 }).then((result) => {
       const marker = findMarkerCentroid(result);
       const dx = marker.x - result.width / 2;
@@ -104,7 +97,7 @@ describe('renderRotatedRegion', () => {
     });
   });
 
-  it('[Konwencja tej funkcji, zweryfikowana wprost tym testem] rotationRad=+90° W PDF (Y w gore) — znacznik na prawo (PDF +X) od srodka ladowuje sie POD srodkiem wyjscia. Jesli integracja z UI (kierunek przeciagania uchwytu obrotu) okaze sie odwrotna, jedyna poprawka to negacja kata PRZED wywolaniem tej funkcji (w `ReviewScreen.ts`, przy konwersji ekran->PDF), nie tutaj.', () => {
+  it('[The convention of this function, verified directly by this test] rotationRad=+90° IN PDF (Y up) — a marker to the right (PDF +X) of the center lands BELOW the output\'s center. If integration with the UI (the drag direction of the rotation handle) turns out to be reversed, the only fix is negating the angle BEFORE calling this function (in `ReviewScreen.ts`, at the screen->PDF conversion), not here.', () => {
     const renderer = fakeRenderer(330, 300, 5);
     return renderRotatedRegion(UNROTATED_PAGE, { centerX: 300, centerY: 300, width: 100, height: 100, rotationRad: Math.PI / 2 }, renderer, { targetLongEdgePx: 200 }).then((result) => {
       const marker = findMarkerCentroid(result);
@@ -115,7 +108,7 @@ describe('renderRotatedRegion', () => {
     });
   });
 
-  it('wynikowe wymiary odpowiadaja proporcjom regionu (nie otoczki) i docelowej dlugosci krawedzi', () => {
+  it('the output dimensions correspond to the region\'s proportions (not the envelope\'s) and the target edge length', () => {
     const renderer = fakeRenderer(0, 0, 1);
     return renderRotatedRegion(UNROTATED_PAGE, { centerX: 300, centerY: 300, width: 200, height: 100, rotationRad: Math.PI / 4 }, renderer, { targetLongEdgePx: 400 }).then((result) => {
       expect(result.width).toBe(400);
@@ -123,7 +116,7 @@ describe('renderRotatedRegion', () => {
     });
   });
 
-  it('[naprawa zgloszonego bledu] strona z RZECZYWISTA rotacja (macierz page.getViewport miesza X/Y) — znacznik na prawo (PDF +X) od srodka regionu WCIAZ ladowuje sie na prawo od srodka wyjscia dla rotationRad=0, mimo ze surowe wspolrzedne PDF zostaly "obrocone" przez sama strone. Przed naprawa (naiwne skalowanie+odbicie Y liczone z bbox, bez udzialu page.getViewport) ten test wykrywalby zle wspolrzedne na kazdej stronie z page.rotate != 0.', () => {
+  it('[a fix for a reported bug] a page with a REAL rotation (the page.getViewport matrix mixes X/Y) — a marker to the right (PDF +X) of the region\'s center STILL lands to the right of the output\'s center for rotationRad=0, even though the raw PDF coordinates were "rotated" by the page itself. Before the fix (a naive scale+Y flip computed from the bbox, without page.getViewport) this test would detect wrong coordinates on every page with page.rotate != 0.', () => {
     const renderer = fakeRenderer(330, 300, 5);
     return renderRotatedRegion(ROTATED_PAGE, { centerX: 300, centerY: 300, width: 100, height: 100, rotationRad: 0 }, renderer, { targetLongEdgePx: 200 }).then((result) => {
       const marker = findMarkerCentroid(result);

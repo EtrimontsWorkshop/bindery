@@ -1,7 +1,7 @@
 /**
- * Extraction and resolution of PDF bookmarks (Step 9 Z4, `doc.getOutline()`).
- * Empirically verified on ALL 9 files from `samples/`: 9/9 HAVE bookmarks
- * (depth 1-5), so the fallback (Z4b, without outline) has nothing to
+ * Extraction and resolution of PDF bookmarks (`doc.getOutline()`).
+ * Empirically verified on real publications: all of them HAVE bookmarks
+ * (depth 1-5), so the fallback (without outline) has nothing to
  * self-check against on real files — tested only synthetically.
  *
  * The shape of `OutlineNode`/`getDestination`/`getPageIndex` — pdfjs-dist
@@ -27,7 +27,7 @@ export interface PdfDocumentForOutline {
 
 export interface ResolvedOutlineNode {
   title: string;
-  /** 1-indexed page number; null = unresolvable target (e.g. an external link) — degrade, don't fail (A7). */
+  /** 1-indexed page number; null = unresolvable target (e.g. an external link) — degrade, don't fail. */
   pageNumber: number | null;
   /** 1 = topmost level (the top-level array of `getOutline()`). */
   depth: number;
@@ -52,7 +52,7 @@ async function resolveNode(node: PdfOutlineNode, depth: number, doc: PdfDocument
   return { title: node.title, pageNumber, depth, children };
 }
 
-/** Returns [] when the PDF has no bookmarks (or `getOutline()` throws) — no outline is a valid, expected result (A7: degrade, don't fail). */
+/** Returns [] when the PDF has no bookmarks (or `getOutline()` throws) — no outline is a valid, expected result (degrade, don't fail). */
 export async function extractOutline(doc: PdfDocumentForOutline): Promise<ResolvedOutlineNode[]> {
   let raw: PdfOutlineNode[] | null;
   try {

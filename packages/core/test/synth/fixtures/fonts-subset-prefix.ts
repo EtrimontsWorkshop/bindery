@@ -6,14 +6,14 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Roboto-Regular.ttf');
 
-// Konwencja subsettingu PDF: 6 wielkich liter + "+" + nazwa rodziny (MDD F0, Q1).
+// The PDF subsetting convention: 6 capital letters + "+" + the family name.
 const BASE_FONT_NAMES = ['AAAAAH+Bookmania-Bold', 'BKQRXG+MinionPro-It', 'ZZZZZZ+QuadratSerial-PL'];
 
 /**
- * Fonty z prefiksem subsetu w /BaseFont — dokladnie konwencja zaobserwowana w
- * fazie 0 (spike) na realnych PDF-ach. Testuje: silnik fazy 2 musi zdejmowac
- * pierwsze 6 znakow + "+" przy budowie klucza fontu, inaczej ten sam font uzyty
- * w dwoch dokumentach (z roznym losowym prefiksem) wyglada jak dwa rozne fonty.
+ * Fonts with a subset prefix in /BaseFont — exactly the convention observed in an initial spike on
+ * real PDFs. Tests that the layout engine must strip the first 6 characters + "+" when building
+ * the font key, otherwise the same font used in two documents (with a different random prefix)
+ * looks like two different fonts.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

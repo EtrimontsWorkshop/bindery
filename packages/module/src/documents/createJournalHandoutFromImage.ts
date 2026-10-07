@@ -1,5 +1,5 @@
 /**
- * [Step 14 Z4] Creates a SINGLE-PAGE `JournalEntry` with a single image as a
+ * Creates a SINGLE-PAGE `JournalEntry` with a single image as a
  * handout — the `destination: 'journal'` path from the review screen (phase
  * 9), for images that are NOT already embedded in any phase-8 journal page
  * (those are handled by `createJournalFromCIF.ts`). Deliberately does NOT
@@ -10,7 +10,7 @@
 export interface CreateJournalHandoutFromImageInput {
   name: string;
   imagePath: string;
-  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
+  /** `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 

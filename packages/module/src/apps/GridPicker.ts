@@ -1,12 +1,12 @@
 import { MODULE_ID } from '../settings.js';
 
 /**
- * GridPicker (Step 8 Z5) — live preview with size/offset sliders and a grid
+ * GridPicker — live preview with size/offset sliders and a grid
  * overlay, remembering the last setting (`lastGridConfig`). Zero automatic
- * grid detection (brief: out of MVP scope) — the user sets it manually, with
+ * grid detection here (out of scope) — the user sets it manually, with
  * an immediate preview of the effect.
  *
- * [Step 8, discovery] The first version used `DialogV2.wait({content, render})`
+ * The first version used `DialogV2.wait({content, render})`
  * with raw HTML in a string — this failed in a real Foundry instance:
  * `render` (event, dialog) => dialog.element.querySelector(...) returned
  * `null` (error "Cannot read properties of null (reading 'getContext')"),
@@ -35,7 +35,7 @@ export interface PickGridInput {
   imageWidth: number;
   imageHeight: number;
   /**
-   * [Step 17] Suggestion from automatic grid detection on the map's pixels
+   * Suggestion from automatic grid detection on the map's pixels
    * (`@bindery/core`, `images/detectGrid.ts`) — when provided, PREFERRED over
    * the last saved configuration (`lastGridConfig`) as the initial fill for
    * the sliders. The decision of "whether to pass it" (e.g. a confidence
@@ -108,7 +108,7 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   static async pick(input: PickGridInput): Promise<GridConfig | null> {
-    // [Step 17] An auto-detection suggestion (when provided) takes priority
+    // An auto-detection suggestion (when provided) takes priority
     // over the last saved manual configuration — a different image has a
     // different grid, so "what it was last time" is a worse starting point
     // than "what's visible on THIS particular image", provided anything was

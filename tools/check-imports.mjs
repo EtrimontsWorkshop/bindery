@@ -1,15 +1,13 @@
 #!/usr/bin/env node
-// Dlug z fazy 1 (RAPORT-FAZA-1.md): Rollup/Vite z `external` zostawia czasem
-// GOLY specyfikator modulu w zbudowanym pliku (np. "pdfjs-dist/legacy/build/pdf.mjs").
-// W Node dziala to bez problemu (rozwiazanie przez node_modules), ale w przegladarce
-// to nieprawidlowa skladnia ESM — "Failed to resolve module specifier". Bledu NIE
-// widac w Node/Vitest, tylko w prawdziwej przegladarce — zostal znaleziony
-// przypadkiem podczas testu na zywym Foundry (Z7 faza 1).
+// Rollup/Vite with `external` sometimes leaves a BARE module specifier in the built file (e.g.
+// "pdfjs-dist/legacy/build/pdf.mjs"). Node resolves that without a problem (via node_modules),
+// but in a browser it is invalid ESM — "Failed to resolve module specifier". The error is NOT
+// visible in Node/Vitest, only in a real browser — it was first found by accident while testing
+// in a live Foundry.
 //
-// Ten skrypt skanuje zbudowane pliki packages/*/dist/**/*.js pod katem importow/
-// eksportow (statycznych i dynamicznych z literalem string) ze specyfikatorem,
-// ktory NIE zaczyna sie od "/", "./" ani "../" — czyli goly specyfikator pakietu,
-// niemozliwy do rozwiazania w przegladarce bez import map.
+// This script scans the built files packages/*/dist/**/*.js for imports/exports (static and
+// dynamic with a string literal) whose specifier does NOT start with "/", "./" or "../" — i.e.
+// a bare package specifier, impossible to resolve in a browser without an import map.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -37,24 +35,24 @@ function findDistDirs() {
     try {
       if (statSync(distDir).isDirectory()) dirs.push(distDir);
     } catch {
-      // brak dist/ dla tego pakietu (nie zbudowany) — pomijamy
+      // no dist/ for this package (not built) — skip
     }
   }
   return dirs;
 }
 
-// Tylko WLASNY output Rollupa/Vite — nie vendorowane/kopiowane assety trzecich
-// stron (pdf.js itp. w dist/lib/), ktorych nie budujemy i ktore nie moga miec
-// tego bledu z NASZEJ konfiguracji `external`.
+// ONLY Rollup/Vite's OWN output — not vendored/copied third-party assets (pdf.js etc. in
+// dist/lib/), which we don't build and which cannot have this error from OUR `external`
+// configuration.
 function isVendoredAsset(filePath) {
   return filePath.split(/[\\/]/).includes('lib');
 }
 
-// Dopasowanie PER LINIA (bez \n w klasach znakow), zeby nie rozciagac sie na
-// niepowiazane fragmenty kodu w wielolinijkowym, nieminifikowanym output Rollupa.
-// import ... from "spec" / export ... from "spec" — wymaga "from" bezposrednio przed cudzyslowem.
+// Matching is PER LINE (no \n in character classes), so it doesn't stretch across unrelated
+// pieces of code in Rollup's multi-line, unminified output.
+// import ... from "spec" / export ... from "spec" — requires "from" directly before the quote.
 const STATIC_IMPORT_RE = /\b(?:import|export)\b[^'"\n]*?\bfrom\s*["']([^"'\n]+)["']/g;
-// import("spec") — dynamiczny, wymaga "import(" bezposrednio (tylko biale znaki) przed cudzyslowem.
+// import("spec") — dynamic, requires "import(" directly (whitespace only) before the quote.
 const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["']([^"'\n]+)["']\s*\)/g;
 
 function isBareSpecifier(spec) {
@@ -78,15 +76,15 @@ for (const distDir of findDistDirs()) {
 }
 
 if (violations.length > 0) {
-  console.error('check:imports: ZNALEZIONO gole specyfikatory modulow w zbudowanych plikach:');
+  console.error('check:imports: FOUND bare module specifiers in the built files:');
   for (const v of violations) {
     console.error(`  - "${v.spec}" w ${v.file}`);
   }
   console.error(
-    '\nGoly specyfikator dziala w Node (przez node_modules), ale NIE w przegladarce ' +
-      '(brak import map). Napraw przez rollupOptions.output.paths w odpowiednim vite.config.ts.',
+    '\nA bare specifier works in Node (through node_modules), but NOT in a browser ' +
+      '(there is no import map). Fix it with rollupOptions.output.paths in the relevant vite.config.ts.',
   );
   process.exit(1);
 }
 
-console.log('check:imports: OK — brak golych specyfikatorow modulow w zbudowanych plikach.');
+console.log('check:imports: OK — no bare module specifiers in the built files.');

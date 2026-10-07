@@ -13,7 +13,7 @@ import {
 import { MODULE_ID, type TokenPrepDefaults } from '../settings.js';
 
 /**
- * TokenPrepApp (Step 42, "token as a product") — an `ApplicationV2` window
+ * TokenPrepApp — an `ApplicationV2` window
  * separate from `ReviewScreen` (following the pattern of `GridPicker.ts`),
  * opened by the "Prepare token" button EXCLUSIVELY for images with the
  * `token` destination. Zero automation in the background: every step
@@ -42,12 +42,9 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const BUILT_IN_FRAME_THICKNESS: Record<'thin' | 'thick', number> = { thin: 0.05, thick: 0.12 };
 /**
- * [Step 42 Z3, "actor disposition UNAVAILABLE at token-prep time"]
- * `disposition` is never read anywhere before the actor is saved (see
- * `coc7.ts`, hardcoded `1`) — per the escape hatch from the brief ("if
- * disposition is unavailable, leave the default color"), the built-in frame
- * gets ONE neutral default color instead of trying to guess
- * friendly/hostile/neutral.
+ * The actor's disposition is not known at token-preparation time (it is only
+ * chosen when the actor is created), so the built-in frame gets ONE neutral
+ * default color instead of trying to guess friendly/hostile/neutral.
  */
 const DEFAULT_FRAME_COLOR = '#8a6d3b';
 const CHECKER_CELL_PX = 10;
@@ -127,13 +124,12 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #customFrameBytes: Uint8Array | null = null;
 
   /**
-   * [REPORT-click-to-add-background Z1, "a hat touching the body creates a
-   * closed background pocket"] Points added manually by the user, in FULL
-   * SOURCE COORDINATES (not preview/crop coordinates — stable regardless of
-   * later zoom/pan changes), passed as `extraSeeds` to `removeBackground`.
-   * `#seedsVersion` increments on every change (add/undo) — a cache key
-   * alongside tolerance, because `removeBackground` itself doesn't know
-   * about the contents of this array.
+   * Points added manually by the user to mark background pockets that the corner flood fill
+   * cannot reach (e.g. a hat touching the body), in FULL SOURCE COORDINATES (not preview/crop
+   * coordinates — stable regardless of later zoom/pan changes), passed as `extraSeeds` to
+   * `removeBackground`. `#seedsVersion` increments on every change (add/undo) — a cache key
+   * alongside tolerance, because `removeBackground` itself doesn't know about the contents of
+   * this array.
    */
   #clickSeeds: Array<{ x: number; y: number }> = [];
   #seedsVersion = 0;
@@ -247,7 +243,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const drag = this.#dragState;
       if (!drag || drag.pointerId !== e.pointerId) return;
       if (Math.abs(e.clientX - drag.startClientX) > CLICK_MOVE_THRESHOLD_PX || Math.abs(e.clientY - drag.startClientY) > CLICK_MOVE_THRESHOLD_PX) drag.moved = true;
-      // [REPORT-click-to-add-background Z1] In "click to add background" mode, dragging does NOT pan the crop — a plain click (see `endDrag`) adds a seed, so an accidental micro-movement of the mouse between pointerdown/up doesn't shift the crop under the user.
+      // In "click to add background" mode, dragging does NOT pan the crop — a plain click (see `endDrag`) adds a seed, so an accidental micro-movement of the mouse between pointerdown/up doesn't shift the crop under the user.
       if (this.#clickToAddMode) return;
       const scale = this.#currentScale(PREVIEW_PX);
       this.#centerX = drag.startCenterX - (e.clientX - drag.startClientX) * scale;

@@ -7,14 +7,13 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 const WHOLE_WORDS = ['the', 'and', 'run', 'big', 'red', 'sky', 'day', 'old', 'new', 'sun'];
-const FRAGMENTED_CHARS = 'dogcatbathatjampotsittopwetzip'.split(''); // 30 znakow
+const FRAGMENTED_CHARS = 'dogcatbathatjampotsittopwetzip'.split(''); // 30 characters
 
 /**
- * ~75% itemow krotszych niz 3 znaki — gorny kraniec zakresu ze spike'u fazy 0
- * (Q6: 20-76%). Kazdy token dostaje WLASNY wiersz (osobne Y) — pdf.js wstawia
- * syntetyczne itemy spacji TYLKO miedzy tokenami na tej samej linii (patrz
- * RAPORT-KROK-3.md, "Napotkane pulapki"); jeden token per wiersz daje w pelni
- * przewidywalna, dokladnie kontrolowana liczbe itemow.
+ * ~75% of items shorter than 3 characters — the upper end of the range from the initial spike
+ * (20-76%). Every token gets its OWN row (a separate Y) — pdf.js inserts synthetic space items
+ * ONLY between tokens on the same line; one token per row gives a fully predictable, precisely
+ * controlled number of items.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

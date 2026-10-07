@@ -1,6 +1,6 @@
 {
   "id": "extract-cluster",
-  "description": "Baza duza (~62% strony) + 3 mniejsze obrazy czesciowo na niej lezace — wszystkie wzajemnie nakladajace sie.",
+  "description": "A large base (~62% of the page) + 3 smaller images lying partly on it — all mutually overlapping.",
   "targetPhase": 7,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "hasOverlappingImages": true
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: 4 obrazy XObject o bboksach WZAJEMNIE nakladajacych sie (3 male 'ikony' czesciowo lezace na duzej 'bazie'). imageRegistry.ts (krok 4) powinien przypisac WSZYSTKIM czterem TEN SAM clusterId (klastrowanie transytywne po nakladajacych sie bboksach). Orkiestrator (buildImageExtraction) powinien zgrupowac je w JEDNA jednostke ekstrakcji (bbox = unia wszystkich czterech), dajac JEDEN wpis wyniku ze strategia 'region-render' (Z2: klaster = jedna kompozycja), NIE cztery osobne pliki."
+    "note": "Construction fact: 4 image XObjects with MUTUALLY overlapping bboxes (3 small 'icons' lying partly on a large 'base'). imageRegistry.ts should assign ALL four THE SAME clusterId (transitive clustering by overlapping bboxes). The orchestrator (buildImageExtraction) should group them into ONE extraction unit (bbox = the union of all four), giving ONE result entry with the 'region-render' strategy (a cluster = one composition), NOT four separate files."
   }
 }

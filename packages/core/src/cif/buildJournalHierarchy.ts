@@ -2,16 +2,16 @@ import type { SemanticBlock } from '../semantic/blockBuilder.js';
 import { flattenOutline, type ResolvedOutlineNode } from './outline.js';
 
 /**
- * Journal hierarchy from PDF bookmarks + heading-based fallback (Step 9 Z4).
+ * Journal hierarchy from PDF bookmarks + heading-based fallback.
  *
  * [architectural decision] Foundry v14's `JournalEntry` has ONLY a flat
  * `pages` collection (`common/documents/journal-entry.mjs`: `pages: new
  * fields.EmbeddedCollectionField(...)`) — ZERO nesting of JournalEntry
- * inside JournalEntry. PDF bookmarks often have depth >2 (measured on
- * `samples/`: Za_lini_wroga.pdf has depth 5!). Mapping: the SHALLOWEST
+ * inside JournalEntry. PDF bookmarks often have depth >2 (real files reach
+ * depth 5). Mapping: the SHALLOWEST
  * level present in the markers -> `JournalEntry`, the next level ->
  * `JournalEntryPage`, EVERYTHING deeper does NOT create another structure —
- * it stays as a plain `heading` block in the page content (Z5 assigns it
+ * it stays as a plain `heading` block in the page content (the HTML step assigns it
  * <h3>/<h4>/... based on its own level), exactly like a real, printed
  * manual: chapter -> section -> plain subheading in the text.
  */
@@ -36,11 +36,11 @@ export interface JournalDraft {
 }
 
 /**
- * [Step 9 Z4] Markers from the bookmark tree — each resolved node (having a
+ * Markers from the bookmark tree — each resolved node (having a
  * `pageNumber`) is mapped to the index of the FIRST block on that page or
  * later (>=, because the target page may have no text blocks at all — e.g.
  * a pure map/cover page — in which case the section starts at the next
- * available block, an A7 degradation, not an error). Unresolvable nodes
+ * available block — a graceful degradation, not an error). Unresolvable nodes
  * (`pageNumber === null`, e.g. an external link) are SKIPPED, they do not
  * fail the whole import.
  */
@@ -88,8 +88,8 @@ export function headingsToMarkers(blocks: readonly SemanticBlock[]): SectionMark
  * Builds the journal/page tree from the flat list of blocks + markers
  * (from the outline OR from the fallback — the same mechanism for both,
  * see `outlineToMarkers`/`headingsToMarkers`). No markers at all -> the
- * whole document is ONE journal with ONE page (final fallback, brief:
- * "the fallback must work").
+ * whole document is ONE journal with ONE page (final fallback — it must
+ * always work).
  */
 export function buildJournalDrafts(blocks: readonly SemanticBlock[], markers: readonly SectionMarker[], fallbackTitle: string): JournalDraft[] {
   if (blocks.length === 0) return [];
@@ -102,7 +102,7 @@ export function buildJournalDrafts(blocks: readonly SemanticBlock[], markers: re
   const pageLevel = minLevel + 1;
 
   // Blocks BEFORE the first journal marker (e.g. a title page without its
-  // own bookmark) are NOT lost (A3) — they go into a synthetic journal at the start.
+  // own bookmark) are NOT lost — they go into a synthetic journal at the start.
   const firstJournalStart = journalMarkers[0]!.startBlockIndex;
   const drafts: JournalDraft[] = [];
   if (firstJournalStart > 0) {

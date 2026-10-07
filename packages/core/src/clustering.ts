@@ -3,21 +3,19 @@ import { rectsOverlap, type Rect } from './geometry.js';
 /**
  * Clustering by transitively overlapping bboxes, ON THE SAME PAGE (A
  * overlaps B, B overlaps C => A, B, C in one cluster, even if A and C don't
- * touch each other directly) — one shared mechanism (Step 8 Z1, the same
- * reason as `groupByQuantizedPosition`, Step 6 Z1d) instead of two
+ * touch each other directly) — one shared mechanism instead of two
  * independent implementations: `clusterOccurrencesByPage` in
- * `imageRegistry.ts` (Step 4/5, ALL occurrences, including future
- * decoration/mask) and recomputing clusters ONLY for `content`/`undecided`
- * candidates in `buildImageExtraction.ts` (Step 8 Z1).
+ * `imageRegistry.ts` and recomputing clusters ONLY for `content`/`undecided`
+ * candidates in `buildImageExtraction.ts`.
  *
- * [Step 8, discovery] Without recomputation on the filtered set, the
+ * Without recomputation on the filtered set, the
  * extraction cluster inherited a `clusterId` computed BEFORE
  * classification, over ALL occurrences — a chain of small, overlapping
  * background-texture tiles (classified as `decoration`/`undecided`,
  * individually small) could "bridge" two genuinely separate, far-apart
  * content images into ONE cluster whose bbox union covers almost the
- * entire page — observed directly in RAPORT-KROK-7.md (`img_p7_6` from
- * `Wrath_&_Glory`, an entire page of text rendered as an "image").
+ * entire page — observed directly (`img_p7_6` from
+ * a real rulebook, an entire page of text rendered as an "image").
  * Clustering MUST be recomputed FROM SCRATCH on the already-filtered set
  * (without decoration/masks) — filtering the RESULT of pre-computed
  * clustering (removing bridging entries from an already-formed group) is
@@ -49,7 +47,7 @@ class UnionFind {
  * deterministic (the order of entry in `items`), it does not depend on the
  * `Map`/`Set` implementation.
  *
- * [Step 16 Z2, reported-bug fix] `extraMergeGate` — an optional, additional
+ * `extraMergeGate` — an optional, additional
  * condition ANDed with the base `rectsOverlap`; by default (no argument)
  * the behavior is IDENTICAL to before (every overlap merges), so the call
  * from `imageRegistry.ts` (raw occurrences, including future
@@ -59,7 +57,7 @@ class UnionFind {
  * function exists, see the comment at the top of the file) from "two
  * INDEPENDENTLY large, finished content images touching only at an edge"
  * (should not be merged — observed directly:
- * `Wrath_&_Glory_Komandozi_Rzezibrzucha.pdf` p. 16, two portraits
+ * a real rulebook, p. 16: two portraits
  * ~27%/~22% of the page area, an overlap of ~4% of the smaller one's area,
  * merged into one extraction unit that also caught the text column between them).
  */

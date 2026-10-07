@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { computeTargetLongEdgePx } from '../../src/images/renderResolution.js';
 
 describe('computeTargetLongEdgePx', () => {
-  it('region czysto wektorowy (brak obrazu) uzywa wartosci domyslnej z ustawien, bez minimum kategorii', () => {
+  it('a purely vector region (no image) uses the default value from the settings, without a category minimum', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [],
       representativeMaxRelativeArea: null,
@@ -12,7 +12,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(1500);
   });
 
-  it('region czysto wektorowy przycinany do sufitu z ustawien', () => {
+  it('a purely vector region clamped to the ceiling from the settings', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [],
       representativeMaxRelativeArea: null,
@@ -22,7 +22,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(4096);
   });
 
-  it('obraz "scene-like" (duza powierzchnia) z natywna rozdzielczoscia PONIZEJ minimum -> podniesione do minimum sceny', () => {
+  it('a "scene-like" image (a large area) with a native resolution BELOW the minimum -> raised to the scene minimum', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [800],
       representativeMaxRelativeArea: 0.6,
@@ -32,7 +32,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(2048); // MIN_SCENE_LONG_EDGE_PX
   });
 
-  it('obraz "scene-like" z natywna rozdzielczoscia POWYZEJ minimum -> odwzorowanie zrodla (z marginesem), nie stala', () => {
+  it('a "scene-like" image with a native resolution ABOVE the minimum -> a reflection of the source (with a margin), not a constant', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [3000],
       representativeMaxRelativeArea: 0.6,
@@ -43,7 +43,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBeLessThanOrEqual(4096);
   });
 
-  it('obraz "handout-like" (powierzchnia srednia) dostaje nizsze minimum niz "scene-like"', () => {
+  it('a "handout-like" image (a medium area) gets a lower minimum than "scene-like"', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [500],
       representativeMaxRelativeArea: 0.2,
@@ -53,7 +53,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(1024); // MIN_HANDOUT_LONG_EDGE_PX
   });
 
-  it('obraz "portrait-like" (mala powierzchnia) dostaje najnizsze minimum', () => {
+  it('a "portrait-like" image (a small area) gets the lowest minimum', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [300],
       representativeMaxRelativeArea: 0.02,
@@ -63,7 +63,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(512); // MIN_PORTRAIT_LONG_EDGE_PX
   });
 
-  it('bardzo wysoka natywna rozdzielczosc jest przycinana do sufitu z ustawien (ochrona przed absurdalnym rozmiarem)', () => {
+  it('a very high native resolution is clamped to the ceiling from the settings (a guard against an absurd size)', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [8000],
       representativeMaxRelativeArea: 0.6,
@@ -73,7 +73,7 @@ describe('computeTargetLongEdgePx', () => {
     expect(px).toBe(4096);
   });
 
-  it('uzywa NAJWIEKSZEJ z natywnych krawedzi w regionie (klaster wielu obrazow)', () => {
+  it('uses the LARGEST of the native edges in the region (a cluster of many images)', () => {
     const px = computeTargetLongEdgePx({
       intrinsicLongEdgesPx: [500, 3500, 900],
       representativeMaxRelativeArea: 0.6,

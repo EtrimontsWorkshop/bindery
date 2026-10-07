@@ -3,11 +3,10 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * Tlo pelnospadowe: obraz WIEKSZY niz MediaBox, przesuniety na ujemne
- * wspolrzedne — wychodzi poza KAZDA krawedz strony (spad drukarski, MDD F0).
- * Testuje klasyfikacje `decoration`, NIE `scene` — mimo ogromnej powierzchni
- * wzglednej (>100% strony), ktora BEZ sprawdzenia pozycji pelnospadowej
- * bylaby mylnie zlapana przez regule "duza powierzchnia = tresc" (Z1).
+ * A full-bleed background: an image LARGER than the MediaBox, shifted to negative coordinates —
+ * extends past EVERY edge of the page (print bleed). Tests the `decoration` classification, NOT
+ * `scene` — despite its huge relative area (>100% of the page), which WITHOUT the full-bleed
+ * position check would be wrongly caught by the "large area = content" rule.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -17,7 +16,7 @@ export function build(): Buffer {
 
   const imgRef = imageXObject(writer, { width: 4, height: 4, rgb: solidRgb(4, 4, 80, 80, 120) });
 
-  // MediaBox 612x792; obraz 692x892 przesuniety o (-40,-50) — wychodzi poza kazda krawedz.
+  // MediaBox 612x792; the image 692x892 shifted by (-40,-50) — extends past every edge.
   const content = new ContentStreamBuilder().save().cm(692, 0, 0, 892, -40, -50).doXObject('Im1').restore().toBuffer();
   const contentRef = writer.addStreamObj('', content);
 

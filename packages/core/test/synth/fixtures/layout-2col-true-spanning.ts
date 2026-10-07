@@ -1,12 +1,10 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * KROK-10 Z5 — nierozlaczny "bliźniak" `layout-2col-false-merge`: nagłówek
- * rozpinający NAD kolumnami, z tokenem faktycznie WEWNĄTRZ obszaru rynny
- * (jeden ciągły `Tj` przebiegający przez cała szerokosc, w tym rynne).
- * Dyskryminator MUSI zostawic taka linie bez zmian — fixture dowodzacy
- * rozcinania bez fixture'a dowodzacego NIErozcinania nie dowodzi niczego
- * (brief).
+ * The inseparable "twin" of `layout-2col-false-merge`: a spanning header ABOVE the columns, with a
+ * token actually INSIDE the gutter area (one continuous `Tj` running across the whole width,
+ * including the gutter). The discriminator MUST leave such a line unchanged — a fixture proving
+ * splitting without a fixture proving NOT splitting proves nothing.
  */
 export function build(): Buffer {
   const rowCount = 6;

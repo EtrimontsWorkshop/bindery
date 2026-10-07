@@ -1,10 +1,9 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Blok krotkich linii mniejszym fontem (imitacja statbloku — KLASYFIKACJA
- * 'statblock' NIE jest zadaniem tego kroku, to faza 4), OTOCZONY ramka
- * wektorowa (fill). Testuje U3: krawedz regionu wektorowego jako granica
- * bloku — pierwsze realne uzycie regionow wektorowych w tym kroku.
+ * A block of short lines in a smaller font (imitating a statblock — the 'statblock'
+ * CLASSIFICATION is not a goal of this fixture), SURROUNDED by a vector frame (fill). Tests the
+ * edge of a vector region as a block boundary — the first real use of vector regions.
  */
 export function build(): Buffer {
   const bodyBefore = Array.from({ length: 4 }, (_, i) => ({ text: `Body text before the box line ${i}`, x: 72, y: 700 - i * 20 }));

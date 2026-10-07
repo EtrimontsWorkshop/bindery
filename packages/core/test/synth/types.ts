@@ -1,4 +1,4 @@
-/** Zakres liczbowy — obie granice opcjonalne, przynajmniej jedna wymagana w praktyce. */
+/** A numeric range — both bounds optional, at least one required in practice. */
 export interface ClaimRange {
   min?: number;
   max?: number;
@@ -7,45 +7,45 @@ export interface ClaimRange {
 export type ClaimValue = number | ClaimRange | string[] | boolean;
 
 /**
- * Warstwa 1 (samokontrola) — wlasciwosci fixture'a weryfikowane uruchomieniem
- * przez pdf.js. Klucze odpowiadaja metrykom liczonym w verifyClaims.ts.
+ * Layer 1 (self-check) — properties of the fixture verified by running it through pdf.js. The keys
+ * correspond to the metrics computed in verifyClaims.ts.
  */
 export interface FixtureClaims {
   pageCount?: number;
-  /** Odsetek niepustych itemow o str.length < 3. */
+  /** The share of non-empty items with str.length < 3. */
   fragmentationRatio?: ClaimRange;
-  /** Odsetek itemow z transform[1]!==0 || transform[2]!==0, liczony na WSZYSTKICH itemach. */
+  /** The share of items with transform[1]!==0 || transform[2]!==0, computed over ALL items. */
   rotatedItemRatio?: ClaimRange;
-  /** Liczba itemow str === "" (przed odfiltrowaniem). */
+  /** The number of items with str === "" (before filtering). */
   emptyItemCount?: number | ClaimRange;
-  /** Wszystkie itemy tekstowe (puste + niepuste). */
+  /** All text items (empty + non-empty). */
   totalItemCount?: number | ClaimRange;
-  /** Itemy niepuste zlozone wylacznie z bialych znakow (np. pojedyncza spacja). */
+  /** Non-empty items made up solely of whitespace (e.g. a single space). */
   whitespaceOnlyItemCount?: number | ClaimRange;
-  /** Itemy z niepustym str. */
+  /** Items with a non-empty str. */
   nonEmptyItemCount?: number | ClaimRange;
-  /** Pewnosc jakosci unicode z detektora fazy 1 (src/quality.ts), 0-1. */
+  /** The unicode quality confidence from the quality detector (src/quality.ts), 0-1. */
   unicodeConfidence?: ClaimRange;
-  /** Pary itemow o identycznym str i identycznej macierzy transform. */
+  /** Pairs of items with an identical str and an identical transform matrix. */
   exactPositionalDuplicateCount?: number | ClaimRange;
-  /** Pary itemow o identycznym str, macierz przesunieta o < 1pt. */
+  /** Pairs of items with an identical str, the matrix shifted by < 1pt. */
   nearPositionalDuplicateCount?: number | ClaimRange;
-  /** Liczba operacji obrazowych z getOperatorList(), suma po wszystkich stronach. */
+  /** The number of image operations from getOperatorList(), summed over all pages. */
   imageCount?: number | ClaimRange;
-  /** Minimalna liczba obrazow na KAZDEJ stronie (nie suma) — do fixture'ow "N obrazow na strone". */
+  /** The minimum number of images on EACH page (not the sum) — for "N images per page" fixtures. */
   minImagesPerPage?: number;
   combiningCharCount?: number | ClaimRange;
   ligatureCount?: number | ClaimRange;
   puaCharCount?: number | ClaimRange;
-  /** Oczekiwany zbior nazw (commonObjs.get(x).name) uzytych fontow — porownanie jako zbior. */
+  /** The expected set of names (commonObjs.get(x).name) of the fonts used — compared as a set. */
   distinctFontKeys?: string[];
-  /** Czy w operator liscie wystapil beginGroup z smask.subtype === "Luminosity". */
+  /** Whether a beginGroup with smask.subtype === "Luminosity" occurred in the operator list. */
   hasLuminosityGroup?: boolean;
-  /** Liczba stron z zerowa liczba glifow (proxy skanu). */
+  /** The number of pages with zero glyphs (a proxy for a scan). */
   zeroGlyphPageCount?: number;
-  /** Czy jakikolwiek obraz wychodzi poza MediaBox (spad drukarski). */
+  /** Whether any image extends past the MediaBox (print bleed). */
   hasBleedingImage?: boolean;
-  /** Czy na ktorejs stronie dwa rozne obrazy maja pokrywajace sie bboxy. */
+  /** Whether on any page two different images have overlapping bboxes. */
   hasOverlappingImages?: boolean;
 }
 
@@ -54,7 +54,7 @@ export interface FixtureGroundTruth {
   description: string;
   targetPhase: number;
   claims: FixtureClaims;
-  /** Ground truth dla fazy 2 — celowo niekonsumowane teraz, tylko przechowywane. */
+  /** Ground truth for the layout stage — deliberately not consumed now, only stored. */
   expected?: unknown;
 }
 

@@ -1,12 +1,12 @@
 /**
- * [Step 19, gap reported live] Creates ONE `JournalEntry` with MULTIPLE
+ * Creates ONE `JournalEntry` with MULTIPLE
  * `image`-type pages — one page per image, in the given order. The
  * counterpart to `createJournalHandoutFromImage.ts` (single image = one
  * journal), but for a user who wants manual grouping ("select 5 and assign
  * them to one journal") — e.g. handouts sorted by book chapter, at the GM's
  * discretion. The grouping mechanism itself (which image goes to which
  * group) lives in `ReviewSelection` (pure presentation, no decision logic
- * here — A1/check:boundary); this function ONLY creates a document from an
+ * here — `check:boundary`); this function ONLY creates a document from an
  * already-prepared page list.
  */
 export interface JournalHandoutImagePage {
@@ -17,7 +17,7 @@ export interface JournalHandoutImagePage {
 export interface CreateJournalHandoutFromImagesInput {
   name: string;
   pages: readonly JournalHandoutImagePage[];
-  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
+  /** `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 

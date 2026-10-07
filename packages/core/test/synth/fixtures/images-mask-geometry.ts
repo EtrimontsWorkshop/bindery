@@ -2,13 +2,11 @@ import { PdfWriter, catalogDict, pagesDict, pageDict } from '../rawPdf.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * Przypadek POZYTYWNY dla sciezki dowodowej "geometry" wykrywania masek (KROK-4
- * Z3) — w odroznieniu od images-overlapping, ktory sprawdza TYLKO brak falszywych
- * trafien. Dwa obrazy narysowane bezposrednio po sobie (Do, Do — bez posredniego
- * save/transform miedzy nimi), pod TA SAMA CTM, wiec bbox pokrywa sie w 100%
- * (>=95% progu) i roznica index wynosi 2 (<=3 progu okna). Trzeci, kontrolny
- * obraz jest daleko (duza roznica index, bez nakladania) i NIE powinien dostac
- * zadnego dowodu maski.
+ * A POSITIVE case for the "geometry" evidence path of mask detection — unlike images-overlapping,
+ * which checks ONLY the absence of false hits. Two images drawn directly one after the other (Do,
+ * Do — no intermediate save/transform between them), under THE SAME CTM, so the bbox overlaps
+ * 100% (>=95% threshold) and the index difference is 2 (<=3 window threshold). A third, control
+ * image is far away (a large index difference, no overlap) and should NOT get any mask evidence.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

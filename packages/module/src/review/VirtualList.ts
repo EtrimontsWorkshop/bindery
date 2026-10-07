@@ -1,5 +1,5 @@
 /**
- * [Step 11 Z2] List virtualization — goal from the brief: 2500 elements
+ * List virtualization — goal: 2500 elements
  * without stuttering while scrolling. Renders ONLY the visible rows +
  * margin, outside the `render()`/Handlebars ApplicationV2 cycle (a
  * scroll-frame that rebuilt the ENTIRE DOM via Handlebars on every frame
@@ -8,7 +8,7 @@
  *
  * No dependency on Foundry — plain DOM (`HTMLElement`/`document`), but it
  * lives in `packages/module` (not `packages/core`) because it operates on a
- * real DOM tree, not on data; `packages/core` never touches the DOM (A1).
+ * real DOM tree, not on data; `packages/core` never touches the DOM.
  */
 
 export interface VirtualListOptions<T> {
@@ -147,7 +147,7 @@ export class VirtualList<T> {
     }
   }
 
-  /** Scroll so that the given index is visible (e.g. after clicking a bbox overlay -> select the corresponding row, see Z3). */
+  /** Scroll so that the given index is visible (e.g. after clicking a bbox overlay -> select the corresponding row). */
   scrollToIndex(index: number): void {
     const target = index * this.#rowHeightPx;
     const viewportHeight = this.#container.clientHeight;

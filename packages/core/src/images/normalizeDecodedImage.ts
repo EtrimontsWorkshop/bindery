@@ -1,5 +1,5 @@
 /**
- * Closes the gap described in RAPORT-FAZA-1.md: `page.objs.get()` returns
+ * Closes a gap between environments: `page.objs.get()` returns
  * DIFFERENT shapes depending on the environment — `{ bitmap: ImageBitmap }`
  * in the browser (Foundry), `{ kind, data: Uint8ClampedArray }` in Node
  * (phase-0 spike). Without this normalization, golden tests would pass in
@@ -15,7 +15,7 @@ export interface DecodedImage {
   rgba: Uint8ClampedArray;
 }
 
-// Constants verified empirically in phase 0 (Step 1 spike, pdfjs-dist 6.1.200).
+// Constants verified empirically in phase 0.
 const IMAGE_KIND_GRAYSCALE_1BPP = 1;
 const IMAGE_KIND_RGB_24BPP = 2;
 const IMAGE_KIND_RGBA_32BPP = 3;
@@ -84,10 +84,9 @@ function normalizeFromKindData(img: KindDataShape): DecodedImage {
 
 function normalizeFromBitmap(img: BitmapShape): DecodedImage {
   // OffscreenCanvas is a web-platform standard (not a Foundry API) — using it
-  // here doesn't break assumption A1. But it's only available in the
+  // here doesn't break the Foundry-free rule of this package. But it's only available in the
   // browser; in Node (unit tests) it throws a readable error instead of
-  // silently hanging — actual canvas drawing stays phase 3 scope (see
-  // KROK-3-fixtures.md, Z6).
+  // silently hanging.
   const OffscreenCanvasCtor = (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas as
     | (new (w: number, h: number) => {
         getContext(id: '2d'): {

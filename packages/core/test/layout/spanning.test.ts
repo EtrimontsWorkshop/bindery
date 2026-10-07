@@ -16,9 +16,9 @@ function line(id: string, minX: number, maxX: number, y: number): TextLine {
 }
 
 describe('splitSpanningLines', () => {
-  it('naglowek pelnowymiarowy nad dwiema kolumnami trafia do spanning, kolumny do columnar', () => {
-    // Blok tekstu: x=50..550 (szerokosc 500). Naglowek pokrywa cala szerokosc.
-    // Dwie kolumny: lewa x=50..280 (230, 46%), prawa x=320..550 (230, 46%) — obie ponizej 70%.
+  it('a full-width header above two columns goes to spanning, the columns to columnar', () => {
+    // Text block: x=50..550 (width 500). The header covers the full width.
+    // Two columns: left x=50..280 (230, 46%), right x=320..550 (230, 46%) — both below 70%.
     const heading = line('heading', 50, 550, 700);
     const leftCol1 = line('left1', 50, 280, 650);
     const leftCol2 = line('left2', 50, 280, 630);
@@ -31,29 +31,27 @@ describe('splitSpanningLines', () => {
     expect(columnar.map((l) => l.id).sort()).toEqual(['left1', 'left2', 'right1']);
   });
 
-  it('[KROK-6, odkrycie] uklad jednokolumnowy: linie wypelniajace wiekszosc bloku sa "columnar", NIE "spanning" (brak baseline do porownania)', () => {
-    // Blok = 50..540 (490), linie ~90-98% WLASNEJ szerokosci bloku — na
-    // prawdziwie jednokolumnowej stronie KAZDA linia z definicji wyglada tak.
-    // Prog 70% liczony wzgledem bloku zbudowanego z TYCH SAMYCH linii jest wiec
-    // tautologiczny: gdyby wszystkie linie trafily do `spanning`, Z3 nie
-    // dostalby ani jednej linii kolumnowej i nie moglby zwrocic poprawnej
-    // odpowiedzi "1 kolumna" (zweryfikowane empirycznie na fixture layout-1col).
+  it('a single-column layout: lines filling most of the block are "columnar", NOT "spanning" (no baseline to compare with)', () => {
+    // Block = 50..540 (490), lines ~90-98% of the block's OWN width — on a truly single-column page
+    // EVERY line by definition looks like that. The 70% threshold computed relative to a block built
+    // from THE SAME lines is therefore tautological: if all lines landed in `spanning`, column
+    // detection would get not a single columnar line and couldn't return the correct answer
+    // "1 column" (verified empirically on the layout-1col fixture).
     const lines = [line('a', 50, 500, 700), line('b', 60, 540, 680)];
     const { columnar, spanning } = splitSpanningLines(lines);
     expect(spanning).toHaveLength(0);
     expect(columnar).toHaveLength(2);
   });
 
-  it('pusta lista linii -> pusty wynik bez bledu', () => {
+  it('an empty list of lines -> an empty result without an error', () => {
     const result = splitSpanningLines([]);
     expect(result).toEqual({ spanning: [], columnar: [], textBlockWidth: 0 });
   });
 
-  it('prog jest konfigurowalny (parametr widthRatio)', () => {
-    // Blok 50..450 (400). 1 linia szeroka (100%) + 1 srednia (50%) + 6 waskich
-    // (30%, WYRAZNA wiekszosc linii) — tak, zeby nawet przy luznym progu
-    // kandydaci "rozpinajacy" pozostali MNIEJSZOSCIA (patrz test wyzej: gdy
-    // wiekszosc linii kwalifikuje sie, cala strona jest columnar z definicji).
+  it('the threshold is configurable (the widthRatio parameter)', () => {
+    // Block 50..450 (400). 1 wide line (100%) + 1 medium (50%) + 6 narrow (30%, a CLEAR majority of
+    // the lines) — so that even with a loose threshold the "spanning" candidates remain a MINORITY
+    // (see the test above: when a majority of lines qualifies, the whole page is columnar by definition).
     const narrows = Array.from({ length: 6 }, (_, i) => line(`narrow${i}`, 50, 170, 600 - i * 20)); // 120 = 30%
     const lines = [line('wide', 50, 450, 700), line('medium', 50, 250, 680), ...narrows];
     const strict = splitSpanningLines(lines, 0.99);

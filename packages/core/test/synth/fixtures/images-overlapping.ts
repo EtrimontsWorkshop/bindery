@@ -3,9 +3,8 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * 6 obrazow o czesciowo pokrywajacych sie bboxach (np. mapa + ikony na niej).
- * Testuje klastrowanie nakladajacych sie bboxow (MDD faza 3) — realne strony z
- * mapami maja dziesiatki takich nakladajacych sie obrazow (faza 0, Q3).
+ * 6 images with partly overlapping bboxes (e.g. a map + icons on it). Tests the clustering of
+ * overlapping bboxes — real map pages have dozens of such overlapping images.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -13,14 +12,14 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRef = writer.reserveObj();
 
-  // Uklad: duzy obraz "bazowy" (mapa) + 5 mniejszych czesciowo na nim lezacych (ikony).
+  // Layout: a large "base" image (a map) + 5 smaller ones lying partly on it (icons).
   const layout: Array<{ w: number; h: number; x: number; y: number }> = [
-    { w: 400, h: 500, x: 100, y: 200 }, // baza
-    { w: 80, h: 80, x: 120, y: 600 }, // naklada sie na baze (rog)
-    { w: 80, h: 80, x: 420, y: 220 }, // naklada sie na baze (rog)
-    { w: 60, h: 60, x: 280, y: 400 }, // w srodku bazy
-    { w: 60, h: 60, x: 470, y: 500 }, // czesciowo poza baza
-    { w: 40, h: 40, x: 30, y: 30 }, // calkowicie poza baza (bez nakladania)
+    { w: 400, h: 500, x: 100, y: 200 }, // the base
+    { w: 80, h: 80, x: 120, y: 600 }, // overlaps the base (a corner)
+    { w: 80, h: 80, x: 420, y: 220 }, // overlaps the base (a corner)
+    { w: 60, h: 60, x: 280, y: 400 }, // in the middle of the base
+    { w: 60, h: 60, x: 470, y: 500 }, // partly outside the base
+    { w: 40, h: 40, x: 30, y: 30 }, // entirely outside the base (no overlap)
   ];
 
   const refs = layout.map((l, i) =>

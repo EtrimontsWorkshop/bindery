@@ -1,6 +1,6 @@
 {
   "id": "images-luminosity-mask",
-  "description": "Obraz namalowany pod ExtGState /SMask /Luminosity — maska nie powinna wpasc do wynikow fazy 3 jako osobny obraz.",
+  "description": "An image painted under ExtGState /SMask /Luminosity — the mask should not end up in the image results as a separate image.",
   "targetPhase": 3,
   "claims": {
     "pageCount": 1,
@@ -8,7 +8,7 @@
     "hasLuminosityGroup": true
   },
   "expected": {
-    "note": "2 obrazy: Im1 (tresc, poza grupa, niezamaskowany sam w sobie) + MaskImg (grayscale image wewnatrz beginGroup/Luminosity, ktora KROK-4 imageRegistry oznacza jako maskEvidence='group'/isMaskLayer=true). Zweryfikowane empirycznie: wersja formy maski oparta na samym wypelnieniu wektorowym (bez obrazu) daje ZERO eventow 'image' wewnatrz grupy, wiec sciezka dowodowa 'group' nigdy by nie zadzialala.",
-    "images": [{ "isMaskLayer": false, "note": "obraz tresci (Im1) jest niezamaskowany sam w sobie; maska to osobna grupa Luminosity, ktora faza 3 musi rozpoznac i pominac" }]
+    "note": "2 images: Im1 (content, outside the group, not masked by itself) + MaskImg (a grayscale image inside beginGroup/Luminosity, which imageRegistry marks as maskEvidence='group'/isMaskLayer=true). Verified empirically: a version of the mask form based on a vector fill alone (without an image) gives ZERO 'image' events inside the group, so the 'group' evidence path would never work.",
+    "images": [{ "isMaskLayer": false, "note": "the content image (Im1) is not masked by itself; the mask is a separate Luminosity group, which the image pipeline must recognize and skip" }]
   }
 }

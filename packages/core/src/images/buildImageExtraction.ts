@@ -15,11 +15,10 @@ import { computeTargetLongEdgePx } from './renderResolution.js';
 import { computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
 
 /**
- * Phase-3 orchestration (Step 7): classification (Z1) -> strategy (Z2) ->
- * extraction (Z4, region render Z3 when needed) -> finalization (Z5), with
- * memory and determinism discipline (Z6). Mirrors the pattern of
- * `buildPageLayout.ts` from step 6: a single entry point tying all the
- * Z-tasks together into one pass per document.
+ * Image-extraction orchestration: classification -> strategy -> extraction (region render when
+ * needed) -> finalization, with memory and determinism discipline. Mirrors the pattern of
+ * `buildPageLayout.ts`: a single entry point tying all the stages together into one pass per
+ * document.
  */
 
 export interface InventoryForImages {
@@ -35,22 +34,22 @@ export interface PdfDocumentLikeForImages {
 
 export interface BuildImageExtractionOptions {
   /**
-   * [Step 8 Z3] Used AS A STARTING POINT, NOT as the sole region-render
-   * resolution — see `renderResolution.ts`. Still the only resolution for
-   * purely vector regions (no image, the "value from settings" from the brief).
+   * Used AS A STARTING POINT, NOT as the sole region-render resolution — see
+   * `renderResolution.ts`. Still the only resolution for purely vector regions (no image, so the
+   * "value from settings" applies).
    */
   targetLongEdgePx?: number;
-  /** Hard ceiling on region-render resolution (Step 8 Z3) — guards against an absurd file size from a spread with very high native resource resolution. */
+  /** Hard ceiling on region-render resolution — guards against an absurd file size from a spread with very high native resource resolution. */
   maxLongEdgePx?: number;
   outputFormat?: OutputFormat;
   outputQuality?: number;
   signal?: AbortSignal;
   onProgress?: (done: number, total: number) => void;
-  /** `objId` of images adjacent to a `statblock`/`heading` block (step 6) — `portrait` signal in Z5. */
+  /** `objId` of images adjacent to a `statblock`/`heading` block — `portrait` signal. */
   nearStatblockOrHeadingObjIds?: ReadonlySet<string>;
-  /** [Step 9 Z2] Bboxes of `body` blocks (text flow) per page — see `classify.ts`. Links the text flow to the image flow, EXPLICITLY via this parameter. */
+  /** Bboxes of `body` blocks (text flow) per page — see `classify.ts`. Links the text flow to the image flow, EXPLICITLY via this parameter. */
   bodyBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
-  /** [at the user's request] Bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images, treating them as content instead of background. Off by default. */
+  /** Bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images, treating them as content instead of background. Off by default. */
   treatFullBleedAsContent?: boolean;
   /** [at the user's request, EXPERIMENTAL] See `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
   autoCropUniformMargins?: boolean;
@@ -68,17 +67,17 @@ export interface BuildImageExtractionResult {
   diagnostics: Diagnostic[];
 }
 
-/** Reasonable default target for scenes/handouts — configurable per call, for calibration against `samples/`. */
+/** Reasonable default target for scenes/handouts — configurable per call, for calibration against real documents. */
 const DEFAULT_TARGET_LONG_EDGE_PX = 2048;
-/** Default hard ceiling (Step 8 Z3, brief) — configurable via `maxLongEdgePx`. */
+/** Default hard ceiling — configurable via `maxLongEdgePx`. */
 const DEFAULT_MAX_LONG_EDGE_PX = 4096;
 /** Same threshold as `LARGE_AREA_CONTENT_THRESHOLD` in `classify.ts` — consistency between "large image = content" and "large vector with no image = a drawn map". */
 const LARGE_VECTOR_AREA_THRESHOLD = 0.4;
 /**
- * [Step 8 Z1] a SECOND-ORDER safeguard (not the main mechanism — see
+ * a SECOND-ORDER safeguard (not the main mechanism — see
  * `groupIntoUnits`): a cluster (>1 member) whose union of bboxes exceeds this
  * share of the page area is forced to `undecided`, regardless of the
- * representative's classification. Value from the Step 8 brief ("e.g. 85%")
+ * Starting value (e.g. 85%)
  * — deliberately HIGH, because the MAIN fix (clustering EXCLUSIVELY
  * content/undecided candidates, recomputed from scratch) already eliminates
  * the typical case (a chain of background tiles made of `decoration`/`mask`
@@ -89,36 +88,28 @@ const LARGE_VECTOR_AREA_THRESHOLD = 0.4;
 const CLUSTER_AREA_SAFEGUARD_THRESHOLD = 0.85;
 
 /**
- * [Step 16 Z2, fix for a live-reported bug] Two "independently large"
- * candidates (>= this share of the page area, each on its own — likely
- * finished, standalone content images, not fragments of one composition) are
- * merged into a SINGLE "anchor" only if their overlap (`overlapRatio` —
- * intersection area / area of the SMALLER one) reaches this threshold. Small
- * elements (below the area threshold) are NEVER "anchors" — they're still
- * merged with the loose `rectsOverlap` as always (see
- * `partitionCandidatesIntoGroups`), because they practically NEVER reach this
- * area threshold individually (fixture `extract-cluster`: 60x60/40x40pt icons
- * are <1% of the page each).
+ * Two "independently large" candidates (>= this share of the page area, each on its own —
+ * likely finished, standalone content images, not fragments of one composition) are merged into
+ * a SINGLE "anchor" only if their overlap (`overlapRatio` — intersection area / area of the
+ * SMALLER one) reaches this threshold. Small elements (below the area threshold) are NEVER
+ * "anchors" — they're still merged with the loose `rectsOverlap` as always (see
+ * `partitionCandidatesIntoGroups`), because they practically NEVER reach this area threshold
+ * individually (fixture `extract-cluster`: 60x60/40x40pt icons are <1% of the page each).
  *
- * [Step 43 Z3, verified on graphically dense material after a constants
- * audit — see `RAPORT-KROK-43.md`] Both constants were tuned for ONE
- * specific reported case (p. 13/14 from step 16), never systematically
- * calibrated — checked against `sample/Archiwa_Imperium.pdf` (380 images/97
- * pages, up to 18 images on a single page — "Obcy" not available in
- * sample/, `WRAK.pdf` rejected as test material: it exports EVERY page as a
- * single flat raster, so it doesn't exercise multi-image clustering at all).
- * Sweeping BOTH constants independently across their FULL reasonable range
- * (`INDEPENDENT_IMAGE_AREA_THRESHOLD`: 0.01-0.9; `EDGE_TOUCH_MAX_OVERLAP_RATIO`:
- * 0.01-0.9) produced a STABLE result — the group count only varies within a
- * narrow band (186-212 out of 262 candidates), the single largest cluster
- * stays identical (11 members) across the whole range of both parameters —
- * ZERO cliff, zero explosion into one mega-cluster, zero collapse into pure
- * singletons. The existing golden regression tests from step 16
- * (`extract-independent-touching`, `extract-anchor-loose-fragment`,
- * `extract-shared-resource-multipage`) still pass. Conclusion: the starting
- * values (0.1 / 0.2) sit safely in the MIDDLE of a wide plateau — there's no
- * evidence they're wrong, so they STAY UNCHANGED (changing something without
- * a reason is worse than not changing it).
+ * Both constants were tuned for ONE specific reported case, never systematically calibrated —
+ * checked against a real rulebook with 380 images over 97 pages (up to 18 images on a single
+ * page). A second sample rulebook was rejected as test material: it exports EVERY page as a
+ * single flat raster, so it doesn't exercise multi-image clustering at all. Sweeping BOTH
+ * constants independently across their FULL reasonable range
+ * (`INDEPENDENT_IMAGE_AREA_THRESHOLD`: 0.01-0.9; `EDGE_TOUCH_MAX_OVERLAP_RATIO`: 0.01-0.9)
+ * produced a STABLE result — the group count only varies within a narrow band (186-212 out of
+ * 262 candidates), the single largest cluster stays identical (11 members) across the whole
+ * range of both parameters — ZERO cliff, zero explosion into one mega-cluster, zero collapse
+ * into pure singletons. The existing golden regression tests (`extract-independent-touching`,
+ * `extract-anchor-loose-fragment`, `extract-shared-resource-multipage`) still pass. Conclusion:
+ * the starting values (0.1 / 0.2) sit safely in the MIDDLE of a wide plateau — there's no
+ * evidence they're wrong, so they STAY UNCHANGED (changing something without a reason is worse
+ * than not changing it).
  */
 const INDEPENDENT_IMAGE_AREA_THRESHOLD = 0.1;
 const EDGE_TOUCH_MAX_OVERLAP_RATIO = 0.2;
@@ -128,7 +119,7 @@ function isAnchorCandidate(c: ClassifiedImage): boolean {
 }
 
 /**
- * [Step 16 Z2, second iteration of the fix] The first version of this fix (a
+ * The first version of this fix (a
  * single gate on `clusterByOverlap`, blocking ONLY the direct merge of two
  * "anchors") fixed `img_p15_1`+`img_p15_2` (p. 16, touching DIRECTLY), but
  * NOT `img_p13_1`+`img_p13_2` (p. 14) — reported by the user as still not
@@ -156,7 +147,7 @@ function isAnchorCandidate(c: ClassifiedImage): boolean {
  * NO anchor at all.
  */
 /**
- * [at the user's request, after the "Wrak" classification fix] An image
+ * An image
  * forced to `content` SOLELY because it's a full-bleed background with text
  * on top (`Z1-full-bleed-forced-content`, see `classify.ts`) MUST be
  * EXCLUDED from the clustering below, otherwise the whole point of the flag
@@ -219,7 +210,7 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
         bestAnchor = a;
       }
     }
-    // [Step 16 Z2, third iteration of the fix] The mere fact of "some"
+    // The mere fact of "some"
     // overlap with the best anchor is NOT ENOUGH — observed directly:
     // `img_p13_4` (~1.5% of the page) touched the only anchor on the page
     // (`img_p13_1`, 26.9%) EXCLUSIVELY at a narrow corner (overlapRatio
@@ -272,29 +263,29 @@ interface ExtractionUnit {
   bbox: Rect;
   clusterMemberCount: number;
   classification: ImageClassification;
-  /** [Step 11 Z4] See `ClassifiedImage.confidence` — the cluster representative's confidence, possibly lowered when `undecided` is forced (see `IMAGE_CLUSTER_AREA_OVERREACH` below). */
+  /** See `ClassifiedImage.confidence` — the cluster representative's confidence, possibly lowered when `undecided` is forced (see `IMAGE_CLUSTER_AREA_OVERREACH` below). */
   confidence: number;
-  /** [at the user's request] The representative's `reason` — used EXCLUSIVELY to detect `Z1-full-bleed-forced-content` (the decision to try `autoCropUniformMargins`), for nothing else. */
+  /** The representative's `reason` — used EXCLUSIVELY to detect `Z1-full-bleed-forced-content` (the decision to try `autoCropUniformMargins`), for nothing else. */
   reason: string;
 }
 
 /**
  * Groups candidates (content/undecided) into clusters of overlapping bboxes
- * (Z2: a cluster = ONE extraction unit, not N). A unit's bbox is the UNION of
+ * (a cluster = ONE extraction unit, not N). A unit's bbox is the UNION of
  * all occurrences of all members — so that a region render (when the
  * strategy requires it) covers the whole composition, not just one element
  * of it.
  *
- * [Step 8 Z1, discovery] Clustering is RECOMPUTED FROM SCRATCH here, on the
+ * Clustering is RECOMPUTED FROM SCRATCH here, on the
  * FILTERED set of candidates (`clusterByOverlap`), and NOT read from
- * `entry.clusterId` — that field is computed in `imageRegistry.ts` (Step 4/5)
+ * `entry.clusterId` — that field is computed in `imageRegistry.ts`
  * over ALL occurrences, INCLUDING future decoration/mask entries. Filtering
  * the RESULT of such pre-computed clustering (simply dropping decoration/mask
  * members from the finished group) does NOT break the chain that those very
  * entries bridged — two genuinely separate, distant content images connected
  * EXCLUSIVELY by a chain of small, overlapping decoration tiles between them
  * would remain in ONE group even after dropping those tiles from the member
- * list. Observed directly: `img_p7_6` from `Wrath_&_Glory` (RAPORT-KROK-7.md)
+ * list. Observed directly: `img_p7_6` from a real rulebook
  * — an entire page of text rendered as an "image". Recomputing from scratch
  * on the candidates alone means that removing the bridging decoration/mask
  * FROM THE GRAPH actually breaks the chain, not just filters its members out
@@ -306,7 +297,7 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
   return groups.map((group) => {
     const representative = group.reduce((best, cur) => (cur.entry.maxRelativeArea > best.entry.maxRelativeArea ? cur : best));
     const page = representative.entry.occurrences[0]!.page;
-    // [Step 16 Z2, fourth iteration of the fix] Union ONLY of occurrences ON
+    // Union ONLY of occurrences ON
     // THE SAME page as the unit — observed directly: `g_d0_img_p7_8` (one PDF
     // resource used in 5 DIFFERENT places on 5 DIFFERENT pages, 8/9/15/16/19,
     // NOT "the same element in the same position" — this is typically a
@@ -317,10 +308,10 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
     // a nonsensical but accidentally large (~48% of the page) union, which,
     // when region-rendering on page 8, caught nearly all of that page's
     // content (observed: an entire statblock page extracted as an "image").
-    // The bug was LATENT since step 7/8 — previously EVERY entry present on
+    // The bug was LATENT — previously EVERY entry present on
     // >=2 correlated pages was hard-classified `decoration` (never entering
     // the candidates), so this code path had never been exercised on a real
-    // multi-page entry. Step 15 Z3 (threshold raised to 5 pages + soft
+    // multi-page entry. Raising the threshold to 5 pages (+ soft
     // fallback to `undecided` instead of `decoration`) let such an entry into
     // extraction for the first time, surfacing the dormant bug.
     const bbox = group
@@ -344,7 +335,7 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
         });
       }
       classification = 'undecided';
-      // [Step 11 Z4] Forcing 'undecided' invalidates the representative's
+      // Forcing 'undecided' invalidates the representative's
       // original `reason`/`confidence` — this cluster is no longer "a large
       // area with no mask", but a "forced safeguard", so it gets the same
       // low confidence as `Z1-no-strong-signal` (the weakest `undecided`
@@ -371,7 +362,7 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
  * fill/stroke — `walkOperators` doesn't detect arbitrary paths, only
  * axis-aligned rectangles, see `vectorRegistry.ts`) are a candidate for "a
  * vector-drawn map" — the only way to extract anything is to render the
- * whole region (Z2/Z3), since there's no image for direct extraction.
+ * whole region, since there's no image for direct extraction.
  */
 function findVectorOnlyUnits(vectors: readonly VectorRegion[], pagesWithAnyImage: ReadonlySet<number>): ExtractionUnit[] {
   const bigVectorsByPage = new Map<number, VectorRegion[]>();
@@ -435,7 +426,6 @@ export async function buildImageExtraction(
   const classified = classifyImages(inventory.images, pageBoxByPage, bodyBlockBoxesByPage, {
     treatFullBleedAsContent: opts.treatFullBleedAsContent ?? false,
   });
-  // [Step 43 Z1, fix for "silent loss" found in a constants audit]
   // `Z13-extreme-aspect-ratio-undecided` (see `classify.ts`) lands in
   // `undecided`, not `decoration` — visible in the review screen, but the
   // user should know WHY the image ended up there (aspect ratio, not "no
@@ -477,14 +467,13 @@ export async function buildImageExtraction(
   let done = 0;
   const total = allUnits.length;
 
-  // [Z6] Sequentially, page by page — NEVER Promise.all across multiple
-  // pages (same pattern as `inventory.ts`, MDD §12). `page.cleanup()` after
-  // every page (measured in step 4: -58% peak RSS).
+  // Sequentially, page by page — NEVER Promise.all across multiple pages (same pattern as
+  // `inventory.ts`). `page.cleanup()` after every page (measured: -58% peak RSS).
   for (const pageNumber of [...unitsByPage.keys()].sort((a, b) => a - b)) {
     checkAborted(signal);
     const page = await doc.getPage(pageNumber);
     try {
-      // [U3, Step 7 discovery] `page.objs`/`page.commonObjs` are empty until
+      // `page.objs`/`page.commonObjs` are empty until
       // `getOperatorList()` (or a render) has processed this page — this page
       // comes from a FRESH document open (`doc`), independent of the one used
       // for the inventory pass, so its `page.objs` was NEVER populated.
@@ -505,11 +494,11 @@ export async function buildImageExtraction(
           });
           const objIdForExtraction = decision.strategy === 'direct' ? unit.representativeEntry!.objId : null;
 
-          // [Step 8 Z3] Region-render resolution is DERIVED from the native
+          // Region-render resolution is DERIVED from the native
           // resolution of the resources in the region, not from a constant —
           // see `renderResolution.ts`. Irrelevant for the `direct` strategy
           // (direct extraction always returns the full source resolution,
-          // `targetLongEdgePx` is ignored there, Z4) — we probe only when
+          // `targetLongEdgePx` is ignored there) — we probe only when
           // we're actually rendering a region.
           let effectiveTargetLongEdgePx = targetLongEdgePx;
           if (decision.strategy === 'region-render') {
@@ -537,7 +526,7 @@ export async function buildImageExtraction(
           );
           diagnostics.push(...extractResult.diagnostics);
 
-          // [at the user's request, EXPERIMENTAL] Cropping the empty margin —
+          // Cropping the empty margin —
           // EXCLUSIVELY for units revealed by `Z1-full-bleed-forced-content`
           // (see `cropUniformMargins.ts`), NOT for ordinary content already
           // correctly extracted by the PDF's own structure (which already
@@ -557,27 +546,27 @@ export async function buildImageExtraction(
             }
           }
 
-          // [Z6, memory budget] hash + encode IMMEDIATELY; `extractResult.image`
+          // [memory budget] hash + encode IMMEDIATELY; `extractResult.image`
           // (raw RGBA, up to 48MB for 4000x3000) is NOT kept around further —
           // only the hash + dimensions + already-compressed bytes go into `prepared`.
           const contentHash = await computeContentHash(image);
-          // [Step 8 Z2] Computed ONLY for 'content' candidates — 'undecided'
+          // Computed ONLY for 'content' candidates — 'undecided'
           // is not subject to this reclassification (see `finalize.ts`), so
           // we save an extra pixel pass where it wouldn't be used anyway.
           const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(image) : undefined;
           // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
           const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(image) : undefined;
           const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(image) : undefined;
-          // [Step 17] Grid suggestion — NOT limited to 'content' (unlike
+          // Grid suggestion — NOT limited to 'content' (unlike
           // `luminanceStdDev` above): 'undecided' can also end up on stage by
-          // the user's manual decision (Z4, ReviewScreen), and the cost of
+          // the user's manual decision in the review screen), and the cost of
           // computing it is negligible relative to the decode already
           // performed anyway.
           const suggestedGrid = detectGrid(image) ?? undefined;
           const encoded = await encoder.encode(image, { format: opts.outputFormat, quality: opts.outputQuality });
 
           const entryForFinalize = unit.representativeEntry ?? syntheticVectorOnlyEntry(pageNumber, unit.bbox);
-          // [Step 11 Z4] A purely vector region forced to 'content' (line
+          // A purely vector region forced to 'content' (line
           // above) is a deliberate, confident decision (a successful render
           // of a vector-drawn map) — it gets high confidence, NOT the lower
           // `undecided` confidence inherited from `unit.confidence` (which

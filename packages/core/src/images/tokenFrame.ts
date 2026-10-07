@@ -2,9 +2,9 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
 import { isInsideShape, type TokenMaskShape } from './tokenMask.js';
 
 /**
- * [Step 42 Z3, "frames"] Two paths: a built-in solid ring (a few thickness
+ * Two paths: a built-in solid ring (a few thickness
  * options, configurable color — "don't build a library of decorative
- * frames, that's graphic-design work" per the brief), and compositing with
+ * frames, that's graphic-design work"), and compositing with
  * the user's own uploaded frame (a transparent PNG/WebP the same size as
  * the token).
  */

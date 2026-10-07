@@ -4,7 +4,7 @@ import { toFieldLike } from './toFieldLike.js';
 /**
  * Foundry-side glue for the SchemaIntrospector — everything here
  * touches `CONFIG`/`game`/`foundry.utils` and therefore lives in
- * `packages/module`, never `packages/core` (A1/`check:boundary`). The
+ * `packages/module`, never `packages/core` (`check:boundary`). The
  * actual recursive schema walk is `describeSchemaField` in
  * `packages/core` — this file's only job is: (1) find the right field
  * tree for a given document type, (2) adapt it to the duck-typed shape
@@ -103,7 +103,7 @@ function inferPrimitiveKind(value: unknown): SchemaFieldKind {
  * no schema) and reports every `system.*` path found, typed by the actual
  * JS value at that path. Loses the richer metadata a real schema would
  * give (label/hint/choices/min/max) — a plain path + inferred primitive
- * type + current value is still usable, just less helpful (A7: degrade,
+ * type + current value is still usable, just less helpful (degrade,
  * don't fail, rather than refuse to support the system at all).
  *
  * Only `system.*` keys are kept — Document-level fields (`_id`, `name`,

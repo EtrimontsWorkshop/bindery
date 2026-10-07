@@ -5,18 +5,16 @@ import { rectsOverlap } from '../../src/geometry.js';
 import { fixtures } from '../synth/index.js';
 
 /**
- * DoD kroku 7, §11.3: bbox KAZDEGO wystapienia obrazu/regionu wektorowego MUSI
- * przecinac MediaBox strony, na ktorej zostal zarejestrowany — inaczej cos w
- * `walkOperators`/`imageRegistry`/`vectorRegistry` przypisalo wystapienie do
- * ZLEJ strony (bbox calkowicie poza jej `MediaBox`). Nie jest to nowy mechanizm
- * (brief zabrania budowania czegos pod U5-podobne luki) — to WERYFIKACJA
- * niezmiennika, ktory powinien trzymac sie z konstrukcji (CTM/`page.box` z
- * `inventory.ts` sa zawsze przetwarzane w kontekscie WLASCIWEJ strony). Fixture
- * `extract-bleed`/`images-bleed-background` CELOWO wychodzi POZA `MediaBox` na
- * kazdej krawedzi, ale wciaz go PRZECINA (naklada sie czesciowo) — to
- * odrozniajacy przypadek od "calkowicie poza strona".
+ * The bbox of EVERY occurrence of an image/vector region MUST intersect the MediaBox of the page
+ * it was registered on — otherwise something in `walkOperators`/`imageRegistry`/`vectorRegistry`
+ * assigned the occurrence to the WRONG page (a bbox entirely outside its `MediaBox`). This is not
+ * a new mechanism — it VERIFIES an invariant that should hold by construction (the CTM/`page.box`
+ * from `inventory.ts` are always processed in the context of the RIGHT page). The
+ * `extract-bleed`/`images-bleed-background` fixture DELIBERATELY extends BEYOND the `MediaBox` on
+ * every edge, but still INTERSECTS it (overlaps partially) — that is the distinguishing case from
+ * "entirely outside the page".
  */
-describe('DoD §11.3 — bbox obrazu/wektora przecina MediaBox wlasnej strony', () => {
+describe('the bbox of an image/vector intersects the MediaBox of its own page', () => {
   const imageAndVectorFixtures = fixtures.filter(
     (f) => f.id.startsWith('images-') || f.id.startsWith('extract-') || f.id.startsWith('vectors-'),
   );
@@ -26,7 +24,7 @@ describe('DoD §11.3 — bbox obrazu/wektora przecina MediaBox wlasnej strony', 
   });
 
   for (const fixture of imageAndVectorFixtures) {
-    it(`${fixture.id}: kazde wystapienie obrazu i regionu wektorowego przecina MediaBox`, async () => {
+    it(`${fixture.id}: every occurrence of an image and a vector region intersects the MediaBox`, async () => {
       const buf = fixture.build();
       const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
       const inv = await buildInventory(doc as never);
@@ -35,8 +33,8 @@ describe('DoD §11.3 — bbox obrazu/wektora przecina MediaBox wlasnej strony', 
       for (const entry of inv.images) {
         for (const occ of entry.occurrences) {
           const pageBox = pageBoxByPage.get(occ.page);
-          expect(pageBox, `strona ${occ.page} (objId=${entry.objId}) nie istnieje w perPage`).toBeDefined();
-          expect(rectsOverlap(occ.bbox, pageBox!), `objId=${entry.objId} na str. ${occ.page}: bbox ${JSON.stringify(occ.bbox)} nie przecina MediaBox ${JSON.stringify(pageBox)}`).toBe(
+          expect(pageBox, `page ${occ.page} (objId=${entry.objId}) is missing from perPage`).toBeDefined();
+          expect(rectsOverlap(occ.bbox, pageBox!), `objId=${entry.objId} on p. ${occ.page}: the bbox ${JSON.stringify(occ.bbox)} doesn't intersect the MediaBox ${JSON.stringify(pageBox)}`).toBe(
             true,
           );
         }
@@ -44,8 +42,8 @@ describe('DoD §11.3 — bbox obrazu/wektora przecina MediaBox wlasnej strony', 
 
       for (const region of inv.vectors) {
         const pageBox = pageBoxByPage.get(region.page);
-        expect(pageBox, `strona ${region.page} nie istnieje w perPage`).toBeDefined();
-        expect(rectsOverlap(region.bbox, pageBox!), `region wektorowy na str. ${region.page}: bbox ${JSON.stringify(region.bbox)} nie przecina MediaBox`).toBe(true);
+        expect(pageBox, `page ${region.page} is missing from perPage`).toBeDefined();
+        expect(rectsOverlap(region.bbox, pageBox!), `a vector region on p. ${region.page}: the bbox ${JSON.stringify(region.bbox)} doesn't intersect the MediaBox`).toBe(true);
       }
     });
   }

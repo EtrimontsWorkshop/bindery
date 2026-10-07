@@ -1,8 +1,8 @@
 /**
- * Types shared by text hygiene and the layout layer (Step 5, MDD §5.1).
+ * Types shared by text hygiene and the layout layer.
  * Zero dependency on Foundry or on pdf.js — `PdfTextItemLike` is a
  * DUCK-TYPED shape matching the real `TextItem` from pdf.js, verified
- * empirically (see RAPORT-KROK-5.md): { str, dir, width, height, transform,
+ * empirically: { str, dir, width, height, transform,
  * fontName, hasEOL }. Testable with hand-written arrays without opening a PDF.
  */
 
@@ -22,21 +22,21 @@ export interface PdfTextItemLike {
 }
 
 /**
- * [Step 27 Z1] `message: string` REMOVED — it duplicated `code` with a
+ * `message: string` REMOVED — it duplicated `code` with a
  * ready-made Polish sentence that couldn't be localized (the core has no
- * i18n, A1). The renderer (`packages/module`) formats `code`+`params` via
+ * i18n). The renderer (`packages/module`) formats `code`+`params` via
  * `game.i18n.format` — see `LocalizableMessage`.
  */
 export interface Diagnostic extends LocalizableMessage {
   severity: 'info' | 'warning' | 'error';
   pageNumber?: number;
-  /** [Step 9] The semantic block this diagnostic concerns — MDD §5.3 (CIF Diagnostic). */
+  /** The semantic block this diagnostic concerns. */
   blockId?: string;
 }
 
 /**
  * [U2] The position of a filtered-out whitespace item — a HARD boundary for
- * word merging (Step 5 P1). `afterItemIndex` is the original index (in the
+ * word merging. `afterItemIndex` is the original index (in the
  * raw input array BEFORE filtering) of the last kept item before the
  * boundary; -1 when the boundary falls before the first kept item.
  */
@@ -46,7 +46,7 @@ export interface WordBoundary {
   gapEnd: number;
 }
 
-/** An item after hygiene (Z1) — the original `index` is kept for boundary checks. */
+/** An item after hygiene — the original `index` is kept for boundary checks. */
 export interface CleanItem {
   /** Index in the original (pre-filter) input array. After duplicate merging: the index of the FIRST occurrence. */
   index: number;
@@ -77,7 +77,7 @@ export interface HygieneResult {
 
 export type StreamAngle = 0 | 90 | 180 | 270;
 
-/** [F0] MDD §5.1: font fingerprint — ONLY `key` carries meaning for rules. */
+/** Font fingerprint — ONLY `key` carries meaning for rules. */
 export interface FontFingerprint {
   key: string;
   size: number;

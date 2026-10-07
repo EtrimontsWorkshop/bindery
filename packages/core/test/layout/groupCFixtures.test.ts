@@ -15,10 +15,9 @@ import { build as buildLayoutStatblockFramed } from '../synth/fixtures/layout-st
 import { build as buildLayoutStatblockPlain } from '../synth/fixtures/layout-statblock-plain.js';
 
 /**
- * Testy integracyjne grupy C (KROK-6 Z7) — kazdy wiersz DoD z brief'u
- * zweryfikowany na PRAWDZIWYM detektorze (detectColumns/buildReadingOrder/
- * detectRunningElements/buildSemanticBlocks), NIE na `claims` fixture'u
- * (te sa tylko konstrukcyjnym self-checkiem, patrz test/synth/fixtures/*.json).
+ * Integration tests of group C — every acceptance-criteria row verified on the REAL detector
+ * (detectColumns/buildReadingOrder/detectRunningElements/buildSemanticBlocks), NOT on the
+ * fixture's `claims` (those are only a construction self-check, see test/synth/fixtures/*.json).
  */
 
 async function openFixture(buf: Buffer): Promise<PdfDocumentLike> {
@@ -36,25 +35,25 @@ async function runFullPipeline(buf: Buffer) {
   return { inv, textLayout, result };
 }
 
-describe('grupa C — kolumny (layout-1col/2col/3col)', () => {
-  it('layout-1col: brak rynny -> jedna kolumna, confidence=1', async () => {
+describe('group C — columns (layout-1col/2col/3col)', () => {
+  it('layout-1col: no gutter -> one column, confidence=1', async () => {
     const { result } = await runFullPipeline(buildLayout1col());
     expect(result.pages[0]!.columns).toHaveLength(1);
   });
 
-  it('layout-2col: rynna x~260-310 -> dokladnie dwie kolumny', async () => {
+  it('layout-2col: a gutter x~260-310 -> exactly two columns', async () => {
     const { result } = await runFullPipeline(buildLayout2col());
     expect(result.pages[0]!.columns).toHaveLength(2);
   });
 
-  it('layout-3col: dwie rynny -> dokladnie trzy kolumny', async () => {
+  it('layout-3col: two gutters -> exactly three columns', async () => {
     const { result } = await runFullPipeline(buildLayout3col());
     expect(result.pages[0]!.columns).toHaveLength(3);
   });
 });
 
-describe('grupa C — naglowek rozpinajacy (layout-2col-spanning)', () => {
-  it('naglowek wydzielony jako rozpinajacy, kolumny wykryte mimo niego, kolejnosc czytania: gora-lewo, gora-prawo, naglowek, dol-lewo, dol-prawo', async () => {
+describe('group C — a spanning header (layout-2col-spanning)', () => {
+  it('the header separated as spanning, the columns detected despite it, reading order: top-left, top-right, header, bottom-left, bottom-right', async () => {
     const { result } = await runFullPipeline(buildLayout2colSpanning());
     const page = result.pages[0]!;
     expect(page.columns).toHaveLength(2);
@@ -70,7 +69,7 @@ describe('grupa C — naglowek rozpinajacy (layout-2col-spanning)', () => {
     expect(before.filter((t) => t.startsWith('TopRight'))).toHaveLength(4);
     expect(after.filter((t) => t.startsWith('BottomLeft'))).toHaveLength(4);
     expect(after.filter((t) => t.startsWith('BottomRight'))).toHaveLength(4);
-    // lewo przed prawo w kazdym pasmie
+    // left before right in every band
     expect(before.indexOf(before.find((t) => t.startsWith('TopLeft'))!)).toBeLessThan(
       before.indexOf(before.find((t) => t.startsWith('TopRight'))!),
     );
@@ -80,11 +79,11 @@ describe('grupa C — naglowek rozpinajacy (layout-2col-spanning)', () => {
   });
 });
 
-describe('grupa C — sidebar (layout-2col-sidebar)', () => {
-  it('sidebar sklasyfikowany jako osobny blok BlockKind:"sidebar", NIE trzecia kolumna', async () => {
+describe('group C — a sidebar (layout-2col-sidebar)', () => {
+  it('the sidebar classified as a separate block BlockKind:"sidebar", NOT a third column', async () => {
     const { result } = await runFullPipeline(buildLayout2colSidebar());
     const page = result.pages[0]!;
-    // sidebar nie jest wykrywany jako kolumna kolumnowego ukladu (tylko 2 kolumny glowne)
+    // the sidebar is not detected as a column of the columnar layout (only the 2 main columns)
     expect(page.columns).toHaveLength(2);
 
     const sidebarBlocks = result.blocks.filter((b) => b.kind === 'sidebar');
@@ -92,15 +91,15 @@ describe('grupa C — sidebar (layout-2col-sidebar)', () => {
     const sidebarText = sidebarBlocks.map((b) => b.rawText).join('\n');
     expect(sidebarText).toContain('Sidebar Tip');
 
-    // sidebar nie jest wplatany w tok glowny: zadna linia z prefixem Left/Right nie ląduje w tym samym bloku
+    // the sidebar is not woven into the main flow: no line with a Left/Right prefix lands in the same block
     for (const b of sidebarBlocks) {
       expect(b.rawText).not.toMatch(/Left line|Right line/);
     }
   });
 });
 
-describe('grupa C — naglowki/stopki biegnace (layout-running-heads)', () => {
-  it('naglowek i stopka wykryte na wszystkich 6 stronach mimo zmiennego numeru strony', async () => {
+describe('group C — running headers/footers (layout-running-heads)', () => {
+  it('the header and footer detected on all 6 pages despite the varying page number', async () => {
     const { result } = await runFullPipeline(buildLayoutRunningHeads());
     expect(result.pages).toHaveLength(6);
 
@@ -112,7 +111,7 @@ describe('grupa C — naglowki/stopki biegnace (layout-running-heads)', () => {
     for (const b of headerBlocks) expect(b.rawText).toContain('Chapter One - Page');
     for (const b of footerBlocks) expect(b.rawText).toMatch(/^\d+$/);
 
-    // naglowek/stopka nigdy nie stanowia body — nie interleave'owane w tok glowny
+    // header/footer are never body — not interleaved into the main flow
     for (const page of result.pages) {
       const bodyOnPage = result.blocks.filter((b) => b.pageNumber === page.pageNumber && b.kind === 'body');
       for (const b of bodyOnPage) expect(b.rawText).not.toContain('Chapter One - Page');
@@ -120,12 +119,12 @@ describe('grupa C — naglowki/stopki biegnace (layout-running-heads)', () => {
   });
 });
 
-describe('grupa C — spis tresci z kropkami (layout-toc-dotleaders)', () => {
-  it('gesta strona bez mis-merge, wskazowka kropkowa rozpoznana jako BlockKind:"table"', async () => {
+describe('group C — a table of contents with dots (layout-toc-dotleaders)', () => {
+  it('a dense page with no mis-merge, the dot hint recognized as BlockKind:"table"', async () => {
     const { result } = await runFullPipeline(buildLayoutTocDotleaders());
     const page = result.pages[0]!;
     const primary = page.streams.find((s) => s.angle === 0)!;
-    // 12 pozycji spisu tresci, kazda na wlasnym Y -> brak scalenia miedzy pozycjami
+    // 12 table-of-contents entries, each on its own Y -> no merging between entries
     expect(primary.lines).toHaveLength(12);
     expect(primary.lines.map((l) => l.text)).toContain(`Introduction ${'.'.repeat(20)} 1`);
 
@@ -135,8 +134,8 @@ describe('grupa C — spis tresci z kropkami (layout-toc-dotleaders)', () => {
   });
 });
 
-describe('grupa C — granica bloku statbloku (layout-statblock-framed vs layout-statblock-plain)', () => {
-  it('layout-statblock-framed: blok wewnatrz ramki wektorowej wydzielony jako OSOBNY blok, region wektorowy zarejestrowany w InventoryResult.vectors', async () => {
+describe('group C — the statblock block boundary (layout-statblock-framed vs layout-statblock-plain)', () => {
+  it('layout-statblock-framed: the block inside the vector frame separated as a SEPARATE block, the vector region registered in InventoryResult.vectors', async () => {
     const { inv, result } = await runFullPipeline(buildLayoutStatblockFramed());
     expect(inv.vectors.some((v) => v.kind === 'fill')).toBe(true);
 
@@ -145,7 +144,7 @@ describe('grupa C — granica bloku statbloku (layout-statblock-framed vs layout
     const framedBlock = blocksOnPage.find((b) => b.rawText.includes('Goblin Scout'));
     expect(framedBlock).toBeDefined();
     expect(framedBlock!.rawText).not.toMatch(/Body text/);
-    // blok statbloku jest osobny od bloku "przed" i od bloku "po"
+    // the statblock block is separate from the block "before" and from the block "after"
     const beforeBlock = blocksOnPage.find((b) => b.rawText.includes('Body text before'));
     const afterBlock = blocksOnPage.find((b) => b.rawText.includes('Body text after'));
     expect(beforeBlock).toBeDefined();
@@ -154,7 +153,7 @@ describe('grupa C — granica bloku statbloku (layout-statblock-framed vs layout
     expect(afterBlock!.id).not.toBe(framedBlock!.id);
   });
 
-  it('layout-statblock-plain: identyczna geometria BEZ ramki — granica bloku nadal powstaje (z fontu/interlinii), InventoryResult.vectors puste', async () => {
+  it('layout-statblock-plain: the identical geometry WITHOUT a frame — the block boundary still arises (from font/line spacing), InventoryResult.vectors empty', async () => {
     const { inv, result } = await runFullPipeline(buildLayoutStatblockPlain());
     expect(inv.vectors).toHaveLength(0);
 

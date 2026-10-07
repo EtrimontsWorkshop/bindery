@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Ryzyko I2 / zalozenie A1: packages/core NIE MOZE znac Foundry.
-// ESLint (no-restricted-globals/imports) lapie to na poziomie zrodel, ale linter
-// mozna obejsc (np. globalThis['game'], eval, komentarz eslint-disable). Ten skrypt
-// skanuje ZBUDOWANY bundle — ostatnie slowo, nie do obejscia bez zmiany kodu wynikowego.
+// packages/core MUST NOT know Foundry.
+// ESLint (no-restricted-globals/imports) catches this at the source level, but a linter can be
+// bypassed (e.g. globalThis['game'], eval, an eslint-disable comment). This script scans the
+// BUILT bundle — the last word, impossible to bypass without changing the output code.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -13,41 +13,32 @@ let bundle;
 try {
   bundle = readFileSync(DIST_FILE, 'utf8');
 } catch {
-  console.error(`check:boundary: nie znaleziono ${DIST_FILE} — uruchom najpierw build.`);
+  console.error(`check:boundary: ${DIST_FILE} not found — run the build first.`);
   process.exit(1);
 }
 
-// [KROK-17, odkrycie] Dopasowanie samego slowa (bez dostepu do wlasciwosci)
-// zdarzylo sie byc FALSZYWYM alarmem: esbuild skraca WEWNETRZNE identyfikatory
-// wedlug pozycji/czestosci w zasiegu, NIE wedlug tresci oryginalnej nazwy —
-// zmierzone wprost, ze zupelnie niepowiazana funkcja (`isReferenceReportGreen`
-// w referenceInvariants.ts) zostala zmapowana na skrocona nazwe "ui" (kolizja
-// z `function ui(n) {...}` / eksportem `ui as isReferenceReportGreen`),
-// calkowicie niezaleznie od jej wlasnej nazwy zrodlowej. Terser z
-// `mangle.reserved` (jedyny pewny sposob, zeby minifikator NIGDY nie uzyl
-// tych szesciu slow jako skroconych nazw) okazal sie niewspolpracujacy z
-// tym Vite/lib-mode (mangling sie w ogole nie wlaczal, niezaleznie od opcji);
-// wylaczenie identyfikatora minifikacji calkowicie ujawnia INNY, gorszy
-// falszywy alarm (prawdziwe, niewinne lokalne zmienne o tych samych nazwach,
-// np. `canvas` w `encodeImage.ts`, ktore normalnie minifikacja i tak by
-// ukryla). Zamiast tego: PRAWDZIWE uzycie globalnego obiektu Foundry zawsze
-// wyglada jak `word.cos` (dostep do wlasciwosci — `ui.notifications`,
-// `game.settings`, `canvas.scene`, `Hooks.on`, `foundry.utils`, `CONFIG.Actor`
-// — zaden z szesciu nigdy nie jest wywolywany bezposrednio jako funkcja w
-// realnym uzyciu Foundry). Wymog kropki PO slowie odrzuca deklaracje/eksporty
-// zbieznych identyfikatorow (`function ui(`, `ui as x`) bez utraty czulosci
-// na faktyczne odwolania do globali.
-// [KROK-34, drugie wystapienie TEGO SAMEGO falszywego alarmu co krok 17 —
-// tym razem `LOWERCASE_START_RE.test(...)` z `layout/lineCluster.ts`
-// przemianowane przez esbuild na "ui", zupelnie niezalezne od zrodlowej
-// nazwy] Wymog kropki PO slowie (komentarz wyzej) odrzuca deklaracje/eksporty,
-// ale NIE odrozniał `ui.notifications` (prawdziwa wlasciwosc Foundry) od
-// `ui.test(x)`/`ui.exec(x)` (wywolanie metody NA REGEXPIE, ktory przypadkiem
-// dostal skrocona nazwe pokrywajaca sie z jednym z szesciu restricted words).
-// Zaden z szesciu prawdziwych globali Foundry nie ma WLASNEJ metody o nazwie
-// `test`/`exec` na pierwszym poziomie (`ui.test`, `game.exec` itp. nie
-// istnieja w API Foundry) — wykluczenie TYCH DWOCH konkretnych, zmierzonych
-// wprost kolizji nie traci czulosci na zadne realne uzycie.
+// Matching just the word (without a property access) turned out to be a FALSE ALARM: esbuild
+// shortens INTERNAL identifiers by position/frequency in scope, NOT by the content of the
+// original name — measured directly: a completely unrelated function (`isReferenceReportGreen`
+// in referenceInvariants.ts) was mapped to the shortened name "ui" (a collision with
+// `function ui(n) {...}` / the export `ui as isReferenceReportGreen`), entirely independent of
+// its own source name. Terser with `mangle.reserved` (the only sure way to make the minifier
+// NEVER use those six words as shortened names) turned out not to cooperate with this
+// Vite/lib-mode (mangling didn't switch on at all, regardless of options); turning minification
+// of identifiers off entirely reveals a DIFFERENT, worse false alarm (genuine, innocent local
+// variables with the same names, e.g. `canvas` in `encodeImage.ts`, which minification would
+// normally hide). Instead: a REAL use of a Foundry global object always looks like `word.something`
+// (property access — `ui.notifications`, `game.settings`, `canvas.scene`, `Hooks.on`,
+// `foundry.utils`, `CONFIG.Actor` — none of the six is ever called directly as a function in
+// real Foundry use). Requiring a dot AFTER the word rejects declarations/exports of coinciding
+// identifiers (`function ui(`, `ui as x`) without losing sensitivity to actual references to the
+// globals.
+// Requiring a dot after the word (the comment above) rejects declarations/exports, but did NOT
+// tell `ui.notifications` (a real Foundry property) apart from `ui.test(x)`/`ui.exec(x)` (a
+// method call ON A REGEXP that happened to get a shortened name coinciding with one of the six
+// restricted words). None of the six real Foundry globals has its OWN first-level method named
+// `test`/`exec` (`ui.test`, `game.exec` etc. don't exist in the Foundry API) — excluding THESE
+// TWO specific, directly measured collisions loses sensitivity to no real use.
 const FALSE_POSITIVE_METHOD_CALL = /^(test|exec)\(/;
 const violations = [];
 for (const word of RESTRICTED) {
@@ -59,12 +50,12 @@ for (const word of RESTRICTED) {
 }
 
 if (violations.length > 0) {
-  console.error('check:boundary: ZNALEZIONO odwolania do Foundry w packages/core/dist/index.js:');
+  console.error('check:boundary: FOUND references to Foundry in packages/core/dist/index.js:');
   for (const v of violations) {
     console.error(`  - "${v.word}": ${v.count}x`);
   }
-  console.error('\nZalozenie A1 zlamane: packages/core musi byc czysta biblioteka TS bez Foundry.');
+  console.error('\nBoundary violated: packages/core must be a pure TS library with no Foundry.');
   process.exit(1);
 }
 
-console.log('check:boundary: OK — brak odwolan do Foundry w zbudowanym bundlu core.');
+console.log('check:boundary: OK — no references to Foundry in the built core bundle.');

@@ -1,6 +1,6 @@
 {
   "id": "images-bleed-background",
-  "description": "Tlo z ujemnymi wspolrzednymi, wychodzace poza MediaBox ze wszystkich stron (spad drukarski).",
+  "description": "A background with negative coordinates, extending past the MediaBox on all sides (print bleed).",
   "targetPhase": 3,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "hasBleedingImage": true
   },
   "expected": {
-    "note": "Ujemne wspolrzedne bbox nie sa bledem — to sygnal, ze obraz jest tlem rozkladowkowym (MDD F0)."
+    "note": "Negative bbox coordinates are not an error — they are a signal that the image is a spread background."
   }
 }

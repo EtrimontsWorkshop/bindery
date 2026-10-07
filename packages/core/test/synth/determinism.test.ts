@@ -6,8 +6,8 @@ function sha256(buf: Buffer): string {
   return createHash('sha256').update(buf).digest('hex');
 }
 
-describe('determinizm generatora fixture\'ow', () => {
-  it.each(fixtures.map((f) => [f.id, f] as const))('%s: dwa wywolania build() daja identyczny hash SHA-256', (_id, fixture) => {
+describe('determinism of the fixture generator', () => {
+  it.each(fixtures.map((f) => [f.id, f] as const))('%s: two build() calls give an identical SHA-256 hash', (_id, fixture) => {
     const a = sha256(fixture.build());
     const b = sha256(fixture.build());
     expect(a).toBe(b);

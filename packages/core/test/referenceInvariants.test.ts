@@ -31,14 +31,14 @@ function line(id: string, fontKey: string, overrides: Partial<TextLine> = {}): T
 }
 
 describe('[1] checkFontKeyResolvesInvariant', () => {
-  it('wszystkie klucze rozwiazuja sie w rejestrze -> 0 chybien', () => {
+  it('all keys resolve in the registry -> 0 misses', () => {
     const lines = [line('a', 'Body@10'), line('b', 'Heading@18')];
     const result = checkFontKeyResolvesInvariant(lines, new Set(['Body@10', 'Heading@18']));
     expect(result.violations).toBe(0);
     expect(missRatio(result)).toBe(0);
   });
 
-  it('klucz spoza rejestru -> policzone i zaraportowane jako chybienie', () => {
+  it('a key outside the registry -> counted and reported as a miss', () => {
     const lines = [line('a', 'Body@10'), line('b', 'Ghost@7.5')];
     const result = checkFontKeyResolvesInvariant(lines, new Set(['Body@10']));
     expect(result.violations).toBe(1);
@@ -47,54 +47,54 @@ describe('[1] checkFontKeyResolvesInvariant', () => {
   });
 });
 
-describe('[1] TEST NEGATYWNY — stara formula rozmiaru fontu (transform[2]/[3]) CZERWIENI bramke (brief, obowiazkowe)', () => {
+describe('[1] A NEGATIVE TEST — the old font size formula (transform[2]/[3]) turns the gate RED', () => {
   /**
-   * Odtwarza DOKLADNIE blad z kroku 9: `inventory.ts` liczyl rozmiar z
-   * transform[2]/[3] (os Y), `textGeometry.ts`/linie licza z transform[0]/[1]
-   * (os X). Dla tekstu ZE SKALOWANIEM POZIOMYM (Tz, transform[0] != transform[3])
-   * te dwie formuly daja INNY rozmiar -> INNY klucz -> bramka MUSI to zlapac.
+   * Reproduces EXACTLY a past bug: `inventory.ts` computed the size from transform[2]/[3] (the Y
+   * axis), while `textGeometry.ts`/lines compute from transform[0]/[1] (the X axis). For text WITH
+   * HORIZONTAL SCALING (Tz, transform[0] != transform[3]) these two formulas give a DIFFERENT size ->
+   * a DIFFERENT key -> the gate MUST catch it.
    */
   const baseFont = 'CondensedBody';
-  // transform = [a,b,c,d,e,f]. a=7.5 (skala X po Tz condensed), d=10 (skala Y, "prawdziwy" rozmiar).
+  // transform = [a,b,c,d,e,f]. a=7.5 (the X scale after a condensed Tz), d=10 (the Y scale, the "real" size).
   const asymmetricTransform: [number, number, number, number, number, number] = [7.5, 0, 0, 10, 45, 700];
 
   function oldBuggyFontSize(transform: readonly number[]): number {
-    // Stara formula z KROK-9 (usunieta w naprawie) — transform[2]/[3], os Y.
+    // The old formula (removed in the fix) — transform[2]/[3], the Y axis.
     return Math.hypot(transform[2] ?? 0, transform[3] ?? 0);
   }
   function currentFontSize(transform: readonly number[]): number {
-    // Aktualna, poprawna formula (`fontSizeFromTransform`, textGeometry.ts) — transform[0]/[1], os X.
+    // The current, correct formula (`fontSizeFromTransform`, textGeometry.ts) — transform[0]/[1], the X axis.
     return Math.hypot(transform[0] ?? 0, transform[1] ?? 0);
   }
 
-  it('bramka ZIELONA z AKTUALNA (poprawna, ujednolicona) formula', () => {
+  it('the gate GREEN with the CURRENT (correct, unified) formula', () => {
     const correctSize = currentFontSize(asymmetricTransform); // 7.5
     const correctKey = buildFontKey(baseFont, correctSize);
-    const lines = [line('l0', correctKey)]; // TextLine.dominantFont.key jak faktycznie produkuje lineCluster.ts dzisiaj
-    const registryKeys = new Set([buildFontKey(baseFont, currentFontSize(asymmetricTransform))]); // inventory.ts dzisiaj: ta sama formula
+    const lines = [line('l0', correctKey)]; // TextLine.dominantFont.key as lineCluster.ts actually produces it today
+    const registryKeys = new Set([buildFontKey(baseFont, currentFontSize(asymmetricTransform))]); // inventory.ts today: the same formula
     const result = checkFontKeyResolvesInvariant(lines, registryKeys);
     expect(result.violations).toBe(0);
   });
 
-  it('bramka CZERWONA gdy PRZYWROCONA stara formula (transform[2]/[3]) w rejestrze — dokladnie blad z kroku 9', () => {
-    const correctSize = currentFontSize(asymmetricTransform); // 7.5 — to, co NAPRAWDE trafia do TextLine.dominantFont.key
+  it('the gate RED when the old formula (transform[2]/[3]) is RESTORED in the registry — exactly a past bug', () => {
+    const correctSize = currentFontSize(asymmetricTransform); // 7.5 — what REALLY ends up in TextLine.dominantFont.key
     const correctKey = buildFontKey(baseFont, correctSize);
     const lines = [line('l0', correctKey)];
 
-    // Rejestr zbudowany STARA (przywrocona) formula — symuluje `inventory.ts` SPRZED naprawy.
-    const buggySize = oldBuggyFontSize(asymmetricTransform); // 10 — RÓZNE od 7.5
+    // A registry built with the OLD (restored) formula — simulates `inventory.ts` from BEFORE the fix.
+    const buggySize = oldBuggyFontSize(asymmetricTransform); // 10 — DIFFERENT from 7.5
     const buggyKey = buildFontKey(baseFont, buggySize);
     const buggyRegistryKeys = new Set([buggyKey]);
 
-    expect(buggyKey).not.toBe(correctKey); // sam fakt, ze klucze sie ROZNIA, jest sednem bledu z kroku 9
+    expect(buggyKey).not.toBe(correctKey); // the mere fact that the keys DIFFER is the heart of the bug
     const result = checkFontKeyResolvesInvariant(lines, buggyRegistryKeys);
-    expect(result.violations).toBe(1); // BRAMKA SIE CZERWIENI
+    expect(result.violations).toBe(1); // THE GATE GOES RED
     expect(result.examples).toContain(correctKey);
   });
 });
 
 describe('[2] checkFontRoleResolvesInvariant', () => {
-  it('brak roli dla klucza -> chybienie policzone', () => {
+  it('no role for a key -> a miss counted', () => {
     const lines = [line('a', 'Body@10'), line('b', 'Orphan@5')];
     const roles = new Map<string, FontRole>([['Body@10', 'body']]);
     const result = checkFontRoleResolvesInvariant(lines, roles);
@@ -116,13 +116,13 @@ function imageEntry(objId: string | null, overrides: Partial<ImageEntry> = {}): 
 }
 
 describe('[3] checkCorrelatedWithInvariant', () => {
-  it('correlatedWith wskazujacy na istniejacy objId -> 0 chybien', () => {
+  it('correlatedWith pointing at an existing objId -> 0 misses', () => {
     const images = [imageEntry('img1'), imageEntry('img2', { correlatedWith: 'img1' })];
     const result = checkCorrelatedWithInvariant(images);
     expect(result.violations).toBe(0);
   });
 
-  it('correlatedWith wskazujacy na NIEISTNIEJACY objId -> chybienie policzone', () => {
+  it('correlatedWith pointing at a NONEXISTENT objId -> a miss counted', () => {
     const images = [imageEntry('img1'), imageEntry('img2', { correlatedWith: 'ghost' })];
     const result = checkCorrelatedWithInvariant(images);
     expect(result.violations).toBe(1);
@@ -160,12 +160,12 @@ describe('[4] checkProvenanceBlockIdsInvariant', () => {
     };
   }
 
-  it('wszystkie blockIds istnieja -> 0 chybien', () => {
+  it('all blockIds exist -> 0 misses', () => {
     const result = checkProvenanceBlockIdsInvariant(cifDoc(['b0', 'b1']), new Set(['b0', 'b1']));
     expect(result.violations).toBe(0);
   });
 
-  it('blockId wskazujacy na nieistniejacy blok -> policzone', () => {
+  it('a blockId pointing at a nonexistent block -> counted', () => {
     const result = checkProvenanceBlockIdsInvariant(cifDoc(['b0', 'ghost']), new Set(['b0']));
     expect(result.violations).toBeGreaterThan(0);
     expect(result.examples).toContain('ghost');
@@ -173,21 +173,21 @@ describe('[4] checkProvenanceBlockIdsInvariant', () => {
 });
 
 describe('[5] checkColumnIndexInvariant', () => {
-  it('columnIndex wskazujacy na istniejaca kolumne -> 0 chybien', () => {
+  it('a columnIndex pointing at an existing column -> 0 misses', () => {
     const lines = new Map([[1, [line('a', 'Body@10', { columnIndex: 0 }), line('b', 'Body@10', { columnIndex: 1 })]]]);
     const columns = new Map<number, ColumnRegion[]>([[1, [{ index: 0, bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 } }, { index: 1, bbox: { minX: 2, minY: 0, maxX: 3, maxY: 1 } }]]]);
     const result = checkColumnIndexInvariant(lines, columns);
     expect(result.violations).toBe(0);
   });
 
-  it('columnIndex bez odpowiadajacej kolumny -> policzone', () => {
+  it('a columnIndex without a matching column -> counted', () => {
     const lines = new Map([[1, [line('a', 'Body@10', { columnIndex: 3 })]]]);
     const columns = new Map<number, ColumnRegion[]>([[1, [{ index: 0, bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 } }]]]);
     const result = checkColumnIndexInvariant(lines, columns);
     expect(result.violations).toBe(1);
   });
 
-  it('columnIndex=-1 (rozpinajaca/marginalia) celowo pominiete — nie liczy sie jako chybienie', () => {
+  it('columnIndex=-1 (spanning/marginalia) deliberately skipped — doesn\'t count as a miss', () => {
     const lines = new Map([[1, [line('a', 'Body@10', { columnIndex: -1 })]]]);
     const columns = new Map<number, ColumnRegion[]>([[1, []]]);
     const result = checkColumnIndexInvariant(lines, columns);
@@ -202,7 +202,7 @@ describe('[6] checkNoUnrepairedGutterCrossingInvariant', () => {
     { index: 1, bbox: { minX: 310, minY: 0, maxX: 540, maxY: 792 } },
   ];
 
-  it('linia rozpinajaca ZE ZERO tokenow w rynnie, confidence wysoka -> POWINNA byc juz rozcieta; jesli nie jest, to REGRESJA (chybienie)', () => {
+  it('a spanning line WITH ZERO tokens in the gutter, high confidence -> SHOULD already be split; if it isn\'t, it is a REGRESSION (a miss)', () => {
     const unrepaired = line('l0', 'Body@10', {
       bbox: { minX: 45, minY: 700, maxX: 500, maxY: 710 },
       tokens: [
@@ -214,7 +214,7 @@ describe('[6] checkNoUnrepairedGutterCrossingInvariant', () => {
     expect(result.violations).toBe(1);
   });
 
-  it('prawdziwa linia rozpinajaca (token W rynnie) -> NIE liczy sie jako chybienie', () => {
+  it('a true spanning line (a token IN the gutter) -> does NOT count as a miss', () => {
     const trueSpanning = line('l0', 'Body@10', {
       bbox: { minX: 45, minY: 700, maxX: 500, maxY: 710 },
       tokens: [{ text: 'spans', bbox: { minX: 45, minY: 700, maxX: 500, maxY: 710 } }],
@@ -223,7 +223,7 @@ describe('[6] checkNoUnrepairedGutterCrossingInvariant', () => {
     expect(result.violations).toBe(0);
   });
 
-  it('confidence ponizej progu -> niezmiennik nie sprawdza (bezpiecznik dzialal celowo, brak regresji do zaraportowania)', () => {
+  it('confidence below the threshold -> the invariant isn\'t checked (the safeguard acted deliberately, no regression to report)', () => {
     const unrepaired = line('l0', 'Body@10', {
       bbox: { minX: 45, minY: 700, maxX: 500, maxY: 710 },
       tokens: [
@@ -237,7 +237,7 @@ describe('[6] checkNoUnrepairedGutterCrossingInvariant', () => {
 });
 
 describe('isReferenceReportGreen', () => {
-  it('wszystkie niezmienniki ponizej progu -> raport zielony', () => {
+  it('all invariants below the threshold -> the report green', () => {
     const results: InvariantResult[] = [
       { invariant: 'a', total: 100, violations: 0, examples: [] },
       { invariant: 'b', total: 100, violations: 1, examples: [] },
@@ -245,7 +245,7 @@ describe('isReferenceReportGreen', () => {
     expect(isReferenceReportGreen({ results, maxAcceptableMissRatio: 0.02 })).toBe(true);
   });
 
-  it('jeden niezmiennik powyzej progu -> raport czerwony', () => {
+  it('one invariant above the threshold -> the report red', () => {
     const results: InvariantResult[] = [{ invariant: 'a', total: 10, violations: 5, examples: [] }];
     expect(isReferenceReportGreen({ results, maxAcceptableMissRatio: 0.02 })).toBe(false);
   });

@@ -1,6 +1,6 @@
 {
   "id": "text-combining-diacritics",
-  "description": "'Siła' zapisane jako l + znak laczacy (nie-NFC) obok wersji juz w NFC (l precomponowane).",
+  "description": "'Siła' written as l + a combining mark (non-NFC) next to a version already in NFC (a precomposed l).",
   "targetPhase": 2,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "nonEmptyItemCount": 2
   },
   "expected": {
-    "note": "normalize('NFC') na pierwszej linii ('Sil̵a') powinno dac String rozny od oryginalu; na drugiej ('Siła') normalize('NFC') nie powinno nic zmienic — dokladnie test z KROK-3."
+    "note": "normalize('NFC') on the first line ('Sil̵a') should give a String different from the original; on the second ('Siła') normalize('NFC') should change nothing."
   }
 }

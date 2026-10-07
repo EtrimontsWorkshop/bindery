@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Z1c — snapshot ksztaltow argsArray wyczerpujacy z konstrukcji (KROK-6) > arnosc/typy argsArray dla KAZDEGO opcode z HANDLED_OPCODES (nie z recznej listy), zebrane ze WSZYSTKICH fixturow 1`] = `
+exports[`an exhaustive snapshot of the argsArray shapes, closed by construction > the arity/types of argsArray for EVERY opcode in HANDLED_OPCODES (not from a hand-written list), collected from ALL fixtures 1`] = `
 {
   "beginGroup": [
     "arity=1 [{bbox:{0:number,1:number,2:number,3:number},hasSoftMask:boolean,isGray:boolean,isolated:boolean,knockout:boolean,matrix:null,needsIsolation:boolean,smask:{backdrop:string,subtype:string}}]",

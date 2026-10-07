@@ -105,7 +105,7 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
 
 /**
  * Batches page-by-page with an `onProgress` callback + `AbortSignal` check
- * between pages — "parsowanie partiami... bez blokowania UI" — the same
+ * between pages — parsing in batches without blocking the UI — the same
  * `onProgress`/`signal` contract `buildImageExtraction.ts` already uses
  * elsewhere in this codebase. `buildInventory`/`buildTextLayout` currently
  * process the whole document in one pass each (no per-page callback of

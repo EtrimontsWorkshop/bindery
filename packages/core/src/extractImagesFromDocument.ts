@@ -8,24 +8,24 @@ import { buildTextLayout } from './text/buildTextLayout.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 
 /**
- * [Step 8 Z4/Z5] Entry point analogous to `inspectDocument` (phase 1) —
+ * Entry point analogous to `inspectDocument` —
  * pdf.js is opened ONLY here (not in `packages/module`), and inventory is
  * stitched together with image extraction. An architectural reason, not a
  * stylistic one: `pdfjs-dist` is external (`external`) in ALL Vite
- * configurations in this repo (risk I3 — lazy loading), and the bare
+ * configurations in this repo (lazy loading), and the bare
  * specifier redirect to the real path (`output.paths` in `vite.config.ts`)
  * is configured ONLY in `packages/core`. A direct `import('pdfjs-dist/...')`
  * from `packages/module` would leave a bare specifier in the built code —
- * this is EXACTLY the same bug as the "bare-specifier incident" from phase
- * 1 (RAPORT-FAZA-1.md), caught here by `check:imports` BEFORE deployment
+ * this is EXACTLY the same bug as an earlier "bare-specifier incident",
+ * caught here by `check:imports` BEFORE deployment
  * to real Foundry.
  *
  * `browserRegionRenderer`/`browserImageEncoder` are standard web APIs
- * (OffscreenCanvas), not Foundry — using them here does not break A1 (the
+ * (OffscreenCanvas), not Foundry — using them here does not break the rule (the
  * boundary concerns Foundry globals: `game`/`Hooks`/`foundry`/`ui`/`canvas`/`CONFIG`,
  * not "browser code" in general).
  *
- * [Step 8, discovery — a REAL browser, not Node] The same pattern as
+ * The same pattern as
  * `tools/calibrate-images.ts` (two separate `getDocument()` calls,
  * inventory + extraction) throws in real Foundry `TypeError: Cannot
  * perform Construct on a detached ArrayBuffer` on the SECOND call, even
@@ -35,7 +35,7 @@ import { buildPageLayouts } from './layout/buildPageLayout.js';
  * this DETACHES the original `ArrayBuffer` in the main thread, so EVERY
  * subsequent view over the SAME underlying buffer (even a new
  * `Uint8Array`) is already unusable. This is a DIFFERENT mechanism than
- * the one documented in Step 4 "buffer-reuse DataCloneError" under Node
+ * the one documented earlier as "buffer-reuse DataCloneError" under Node
  * (there the fake worker also transfers, but within the same process —
  * the bug was in REUSING the same Uint8Array instance, not in the
  * transfer/detach itself). Fix: `data.slice(0)` BEFORE every
@@ -62,10 +62,10 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
 }
 
 /**
- * [Step 9 Z2] Bboxes of `body` blocks (text pipeline) grouped by page — the
+ * Bboxes of `body` blocks (text pipeline) grouped by page — the
  * only point where the text pipeline (`buildTextLayout`+`buildPageLayouts`)
  * and the image pipeline (`buildImageExtraction`) actually meet, EXPLICITLY
- * via the returned map, not via global state (Step 9 Z2 brief). A third
+ * via the returned map, not via global state. A third
  * `getDocument()` call (separate from inventory/extraction) — see the
  * comment above the file: every use of pdf.js in the browser needs its OWN
  * independent copy of the bytes.

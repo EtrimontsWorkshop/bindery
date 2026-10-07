@@ -5,7 +5,7 @@ import type { FoundryFieldLike, SchemaFieldChoice, SchemaFieldDescriptor, Schema
  * this project has actually seen in `fvtt-types` for Foundry v14's
  * `foundry.data.fields.*`. Deliberately a closed map, not a heuristic:
  * an unrecognized class name falls through to `'unsupported'` rather than
- * guessing (A7 — degrade visibly).
+ * guessing (degrade visibly).
  *
  * Schema-shaped and array-shaped classes are handled separately in
  * `describeSchemaField` (via `field.fields`/`field.element`, not via this

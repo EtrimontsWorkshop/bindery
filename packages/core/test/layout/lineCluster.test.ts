@@ -13,25 +13,25 @@ function token(str: string, x: number, y: number, opts: Partial<MergedToken> = {
     fontKey: opts.fontKey ?? 'Body@12',
     fontName: opts.fontName ?? 'F1',
     syntheticBold: opts.syntheticBold ?? false,
-    sourceIndices: opts.sourceIndices ?? [x], // unikalny placeholder wystarczajacy do testow
+    sourceIndices: opts.sourceIndices ?? [x], // a unique placeholder sufficient for tests
     mergeReason: opts.mergeReason ?? 'no-merge',
   };
 }
 
-describe('clusterIntoLines — grupowanie po cross-axis', () => {
-  it('dwa tokeny na tej samej linii bazowej (ta sama Y) tworza jedna linie', () => {
+describe('clusterIntoLines — grouping by cross-axis', () => {
+  it('two tokens on the same baseline (the same Y) form one line', () => {
     const tokens = [token('the', 72, 700), token('cat', 100, 700)];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(1);
   });
 
-  it('tokeny na znaczaco roznych Y tworza dwie osobne linie', () => {
+  it('tokens on significantly different Y form two separate lines', () => {
     const tokens = [token('Line', 72, 700), token('Two', 72, 650)];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(2);
   });
 
-  it('kolejnosc czytania: linie posortowane od gory (malejace Y) dla strumienia 0°', () => {
+  it('reading order: lines sorted from the top (descending Y) for the 0° stream', () => {
     const tokens = [token('Second', 72, 650), token('First', 72, 700)];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines[0]!.crossAxisPosition).toBe(700);
@@ -39,23 +39,23 @@ describe('clusterIntoLines — grupowanie po cross-axis', () => {
   });
 });
 
-describe('clusterIntoLines — indeksy gorne/dolne', () => {
-  it('token mniejszego rozmiaru przesuniety mniej niz interlinia trafia do TEJ SAMEJ linii', () => {
-    // font 12pt, indeks gorny 6pt (0.5x), przesuniety w gore o 5pt (< 12*1.35=16.2 interlinii)
+describe('clusterIntoLines — superscripts/subscripts', () => {
+  it('a smaller-size token shifted less than the line spacing ends up in THE SAME line', () => {
+    // font 12pt, a superscript of 6pt (0.5x), shifted up by 5pt (< 12*1.35=16.2 of line spacing)
     const tokens = [token('x', 72, 700, { height: 12 }), token('2', 100, 705, { height: 6, fontKey: 'Small@6' })];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(1);
   });
 
-  it('token mniejszego rozmiaru przesuniety WIECEJ niz interlinia NIE trafia do tej samej linii (to nastepna linia, nie indeks)', () => {
+  it('a smaller-size token shifted MORE than the line spacing does NOT end up in the same line (it is the next line, not a superscript)', () => {
     const tokens = [token('Body', 72, 700, { height: 12 }), token('Footnote', 72, 660, { height: 8, fontKey: 'Small@8' })];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(2);
   });
 });
 
-describe('clusterIntoLines — sklad tekstu z granicami wyrazow', () => {
-  it('wstawia spacje TYLKO tam gdzie byla prawdziwa granica wyrazu', () => {
+describe('clusterIntoLines — text composition with word boundaries', () => {
+  it('inserts a space ONLY where there was a real word boundary', () => {
     const tokens = [
       token('the', 72, 700, { sourceIndices: [0] }),
       token('cat', 100, 700, { sourceIndices: [2] }),
@@ -65,7 +65,7 @@ describe('clusterIntoLines — sklad tekstu z granicami wyrazow', () => {
     expect(lines[0]!.text).toBe('the cat');
   });
 
-  it('brak granicy miedzy tokenami -> sklejone bez spacji', () => {
+  it('no boundary between tokens -> joined without a space', () => {
     const tokens = [
       token('of', 72, 700, { sourceIndices: [0] }),
       token('fice', 90, 700, { sourceIndices: [1] }),
@@ -76,13 +76,13 @@ describe('clusterIntoLines — sklad tekstu z granicami wyrazow', () => {
 });
 
 describe('clusterIntoLines — fonts i dominantFont', () => {
-  it('linia z dwoma fontami raportuje oba w fonts[], dominantFont = najwiekszy udzial znakow', () => {
+  it('a line with two fonts reports both in fonts[], dominantFont = the largest share of characters', () => {
     const tokens = [
       token('short', 72, 700, { fontKey: 'A@12', height: 12, sourceIndices: [0] }),
       token('muchlongertext', 130, 700, { fontKey: 'B@12', height: 12, sourceIndices: [1] }),
     ];
-    // Zmiana fontu w polowie linii ma zwykle realna spacje miedzy sobą — granica
-    // pdf.js potwierdza, ze to wciaz JEDNA linia mimo odstepu wiekszego niz tracking (KROK-6).
+    // A font change in the middle of a line usually has a real space between the parts — the pdf.js
+    // boundary confirms it is still ONE line despite a gap larger than the tracking.
     const boundaries: WordBoundary[] = [{ afterItemIndex: 0, gapStart: 102, gapEnd: 130 }];
     const lines = clusterIntoLines(tokens, 0, boundaries, 1);
     expect(lines[0]!.fonts.map((f) => f.key).sort()).toEqual(['A@12', 'B@12']);
@@ -90,15 +90,15 @@ describe('clusterIntoLines — fonts i dominantFont', () => {
   });
 });
 
-describe('clusterIntoLines — sklejanie przeniesienia lacznikiem (koniec Z5)', () => {
-  it('linia konczaca sie "-" + kontynuacja mala litera -> sklejone w jedno slowo', () => {
+describe('clusterIntoLines — joining a hyphenation break (the end of line clustering)', () => {
+  it('a line ending with "-" + a lowercase continuation -> joined into one word', () => {
     const tokens = [token('encyclo-', 72, 700, { sourceIndices: [0] }), token('pedia', 72, 680, { sourceIndices: [1] })];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(1);
     expect(lines[0]!.text).toBe('encyclopedia');
   });
 
-  it('kontynuacja zaczynajaca sie WIELKA litera NIE jest sklejana (prawdziwy myslnik w tytule)', () => {
+  it('a continuation starting with a CAPITAL letter is NOT joined (a real hyphen in a title)', () => {
     const tokens = [token('Chapter One-', 72, 700, { sourceIndices: [0] }), token('Two', 72, 680, { sourceIndices: [1] })];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(2);
@@ -107,18 +107,18 @@ describe('clusterIntoLines — sklejanie przeniesienia lacznikiem (koniec Z5)', 
   });
 });
 
-describe('clusterIntoLines — [KROK-10] TextLine.tokens', () => {
-  it('kazdy token oryginalny zachowany z wlasnym bboxem i tekstem, posortowany wzdluz osi czytania', () => {
+describe('clusterIntoLines — TextLine.tokens', () => {
+  it('every original token kept with its own bbox and text, sorted along the reading axis', () => {
     const tokens = [token('cat', 100, 700), token('the', 72, 700)];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines).toHaveLength(1);
     expect(lines[0]!.tokens).toHaveLength(2);
-    expect(lines[0]!.tokens!.map((t) => t.text)).toEqual(['the', 'cat']); // posortowane po X (along), nie po kolejnosci wejscia
+    expect(lines[0]!.tokens!.map((t) => t.text)).toEqual(['the', 'cat']); // sorted by X (along), not by input order
     expect(lines[0]!.tokens![0]!.bbox.minX).toBe(72);
     expect(lines[0]!.tokens![1]!.bbox.minX).toBe(100);
   });
 
-  it('sklejenie przeniesienia lacznikiem zachowuje tokeny OBU linii razem', () => {
+  it('joining a hyphenation break keeps the tokens of BOTH lines together', () => {
     const tokens = [token('encyclo-', 72, 700, { sourceIndices: [0] }), token('pedia', 72, 680, { sourceIndices: [1] })];
     const lines = clusterIntoLines(tokens, 0, [], 1);
     expect(lines[0]!.tokens).toHaveLength(2);

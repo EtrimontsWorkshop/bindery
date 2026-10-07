@@ -20,8 +20,8 @@ function line(id: string, minX: number, maxX: number, y: number): TextLine {
 const LEFT_COL: ColumnRegion = { index: 0, bbox: { minX: 50, minY: 0, maxX: 280, maxY: 700 } };
 const RIGHT_COL: ColumnRegion = { index: 1, bbox: { minX: 320, minY: 0, maxX: 550, maxY: 700 } };
 
-describe('buildReadingOrder — dwie kolumny, bez rozpinajacych', () => {
-  it('kolejnosc: lewa kolumna gora->dol, potem prawa kolumna gora->dol', () => {
+describe('buildReadingOrder — two columns, no spanning lines', () => {
+  it('order: the left column top->bottom, then the right column top->bottom', () => {
     const split: SpanningSplit = {
       spanning: [],
       columnar: [
@@ -39,15 +39,15 @@ describe('buildReadingOrder — dwie kolumny, bez rozpinajacych', () => {
   });
 });
 
-describe('buildReadingOrder — naglowek rozpinajacy dzieli strone na pasma (Z2+Z4)', () => {
-  it('pasmo przed naglowkiem, potem naglowek, potem pasmo po nim — kolumny NIE mieszaja sie miedzy pasmami', () => {
-    const heading = line('HEADING', 50, 550, 500); // pelnowymiarowy, w SRODKU strony
+describe('buildReadingOrder — a spanning header splits the page into bands', () => {
+  it('the band before the header, then the header, then the band after it — the columns do NOT mix between bands', () => {
+    const heading = line('HEADING', 50, 550, 500); // full-size, in the MIDDLE of the page
     const split: SpanningSplit = {
       spanning: [heading],
       columnar: [
-        line('top-L', 50, 280, 690), // nad naglowkiem
+        line('top-L', 50, 280, 690), // above the header
         line('top-R', 320, 550, 690),
-        line('bot-L', 50, 280, 300), // pod naglowkiem
+        line('bot-L', 50, 280, 300), // below the header
         line('bot-R', 320, 550, 300),
       ],
       textBlockWidth: 500,
@@ -58,8 +58,8 @@ describe('buildReadingOrder — naglowek rozpinajacy dzieli strone na pasma (Z2+
   });
 });
 
-describe('buildReadingOrder — marginalia na koncu, osobna sekwencja', () => {
-  it('strumienie != 0° trafiaja NA KONIEC, we WLASNEJ kolejnosci, nie wplecione w tok glowny', () => {
+describe('buildReadingOrder — marginalia at the end, a separate sequence', () => {
+  it('streams != 0° go AT THE END, in THEIR OWN order, not woven into the main flow', () => {
     const split: SpanningSplit = {
       spanning: [],
       columnar: [line('main1', 50, 280, 690), line('main2', 50, 280, 670)],
@@ -73,8 +73,8 @@ describe('buildReadingOrder — marginalia na koncu, osobna sekwencja', () => {
   });
 });
 
-describe('buildReadingOrder — rotacja strony 180° odwraca kolejnosc kolumn', () => {
-  it('dla rotation=180, kolumny ida prawo->lewo zamiast lewo->prawo', () => {
+describe('buildReadingOrder — a page rotation of 180° reverses the column order', () => {
+  it('for rotation=180, the columns go right->left instead of left->right', () => {
     const split: SpanningSplit = {
       spanning: [],
       columnar: [line('L1', 50, 280, 690), line('R1', 320, 550, 690)],
@@ -87,8 +87,8 @@ describe('buildReadingOrder — rotacja strony 180° odwraca kolejnosc kolumn', 
   });
 });
 
-describe('buildReadingOrder — brak kolumn wykrytych (fallback jednokolumnowy)', () => {
-  it('wszystkie linie kolumnowe trafiaja do jednej "kolumny" (index 0) gora->dol', () => {
+describe('buildReadingOrder — no columns detected (a single-column fallback)', () => {
+  it('all columnar lines go into one "column" (index 0) top->bottom', () => {
     const singleCol: ColumnRegion = { index: 0, bbox: { minX: 50, minY: 0, maxX: 550, maxY: 700 } };
     const split: SpanningSplit = {
       spanning: [],

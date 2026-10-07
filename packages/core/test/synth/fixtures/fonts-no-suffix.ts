@@ -9,11 +9,10 @@ const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regul
 const BASE_FONT_NAMES = ['Autobahn', 'DwarvenAxeBB', 'Bookmania'];
 
 /**
- * 3 fonty osadzone o nazwach BEZ sufiksow wag (MDD F0, Q1/R-16: sufiksy wag roznia
- * sie miedzy odlewniami i sa nieograniczonym zbiorem — silnik fazy 2 musi umiec
- * budowac ranking rol z samej czestosci/rozmiaru, nie z parsowania nazwy).
- * Wszystkie trzy uzywaja tych samych bajtow TTF (Lato-Regular) — nie testujemy
- * tu prawdziwego ksztaltu glifow, tylko to, co pdf.js zwraca jako nazwe fontu.
+ * 3 embedded fonts with names WITHOUT weight suffixes (weight suffixes differ between foundries
+ * and are an unbounded set — the layout engine must build a role ranking from frequency/size
+ * alone, not by parsing the name). All three use the same TTF bytes (Lato-Regular) — we don't test
+ * the real glyph shapes here, only what pdf.js returns as the font name.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

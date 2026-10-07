@@ -2,15 +2,12 @@ import { PdfWriter, catalogDict, pagesDict, pageDict } from '../rawPdf.js';
 import { ContentStreamBuilder } from '../contentStream.js';
 
 /**
- * Obraz zadeklarowany jako JPEG2000 (`/Filter /JPXDecode`) z NIEPRAWIDLOWYMI
- * danymi strumienia — zbudowanie prawdziwego, poprawnego kodstrumienia JP2
- * recznie jest niepraktyczne (format zbyt zlozony na reczna konstrukcje jak
- * reszta generatora, patrz KROK-3). Testuje NIE samo dekodowanie (do tego
- * potrzebny prawdziwy plik z `samples/`, patrz `tools/calibrate-images.ts`),
- * tylko SCIEZKE OBSLUGI BLEDU (U6): dekodowanie MUSI zakonczyc sie
- * `Diagnostic`, NIGDY cichym pominieciem — niezaleznie od tego, czy dane sa
- * poprawne czy nie. Brief DoD: "obraz zdekodowany ALBO zgloszony jako
- * Diagnostic" — oba wyniki sa dopuszczalne, cichy brak sladu nie.
+ * An image declared as JPEG2000 (`/Filter /JPXDecode`) with INVALID stream data — building a real,
+ * valid JP2 codestream by hand is impractical. Tests NOT the decoding itself (that needs a real
+ * file, see `tools/calibrate-images.ts`), only the ERROR-HANDLING PATH: decoding MUST end with a
+ * `Diagnostic`, NEVER a silent skip — regardless of whether the data is valid or not. The
+ * acceptance criterion: "the image decoded OR reported as a Diagnostic" — both outcomes are
+ * acceptable, a silent absence of a trace is not.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -18,8 +15,8 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRef = writer.reserveObj();
 
-  // Nieprawidlowe dane JPX — wystarczajaco duze, zeby przejsc podstawowa
-  // walidacje dlugosci strumienia, ale nie jest to poprawny kodstrumień JP2.
+  // Invalid JPX data — large enough to pass basic stream-length validation, but not a valid JP2
+  // codestream.
   const fakeJpxData = Buffer.alloc(256, 0);
   const imgRef = writer.addStreamObj(
     '/Type /XObject /Subtype /Image /Width 64 /Height 64 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /JPXDecode',

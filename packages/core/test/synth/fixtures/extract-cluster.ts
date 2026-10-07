@@ -3,11 +3,10 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 /**
- * Baza duza (>=40% strony, ustala klasyfikacje `content` calego klastra) + 3
- * mniejsze obrazy ("ikony") czesciowo na niej lezace — wszystkie WZAJEMNIE
- * nakladajace sie (transytywnie przez baze). Testuje Z2: klaster nakladajacych
- * sie obrazow = JEDNA jednostka ekstrakcji (render regionu obejmujacy CALA
- * kompozycje), nie 4 osobne pliki.
+ * A large base (>=40% of the page, which sets the `content` classification of the whole cluster) +
+ * 3 smaller images ("icons") partly lying on it — all MUTUALLY overlapping (transitively through
+ * the base). Tests clustering: a cluster of overlapping images = ONE extraction unit (a region
+ * render covering the WHOLE composition), not 4 separate files.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -16,10 +15,10 @@ export function build(): Buffer {
   const pageRef = writer.reserveObj();
 
   const layout: Array<{ w: number; h: number; x: number; y: number }> = [
-    { w: 500, h: 600, x: 56, y: 96 }, // baza
-    { w: 60, h: 60, x: 100, y: 500 }, // ikona 1, na bazie
-    { w: 60, h: 60, x: 400, y: 200 }, // ikona 2, na bazie
-    { w: 40, h: 40, x: 250, y: 350 }, // ikona 3, na bazie
+    { w: 500, h: 600, x: 56, y: 96 }, // the base
+    { w: 60, h: 60, x: 100, y: 500 }, // icon 1, on the base
+    { w: 60, h: 60, x: 400, y: 200 }, // icon 2, on the base
+    { w: 40, h: 40, x: 250, y: 350 }, // icon 3, on the base
   ];
 
   const refs = layout.map((l, i) => imageXObject(writer, { width: 2, height: 2, rgb: solidRgb(2, 2, (i * 50) % 256, (i * 90) % 256, (i * 130) % 256) }));

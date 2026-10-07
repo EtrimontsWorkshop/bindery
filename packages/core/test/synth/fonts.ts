@@ -1,14 +1,13 @@
 import { PdfWriter } from './rawPdf.js';
 
 /**
- * Buduje program CMap /ToUnicode (bfchar) z mapy kod 1-bajtowy -> string docelowy.
+ * Builds a /ToUnicode CMap program (bfchar) from a map of a 1-byte code -> target string.
  *
- * Dlaczego ToUnicode, a nie poprawne /Encoding + prawdziwe mapowanie glifow:
- * pdf.js buduje `TextItem.str` przede wszystkim z ToUnicode, gdy jest obecne.
- * To pozwala nam swobodnie konstruowac dowolny tekst testowy (fragmentacje,
- * ligatury, znaki laczace, symulowane zepsute PUA) niezaleznie od tego, czy
- * wbudowany font faktycznie ma pasujace glify — nigdy nie renderujemy tych
- * PDF-ow wizualnie, wiec nie musi to byc poprawne wizualnie.
+ * Why ToUnicode, and not a correct /Encoding + real glyph mapping: pdf.js builds `TextItem.str`
+ * primarily from ToUnicode when present. That lets us freely construct any test text
+ * (fragmentation, ligatures, combining marks, simulated broken PUA) regardless of whether the
+ * embedded font actually has matching glyphs — we never render these PDFs visually, so they don't
+ * have to be visually correct.
  */
 export function buildToUnicodeCMap(mapping: Map<number, string>): Buffer {
   const lines: string[] = [];
@@ -41,14 +40,14 @@ export function buildToUnicodeCMap(mapping: Map<number, string>): Buffer {
 }
 
 export interface EmbedFontOptions {
-  /** Wartosc /BaseFont — to dokladnie to, co pdf.js zwroci jako commonObjs.get(x).name (MDD §5.1, F0-Q1). */
+  /** The /BaseFont value — exactly what pdf.js returns as commonObjs.get(x).name. */
   baseFont: string;
   ttfBytes: Buffer;
-  /** Kod 1-bajtowy (0..255) -> string docelowy w wyekstrahowanym tekscie. */
+  /** A 1-byte code (0..255) -> the target string in the extracted text. */
   toUnicode: Map<number, string>;
 }
 
-/** Osadza /FontFile2 + /FontDescriptor (drogie: bajty TTF) — do dzielenia miedzy wieloma Font. */
+/** Embeds /FontFile2 + /FontDescriptor (expensive: the TTF bytes) — to be shared between many Fonts. */
 export function embedFontDescriptor(writer: PdfWriter, baseFont: string, ttfBytes: Buffer): number {
   const fontFileRef = writer.addStreamObj(`/Length1 ${ttfBytes.length}`, ttfBytes);
   return writer.addObj(
@@ -59,12 +58,11 @@ export function embedFontDescriptor(writer: PdfWriter, baseFont: string, ttfByte
 }
 
 /**
- * Tworzy obiekt /Font (tani: bez wlasnych bajtow TTF) wskazujacy na juz istniejacy
- * /FontDescriptor. Kazde wywolanie z INNYM `baseFont` daje font.name rozny w oczach
- * pdf.js (patrz buildTextContentItem w pdf.worker.mjs), mimo tych samych glifow —
- * to jest jedyny niezawodny sposob wymuszenia osobnego TextItem per token
- * (geometria sama w sobie nie wystarcza, pdf.js scala sasiadujace glify wg
- * odleglosci, niezaleznie od liczby operatorow Tj).
+ * Creates a /Font object (cheap: no TTF bytes of its own) pointing at an already existing
+ * /FontDescriptor. Each call with a DIFFERENT `baseFont` gives a different font.name in pdf.js's
+ * eyes (see buildTextContentItem in pdf.worker.mjs), despite the same glyphs — this is the only
+ * reliable way to force a separate TextItem per token (geometry alone isn't enough, pdf.js merges
+ * adjacent glyphs by distance, regardless of the number of Tj operators).
  */
 export function embedFontFromDescriptor(
   writer: PdfWriter,
@@ -81,15 +79,14 @@ export function embedFontFromDescriptor(
 }
 
 /**
- * Osadza font TrueType jako prosty font (nie Type0/CID) z pelnym ToUnicode.
- * Zwraca numer obiektu /Font, gotowy do wpiecia w slownik /Resources /Font strony.
+ * Embeds a TrueType font as a simple font (not Type0/CID) with a full ToUnicode.
  */
 export function embedFont(writer: PdfWriter, opts: EmbedFontOptions): number {
   const descriptorRef = embedFontDescriptor(writer, opts.baseFont, opts.ttfBytes);
   return embedFontFromDescriptor(writer, { baseFont: opts.baseFont, descriptorRef, toUnicode: opts.toUnicode });
 }
 
-/** Mapowanie identycznosciowe dla ASCII drukowalnego (0x20..0x7E) — wygodna baza do rozszerzania. */
+/** An identity mapping for printable ASCII (0x20..0x7E) — a convenient base to extend. */
 export function asciiIdentityMap(): Map<number, string> {
   const m = new Map<number, string>();
   for (let c = 0x20; c <= 0x7e; c++) {

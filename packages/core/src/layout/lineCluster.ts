@@ -6,10 +6,10 @@ import type { MergedToken } from './wordMerge.js';
 import { axisPositions, baselineTolerance, fontSizeFromTransform, type StreamAngle } from './textGeometry.js';
 
 /**
- * Clusters tokens (post-Z4) into lines of text (Step 5 Z5, MDD §5.1). Key idea:
+ * Clusters tokens (after word merging) into lines of text. Key idea:
  * grouping by `crossAxisPosition` — the axis PERPENDICULAR to the text
  * direction, not always Y — with a tolerance derived from font size (shared
- * with Z2/Z4, see textGeometry.ts). Superscripts/subscripts (smaller font,
+ * with word merging, see textGeometry.ts). Superscripts/subscripts (smaller font,
  * small offset) must end up on the same line as their surroundings.
  */
 
@@ -24,18 +24,18 @@ export interface TextLine {
   dominantFont: FontFingerprint;
   syntheticBold: boolean;
   /**
-   * [Step 9 Z1b] Runs WITHIN the line in order along the reading axis —
+   * Runs WITHIN the line in order along the reading axis —
    * contiguous groups of tokens sharing the same `fontKey`. Empty/absent =
    * a uniform line (the typical case). Exists SOLELY so `blockBuilder.ts` can
    * detect an inline heading label (a heading->body font-role transition
-   * WITHIN ONE line, MDD §5.2) — `fonts`/`dominantFont` above flatten this
+   * WITHIN ONE line) — `fonts`/`dominantFont` above flatten this
    * information down to a single key and carry no position. Optional (not
    * required), so as not to break existing test fixtures that build
    * `TextLine` by hand.
    */
   runs?: LineRun[];
   /**
-   * [Step 10] Bbox+text of EVERY original token of this line (BEFORE
+   * Bbox+text of EVERY original token of this line (BEFORE
    * aggregation into `text`/`bbox`), sorted along the reading axis. Optional —
    * exists SOLELY for the `gutterRepair.ts` discriminator ("does any token
    * cross the area of a detected gutter"), with zero impact on existing
@@ -46,14 +46,14 @@ export interface TextLine {
   tokens?: LineToken[];
 }
 
-/** A contiguous run of tokens of one font within a line (Step 9 Z1b) — see `TextLine.runs`. */
+/** A contiguous run of tokens of one font within a line — see `TextLine.runs`. */
 export interface LineRun {
   fontKey: string;
   text: string;
   bbox: Rect;
 }
 
-/** One original token of a line (Step 10) — see `TextLine.tokens`. */
+/** One original token of a line — see `TextLine.tokens`. */
 export interface LineToken {
   text: string;
   bbox: Rect;
@@ -64,26 +64,26 @@ const LINE_HEIGHT_RATIO = 1.35;
 /** Below this size ratio a token is "smaller" — a superscript/subscript candidate. */
 const SUBSCRIPT_SIZE_RATIO = 0.8;
 /**
- * [Step 6, discovery] Two tokens on the SAME baseline (cross-axis) are not
+ * Two tokens on the SAME baseline (cross-axis) are not
  * automatically the same text LINE — a real two-column layout (and also a
  * sidebar next to a column) often has both columns' baselines aligned on the
  * same row. Without an extra condition, `sameLine` would merge adjacent
- * columns into one line spanning the whole block width (zero Z3 result: the
+ * columns into one line spanning the whole block width (column detection would find nothing: the
  * histogram never sees a valley).
  *
  * First attempt: a FIXED threshold "gap > Nx font size = different lines".
  * Rejected empirically — there is no single value N that correctly separates
- * both cases: fixture text-empill-items (group B, Step 3/5) has a
+ * both cases: fixture text-empill-items has a
  * DELIBERATELY wide but GENUINE inter-word gap of ~2.9-3.1x font size
  * (calibrated to force a synthetic pdf.js space item), while
  * layout-2col-sidebar has a gutter of ~4x font size (narrower than between
  * the main columns) — the ranges OVERLAP, so no fixed multiplier
  * distinguishes them correctly.
  *
- * Second attempt: pdf.js's `WordBoundary` (step 5, U2) — if pdf.js itself
+ * Second attempt: pdf.js's `WordBoundary` — if pdf.js itself
  * inserted an explicit whitespace item between tokens, that's evidence of a
  * genuine gap within a continuous run of text, regardless of width. ALSO
- * rejected empirically on a real file (Cienie_posrod_mgie.pdf p. 46): the
+ * rejected empirically on a real file (a two-column page): the
  * gutter between two columns was narrow (~12.7pt, ~1.2x font size) and pdf.js
  * INSERTED a synthetic whitespace character there (because its own "this is
  * just a gap" heuristic looks EXCLUSIVELY at geometric distance, just as
@@ -94,9 +94,9 @@ const SUBSCRIPT_SIZE_RATIO = 0.8;
  * narrow gutter and a wide inter-word gap look identical from the
  * perspective of a PAIR of tokens. The only reliable signal is the
  * CONSISTENCY of X positions across MANY rows at once — `findLikelyGutters`
- * (gutterHint.ts) computes exactly that, with the same histogram as Z3
- * (`detectColumns`), but BEFORE line clustering (on tokens, not lines) —
- * because Z3 proper only runs AFTER this step, on lines that are (hopefully)
+ * (gutterHint.ts) computes exactly that, with the same histogram as column
+ * detection (`detectColumns`), but BEFORE line clustering (on tokens, not lines) —
+ * because column detection proper only runs AFTER this step, on lines that are (hopefully)
  * already correctly split. The gutter hint takes PRECEDENCE over both
  * earlier attempts: a token on the other side of a detected (even if only
  * hinted) gutter is never the same line, even with a small gap or the
@@ -192,7 +192,7 @@ function buildFontFingerprints(tokens: readonly ClusterToken[]): { fonts: FontFi
 }
 
 /**
- * [Step 9 Z1b] Groups tokens ALREADY SORTED along the reading axis into
+ * Groups tokens ALREADY SORTED along the reading axis into
  * contiguous runs of the same `fontKey` — raw material for detecting a
  * font-role transition (e.g. heading->body) within a single line in
  * `blockBuilder.ts`.
@@ -212,7 +212,7 @@ function buildLineRuns(sorted: readonly ClusterToken[], wordBoundaries: readonly
   return runs;
 }
 
-/** Joins a line's tokens into text, inserting a space ONLY where there was a genuine word boundary between them (Z1/U2). */
+/** Joins a line's tokens into text, inserting a space ONLY where there was a genuine word boundary between them. */
 function joinTokenText(sorted: readonly ClusterToken[], wordBoundaries: readonly WordBoundary[]): string {
   let text = '';
   for (let i = 0; i < sorted.length; i++) {
@@ -230,8 +230,8 @@ function joinTokenText(sorted: readonly ClusterToken[], wordBoundaries: readonly
 
 /**
  * Clusters tokens from ONE angular stream into lines. Assumes the tokens are
- * already past Z4 (word merging) for the same angle — the caller supplies
- * them per stream, just as Z4 does.
+ * already past word merging for the same angle — the caller supplies
+ * them per stream, just as word merging does.
  */
 export function clusterIntoLines(
   tokens: readonly MergedToken[],
@@ -322,17 +322,17 @@ function gutterBetweenBBoxes(a: Rect, b: Rect, gutters: readonly GutterHint[]): 
 
 /**
  * Joins a word hyphenated at the end of a line with the start of the next one —
- * AFTER lines have been formed (per the brief, Z5). Condition: the line ends
+ * AFTER lines have been formed. Condition: the line ends
  * with a plain hyphen U+002D AND the next line starts with a lowercase letter
  * (a safeguard against merging a genuine dash in a title, e.g. "Chapter
  * One-Two").
  *
- * [Step 6, discovery] Without the gutter check, this used to merge the end of
+ * Without the gutter check, this used to merge the end of
  * a line from the RIGHT column with the start of a line from the LEFT column
  * of the next row in the global Y-sort (which knows nothing about columns) —
  * whenever the right column ended with a hyphen and the next line in the sort
  * (from any column at all) started with a lowercase letter. Measured on a
- * real file (Cienie_posrod_mgie.pdf p. 46): a hyphenated word fragment ending
+ * real two-column page: a hyphenated word fragment ending
  * the right column's line
  * merged with the start of an unrelated line from the LEFT column (a completely different piece of
  * text) into one fictitious, glued-together word.

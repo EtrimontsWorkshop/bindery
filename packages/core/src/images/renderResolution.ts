@@ -1,11 +1,10 @@
 /**
- * Region-render resolution policy (Step 8 Z3). Step 7's calibration
- * (RAPORT-KROK-7.md) showed that 92.7% of candidate images require a region
+ * Region-render resolution policy. Calibration showed that 92.7% of candidate images require a region
  * render (not direct extraction), and the default constant of 2048px was
  * insufficient for scenes/maps (the source resource's longer edge often
  * exceeds 2048px, so the render scales DOWN images sharper than the source).
  *
- * [Step 8, architectural constraint] The real `targetKind` (`scene`/
+ * The real `targetKind` (`scene`/
  * `handout`/`portrait`, `finalize.ts`) needs the ALREADY-decoded output
  * dimensions — it isn't available BEFORE the render (we're computing HERE
  * the resolution of THIS render). Instead of trying to predict `targetKind`
@@ -23,7 +22,7 @@ const SCENE_LIKE_AREA_THRESHOLD = 0.4;
 /** Same threshold as `MEDIUM_AREA_NO_EVIDENCE_THRESHOLD` in `classify.ts` (>=10% of the page = "handout-like"). */
 const HANDOUT_LIKE_AREA_THRESHOLD = 0.1;
 
-/** Minimums from the Step 8 Z3 brief — to be calibrated against `samples/`. */
+/** Minimums — to be calibrated against real documents. */
 const MIN_SCENE_LONG_EDGE_PX = 2048;
 const MIN_HANDOUT_LONG_EDGE_PX = 1024;
 const MIN_PORTRAIT_LONG_EDGE_PX = 512;
@@ -47,13 +46,13 @@ export interface RenderResolutionInput {
   intrinsicLongEdgesPx: readonly number[];
   /** The region representative's `maxRelativeArea` — see the comment at the top of the file. `null` for a purely vector region. */
   representativeMaxRelativeArea: number | null;
-  /** Default edge length used EXCLUSIVELY when there's no image at all in the region (brief: "value from settings"). */
+  /** Default edge length used EXCLUSIVELY when there's no image at all in the region ("value from settings"). */
   defaultLongEdgePx: number;
   /** Hard ceiling — guards against producing a file of absurd size from a spread. */
   maxLongEdgePx: number;
 }
 
-/** Minimum by size category (a proxy for `targetKind`, see the comment at the top of the file) — `null` when the region is purely vector (brief: no category minimum, just the value from settings). */
+/** Minimum by size category (a proxy for `targetKind`, see the comment at the top of the file) — `null` when the region is purely vector (no category minimum, just the value from settings). */
 function minimumForCategory(representativeMaxRelativeArea: number | null): number | null {
   if (representativeMaxRelativeArea === null) return null;
   if (representativeMaxRelativeArea >= SCENE_LIKE_AREA_THRESHOLD) return MIN_SCENE_LONG_EDGE_PX;
@@ -62,11 +61,10 @@ function minimumForCategory(representativeMaxRelativeArea: number | null): numbe
 }
 
 /**
- * `targetLongEdge = clamp(max(intrinsicLongEdge) * safetyMargin, category minimum, settings maximum)`
- * (Step 8 Z3 brief). A purely vector region (`intrinsicLongEdgesPx` empty
+ * `targetLongEdge = clamp(max(intrinsicLongEdge) * safetyMargin, category minimum, settings maximum)`. A purely vector region (`intrinsicLongEdgesPx` empty
  * AND `representativeMaxRelativeArea===null`) skips the category minimum
  * entirely — there's nothing to map it to, so plain `defaultLongEdgePx` from
- * settings (clamped to the ceiling) is enough (brief: "value from settings").
+ * settings (clamped to the ceiling) is enough.
  */
 export function computeTargetLongEdgePx(input: RenderResolutionInput): number {
   if (input.intrinsicLongEdgesPx.length === 0) {

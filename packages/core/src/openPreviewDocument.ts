@@ -6,7 +6,7 @@ import { renderPagePreview } from './images/buildPagePreview.js';
 import { renderRotatedRegion, type RotatedPdfRegion } from './images/renderRotatedRegion.js';
 
 /**
- * [Step 11 Z3] Opens the document ONLY for the purpose of page preview in
+ * Opens the document ONLY for the purpose of page preview in
  * the review screen (phase 9) — it does NOT recompute inventory/layout
  * (that was already done by `buildCIFFromDocument`, see
  * `buildCIFFromDocument.ts`). Intent: a lightweight, separate document
@@ -27,7 +27,7 @@ export interface PreviewPageHandle {
   rotation: number;
 }
 
-/** [Step 18] Like `EncodedImage`, but with the PIXEL dimensions of the decoded bitmap BEFORE encoding — needed by the caller to build `CIFImage.width/height` without re-decoding WebP/PNG in the browser. */
+/** Like `EncodedImage`, but with the PIXEL dimensions of the decoded bitmap BEFORE encoding — needed by the caller to build `CIFImage.width/height` without re-decoding WebP/PNG in the browser. */
 export interface RegionCrop extends EncodedImage {
   width: number;
   height: number;
@@ -40,7 +40,7 @@ export interface PreviewDocument {
   /** Renders the ENTIRE page to an encoded bitmap (WebP/PNG) — see `renderPagePreview`. */
   renderPage(pageNumber: number, opts: { targetLongEdgePx: number; signal?: AbortSignal; format?: EncodeOptions['format']; quality?: EncodeOptions['quality'] }): Promise<EncodedImage>;
   /**
-   * [Step 18, "Select and crop"] Renders ANY bbox (in PDF space, not
+   * Renders ANY bbox (in PDF space, not
    * necessarily the whole `pageBox`) to an encoded bitmap — the manual
    * counterpart to `buildImageExtraction.ts`'s automatic extraction, for an
    * area indicated BY THE USER (dragging the mouse over the page preview

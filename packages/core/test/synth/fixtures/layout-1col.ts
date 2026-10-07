@@ -1,9 +1,8 @@
 import { buildLayoutPage } from '../layoutHelpers.js';
 
 /**
- * Uklad jednokolumnowy: 10 linii w jednej kolumnie x~72..500, brak rynny.
- * Testuje: histogram gestosci nie znajduje zadnej doliny -> jedna kolumna
- * (KROK-6 Z3: "brak wyraznych dolin -> jedna kolumna, to poprawna odpowiedz").
+ * A single-column layout: 10 lines in one column x~72..500, no gutter.
+ * Tests: the density histogram finds no valley -> one column.
  */
 export function build(): Buffer {
   const words = [

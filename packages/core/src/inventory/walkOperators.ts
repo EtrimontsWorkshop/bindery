@@ -2,7 +2,7 @@ import type { Matrix, Rect } from '../geometry.js';
 import { IDENTITY_MATRIX, multiplyMatrix, unitSquareBBox } from '../geometry.js';
 
 /**
- * A single pass over one page's operator list (MDD annex A, Step 4). A pure
+ * A single pass over one page's operator list. A pure
  * function: no I/O, no dependency on PDFPageProxy — testable with hand-written
  * opcode arrays. Consumes the result of `page.getOperatorList()` already
  * extracted by the caller (`inventory.ts`), not the page object itself.
@@ -11,14 +11,12 @@ import { IDENTITY_MATRIX, multiplyMatrix, unitSquareBBox } from '../geometry.js'
  * `DrawOPS` in pdf.worker.mjs for constructPath's internal format) — not
  * imported from pdfjs-dist, so this module stays fully dependency-free.
  *
- * [Step 6 Z1c] Dispatch based on a TABLE of handlers (`HANDLERS`), not an
+ * Dispatch based on a TABLE of handlers (`HANDLERS`), not an
  * `if (op === OP_X)` chain. `HANDLED_OPCODES` is MECHANICALLY
- * `[...HANDLERS.keys()]` — not a hand-transcribed list. Twice in a row
- * (Step 4: cm, Step 5: constructPath) a hand-written assumption about
+ * `[...HANDLERS.keys()]` — not a hand-transcribed list. Twice in a row a hand-written assumption about
  * argsArray's shape turned out to be wrong, because the unit tests repeated
  * the same assumption as the implementation; the same faulty-assumption
- * mechanism affected the count of HANDLED opcodes in the shape snapshot (Z7,
- * Step 5) — that list was hand-transcribed there too, independent of this
+ * mechanism affected the count of HANDLED opcodes in the shape snapshot — that list was hand-transcribed there too, independent of this
  * file. The dispatch table removes the possibility of drift: adding a
  * handler WITHOUT adding it to `HANDLERS` is impossible, because that's one
  * and the same place in the code.
@@ -65,7 +63,7 @@ export type WalkEvent =
       inGroup: GroupContext | null;
       index: number;
       /**
-       * [Step 16 Z1] The image resource's intrinsic resolution (/Width,
+       * The image resource's intrinsic resolution (/Width,
        * /Height pixels from the PDF content), NOT its size on the page
        * (which `bbox` already carries). Zero extra decoding — for
        * `paintImageXObject`, pdf.js itself places it in the operator list as
@@ -76,7 +74,7 @@ export type WalkEvent =
        * both values as numbers, so for ordinary images this field is
        * practically always populated). For `paintImageMaskXObject` it's
        * similarly available in `args[0].width`/`args[0].height`.
-       * `paintImageXObjectRepeat` (never observed in samples, see CLAUDE.md)
+       * `paintImageXObjectRepeat` (never observed in real samples)
        * and `paintInlineImageXObject` (inline data, no object reference)
        * don't carry this information in the form collected here — `null` in
        * both cases.
@@ -108,8 +106,7 @@ function toNumberArray(raw: unknown): number[] {
 /**
  * constructPath's arguments: args[1] is an ARRAY OF SUBPATHS, each packed
  * like a Float32Array (one simple `re` is usually 1 subpath) — NOT a flat
- * array of points directly, as originally assumed. Verified empirically
- * (Step 5 Z7, shape snapshot): real pdf.js gives
+ * array of points directly, as originally assumed. Verified empirically: real pdf.js gives
  * `array(len=1)<{0:n,...,12:n}>`, not a flat `{0:n,...,12:n}` by itself.
  * Distinguished by the type of the FIRST element: if it's a number, the
  * array is already flat (compatible with existing unit tests); otherwise
@@ -131,7 +128,7 @@ function toMatrix(raw: unknown): Matrix {
  * The `cm` (transform) operator's arguments are in practice 6 FLAT elements
  * `[a,b,c,d,e,f]` in argsArray[i] — NOT nested inside args[0] (unlike, say,
  * setTextMatrix, where args[0] can be one packed matrix). Verified
- * empirically on a real file (Step 4) — the first version assumed nesting
+ * empirically on a real file — the first version assumed nesting
  * and computed a wrong (identity) CTM, which only tests on fixtures
  * revealed, not unit tests on hand-written arrays (which repeated the same
  * faulty assumption).
@@ -173,7 +170,7 @@ function parsePathSegments(flat: number[]): PathSegment[] {
 /**
  * Whether a path is an axis-aligned rectangle — the only shape of interest
  * for vector regions (a stat-block frame/background candidate). Curves and
- * arbitrary polygons are rejected (Step 4, Z4).
+ * arbitrary polygons are rejected.
  */
 function rectanglePoints(segments: PathSegment[]): Array<[number, number]> | null {
   if (segments.some((s) => s.op === DRAW_CURVE_TO || s.op === DRAW_QUADRATIC_CURVE_TO)) return null;
@@ -217,7 +214,7 @@ function bboxFromLocalPoints(points: Array<[number, number]>, ctm: Matrix): Rect
 
 /**
  * Extracts the image object id from an image opcode's arguments. The shape
- * differs between opcodes — verified empirically (Step 4):
+ * differs between opcodes — verified empirically:
  * - paintImageXObject / paintImageXObjectRepeat: args[0] is the string (objId) directly
  * - paintImageMaskXObject: args[0] is an object { data: objId, width, height, count }
  * - paintInlineImageXObject: no PDF object reference (inline data) — always null
@@ -232,7 +229,7 @@ function extractImageObjId(opcode: number, args: unknown[]): string | null {
 }
 
 /**
- * [Step 16 Z1] Intrinsic resolution — see the comment on `WalkEvent['image']`.
+ * Intrinsic resolution — see the comment on `WalkEvent['image']`.
  * `paintImageXObject`: args[1]/args[2] are the numbers `w`/`h` directly. `paintImageMaskXObject`:
  * args[0].width/height. The other opcodes (repeat, inline) don't carry this information here.
  */
@@ -308,7 +305,7 @@ const HANDLERS = new Map<number, OpHandler>([
   [
     OP_PAINT_FORM_XOBJECT_BEGIN,
     (ctx, args) => {
-      // [Step 7, discovery] Per the PDF spec, executing a Form XObject is
+      // Per the PDF spec, executing a Form XObject is
       // implicitly q [form matrix] cm [content] Q — pdf.js hands this back
       // as paintFormXObjectBegin/End, NOT as save/restore. Without this
       // entry (treating it the same as save: store the CTM, possibly
@@ -387,9 +384,9 @@ const HANDLERS = new Map<number, OpHandler>([
 ]);
 
 /**
- * [Step 6 Z1c] The set of opcodes ACTUALLY handled by `walkOperators` —
+ * The set of opcodes ACTUALLY handled by `walkOperators` —
  * mechanically `[...HANDLERS.keys()]`, never a hand-transcribed list. Used
- * by the shape-snapshot test (Z7 from Step 5, now fixed), so that adding a
+ * by the shape-snapshot test, so that adding a
  * new handler without a matching snapshot entry is detected automatically,
  * not dependent on the author's memory.
  */

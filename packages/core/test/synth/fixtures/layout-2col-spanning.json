@@ -1,6 +1,6 @@
 {
   "id": "layout-2col-spanning",
-  "description": "Dwie kolumny + naglowek pelnowymiarowy w srodku strony (nie na gorze) — testuje Z2 (rozpinajace vs kolumnowe) i pasma w Z4 (kolejnosc czytania).",
+  "description": "Two columns + a full-width header in the middle of the page (not at the top) — tests spanning vs columnar lines and the bands in reading order.",
   "targetPhase": 6,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "totalItemCount": 19
   },
   "expected": {
-    "note": "Fakt konstrukcyjny: 4 linie kolumnowe gora-lewo (y=700..640, x=72), 4 gora-prawo (y=700..640, x=310), 1 naglowek pelnowymiarowy (y=560, x=72, szerszy niz 70% bloku tekstu), 4 kolumnowe dol-lewo (y=500..440, x=72), 4 dol-prawo (y=500..440, x=310). splitSpanningLines() powinien wydzielic dokladnie 1 linie rozpinajaca; detectColumns() na pozostalych 16 liniach kolumnowych powinien znalezc rynne x∈[~240,310] identyczna gora i dol. Kolejnosc czytania: gorne pasmo (lewo potem prawo), naglowek, dolne pasmo (lewo potem prawo). totalItemCount=19 (nie 17): pdf.js wstawia pusty synteryczny TextItem przy kazdej mid-stream zmianie rozmiaru fontu (Tf miedzy Tj) — tu 2 tranzycje (10->14 przed naglowkiem, 14->10 po), stad 17 linii + 2 puste = 19 (empirycznie potwierdzone, patrz tez layout-statblock-* i layout-2col-sidebar)."
+    "note": "Construction fact: 4 columnar lines top-left (y=700..640, x=72), 4 top-right (y=700..640, x=310), 1 full-width header (y=560, x=72, wider than 70% of the text block), 4 columnar bottom-left (y=500..440, x=72), 4 bottom-right (y=500..440, x=310). splitSpanningLines() should separate exactly 1 spanning line; detectColumns() on the remaining 16 columnar lines should find a gutter x∈[~240,310] identical top and bottom. Reading order: the upper band (left then right), the header, the lower band (left then right). totalItemCount=19 (not 17): pdf.js inserts an empty synthetic TextItem at every mid-stream font size change (Tf between Tj) — here 2 transitions (10->14 before the header, 14->10 after), hence 17 lines + 2 empty = 19 (confirmed empirically, see also layout-statblock-* and layout-2col-sidebar)."
   }
 }

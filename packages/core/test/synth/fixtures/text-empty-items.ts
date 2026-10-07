@@ -5,26 +5,24 @@ import { ContentStreamBuilder, asciiCodes } from '../contentStream.js';
 import { embedFont, asciiIdentityMap } from '../fonts.js';
 
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
-const GAP = 30; // >= ok. 20pt przy 12pt foncie wymusza syntetyczny item spacji (patrz ponizej)
+const GAP = 30; // >= about 20pt at a 12pt font forces a synthetic space item (see below)
 
 /**
- * Itemy nietrescowe (str.length <= 1, tu: pojedyncza spacja) przeplecione z
- * realnym tekstem. Testuje filtrowanie takich itemow PRZED liczeniem statystyk
- * (faza 2, krok 5).
+ * Non-content items (str.length <= 1, here: a single space) interleaved with real text. Tests
+ * filtering such items BEFORE computing statistics.
  *
- * WAZNE ODKRYCIE (patrz RAPORT-KROK-3.md): oryginalny plan tego fixture'a
- * zakladal itemy o str DOKLADNIE "" (jak w realnych PDF-ach ze spike'u fazy 0).
- * Nie udalo sie tego zbudowac syntetycznie: pdf.js resolvuje kazdy znak przez
- * `this.toUnicode.get(charcode) || charcode` (pdf.worker.mjs, Font#_charToGlyph)
- * — pusty string "" jest falsy w JS, wiec mapowanie ToUnicode na "" jest
- * ignorowane i pdf.js cicho wraca do surowego kodu znaku zamiast pustego stringa.
- * Sprawdzono rowniez calkowicie pusty operator Tj (`<> Tj`) — pdf.js nie tworzy
- * dla niego zadnego itemu (ani pustego, ani zadnego innego).
+ * IMPORTANT DISCOVERY: the original plan for this fixture assumed items with str EXACTLY "" (like
+ * in real PDFs from the initial spike). It could not be built synthetically: pdf.js resolves every
+ * character through `this.toUnicode.get(charcode) || charcode` (pdf.worker.mjs, Font#_charToGlyph)
+ * — an empty string "" is falsy in JS, so a ToUnicode mapping to "" is ignored and pdf.js
+ * silently falls back to the raw character code instead of an empty string. A completely empty Tj
+ * operator (`<> Tj`) was also checked — pdf.js creates no item for it (neither an empty one nor any
+ * other).
  *
- * Zamiast tego fixture testuje NAJBLIZSZY realnie osiagalny odpowiednik: itemy
- * spacji, ktore pdf.js SAM wstawia miedzy tokenami o duzym odstepie na tej
- * samej linii. To ten sam wymog inzynierski (filtrowanie przed statystykami
- * fragmentacji), inna dokladna wartosc str.
+ * Instead the fixture tests the CLOSEST realistically reachable equivalent: space items that
+ * pdf.js ITSELF inserts between tokens with a large gap on the same line. It is the same
+ * engineering requirement (filtering before the fragmentation statistics), a different exact str
+ * value.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

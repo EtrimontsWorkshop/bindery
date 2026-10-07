@@ -4,14 +4,14 @@ import type { Diagnostic } from '@bindery/core';
  * The piece `packages/core`'s `localizableMessage.ts`/`text/types.ts`
  * already documented but never built ("the module layer appends its own
  * namespace... formats `code`+`params` via `game.i18n.format`") — core has
- * no i18n mechanism of its own (A1), so every `Diagnostic` it produces is a
+ * no i18n mechanism of its own, so every `Diagnostic` it produces is a
  * bare `code`+`params` waiting for exactly this. Discovered missing during an audit: `BINDERY.diagnostic.*` (lang files) had ~20 real message
  * templates that nothing in the codebase ever called.
  *
  * Falls back to the raw `code` when the current lang file has no template
  * for it yet (`game.i18n.has(key, false)` — the `false` means "don't also
  * accept a fallback-language match", so a genuinely missing key is detected
- * even if English happens to have it) — an honest degrade (A7: show
+ * even if English happens to have it) — an honest degrade (show
  * SOMETHING useful, never a broken-looking empty string), not a hard
  * requirement that every one of the ~60 `Diagnostic` codes in this codebase
  * has a template before this function can be used at all.

@@ -2,10 +2,9 @@ import { PdfWriter, catalogDict, pagesDict, pageDict } from '../rawPdf.js';
 import { ContentStreamBuilder } from '../contentStream.js';
 
 /**
- * Mapa "rysowana wektorowo" — duzy prostokat wypelniony (>=40% strony), ZERO
- * obrazow na calej stronie. Testuje fallback renderu regionu (Z2/Z3): jedyny
- * sposob na wyciagniecie czegokolwiek, gdy nie ma obrazu do ekstrakcji
- * bezposredniej (brief: "region wektorowy bez obrazu -> render regionu").
+ * A "vector-drawn" map — a large filled rectangle (>=40% of the page), ZERO images on the whole
+ * page. Tests the region-render fallback: the only way to extract anything when there is no image
+ * for direct extraction (a vector region without an image -> region render).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

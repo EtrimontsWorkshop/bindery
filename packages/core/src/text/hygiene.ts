@@ -2,7 +2,7 @@ import { computeUnicodeConfidence, tallySignals } from '../quality.js';
 import type { CleanItem, Diagnostic, HygieneResult, PdfTextItemLike, WordBoundary } from './types.js';
 
 /**
- * Hygiene of text input (Step 5 Z1, MDD §5.1). A pure function — operates on
+ * Hygiene of text input. A pure function — operates on
  * a `TextItem[]` already extracted by the caller (`page.getTextContent()`), zero I/O.
  *
  * The order of steps matters (each changes data for the next) and FOLLOWS
@@ -10,9 +10,7 @@ import type { CleanItem, Diagnostic, HygieneResult, PdfTextItemLike, WordBoundar
  * shifted duplicates (syntheticBold) -> NFC -> ligatures -> soft hyphen -> metrics.
  */
 
-// U+FB00–U+FB06 — Latin ligatures, NOT expanded by normalize('NFC') (these are
-// separate compatibility code points; canonical NFKD decomposition would expand
-// them, but NFC deliberately leaves them alone — we have to do it ourselves, see Step 3/Step 5).
+// U+FB00–U+FB06 — Latin ligatures, NOT expanded by normalize('NFC').
 const LIGATURE_MAP = new Map<string, string>([
   ['ﬀ', 'ff'],
   ['ﬁ', 'fi'],
@@ -25,7 +23,7 @@ const LIGATURE_MAP = new Map<string, string>([
 const LIGATURE_RE = /[ﬀ-ﬆ]/g;
 const SOFT_HYPHEN_RE = /­/g;
 
-/** A shifted duplicate is considered a "synthetic bold" below this threshold (Step 3/4 finding: 0.3pt is the real-world case). */
+/** A shifted duplicate is considered a "synthetic bold" below this threshold. */
 const SYNTHETIC_BOLD_MAX_SHIFT = 0.5;
 /** How many items ahead we look for a matching duplicate — duplicates in real PDFs are emitted right after each other. */
 const DUPLICATE_LOOKAHEAD = 3;
@@ -61,7 +59,7 @@ interface IndexedItem {
   syntheticBold: boolean;
 }
 
-/** Step 1: splits the input into real items and word boundaries from whitespace items (adjacent ones merged into one boundary). */
+/** Splits the input into real items and word boundaries from whitespace items (adjacent ones merged into one boundary). */
 function extractWordBoundaries(items: readonly PdfTextItemLike[]): { real: IndexedItem[]; boundaries: WordBoundary[] } {
   const real: IndexedItem[] = [];
   const boundaries: WordBoundary[] = [];
@@ -176,7 +174,7 @@ export function runHygiene(items: readonly PdfTextItemLike[]): HygieneResult {
   };
 }
 
-/** Whether any word boundary falls BETWEEN two original indices (left-inclusive, right-exclusive) — [U2] a hard ban on merging (Step 5 P1). */
+/** Whether any word boundary falls BETWEEN two original indices (left-inclusive, right-exclusive) — [U2] a hard ban on merging. */
 export function hasBoundaryBetween(boundaries: readonly WordBoundary[], leftOriginalIndex: number, rightOriginalIndex: number): boolean {
   return boundaries.some((b) => b.afterItemIndex >= leftOriginalIndex && b.afterItemIndex < rightOriginalIndex);
 }

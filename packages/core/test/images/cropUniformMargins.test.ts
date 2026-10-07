@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cropDecodedImage, detectContentBounds } from '../../src/images/cropUniformMargins.js';
 import type { DecodedImage } from '../../src/images/normalizeDecodedImage.js';
 
-/** Plotno wypelnione jednym kolorem tla — synteza "pustej strony/marginesu". */
+/** A canvas filled with a single background color — a synthetic "empty page/margin". */
 function solidCanvas(width: number, height: number, r: number, g: number, b: number): DecodedImage {
   const rgba = new Uint8ClampedArray(width * height * 4);
   for (let i = 0; i < width * height; i++) {
@@ -14,7 +14,7 @@ function solidCanvas(width: number, height: number, r: number, g: number, b: num
   return { width, height, rgba };
 }
 
-/** Wypelnia prostokat [x,y,w,h] SZACHOWNICA dwoch kontrastowych kolorow — symuluje "prawdziwa ilustracje" (wysoka lokalna wariancja, nie jednolita). */
+/** Fills the rectangle [x,y,w,h] with a CHECKERBOARD of two contrasting colors — simulates a "real illustration" (high local variance, not uniform). */
 function paintNoisyRect(image: DecodedImage, x: number, y: number, w: number, h: number): void {
   for (let row = y; row < y + h; row++) {
     for (let col = x; col < x + w; col++) {
@@ -28,45 +28,43 @@ function paintNoisyRect(image: DecodedImage, x: number, y: number, w: number, h:
   }
 }
 
-describe('detectContentBounds — [na zyczenie uzytkownika] przycinanie pustego marginesu wokol malej ilustracji', () => {
-  it('mala szachownicowa "ilustracja" w rogu duzego jednolitego tla -> wykryty prostokat WYRAZNIE mniejszy niz cale plotno, obejmuje ilustracje', () => {
-    const image = solidCanvas(400, 500, 230, 220, 200); // jednolite bezowe "tlo papieru"
-    // [kalibracja] Ilustracja MUSI zajmowac spora CZESC dlugosci wiersza/kolumny,
-    // ktora przecina — inaczej test "wlasnej sredniej" (patrz naglowek
-    // cropUniformMargins.ts) rozcienczyloby ja tak, ze caly wiersz/kolumna
-    // WCIAZ wyglada na "nudny" wzgledem swojej wlasnej (juz przesunietej)
-    // sredniej. Zmierzone wprost: 100x120 w 400x500 (25%/24%) dawalo pokrycie
-    // dokladnie NA progu (~0.75) i test byl niestabilny; 180x220 (45%/44%)
-    // daje jednoznaczne rozdzielenie.
-    paintNoisyRect(image, 110, 90, 180, 220); // "portret", nie dotyka zadnej krawedzi
+describe('detectContentBounds — [at the user\'s request] cropping the empty margin around a small illustration', () => {
+  it('a small checkerboard "illustration" in the corner of a large uniform background -> the detected rectangle CLEARLY smaller than the whole canvas, contains the illustration', () => {
+    const image = solidCanvas(400, 500, 230, 220, 200); // uniform beige "paper background"
+    // [calibration] The illustration MUST occupy a large PART of the length of the row/column it
+    // crosses — otherwise the "own mean" test (see the header of cropUniformMargins.ts) would dilute
+    // it so that the whole row/column STILL looks "boring" relative to its own (already shifted)
+    // mean. Measured directly: 100x120 in 400x500 (25%/24%) gave coverage exactly AT the threshold
+    // (~0.75) and the test was unstable; 180x220 (45%/44%) gives an unambiguous separation.
+    paintNoisyRect(image, 110, 90, 180, 220); // a "portrait", doesn't touch any edge
     const bounds = detectContentBounds(image);
     expect(bounds).not.toBeNull();
     const b = bounds!;
-    // Wykryty prostokat MUSI obejmowac cala namalowana ilustracje...
+    // The detected rectangle MUST contain the whole painted illustration...
     expect(b.x).toBeLessThanOrEqual(110);
     expect(b.y).toBeLessThanOrEqual(90);
     expect(b.x + b.width).toBeGreaterThanOrEqual(290);
     expect(b.y + b.height).toBeGreaterThanOrEqual(310);
-    // ...ale byc WYRAZNIE mniejszy niz cale plotno (400x500=200000) — glowny cel przyciecia.
+    // ...but be CLEARLY smaller than the whole canvas (400x500=200000) — the main goal of the crop.
     expect(b.width * b.height).toBeLessThan(400 * 500 * 0.6);
   });
 
-  it('[bezpiecznik] tresc wypelniajaca plotno niemal do krawedzi (np. rozkladowka pod pelny spad) -> null, NIE przycina', () => {
+  it('[safeguard] content filling the canvas almost to the edge (e.g. a spread for full bleed) -> null, does NOT crop', () => {
     const image = solidCanvas(400, 500, 40, 30, 20);
-    paintNoisyRect(image, 2, 2, 396, 496); // "ilustracja" niemal na cala strone, 2px marginesu
+    paintNoisyRect(image, 2, 2, 396, 496); // an "illustration" covering almost the whole page, 2px margin
     expect(detectContentBounds(image)).toBeNull();
   });
 
-  it('[bezpiecznik] cale plotno jednolite (brak jakiejkolwiek tresci) -> null, NIE przycina do bezsensownego skrawka', () => {
+  it('[safeguard] the whole canvas uniform (no content at all) -> null, does NOT crop down to a meaningless sliver', () => {
     const image = solidCanvas(400, 500, 230, 220, 200);
     expect(detectContentBounds(image)).toBeNull();
   });
 
-  it('[roznokolorowa ramka dekoracyjna] jednolity ciemny pasek z lewej + jednolity jasny "papier" na srodku (dwie ROZNE strefy) nadal poprawnie przycina do centralnej ilustracji', () => {
-    // Odtwarza dokladnie zgloszony na zywo uklad Wrak.pdf: ciemny "skorzany"
-    // pasek z lewej (inny kolor niz "papier"), z portretem gdzies w srodku
-    // jasnej strefy. Test istnieje, bo referencja z JEDNEGO globalnego koloru
-    // (np. z rogu) zawiodlaby tutaj — patrz uzasadnienie w cropUniformMargins.ts.
+  it('[a differently colored decorative frame] a uniform dark strip on the left + a uniform light "paper" in the middle (two DIFFERENT zones) still correctly crops to the central illustration', () => {
+    // Reproduces exactly a layout reported from a real rulebook: a dark "leather" strip on the left
+    // (a different color than the "paper"), with a portrait somewhere in the middle of the light
+    // zone. The test exists because a reference from ONE global color (e.g. from a corner) would
+    // fail here — see the rationale in cropUniformMargins.ts.
     const image = solidCanvas(400, 500, 230, 220, 200);
     for (let y = 0; y < 500; y++) {
       for (let x = 0; x < 40; x++) {
@@ -76,8 +74,8 @@ describe('detectContentBounds — [na zyczenie uzytkownika] przycinanie pustego 
         image.rgba[i + 2] = 25;
       }
     }
-    // [kalibracja, patrz test wyzej] 200x220 (50%/44%), pozycjonowane z dala od
-    // paska (x>=150), zeby jednoznacznie przebic prog pokrycia.
+    // [calibration, see the test above] 200x220 (50%/44%), positioned away from the strip (x>=150),
+    // to clearly exceed the coverage threshold.
     paintNoisyRect(image, 150, 150, 200, 220);
 
     const bounds = detectContentBounds(image);
@@ -90,13 +88,13 @@ describe('detectContentBounds — [na zyczenie uzytkownika] przycinanie pustego 
 });
 
 describe('cropDecodedImage', () => {
-  it('wycina dokladnie wskazany prostokat, piksel po pikselu', () => {
+  it('cuts out exactly the given rectangle, pixel by pixel', () => {
     const image = solidCanvas(10, 10, 0, 0, 0);
     paintNoisyRect(image, 3, 3, 2, 2);
     const cropped = cropDecodedImage(image, { x: 3, y: 3, width: 2, height: 2 });
     expect(cropped.width).toBe(2);
     expect(cropped.height).toBe(2);
-    // Rog (3,3) w oryginale odpowiada (0,0) w wyciecu.
+    // Corner (3,3) in the original corresponds to (0,0) in the crop.
     const origIdx = (3 * 10 + 3) * 4;
     expect([cropped.rgba[0], cropped.rgba[1], cropped.rgba[2]]).toEqual([image.rgba[origIdx], image.rgba[origIdx + 1], image.rgba[origIdx + 2]]);
   });

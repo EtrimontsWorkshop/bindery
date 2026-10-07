@@ -1,15 +1,15 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [Step 42 Z1/Z2, "smooth the edges so there's no jagged silhouette"] Blurs
+ * Blurs
  * ONLY the alpha channel (RGB unchanged) — a separable box blur (a
  * horizontal pass, then a vertical pass on the first pass's result) instead
  * of a full square kernel: O(width*height*radius) instead of
  * O(width*height*radius^2), safe for images with millions of pixels.
  *
  * Shared by TWO places that would otherwise duplicate the SAME box blur:
- * `removeBackground.ts` (Z1, smooths the boundary between removed
- * background and preserved content) and `tokenMask.ts` (Z2, smooths the
+ * `removeBackground.ts` (smooths the boundary between removed
+ * background and preserved content) and `tokenMask.ts` (smooths the
  * hard geometric edge of a circle/rounded-square/hex mask).
  *
  * Far from any boundary, alpha is already uniform (0 or 255) — blurring a

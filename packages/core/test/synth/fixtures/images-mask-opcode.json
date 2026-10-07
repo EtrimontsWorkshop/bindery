@@ -1,12 +1,12 @@
 {
   "id": "images-mask-opcode",
-  "description": "Obraz-maska rysowany paintImageMaskXObject (opcode 83, /ImageMask true) obok zwyklego obrazu tresciowego bez zadnego dowodu maski.",
+  "description": "A mask image drawn with paintImageMaskXObject (opcode 83, /ImageMask true) next to an ordinary content image with no mask evidence.",
   "targetPhase": 4,
   "claims": {
     "pageCount": 1,
     "imageCount": 2
   },
   "expected": {
-    "note": "imageRegistry (KROK-4) musi oznaczyc obraz Mask1 jako isMaskLayer=true, maskEvidence='opcode' (jednoznaczne, niezalezne od Luminosity); Content1 bez zadnego dowodu maski."
+    "note": "imageRegistry must mark the Mask1 image as isMaskLayer=true, maskEvidence='opcode' (unambiguous, independent of Luminosity); Content1 with no mask evidence."
   }
 }

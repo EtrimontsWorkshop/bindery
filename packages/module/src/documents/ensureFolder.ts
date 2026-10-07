@@ -1,5 +1,5 @@
 /**
- * [Step 11 Z6] Find-or-create a `Folder` by name — the target screen lets
+ * Find-or-create a `Folder` by name — the target screen lets
  * the user type a folder name (not pick from a tree, MVP), so we have to
  * resolve "already exists" vs. "needs to be created" ourselves. An empty
  * name = root (no folder), returns `undefined`.

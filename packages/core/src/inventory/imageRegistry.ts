@@ -5,8 +5,7 @@ import { overlapRatio, relativeArea as computeRelativeArea } from '../geometry.j
 import type { WalkEvent } from './walkOperators.js';
 
 /**
- * Image registry — objId -> occurrences across pages, mask evidence, cluster
- * (MDD phase 3, F0 Q2/Q3, Step 4 Z3). Content/decoration classification
+ * Image registry — objId -> occurrences across pages, mask evidence, cluster. Content/decoration classification
  * BELONGS TO PHASE 3 — this module only collects facts (pageRefs,
  * maskEvidence, clusterId), it never decides.
  */
@@ -39,7 +38,7 @@ export interface ImageEntry {
   masksImageObjId?: string;
   clusterId?: string;
   /**
-   * [Step 16 Z1] Intrinsic resolution from the FIRST occurrence that carries
+   * Intrinsic resolution from the FIRST occurrence that carries
    * it (see `WalkEvent['image'].intrinsicWidth/Height`). `null` when no
    * opcode in this entry supplied it (repeat/inline). Used as an additional
    * key component in `correlateImagesByBBox` — two different images in the
@@ -49,11 +48,11 @@ export interface ImageEntry {
   intrinsicWidth: number | null;
   intrinsicHeight: number | null;
   /**
-   * [Step 5 Z6, debt from Step 4] The `objId` of another entry that this
+   * The `objId` of another entry that this
    * entry got POSITIONALLY LINKED to (quantized bbox, see
    * `correlateImagesByBBox`) — most likely the SAME PDF resource that pdf.js
    * split into separate entries because it doesn't assign a stable objId
-   * from the first use (RAPORT-KROK-4.md). Does NOT overwrite `pageRefs` —
+   * from the first use. Does NOT overwrite `pageRefs` —
    * this is a separate, explicit correlation fact, not an identity change;
    * classifying what to do about it belongs to phase 3.
    */
@@ -113,16 +112,16 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
 const GROUP_MASK_SEARCH_WINDOW = 5;
 
 /**
- * [Step 7, discovery] `masksImageObjId` used to be set SOLELY by the
+ * `masksImageObjId` used to be set SOLELY by the
  * 'geometry' path (the weakest evidence) — the 'group'/'opcode' paths (the
  * STRONGEST evidence) never recorded WHICH image is masked, because
- * `beginGroup` wraps SOLELY the mask form's own content (MDD), not the
+ * `beginGroup` wraps SOLELY the mask form's own content, not the
  * masked image — there is no direct link in the operator list. Without this
- * fix, Z2 (extraction strategy, step 7) never detected `isMasked=true` for
+ * fix, extraction strategy never detected `isMasked=true` for
  * the MOST CERTAIN mask case (an explicit `beginGroup`/`Luminosity`), only
  * for the weakest one. The fix: a geometric match (like the 'geometry'
  * path), but searching FORWARD (content is painted AFTER the mask group
- * closes, not before) — the mask form's bbox (after the CTM fix from Z4, see
+ * closes, not before) — the mask form's bbox (after the CTM fix, see
  * walkOperators.ts) overlaps the masked content's bbox, because both inherit
  * the same external `cm` matrix at the moment `gs` is invoked.
  */
@@ -274,8 +273,7 @@ function quantizedBBoxKey(bbox: Rect): string {
 }
 
 /**
- * [Step 16 Z1] Intrinsic resolution appended to the key — see the discovery
- * in RAPORT-KROK-15.md (a group of 148 correlated pages mixing
+ * Intrinsic resolution appended to the key — see the discovery (a group of 148 correlated pages mixing
  * useful/fragment/decoration labels). Hypothesis: this isn't one resource
  * repeated 148 times, just a shared FRAME (the same rectangle on the page)
  * with different content inside — positional correlation alone doesn't tell
@@ -293,7 +291,7 @@ function intrinsicSizeKey(entry: ImageEntry): string {
 }
 
 /**
- * [Step 30, a bug measured live in "Zew Cthulhu 7ed. Wrak.pdf"] An image
+ * An image
  * covering NEARLY THE WHOLE page has a bbox almost IDENTICAL to its OWN
  * page's MediaBox REGARDLESS OF WHAT IT ACTUALLY DEPICTS — unlike a small,
  * SPECIFICALLY positioned element (a corner logo, a divider frame), where
@@ -321,9 +319,7 @@ const FULL_PAGE_AREA_THRESHOLD = 0.97;
 
 /**
  * Links entries whose FIRST occurrence has an identical (after quantization)
- * bbox AND identical intrinsic resolution — without decoding pixels
- * (Step 5 Z6.2, extended in Step 16 Z1, narrowed in Step 30 — see
- * `FULL_PAGE_AREA_THRESHOLD` above). Zero-decode, so this is still an
+ * bbox AND identical intrinsic resolution — without decoding pixels. Zero-decode, so this is still an
  * APPROXIMATION: two different, small icons repeating at the same position
  * AND with the same resolution (e.g. bullet markers) produce a false link —
  * acceptable for headers/footers/frames (this task's purpose), but

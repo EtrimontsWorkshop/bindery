@@ -5,7 +5,7 @@ import type { WalkEvent } from '../../src/inventory/walkOperators.js';
 const PAGE_BOX = { minX: 0, minY: 0, maxX: 200, maxY: 200 };
 
 describe('buildVectorRegions', () => {
-  it('liczy relativeArea wzgledem strony i domyslnie groupSubtype=null', () => {
+  it('computes relativeArea relative to the page and groupSubtype=null by default', () => {
     const events: WalkEvent[] = [
       { type: 'vector', kind: 'fill', bbox: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, ctm: [1, 0, 0, 1, 0, 0], inGroup: null, index: 0 },
     ];
@@ -15,7 +15,7 @@ describe('buildVectorRegions', () => {
     expect(regions[0]!.groupSubtype).toBeNull();
   });
 
-  it('[KROK-5 Z6] przenosi groupSubtype z eventu (maska luminancyjna oparta na wypelnieniu, nie obrazie)', () => {
+  it('carries groupSubtype over from the event (a luminosity mask based on a fill, not an image)', () => {
     const events: WalkEvent[] = [
       {
         type: 'vector',
@@ -30,7 +30,7 @@ describe('buildVectorRegions', () => {
     expect(regions[0]!.groupSubtype).toBe('Luminosity');
   });
 
-  it('ignoruje eventy nie-vector', () => {
+  it('ignores non-vector events', () => {
     const events: WalkEvent[] = [{ type: 'font', fontName: 'F1', sizeFromMatrix: 12, index: 0 }];
     expect(buildVectorRegions(events, 1, PAGE_BOX)).toHaveLength(0);
   });

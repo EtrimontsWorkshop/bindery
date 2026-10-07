@@ -19,29 +19,28 @@ async function openFixture(buf: Buffer): Promise<PdfDocumentLike> {
 }
 
 describe('buildInventory — images-decorated (pageRefs)', () => {
-  it('ozdobnik wspoldzielony przez 3 strony NIE dostaje stabilnego objId na kazdej stronie (odkrycie pdf.js)', async () => {
+  it('a decoration shared by 3 pages does NOT get a stable objId on every page (a pdf.js discovery)', async () => {
     const doc = await openFixture(buildImagesDecorated());
     const inv = await buildInventory(doc);
     expect(inv.pageCount).toBe(3);
 
-    // ODKRYCIE empiryczne (KROK-4): pdf.js NIE przydziela temu samemu zasobowi PDF
-    // stabilnego objId od pierwszego wystapienia. Pierwsze uzycie (strona 1) dostaje
-    // lokalny id typu "img_p0_1"; dopiero po powtornym uzyciu pdf.js "awansuje" zasob
-    // do wspoldzielonego id typu "g_d0_..." — to id JEST stabilne na kolejnych
-    // stronach (2 i 3), ale rozni sie od pierwszego wystapienia. Skutek: ten sam
-    // obraz PDF rozpada sie na DWA ImageEntry z perspektywy jednoprzebiegowej
-    // inwentaryzacji bez dekodowania pikseli (poza zakresem KROK-4, patrz A8/R-13) —
-    // scalenie wymagaloby fingerprintu tresci, odlozone do fazy 3.
+    // EMPIRICAL DISCOVERY: pdf.js does NOT assign the same PDF resource a stable objId from its
+    // first occurrence. The first use (page 1) gets a local id like "img_p0_1"; only after repeated
+    // use does pdf.js "promote" the resource to a shared id like "g_d0_..." — that id IS stable on
+    // subsequent pages (2 and 3), but differs from the first occurrence. Consequence: the same PDF
+    // image falls apart into TWO ImageEntries from the point of view of a single-pass inventory
+    // without decoding pixels — merging would need a content fingerprint, deferred to the image
+    // classification stage.
     const withTwoPages = inv.images.filter((img) => img.pageRefs.length === 2);
-    expect(withTwoPages).toHaveLength(1); // ozdobnik po "awansie" pdf.js (strony 2+3)
+    expect(withTwoPages).toHaveLength(1); // the decoration after pdf.js "promotion" (pages 2+3)
 
     const withOnePage = inv.images.filter((img) => img.pageRefs.length === 1);
-    // 54 unikalne obrazy x 3 strony = 162, + pierwsze (nie-awansowane) wystapienie ozdobnika na stronie 1
+    // 54 unique images x 3 pages = 162, + the first (non-promoted) occurrence of the decoration on page 1
     expect(withOnePage.length).toBe(163);
 
-    // [KROK-5 Z6.2] Korelacja pozycyjna po skwantowanym bboksie ZAMYKA ten dokladnie
-    // przypadek: ozdobnik ma identyczny bbox na kazdym uzyciu (nieruchomy element
-    // szablonu strony), wiec oba rozdzielone wpisy powinny zostac powiazane.
+    // Positional correlation by the quantized bbox CLOSES exactly this case: the decoration has an
+    // identical bbox on every use (a fixed element of the page template), so both split entries
+    // should end up linked.
     const twoPageEntry = withTwoPages[0]!;
     const decorFirstUse = withOnePage.find((img) => img.correlatedWith === twoPageEntry.objId);
     expect(decorFirstUse).toBeDefined();
@@ -49,8 +48,8 @@ describe('buildInventory — images-decorated (pageRefs)', () => {
   });
 });
 
-describe('buildInventory — images-luminosity-mask (sciezka group)', () => {
-  it('maska ma isMaskLayer=true, maskEvidence="group"', async () => {
+describe('buildInventory — images-luminosity-mask (the group path)', () => {
+  it('the mask has isMaskLayer=true, maskEvidence="group"', async () => {
     const doc = await openFixture(buildImagesLuminosityMask());
     const inv = await buildInventory(doc);
     const masked = inv.images.filter((img) => img.maskEvidence === 'group');
@@ -59,15 +58,15 @@ describe('buildInventory — images-luminosity-mask (sciezka group)', () => {
   });
 });
 
-describe('buildInventory — images-mask-opcode (sciezka opcode)', () => {
-  it('maska paintImageMaskXObject ma isMaskLayer=true, maskEvidence="opcode"', async () => {
+describe('buildInventory — images-mask-opcode (the opcode path)', () => {
+  it('a paintImageMaskXObject mask has isMaskLayer=true, maskEvidence="opcode"', async () => {
     const doc = await openFixture(buildImagesMaskOpcode());
     const inv = await buildInventory(doc);
     expect(inv.images).toHaveLength(2);
 
-    // pdf.js przydziela wlasne id obiektow (np. "mask_p0_1"/"img_p0_2"), niezalezne
-    // od nazw kluczy slownika /XObject uzytych w strumieniu tresci — nie zakladamy
-    // konkretnych stringow, tylko rozrozniamy po maskEvidence (KROK-4).
+    // pdf.js assigns its own object ids (e.g. "mask_p0_1"/"img_p0_2"), independent of the names of
+    // the /XObject dictionary keys used in the content stream — we don't assume specific strings,
+    // we only tell them apart by maskEvidence.
     const maskEntry = inv.images.find((img) => img.maskEvidence === 'opcode');
     expect(maskEntry?.isMaskLayer).toBe(true);
 
@@ -76,36 +75,36 @@ describe('buildInventory — images-mask-opcode (sciezka opcode)', () => {
   });
 });
 
-describe('buildInventory — images-mask-geometry (sciezka geometry, przypadek pozytywny)', () => {
-  it('Over1 dostaje maskEvidence="geometry" (bbox identyczny z Under1, index diff=2); Control1 bez dowodu', async () => {
+describe('buildInventory — images-mask-geometry (the geometry path, a positive case)', () => {
+  it('Over1 gets maskEvidence="geometry" (the bbox identical to Under1, index diff=2); Control1 without evidence', async () => {
     const doc = await openFixture(buildImagesMaskGeometry());
     const inv = await buildInventory(doc);
     expect(inv.images).toHaveLength(3);
 
     const geometryMatches = inv.images.filter((img) => img.maskEvidence === 'geometry');
     expect(geometryMatches).toHaveLength(1);
-    expect(geometryMatches[0]!.isMaskLayer).toBe(false); // geometry to slaby dowod — nie ustawia isMaskLayer
+    expect(geometryMatches[0]!.isMaskLayer).toBe(false); // geometry is weak evidence — doesn't set isMaskLayer
 
     const withoutEvidence = inv.images.filter((img) => img.maskEvidence === null);
     expect(withoutEvidence).toHaveLength(2); // Under1 i Control1
   });
 });
 
-describe('buildInventory — images-bleed-background (bbox nieprzyciety)', () => {
-  it('bbox z ujemnymi wspolrzednymi zachowany bez przyciecia do MediaBox', async () => {
+describe('buildInventory — images-bleed-background (the bbox not clipped)', () => {
+  it('a bbox with negative coordinates preserved without clipping to the MediaBox', async () => {
     const doc = await openFixture(buildImagesBleedBackground());
     const inv = await buildInventory(doc);
     expect(inv.images).toHaveLength(1);
     const bbox = inv.images[0]!.occurrences[0]!.bbox;
     expect(bbox.minX).toBeLessThan(0);
     expect(bbox.minY).toBeLessThan(0);
-    expect(bbox.maxX).toBeGreaterThan(612); // szersze niz MediaBox
+    expect(bbox.maxX).toBeGreaterThan(612); // wider than the MediaBox
     expect(bbox.maxY).toBeGreaterThan(792);
   });
 });
 
-describe('buildInventory — images-overlapping (klastrowanie)', () => {
-  it('5 nakladajacych sie obrazow w jednym clusterId, szosty osobno; brak falszywych trafien geometry', async () => {
+describe('buildInventory — images-overlapping (clustering)', () => {
+  it('5 overlapping images in one clusterId, the sixth separate; no false geometry hits', async () => {
     const doc = await openFixture(buildImagesOverlapping());
     const inv = await buildInventory(doc);
     expect(inv.images).toHaveLength(6);
@@ -116,26 +115,25 @@ describe('buildInventory — images-overlapping (klastrowanie)', () => {
       clusterCounts.set(img.clusterId, (clusterCounts.get(img.clusterId) ?? 0) + 1);
     }
     const sizes = [...clusterCounts.values()].sort((a, b) => b - a);
-    // Fixture: baza + 4 ikony nakladajace sie na niej (bezposrednio potwierdzone
-    // empirycznie po naprawie bledu CTM w walkOperators — geometria pokazuje ze
-    // WSZYSTKIE 4 ikony (nie 3) naprawde naklada sie na baze), + 1 ikonka calkowicie
-    // osobno (bez nakladania).
-    expect(sizes[0]).toBe(5); // baza + 4 ikony nakladajace
-    expect(sizes[1]).toBe(1); // odosobniony ikonka nr 6
+    // Fixture: a base + 4 icons overlapping it (directly confirmed empirically after fixing the CTM
+    // bug in walkOperators — the geometry shows that ALL 4 icons (not 3) really overlap the base), +
+    // 1 icon completely separate (no overlap).
+    expect(sizes[0]).toBe(5); // a base + 4 overlapping icons
+    expect(sizes[1]).toBe(1); // an isolated icon no. 6
 
-    // Zaden z tych obrazow nie powinien dostac geometry-mask-evidence tylko z
-    // powodu nakladania sie bboxow — geometry wymaga TAKZE bliskosci `index`
-    // (<=3) I >=95% pokrycia, obrazy tej fixture sa rysowane w duzych odstepach.
+    // None of these images should get geometry-mask-evidence merely because the bboxes overlap —
+    // geometry ALSO requires the `index` proximity (<=3) AND >=95% coverage; the images of this
+    // fixture are drawn far apart.
     const falsePositives = inv.images.filter((img) => img.maskEvidence === 'geometry');
     expect(falsePositives).toHaveLength(0);
   });
 });
 
-describe('buildInventory — vectors-rectangle (constructPath przez prawdziwy pdf.js, KROK-5 Z7)', () => {
-  it('fill i fillStroke (B) daja poprawne VectorRegion, w tym DWA eventy dla fillStroke', async () => {
+describe('buildInventory — vectors-rectangle (constructPath through a real pdf.js)', () => {
+  it('fill and fillStroke (B) give correct VectorRegions, including TWO events for fillStroke', async () => {
     const doc = await openFixture(buildVectorsRectangle());
     const inv = await buildInventory(doc);
-    expect(inv.vectors).toHaveLength(3); // 1x fill + (1x fill + 1x stroke dla fillStroke/B)
+    expect(inv.vectors).toHaveLength(3); // 1x fill + (1x fill + 1x stroke for fillStroke/B)
 
     const fillOnly = inv.vectors.find((v) => v.bbox.minX === 100);
     expect(fillOnly?.kind).toBe('fill');
@@ -147,8 +145,8 @@ describe('buildInventory — vectors-rectangle (constructPath przez prawdziwy pd
   });
 });
 
-describe('buildInventory — fonty (fonts-no-suffix, fonts-subset-prefix)', () => {
-  it('fonts-no-suffix: 3 klucze fontow, kazdy z przypisana rola, niezalenie od braku sufiksow', async () => {
+describe('buildInventory — fonts (fonts-no-suffix, fonts-subset-prefix)', () => {
+  it('fonts-no-suffix: 3 font keys, each with an assigned role, regardless of the lack of suffixes', async () => {
     const doc = await openFixture(buildFontsNoSuffix());
     const inv = await buildInventory(doc);
     expect(inv.fonts.length).toBeGreaterThanOrEqual(3);
@@ -156,10 +154,10 @@ describe('buildInventory — fonty (fonts-no-suffix, fonts-subset-prefix)', () =
       expect(inv.fontRoles.get(font.key)).toBeDefined();
     }
     const bodyCount = [...inv.fontRoles.values()].filter((r) => r === 'body').length;
-    expect(bodyCount).toBe(1); // dokladnie jeden font "body" (najwiekszy udzial)
+    expect(bodyCount).toBe(1); // exactly one "body" font (the largest share)
   });
 
-  it('fonts-subset-prefix: prefiks AAAAAH+ zdjety z key/baseFont, zachowany w subsetPrefix', async () => {
+  it('fonts-subset-prefix: the AAAAAH+ prefix stripped from key/baseFont, kept in subsetPrefix', async () => {
     const doc = await openFixture(buildFontsSubsetPrefix());
     const inv = await buildInventory(doc);
     const withPrefix = inv.fonts.filter((f) => f.subsetPrefix !== null);
@@ -173,7 +171,7 @@ describe('buildInventory — fonty (fonts-no-suffix, fonts-subset-prefix)', () =
 });
 
 describe('buildInventory — AbortSignal', () => {
-  it('przerywa przetwarzanie w polowie dokumentu (3 strony)', async () => {
+  it('aborts processing in the middle of the document (3 pages)', async () => {
     const doc = await openFixture(buildImagesDecorated());
     const controller = new AbortController();
     let pagesSeen = 0;
@@ -190,8 +188,8 @@ describe('buildInventory — AbortSignal', () => {
   });
 });
 
-describe('buildInventory — determinizm', () => {
-  it('dwa uruchomienia na tym samym pliku daja identyczny wynik (po serializacji)', async () => {
+describe('buildInventory — determinism', () => {
+  it('two runs on the same file give an identical result (after serialization)', async () => {
     function serialize(inv: Awaited<ReturnType<typeof buildInventory>>) {
       return JSON.stringify(inv, (_key, value) => (value instanceof Set ? [...value].sort() : value), 2);
     }

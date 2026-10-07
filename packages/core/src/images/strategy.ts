@@ -1,19 +1,19 @@
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 
 /**
- * Extraction strategy (Step 7 Z2, MDD phase 3). Not every image classified
+ * Extraction strategy. Not every image classified
  * as `content` may be extracted directly — the decision always comes with
- * an explicit justification (`reason`), never a plain `boolean` (per the
- * brief: needed in the report and on the review screen, phase 9).
+ * an explicit justification (`reason`), never a plain `boolean` (needed in
+ * the report and on the review screen).
  *
- * The brief's table has five rows, but only TWO final strategies:
+ * The decision table has five rows, but only TWO final strategies:
  * - `direct` — only "a single image, no mask, no cluster".
  * - `region-render` — everything else (mask, cluster, no image/vector, transparency over background).
  *
  * Note: "an image with transparency over background" (the table's last row)
  * has no independent signal today that's detectable without decoding the
  * alpha channel — we DELIBERATELY do NOT build a separate mechanism for this
- * (per the brief: don't invest in U5-like gaps). Treated as a subset of "an
+ * (don't invest in gaps like this). Treated as a subset of "an
  * image with a mask" (`isMasked`): both require rendering the composition
  * instead of the raw resource, and `maskEvidence` already detects this for
  * cases with an explicit SMask/Luminosity mask or a mask opcode.
@@ -73,10 +73,7 @@ export function computeMaskedObjIds(entries: readonly ImageEntry[]): ReadonlySet
  * filtering to content/undecided). The real `clusterMemberCount` used by
  * `buildImageExtraction.ts` for the actual `direct` vs `region-render`
  * decision comes from that file's COMPLETELY INDEPENDENT, two-stage
- * algorithm (`groupIntoUnits`/`partitionCandidatesIntoGroups`, based on
- * anchors and an overlap ratio, fixed in Step 16 precisely because
- * `clusterId`-based grouping gave wrong results on
- * `img_p13_*`/`img_p15_*`). These two numbers CAN differ for the same
+ * algorithm. These two numbers CAN differ for the same
  * image. This function exists exclusively for approximate reporting
  * (`tools/calibrate-images.ts`) and is tested as its OWN, isolated unit —
  * do NOT use it to predict/verify the actual extraction strategy of a

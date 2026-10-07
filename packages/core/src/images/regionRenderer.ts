@@ -2,7 +2,7 @@ import type { Rect } from '../geometry.js';
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * Region-render abstraction (Step 7 Z3, MDD phase 3 "Pass 2" fallback). The
+ * Region-render abstraction. The
  * same pattern as `normalizeDecodedImage` — one interface, two
  * implementations (browser: `OffscreenCanvas`, here; Node/tests:
  * `@napi-rs/canvas`, in `nodeCanvasRenderer.ts`, DELIBERATELY NOT EXPORTED
@@ -33,7 +33,7 @@ export interface RegionRenderer {
 }
 
 /**
- * Hard upper limit on the result's edge length (brief: "e.g. 4096 px") —
+ * Hard upper limit on the result's edge length (e.g. 4096 px) —
  * guards against producing a ~200 MB file from a spread with a very large
  * `targetLongEdgePx` or a very wide bbox. 4096px is a typical
  * texture/canvas limit for many browsers and GPUs — a safe ceiling, not an
@@ -157,7 +157,7 @@ export async function renderRegionShared(
 
 /**
  * Browser implementation (`OffscreenCanvas` — a web-platform standard, not a
- * Foundry API, see the A1 rationale in `normalizeDecodedImage.ts`).
+ * Foundry API, see the rationale in `normalizeDecodedImage.ts`).
  */
 export const browserRegionRenderer: RegionRenderer = {
   renderRegion(page, bbox, opts) {

@@ -1,20 +1,18 @@
 import { uploadImage } from './uploadImages.js';
 
 /**
- * Journals from CIF (Step 9 Z4/Z5, MDD phase 8). The input is an
+ * Journals from CIF. The input is an
  * already-built `CIFDocument` (hierarchy + HTML built in `packages/core`,
- * zero decision logic here — A1/`check:boundary`): this module ONLY (1)
+ * zero decision logic here — `check:boundary`): this module ONLY (1)
  * uploads images embedded in the content and (2) replaces the `assetRef`
  * placeholder (= `CIFImage.id`, see `buildCIFDocument.ts`) with the real
  * Foundry path in the `src` attribute, then creates a
  * `JournalEntry`+`JournalEntryPage`.
  *
- * [Step 9, the v14 JournalEntryPage shape was verified in the source BEFORE
- * writing this code, per the brief's warning] `common/documents/
+ * Foundry v14 `common/documents/
  * journal-entry-page.mjs`: a FLAT schema (`text.content` HTMLField,
  * `title.level` 1-6, `format` defaulting to `JOURNAL_ENTRY_PAGE_FORMATS.HTML`)
- * — ZERO shims/embedded-document traps analogous to `Scene#background`
- * (Step 8). `JournalEntry.pages` is a plain `EmbeddedCollectionField` — page
+ * — ZERO shims/embedded-document traps analogous to `Scene#background`. `JournalEntry.pages` is a plain `EmbeddedCollectionField` — page
  * data can be passed DIRECTLY in `JournalEntry.create({pages: [...]})`,
  * without a separate `createEmbeddedDocuments` or the risk of a "default
  * empty entry" (that was a case specific to `Scene`/`Level`, not a general
@@ -44,7 +42,7 @@ export interface CreateJournalsFromCIFInput {
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>;
   /** Used for the file names of uploaded images — usually the source PDF's name without extension. */
   baseName: string;
-  /** [Step 11 Z6] `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
+  /** `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
 }
 
@@ -56,7 +54,7 @@ export interface CreatedJournalRef {
 
 export interface CreateJournalsFromCIFResult {
   journalIds: string[];
-  /** [Step 11 Z6] Created journals with their full `uuid` — for linking from the post-import summary. */
+  /** Created journals with their full `uuid` — for linking from the post-import summary. */
   createdJournals: CreatedJournalRef[];
   /** Images whose bytes weren't found in `imageBytesById` (shouldn't happen — diagnostics). */
   missingImageIds: string[];

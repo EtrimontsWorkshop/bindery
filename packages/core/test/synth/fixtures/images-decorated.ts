@@ -3,13 +3,12 @@ import { ContentStreamBuilder } from '../contentStream.js';
 import { imageXObject, solidRgb } from '../images.js';
 
 const PAGE_COUNT = 3;
-const UNIQUE_PER_PAGE = 54; // + 1 dekoracja wspoldzielona = 55 na strone
+const UNIQUE_PER_PAGE = 54; // + 1 shared decoration = 55 per page
 
 /**
- * 3 strony, 55+ obrazow na kazdej: jeden ozdobnik (ten sam obiekt PDF, wspoldzielony
- * przez wszystkie strony) + ~54 unikalnych malych obrazow per strona. Testuje sygnal
- * klasyfikacji tresc/dekoracja z fazy 3 (MDD §8 faza 3): zasob powtarzajacy sie na
- * wielu stronach (`pageRefs.length`) to najsilniejszy sygnal dekoracji.
+ * 3 pages, 55+ images on each: one decoration (the same PDF object, shared by all pages) + ~54
+ * unique small images per page. Tests the content/decoration classification signal: a resource
+ * repeated across many pages (`pageRefs.length`) is the strongest decoration signal.
  */
 export function build(): Buffer {
   const writer = new PdfWriter();
@@ -17,9 +16,9 @@ export function build(): Buffer {
   const pagesRef = writer.reserveObj();
   const pageRefs = Array.from({ length: PAGE_COUNT }, () => writer.reserveObj());
 
-  // Ozdobnik: JEDEN obiekt PDF, referencje z Resources kazdej strony wskazuja na
-  // ten sam numer obiektu — dokladnie tak wyglada w praktyce zasob dzielony
-  // miedzy stronami (np. ramka/tlo z szablonu strony).
+  // The decoration: ONE PDF object, references from each page's Resources point to the same object
+  // number — exactly how a resource shared between pages looks in practice (e.g. a frame/background
+  // from the page template).
   const decorationRef = imageXObject(writer, { width: 2, height: 2, rgb: solidRgb(2, 2, 10, 10, 10) });
 
   for (let p = 0; p < PAGE_COUNT; p++) {

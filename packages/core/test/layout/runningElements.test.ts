@@ -17,18 +17,18 @@ function line(id: string, minX: number, maxX: number, y: number, fontKey = 'Head
   };
 }
 
-describe('detectRunningElements — dopasowanie NIE po dokladnym tekscie (numer strony sie zmienia)', () => {
-  it('naglowek stalego tekstu + zmienny numer strony na kazdej z 6 stron -> wykryty na wszystkich', () => {
+describe('detectRunningElements — matching NOT by exact text (the page number changes)', () => {
+  it('a header of constant text + a varying page number on each of 6 pages -> detected on all', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 6 }, (_, i) => {
       const pageNumber = i + 1;
-      // Naglowek: tytul stale w tej samej pozycji + numer strony o zmiennej liczbie cyfr (1 vs 10+).
+      // Header: a title constantly in the same position + a page number with a varying number of digits (1 vs 10+).
       const pageLabel = `Chapter One - ${pageNumber}`;
       return {
         pageNumber,
         pageHeight: PAGE_HEIGHT,
         primaryLines: [
           line(`header-p${pageNumber}`, 72, 72 + pageLabel.length * 5, 760), // y=760/792=95.9% > 93% -> header band
-          line(`body-p${pageNumber}`, 72, 300, 400), // tresc glowna, poza pasmem
+          line(`body-p${pageNumber}`, 72, 300, 400), // main content, outside the band
         ],
       };
     });
@@ -36,13 +36,13 @@ describe('detectRunningElements — dopasowanie NIE po dokladnym tekscie (numer 
     const headerMatches = matches.filter((m) => m.kind === 'header');
     expect(headerMatches).toHaveLength(6);
     expect(headerMatches.map((m) => m.pageNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6]);
-    // Tresc glowna nigdy nie jest dopasowana jako naglowek/stopka.
+    // Main content is never matched as a header/footer.
     expect(matches.some((m) => m.lineId.startsWith('body'))).toBe(false);
   });
 });
 
-describe('detectRunningElements — stopka analogicznie do naglowka', () => {
-  it('linia w dolnym pasmie (y < 7% wysokosci) wykryta jako stopka', () => {
+describe('detectRunningElements — a footer analogously to a header', () => {
+  it('a line in the bottom band (y < 7% of the height) detected as a footer', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 5 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
@@ -54,53 +54,53 @@ describe('detectRunningElements — stopka analogicznie do naglowka', () => {
   });
 });
 
-describe('detectRunningElements — koniunkcja warunkow', () => {
-  it('NIE dopasowuje gdy klucz fontu jest inny na kazdej stronie, mimo tej samej pozycji', () => {
+describe('detectRunningElements — a conjunction of conditions', () => {
+  it('does NOT match when the font key differs on every page, despite the same position', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 5 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
-      primaryLines: [line(`h-p${i + 1}`, 72, 200, 760, `Font${i}@9`)], // rozny font kazda strona
+      primaryLines: [line(`h-p${i + 1}`, 72, 200, 760, `Font${i}@9`)], // a different font on every page
     }));
     expect(detectRunningElements(pages)).toHaveLength(0);
   });
 
-  it('NIE dopasowuje gdy pozycja pozioma zbyt rozna miedzy stronami', () => {
+  it('does NOT match when the horizontal position is too different between pages', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 5 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
-      primaryLines: [line(`h-p${i + 1}`, 72 + i * 100, 200 + i * 100, 760)], // x przesuwa sie mocno kazda strone
+      primaryLines: [line(`h-p${i + 1}`, 72 + i * 100, 200 + i * 100, 760)], // x shifts a lot on every page
     }));
     expect(detectRunningElements(pages)).toHaveLength(0);
   });
 
-  it('dopasowuje mimo roznicy szerokosci wynikajacej ze zmiennej liczby cyfr numeru strony', () => {
-    const widths = [72 + 1 * 5, 72 + 2 * 5, 72 + 3 * 5]; // "9", "10", "100" - rozna liczba cyfr
+  it('matches despite a width difference resulting from a varying number of page-number digits', () => {
+    const widths = [72 + 1 * 5, 72 + 2 * 5, 72 + 3 * 5]; // "9", "10", "100" - a different number of digits
     const pages: PageForRunningElements[] = widths.map((w, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
       primaryLines: [line(`h-p${i + 1}`, 72, w, 760)],
     }));
-    // Tolerancja domyslna (12pt) moze rozbic 5pt-15pt roznice na sasiednie kubelki
-    // kwantyzacji przez zaokraglenie na granicy (znany kompromis prostego bucketingu,
-    // patrz collections.ts) — tu jawnie szersza tolerancja, zeby przetestowac SAM
-    // mechanizm "podobna, nie identyczna szerokosc", nie konkretna wartosc domyslna.
+    // The default tolerance (12pt) may split a 5pt-15pt difference into adjacent quantization buckets
+    // by rounding at the boundary (a known trade-off of simple bucketing, see collections.ts) — here an
+    // explicitly wider tolerance, to test the "similar, not identical width" MECHANISM itself, not a
+    // specific default value.
     const matches = detectRunningElements(pages, { widthTolerancePt: 100 });
     expect(matches).toHaveLength(3);
   });
 });
 
-describe('detectRunningElements — prog 60% stron w zakresie', () => {
-  it('sygnatura obecna na mniej niz 60% stron NIE jest zaraportowana', () => {
+describe('detectRunningElements — the 60%-of-pages threshold in the range', () => {
+  it('a signature present on fewer than 60% of pages is NOT reported', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 10 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
-      // tylko 5/10 = 50% stron ma jakikolwiek kandydat w pasmie naglowka
+      // only 5/10 = 50% of the pages have any candidate in the header band
       primaryLines: i < 5 ? [line(`h-p${i + 1}`, 72, 200, 760)] : [line(`body-p${i + 1}`, 72, 200, 400)],
     }));
     expect(detectRunningElements(pages)).toHaveLength(0);
   });
 
-  it('sygnatura obecna na dokladnie progu (60%) JEST zaraportowana', () => {
+  it('a signature present at exactly the threshold (60%) IS reported', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 10 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,
@@ -111,8 +111,8 @@ describe('detectRunningElements — prog 60% stron w zakresie', () => {
   });
 });
 
-describe('detectRunningElements — nie usuwa, tylko oznacza (kontrakt zwracanych danych)', () => {
-  it('zwraca lineId + pageNumber + kind, nie modyfikuje wejsciowych linii', () => {
+describe('detectRunningElements — doesn\'t remove, only marks (the contract of the returned data)', () => {
+  it('returns lineId + pageNumber + kind, doesn\'t modify the input lines', () => {
     const pages: PageForRunningElements[] = Array.from({ length: 5 }, (_, i) => ({
       pageNumber: i + 1,
       pageHeight: PAGE_HEIGHT,

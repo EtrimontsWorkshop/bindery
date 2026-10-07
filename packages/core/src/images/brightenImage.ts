@@ -1,7 +1,7 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /**
- * [at the user's request, after fixing the "Wrak" crop] Images revealed by
+ * [at the user's request, after fixing the crop] Images revealed by
  * `treatFullBleedAsContent` and cropped by `autoCropUniformMargins` lose the
  * ADJACENCY of the bright, "aged paper" page margin that, in the PDF, sat
  * NEXT TO the illustration and optically brightened it (a simultaneous
@@ -15,7 +15,7 @@ import type { DecodedImage } from './normalizeDecodedImage.js';
  * [Third iteration, two consecutive live-measured failures]
  *
  * 1) A plain gamma curve (`out=255*(in/255)^gamma`) fails on images with a
- *    near-black background (p. 26 "Wrak.pdf", `img_p25_1`, a portrait on a
+ *    near-black background (p. 26 of a real rulebook PDF, `img_p25_1`, a portrait on a
  *    dark vignette) — gamma BY DEFINITION preserves `0` (`0^gamma==0`), so
  *    near-black corners stay near-black REGARDLESS of how aggressive the
  *    gamma is (measured visually: even gamma=0.6 didn't move the vignette).
@@ -71,7 +71,7 @@ export interface BrightenOptions {
   contrastPivot: number;
 }
 
-/** [Calibrated visually on `img_p19_1` and `img_p25_1`, "Wrak.pdf", after four consecutive iterations] See the rationale in the file header. */
+/** [Calibrated visually on `img_p19_1` and `img_p25_1` in a real rulebook PDF, after four consecutive iterations] See the rationale in the file header. */
 export const AUTOCROP_BRIGHTEN: BrightenOptions = { targetFloor: 95, floorPercentile: 0.01, gamma: 0.9, contrastFactor: 1.25, contrastPivot: 150 };
 
 /** Brightness (0-255) below which `percentile` share of the image's pixels lies — the "black point" OWN to this image, not a global constant. */

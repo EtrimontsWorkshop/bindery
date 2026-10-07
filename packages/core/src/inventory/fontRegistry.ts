@@ -1,5 +1,5 @@
 /**
- * Font registry and role ranking (MDD §5.1, F0-Q1, R-16, Step 4 Z2).
+ * Font registry and role ranking.
  *
  * Foundation: embedded fonts DO NOT HAVE bold/italic flags, and weight
  * suffixes vary between foundries in unbounded ways (Autobahn, DwarvenAxeBB,
@@ -58,8 +58,8 @@ export function resolveFontKey(
 }
 
 /**
- * Per-document role ranking from frequency/size — NOT from name parsing (MDD F0-Q1).
- * Starting heuristic from Step 4 (to be calibrated on fixtures, not dogma):
+ * Per-document role ranking from frequency/size — NOT from name parsing.
+ * Starting heuristic (to be calibrated on fixtures, not dogma):
  * - `body`   — the key with the largest share of total glyph count
  * - `heading`— share < 5% and size > 1.2x the body size
  * - `caption`— share < 10% and size < 0.9x the body size

@@ -36,8 +36,8 @@ function splitWith(spanning: TextLine[], columnar: TextLine[] = []): SpanningSpl
   return { spanning, columnar, textBlockWidth: 495 };
 }
 
-describe('repairGutterCrossingLines — falszywe sklejenie (rozetnij)', () => {
-  it('linia z tokenami po obu stronach rynny, ZERO tokenow w rynnie -> rozcieta na dwa fragmenty kolumnowe', () => {
+describe('repairGutterCrossingLines — a false merge (split it)', () => {
+  it('a line with tokens on both sides of the gutter, ZERO tokens in the gutter -> split into two columnar fragments', () => {
     const falseMerge = line('l0', [tok('koniec zdania lewej', 45, 200), tok('poczatek prawej sekcji', 320, 500)]);
     const result = repairGutterCrossingLines(splitWith([falseMerge]), TWO_COLUMNS, 0.9);
     expect(result.splitCount).toBe(1);
@@ -47,7 +47,7 @@ describe('repairGutterCrossingLines — falszywe sklejenie (rozetnij)', () => {
     expect(result.split.columnar[1]!.text).toBe('poczatek prawej sekcji');
   });
 
-  it('id fragmentow niesie powiazanie ze zrodlowa linia (provenance)', () => {
+  it('the fragment ids carry the link to the source line (provenance)', () => {
     const falseMerge = line('p5-0-3', [tok('a', 45, 200), tok('b', 320, 500)]);
     const result = repairGutterCrossingLines(splitWith([falseMerge]), TWO_COLUMNS, 0.9);
     expect(result.split.columnar[0]!.id).toContain('p5-0-3');
@@ -55,9 +55,9 @@ describe('repairGutterCrossingLines — falszywe sklejenie (rozetnij)', () => {
   });
 });
 
-describe('repairGutterCrossingLines — prawdziwa linia rozpinajaca (NIE ruszaj)', () => {
-  it('token OBECNY wewnatrz obszaru rynny -> pozostaje w spanning, bez zmian', () => {
-    // Rynna to 260-310. Token trzeci lezy DOKLADNIE w tym zakresie.
+describe('repairGutterCrossingLines — a true spanning line (do NOT touch)', () => {
+  it('a token PRESENT inside the gutter area -> stays in spanning, unchanged', () => {
+    // The gutter is 260-310. The third token lies EXACTLY in that range.
     const trueSpanning = line('l0', [tok('Naglowek', 45, 200), tok('nad', 270, 295), tok('kolumnami', 320, 500)]);
     const result = repairGutterCrossingLines(splitWith([trueSpanning]), TWO_COLUMNS, 0.9);
     expect(result.splitCount).toBe(0);
@@ -67,37 +67,37 @@ describe('repairGutterCrossingLines — prawdziwa linia rozpinajaca (NIE ruszaj)
   });
 });
 
-describe('repairGutterCrossingLines — bezpiecznik progu ufnosci', () => {
-  it('confidence PONIZEJ progu -> nic nie rozcina, nawet gdy geometria wygladalaby na falszywe sklejenie', () => {
+describe('repairGutterCrossingLines — the confidence-threshold safeguard', () => {
+  it('confidence BELOW the threshold -> splits nothing, even when the geometry would look like a false merge', () => {
     const falseMerge = line('l0', [tok('a', 45, 200), tok('b', 320, 500)]);
     const result = repairGutterCrossingLines(splitWith([falseMerge]), TWO_COLUMNS, 0.5);
     expect(result.splitCount).toBe(0);
     expect(result.split.spanning).toHaveLength(1);
   });
 
-  it('mniej niz 2 kolumny -> nic nie rozcina (brak rynny do przecinania)', () => {
+  it('fewer than 2 columns -> splits nothing (no gutter to cross)', () => {
     const someLine = line('l0', [tok('a', 45, 200), tok('b', 320, 500)]);
     const result = repairGutterCrossingLines(splitWith([someLine]), [{ index: 0, bbox: { minX: 45, minY: 0, maxX: 540, maxY: 792 } }], 1);
     expect(result.splitCount).toBe(0);
   });
 });
 
-describe('repairGutterCrossingLines — inne bezpieczniki', () => {
-  it('brak danych o tokenach (tokens undefined) -> nie tnie (nie zgaduje bez pewnosci)', () => {
+describe('repairGutterCrossingLines — other safeguards', () => {
+  it('no token data (tokens undefined) -> doesn\'t cut (doesn\'t guess without certainty)', () => {
     const noTokenData = line('l0', [tok('a', 45, 200), tok('b', 320, 500)], { tokens: undefined });
     const result = repairGutterCrossingLines(splitWith([noTokenData]), TWO_COLUMNS, 0.9);
     expect(result.splitCount).toBe(0);
     expect(result.split.spanning).toHaveLength(1);
   });
 
-  it('linia NIE przecinajaca zadnej rynny (miesci sie w jednej kolumnie) -> bez zmian', () => {
+  it('a line NOT crossing any gutter (fits in one column) -> unchanged', () => {
     const withinOneColumn = line('l0', [tok('a', 45, 100), tok('b', 110, 200)]);
     const result = repairGutterCrossingLines(splitWith([withinOneColumn]), TWO_COLUMNS, 0.9);
     expect(result.splitCount).toBe(0);
     expect(result.split.spanning).toHaveLength(1);
   });
 
-  it('linie kolumnowe (columnar) pozostaja nietkniete, tylko spanning jest sprawdzane', () => {
+  it('columnar lines stay untouched, only spanning is checked', () => {
     const columnarLine = line('c0', [tok('juz kolumnowa', 45, 200)]);
     const result = repairGutterCrossingLines(splitWith([], [columnarLine]), TWO_COLUMNS, 0.9);
     expect(result.split.columnar).toEqual([columnarLine]);
@@ -105,21 +105,21 @@ describe('repairGutterCrossingLines — inne bezpieczniki', () => {
   });
 });
 
-describe('repairGutterCrossingLines — 3+ kolumny (N rynien)', () => {
+describe('repairGutterCrossingLines — 3+ columns (N gutters)', () => {
   const THREE_COLUMNS: ColumnRegion[] = [
     { index: 0, bbox: { minX: 45, minY: 0, maxX: 180, maxY: 792 } },
     { index: 1, bbox: { minX: 210, minY: 0, maxX: 340, maxY: 792 } },
     { index: 2, bbox: { minX: 370, minY: 0, maxX: 540, maxY: 792 } },
   ];
 
-  it('falszywe sklejenie WSZYSTKICH trzech kolumn -> rozciete na trzy fragmenty', () => {
+  it('a false merge of ALL three columns -> split into three fragments', () => {
     const falseMerge = line('l0', [tok('a', 45, 170), tok('b', 220, 330), tok('c', 380, 500)]);
     const result = repairGutterCrossingLines(splitWith([falseMerge]), THREE_COLUMNS, 0.9);
     expect(result.splitCount).toBe(1);
     expect(result.split.columnar).toHaveLength(3);
   });
 
-  it('token w JEDNEJ z dwoch przecietych rynien -> NIE ruszaj (choc druga rynna jest pusta)', () => {
+  it('a token in ONE of two crossed gutters -> do NOT touch (even though the other gutter is empty)', () => {
     const partialSpanning = line('l0', [tok('a', 45, 170), tok('nad-rynna', 190, 360), tok('c', 380, 500)]);
     const result = repairGutterCrossingLines(splitWith([partialSpanning]), THREE_COLUMNS, 0.9);
     expect(result.splitCount).toBe(0);
@@ -127,8 +127,8 @@ describe('repairGutterCrossingLines — 3+ kolumny (N rynien)', () => {
   });
 });
 
-describe('repairGutterCrossingLines — determinizm', () => {
-  it('dwa wywolania z tymi samymi danymi daja identyczny wynik', () => {
+describe('repairGutterCrossingLines — determinism', () => {
+  it('two calls with the same data give an identical result', () => {
     const falseMerge = line('l0', [tok('a', 45, 200), tok('b', 320, 500)]);
     const r1 = repairGutterCrossingLines(splitWith([falseMerge]), TWO_COLUMNS, 0.9);
     const r2 = repairGutterCrossingLines(splitWith([falseMerge]), TWO_COLUMNS, 0.9);

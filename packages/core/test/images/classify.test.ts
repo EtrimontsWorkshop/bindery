@@ -22,7 +22,7 @@ function pageBoxMap(pages: number[]): Map<number, Rect> {
 }
 
 describe('classifyImages', () => {
-  it('maskEvidence=group -> mask, niezaleznie od czegokolwiek innego', () => {
+  it('maskEvidence=group -> mask, regardless of anything else', () => {
     const e = entry({ maskEvidence: 'group', maxRelativeArea: 0.9, pageRefs: [1, 2, 3] });
     const [result] = classifyImages([e], pageBoxMap([1, 2, 3]));
     expect(result!.classification).toBe('mask');
@@ -35,7 +35,7 @@ describe('classifyImages', () => {
     expect(result!.classification).toBe('mask');
   });
 
-  it('[KROK-15 Z3, A10] obecny na >=5 skorelowanych stronach ORAZ spad drukarski (dwa zgodne sygnaly) -> decoration (U1)', () => {
+  it('present on >=5 correlated pages AND print bleed (two agreeing signals) -> decoration', () => {
     const e = entry({
       pageRefs: [1, 2, 3, 4, 5],
       occurrences: [{ page: 1, bbox: { minX: -20, minY: -20, maxX: 630, maxY: 800 }, index: 0 }],
@@ -45,10 +45,9 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z1-multi-page-correlated');
   });
 
-  it('[KROK-15 Z3, A10] obecny na >=5 skorelowanych stronach BEZ spadu drukarskiego (jeden sygnal) -> undecided, nie decoration', () => {
-    // Prawdziwy przypadek z zestawu referencyjnego kroku 14: mapa regionu
-    // odwolywana w kilku rozdzialach albo symbol frakcji — powtarza sie, ale
-    // NIE jest tlem strony (nie wychodzi poza MediaBox).
+  it('present on >=5 correlated pages WITHOUT print bleed (one signal) -> undecided, not decoration', () => {
+    // A real case from the reference set: a region map referenced in several chapters, or a
+    // faction symbol — it repeats, but is NOT a page background (it doesn't extend past the MediaBox).
     const e = entry({
       pageRefs: [1, 2, 3, 4, 5],
       occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0 }],
@@ -58,10 +57,10 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z11-repeated-no-bleed-evidence');
   });
 
-  it('[zgloszenie uzytkownika, "Archiwa Imperium", pasek-rozdzielacz powtorzony na wielu stronach] obecny na >=5 skorelowanych stronach BEZ spadu, ale ZE skrajnymi proporcjami bboksa (drugi niezalezny sygnal) -> decoration, nie undecided', () => {
+  it('[a divider strip repeated across many pages] present on >=5 correlated pages WITHOUT bleed, but WITH an extreme bbox aspect ratio (a second independent signal) -> decoration, not undecided', () => {
     const e = entry({
       pageRefs: [1, 2, 3, 4, 5, 6],
-      // Waski poziomy pasek (proporcje 400/10=40, >= progu 6) w SRODKU strony — nie dotyka krawedzi MediaBoksa.
+      // A narrow horizontal strip (aspect ratio 400/10=40, >= the threshold 6) in the MIDDLE of the page — doesn't touch the MediaBox edge.
       occurrences: [{ page: 1, bbox: { minX: 100, minY: 400, maxX: 500, maxY: 410 }, index: 0 }],
     });
     const [result] = classifyImages([e], pageBoxMap([1, 2, 3, 4, 5, 6]));
@@ -69,15 +68,15 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z14-repeated-extreme-aspect-ratio');
   });
 
-  it('[KROK-15 Z3] obecny na 2-4 skorelowanych stronach (ponizej nowego progu 5) w ogole NIE wpada w te regule — spada dalej do zwyklej klasyfikacji', () => {
+  it('present on 2-4 correlated pages (below the new threshold 5) does NOT fall into this rule at all — it falls through to the ordinary classification', () => {
     const e = entry({ pageRefs: [1, 2, 3, 4], maxRelativeArea: 0.02 });
     const [result] = classifyImages([e], pageBoxMap([1, 2, 3, 4]));
     expect(result!.reason).not.toBe('Z1-multi-page-correlated');
     expect(result!.reason).not.toBe('Z11-repeated-no-bleed-evidence');
   });
 
-  it('[U1] rozbity objId (pageRefs=[1] i pageRefs=[2..6]) scalony przez correlatedWith liczy sie jako wielostronicowy (>=5 po scaleniu)', () => {
-    const first = entry({ objId: 'imgA', pageRefs: [1] }); // "pierwsze wystapienie" — samo w sobie wyglada jak tresc jednostronicowa
+  it('a split objId (pageRefs=[1] and pageRefs=[2..6]) merged through correlatedWith counts as multi-page (>=5 after the merge)', () => {
+    const first = entry({ objId: 'imgA', pageRefs: [1] }); // "first occurrence" — on its own it looks like single-page content
     const rest = entry({
       objId: 'imgB',
       correlatedWith: 'imgA',
@@ -95,25 +94,25 @@ describe('classifyImages', () => {
     expect(restResult!.reason).toBe('Z11-repeated-no-bleed-evidence');
   });
 
-  it('duza powierzchnia strony (>=40%) -> content', () => {
+  it('a large page area (>=40%) -> content', () => {
     const e = entry({ maxRelativeArea: 0.55 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('content');
     expect(result!.reason).toBe('Z1-large-relative-area');
   });
 
-  it('[KROK-15 Z3, A10] bbox wychodzacy poza MediaBox ORAZ tekst NA SRODKU (dwa zgodne sygnaly) -> decoration, mimo duzej powierzchni', () => {
+  it('a bbox extending past the MediaBox AND text IN THE MIDDLE (two agreeing signals) -> decoration, despite a large area', () => {
     const e = entry({
       maxRelativeArea: 0.95,
       occurrences: [{ page: 1, bbox: { minX: -20, minY: -20, maxX: 630, maxY: 800 }, index: 0 }],
     });
-    const bodyBoxes = new Map([[1, [{ minX: 0, minY: 0, maxX: 612, maxY: 792 }]]]); // tekst pokrywa cala strone -> pokrycie centralne wysokie
+    const bodyBoxes = new Map([[1, [{ minX: 0, minY: 0, maxX: 612, maxY: 792 }]]]); // text covers the whole page -> high central coverage
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
     expect(result!.classification).toBe('decoration');
     expect(result!.reason).toBe('Z1-full-bleed-background');
   });
 
-  it('[na zyczenie uzytkownika] ten sam przypadek co wyzej, ale z options.treatFullBleedAsContent=true -> content zamiast decoration', () => {
+  it('[at the user\'s request] the same case as above, but with options.treatFullBleedAsContent=true -> content instead of decoration', () => {
     const e = entry({
       maxRelativeArea: 0.95,
       occurrences: [{ page: 1, bbox: { minX: -20, minY: -20, maxX: 630, maxY: 800 }, index: 0 }],
@@ -124,7 +123,7 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z1-full-bleed-forced-content');
   });
 
-  it('[na zyczenie uzytkownika] domyslnie (options pominiete) zachowanie identyczne jak przed flaga — nadal decoration', () => {
+  it('[at the user\'s request] by default (options omitted) the behavior is identical to before the flag — still decoration', () => {
     const e = entry({
       maxRelativeArea: 0.95,
       occurrences: [{ page: 1, bbox: { minX: -20, minY: -20, maxX: 630, maxY: 800 }, index: 0 }],
@@ -135,35 +134,35 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z1-full-bleed-background');
   });
 
-  it('[KROK-15 Z3, A10] bbox wychodzacy poza MediaBox BEZ tekstu na srodku (jeden sygnal) -> undecided, nie decoration', () => {
-    // Prawdziwy przypadek z zestawu referencyjnego kroku 14: pelnostronicowa
-    // mapa/ilustracja rozkladowkowa tez legalnie wychodzi poza spad.
+  it('a bbox extending past the MediaBox WITHOUT text in the middle (one signal) -> undecided, not decoration', () => {
+    // A real case from the reference set: a full-page map/spread illustration legitimately
+    // extends past the bleed too.
     const e = entry({
       maxRelativeArea: 0.95,
       occurrences: [{ page: 1, bbox: { minX: -20, minY: -20, maxX: 630, maxY: 800 }, index: 0 }],
     });
-    const [result] = classifyImages([e], pageBoxMap([1])); // brak bodyBoxesByPage -> centerTextCoverage=0
+    const [result] = classifyImages([e], pageBoxMap([1])); // no bodyBoxesByPage -> centerTextCoverage=0
     expect(result!.classification).toBe('undecided');
     expect(result!.reason).toBe('Z12-bleeding-no-center-text-evidence');
   });
 
-  it('maskEvidence=geometry (slaby dowod) bez innych sygnalow -> undecided, nie decyduje samodzielnie', () => {
+  it('maskEvidence=geometry (weak evidence) with no other signals -> undecided, doesn\'t decide on its own', () => {
     const e = entry({ maskEvidence: 'geometry', maxRelativeArea: 0.02 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('undecided');
     expect(result!.reason).toBe('Z1-weak-geometry-mask-evidence');
   });
 
-  it('maskEvidence=geometry SPRZECZNY z duza powierzchnia, ale MALY bbox bezwzgledny -> undecided (sprzeczne sygnaly, nie zgaduj)', () => {
-    // Domyslny bbox z helpera `entry()` to 100x100pt — ponizej LARGE_ABSOLUTE_SIZE_PT (300pt),
-    // wiec regula nadrzedna Z2 (KROK-8) NIE powinna sie tu wlaczyc.
+  it('maskEvidence=geometry CONTRADICTING a large area, but a SMALL absolute bbox -> undecided (conflicting signals, don\'t guess)', () => {
+    // The default bbox from the `entry()` helper is 100x100pt — below LARGE_ABSOLUTE_SIZE_PT (300pt),
+    // so the overriding rule Z2 should NOT kick in here.
     const e = entry({ maskEvidence: 'geometry', maxRelativeArea: 0.5 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('undecided');
     expect(result!.reason).toBe('Z1-conflicting-geometry-mask-vs-large-area');
   });
 
-  it('[KROK-8 Z2] maskEvidence=geometry, ale DUZA powierzchnia WZGLEDNA i DUZY bbox BEZWZGLEDNY -> content (silne sygnaly przebijaja slaby dowod)', () => {
+  it('maskEvidence=geometry, but a LARGE RELATIVE area and a LARGE ABSOLUTE bbox -> content (strong signals override weak evidence)', () => {
     const e = entry({
       maskEvidence: 'geometry',
       maxRelativeArea: 0.5,
@@ -174,29 +173,29 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z2-strong-content-overrides-weak-geometry-evidence');
   });
 
-  it('[KROK-8 Z2] brak dowodu maskowania + umiarkowana powierzchnia (>=10%, <40%) -> content, nie undecided', () => {
+  it('no mask evidence + a moderate area (>=10%, <40%) -> content, not undecided', () => {
     const e = entry({ maskEvidence: null, maxRelativeArea: 0.15 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('content');
     expect(result!.reason).toBe('Z2-moderate-area-no-mask-evidence');
   });
 
-  it('[KROK-8 Z2] brak dowodu maskowania, ale powierzchnia PONIZEJ progu umiarkowanego (<10%) -> nadal undecided', () => {
+  it('no mask evidence, but the area BELOW the moderate threshold (<10%) -> still undecided', () => {
     const e = entry({ maskEvidence: null, maxRelativeArea: 0.05 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('undecided');
     expect(result!.reason).toBe('Z1-no-strong-signal');
   });
 
-  it('brak jakiegokolwiek mocnego sygnalu -> undecided', () => {
+  it('no strong signal at all -> undecided', () => {
     const e = entry({ maxRelativeArea: 0.01 });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('undecided');
     expect(result!.reason).toBe('Z1-no-strong-signal');
   });
 
-  it('[KROK-17, zgloszony na zywo blad; KROK-43 Z1, naprawa "cicha utrata"] waski pasek-rozdzielacz (proporcje >=6:1, mala powierzchnia) -> undecided, NIE decoration (A5/A10: musi przejsc przez przeglad)', () => {
-    // Rzeczywisty przypadek: motyw macek pod naglowkiem, CHA23131 str. 7 (962x84pt).
+  it('a narrow divider strip (aspect ratio >=6:1, a small area) -> undecided, NOT decoration (it must go through the review)', () => {
+    // A real case: a tentacle motif under a heading, p. 7 of a quick-start PDF (962x84pt).
     const e = entry({
       maxRelativeArea: 0.044,
       occurrences: [{ page: 1, bbox: { minX: 60, minY: 654, maxX: 542, maxY: 697 }, index: 0 }], // 482x43pt ~= 11,2:1
@@ -206,7 +205,7 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z13-extreme-aspect-ratio-undecided');
   });
 
-  it('[KROK-17] proporcje ekstremalne, ale PONIZEJ progu (5:1) -> nie wpada w regule paska-rozdzielacza', () => {
+  it('an extreme aspect ratio, but BELOW the threshold (5:1) -> doesn\'t fall into the divider-strip rule', () => {
     const e = entry({
       maxRelativeArea: 0.044,
       occurrences: [{ page: 1, bbox: { minX: 0, minY: 0, maxX: 250, maxY: 50 }, index: 0 }], // 5:1
@@ -215,23 +214,23 @@ describe('classifyImages', () => {
     expect(result!.reason).not.toBe('Z13-extreme-aspect-ratio-undecided');
   });
 
-  it('[KROK-17] proporcje ekstremalne, ale DUZA powierzchnia wzgledna -> content nadal wygrywa (nie nadpisuje silnego sygnalu)', () => {
+  it('an extreme aspect ratio, but a LARGE relative area -> content still wins (doesn\'t override a strong signal)', () => {
     const e = entry({
       maxRelativeArea: 0.5,
-      occurrences: [{ page: 1, bbox: { minX: 0, minY: 300, maxX: 612, maxY: 400 }, index: 0 }], // szeroki banner, ale duzy % strony
+      occurrences: [{ page: 1, bbox: { minX: 0, minY: 300, maxX: 612, maxY: 400 }, index: 0 }], // a wide banner, but a large % of the page
     });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('content');
     expect(result!.reason).toBe('Z1-large-relative-area');
   });
 
-  it('wpis inline (objId=null) liczy strony po WLASNYCH pageRefs, nie po korelacji', () => {
+  it('an inline entry (objId=null) counts pages by its OWN pageRefs, not by correlation', () => {
     const e = entry({ objId: null, pageRefs: [1] });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).not.toBe('decoration');
   });
 
-  it('determinizm: dwa wywolania z tymi samymi danymi daja identyczny wynik', () => {
+  it('determinism: two calls with the same data give an identical result', () => {
     const entries = [
       entry({ objId: 'a', maskEvidence: 'group' }),
       entry({ objId: 'b', pageRefs: [1, 2] }),
@@ -243,11 +242,10 @@ describe('classifyImages', () => {
   });
 });
 
-describe('classifyImages — [KROK-9 Z2] pokrycie tekstem body', () => {
-  it('obraz calkowicie pokryty blokiem body (teksturowane tlo z akapitami) -> decoration, mimo umiarkowanej powierzchni', () => {
-    // img_p14_5 (Wrath & Glory) — nierozstrzygniety w kroku 8 przez statystyke
-    // pikseli (stddev/chroma/gradient nie odrozniaja teksturowanego tla od
-    // prawdziwej ilustracji). Ten sam bbox co domyslny z helpera `entry()`.
+describe('classifyImages — body text coverage', () => {
+  it('an image entirely covered by a body block (a textured background with paragraphs) -> decoration, despite a moderate area', () => {
+    // A case left undecided by pixel statistics (stddev/chroma/gradient don't tell a textured
+    // background from a real illustration). The same bbox as the default from the `entry()` helper.
     const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
     const bodyBoxes = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
@@ -255,29 +253,29 @@ describe('classifyImages — [KROK-9 Z2] pokrycie tekstem body', () => {
     expect(result!.reason).toBe('Z9-high-body-text-coverage');
   });
 
-  it('obraz z jedynie waskim podpisem na sobie (niskie pokrycie) -> NIE decoration przez ten sygnal', () => {
+  it('an image with only a narrow caption on it (low coverage) -> NOT decoration through this signal', () => {
     const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
-    // Podpis - waski pasek u dolu bboxa obrazu, pokrywa <15% powierzchni.
+    // A caption — a narrow strip at the bottom of the image bbox, covering <15% of its area.
     const bodyBoxes = new Map([[1, [{ minX: 100, minY: 195, maxX: 200, maxY: 200 }]]]);
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
     expect(result!.reason).not.toBe('Z9-high-body-text-coverage');
-    expect(result!.classification).toBe('content'); // wraca do Z2-moderate-area-no-mask-evidence
+    expect(result!.classification).toBe('content'); // falls back to Z2-moderate-area-no-mask-evidence
   });
 
-  it('brak blokow body na tej stronie -> sygnal nieaktywny (0 pokrycia)', () => {
+  it('no body blocks on this page -> the signal is inactive (0 coverage)', () => {
     const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
     const [result] = classifyImages([e], pageBoxMap([1]), new Map());
     expect(result!.reason).not.toBe('Z9-high-body-text-coverage');
   });
 
-  it('domyslny parametr (brak trzeciego argumentu) zachowuje zachowanie sprzed Z2', () => {
+  it('the default parameter (no third argument) keeps the behavior from before this signal', () => {
     const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('content');
     expect(result!.reason).toBe('Z2-moderate-area-no-mask-evidence');
   });
 
-  it('wysokie pokrycie tekstem przebija nawet duza powierzchnie wzgledna (>=0.4)', () => {
+  it('a high text coverage overrides even a large relative area (>=0.4)', () => {
     const e = entry({ maxRelativeArea: 0.9, maskEvidence: null });
     const bodyBoxes = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
@@ -285,18 +283,17 @@ describe('classifyImages — [KROK-9 Z2] pokrycie tekstem body', () => {
     expect(result!.reason).toBe('Z9-high-body-text-coverage');
   });
 
-  it('[kontrola reczna, false positive] obraz o DUZYM rozmiarze bezwzglednym (>=300pt) NIE jest degradowany mimo wysokiego pokrycia AGREGATOWEGO — tekst przy KRAWEDZI (srodek czysty) to prawdziwa ilustracja, nie tlo', () => {
+  it('[a manual check, false positive] an image of a LARGE absolute size (>=300pt) is NOT demoted despite a high AGGREGATE coverage — text at the EDGE (a clean center) is a real illustration, not a background', () => {
     const e = entry({
       maxRelativeArea: 0.22,
       maskEvidence: null,
-      occurrences: [{ page: 1, bbox: { minX: 0, minY: 0, maxX: 100, maxY: 350 }, index: 0 }], // dluzsza krawedz 350pt >= 300pt
+      occurrences: [{ page: 1, bbox: { minX: 0, minY: 0, maxX: 100, maxY: 350 }, index: 0 }], // the longer edge 350pt >= 300pt
     });
-    // [KROK-14 H1] Dwa waskie pasy PRZY KRAWEDZIACH (lewej/prawej), srodek bboksa
-    // czysty — geometria prawdziwego "tekst oplywa portret" (nie test sprzed H1,
-    // ktory mial JEDEN blok pokrywajacy niemal cala gore obrazu WLACZNIE ze
-    // srodkiem — to byl w rzeczywistosci przypadek, ktory H1 ma SLUSZNIE zlapac,
-    // patrz test nizej). Pokrycie AGREGATOWE nadal wysokie (30%, > progu 0.15),
-    // ale pokrycie CENTRALNE bliskie zeru.
+    // Two narrow strips AT THE EDGES (left/right), the center of the bbox clean — the geometry of a
+    // real "text flows around a portrait" (not the earlier test, which had ONE block covering almost
+    // the whole top of the image INCLUDING the center — that was in fact a case the check should
+    // RIGHTLY catch, see the test below). AGGREGATE coverage is still high (30%, > the 0.15
+    // threshold), but CENTRAL coverage is close to zero.
     const bodyBoxes = new Map([
       [1, [
         { minX: 0, minY: 0, maxX: 15, maxY: 350 },
@@ -309,15 +306,15 @@ describe('classifyImages — [KROK-9 Z2] pokrycie tekstem body', () => {
     expect(result!.classification).toBe('content');
   });
 
-  it('[KROK-14 H1] obraz o DUZYM rozmiarze bezwzglednym z tekstem NA SRODKU (nie przy krawedzi) -> undecided, nie content — to jest prawdziwe tlo, ktore stary kod (bez H1) mylnie przepuszczal', () => {
+  it('an image of a LARGE absolute size with text IN THE MIDDLE (not at the edge) -> undecided, not content — this is a real background, which the old code (without the center check) wrongly let through', () => {
     const e = entry({
       maxRelativeArea: 0.22,
       maskEvidence: null,
       occurrences: [{ page: 1, bbox: { minX: 0, minY: 0, maxX: 100, maxY: 350 }, index: 0 }],
     });
-    // Ten sam bbox i to samo pokrycie AGREGATOWE (86%) co dawny test, ale tym
-    // razem blok tekstu faktycznie SIEGA centrum bboksa (gorne 300 z 350pt, pelna
-    // szerokosc) — dokladnie przypadek "tlo z akapitem POSRODKU" z komentarza przy
+    // The same bbox and the same AGGREGATE coverage (86%) as the earlier test, but this time the
+    // text block actually REACHES the center of the bbox (the top 300 of 350pt, full width) —
+    // exactly the "background with a paragraph IN THE MIDDLE" case from the comment at
     // `maxCenterTextCoverageRatio`.
     const bodyBoxes = new Map([[1, [{ minX: 0, minY: 0, maxX: 100, maxY: 300 }]]]);
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
@@ -326,8 +323,8 @@ describe('classifyImages — [KROK-9 Z2] pokrycie tekstem body', () => {
   });
 });
 
-describe('classifyImages — [KROK-11 Z4] confidence wypelnione i spojne z reason', () => {
-  it('kazdy wynik classifyImages ma confidence w [0,1] rowne confidenceForReason(reason)', () => {
+describe('classifyImages — confidence filled in and consistent with reason', () => {
+  it('every classifyImages result has a confidence in [0,1] equal to confidenceForReason(reason)', () => {
     const entries = [
       entry({ maskEvidence: 'group' }),
       entry({ maxRelativeArea: 0.9, maskEvidence: null }),
@@ -342,12 +339,12 @@ describe('classifyImages — [KROK-11 Z4] confidence wypelnione i spojne z reaso
     }
   });
 
-  it('twardy dowod maski -> wysoka pewnosc (>=0.9)', () => {
+  it('hard mask evidence -> high confidence (>=0.9)', () => {
     const [result] = classifyImages([entry({ maskEvidence: 'opcode' })], pageBoxMap([1]));
     expect(result!.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
-  it('[KROK-11 Z4] jedyny przypadek content PONIZEJ progu 0.6 z briefu: Z2-moderate-area-no-mask-evidence', () => {
+  it('the only content case BELOW the 0.6 threshold: Z2-moderate-area-no-mask-evidence', () => {
     const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.reason).toBe('Z2-moderate-area-no-mask-evidence');
@@ -355,14 +352,14 @@ describe('classifyImages — [KROK-11 Z4] confidence wypelnione i spojne z reaso
     expect(result!.confidence).toBeLessThan(0.6);
   });
 
-  it('undecided (brak silnego sygnalu) -> zawsze ponizej 0.6', () => {
+  it('undecided (no strong signal) -> always below 0.6', () => {
     const e = entry({ maxRelativeArea: 0.01, maskEvidence: null });
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('undecided');
     expect(result!.confidence).toBeLessThan(0.6);
   });
 
-  it('confidenceForReason zwraca domyslna wartosc dla nierozpoznanego reason (bezpieczne dla przyszlych regul)', () => {
+  it('confidenceForReason returns a default value for an unrecognized reason (safe for future rules)', () => {
     expect(confidenceForReason('some-future-rule-not-yet-mapped')).toBe(0.5);
   });
 });

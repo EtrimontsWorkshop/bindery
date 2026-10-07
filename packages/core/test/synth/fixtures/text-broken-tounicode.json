@@ -1,6 +1,6 @@
 {
   "id": "text-broken-tounicode",
-  "description": "ToUnicode mapuje kazda litere na Private Use Area (E000+) zamiast na siebie — symulacja uszkodzonego ToUnicode z realnych PDF-ow.",
+  "description": "ToUnicode maps every letter to the Private Use Area (E000+) instead of itself — a simulation of a broken ToUnicode from real PDFs.",
   "targetPhase": 1,
   "claims": {
     "pageCount": 1,
@@ -8,6 +8,6 @@
     "unicodeConfidence": { "max": 0.3 }
   },
   "expected": {
-    "note": "Detektor jakosci (src/quality.ts) musi zaklasyfikowac ten dokument jako UNICODE_BROKEN (unicodeConfidence < 0.5, MDD §6.2)."
+    "note": "The quality detector (src/quality.ts) must classify this document as UNICODE_BROKEN (unicodeConfidence < 0.5)."
   }
 }

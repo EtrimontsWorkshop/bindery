@@ -19,31 +19,31 @@ function entry(overrides: Partial<ImageEntry> = {}): ImageEntry {
 }
 
 describe('decideExtractionStrategy', () => {
-  it('pojedynczy obraz, brak maski, brak klastra -> direct', () => {
+  it('a single image, no mask, no cluster -> direct', () => {
     const decision = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 1 });
     expect(decision.strategy).toBe('direct');
     expect(decision.reason).toBe('Z2-single-clean-image');
   });
 
-  it('obraz z maska -> region-render (bezposrednia ekstrakcja dalaby wersje bez maski)', () => {
+  it('an image with a mask -> region-render (direct extraction would give a version without the mask)', () => {
     const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1 });
     expect(decision.strategy).toBe('region-render');
     expect(decision.reason).toBe('Z2-masked-direct-would-omit-mask');
   });
 
-  it('klaster nakladajacych sie obrazow -> region-render (kompozycja to tresc)', () => {
+  it('a cluster of overlapping images -> region-render (the composition is the content)', () => {
     const decision = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 4 });
     expect(decision.strategy).toBe('region-render');
     expect(decision.reason).toBe('Z2-cluster-composition-is-content');
   });
 
-  it('brak obrazu (region czysto wektorowy) -> region-render', () => {
+  it('no image (a purely vector region) -> region-render', () => {
     const decision = decideExtractionStrategy({ entry: null, isMasked: false, clusterMemberCount: 1 });
     expect(decision.strategy).toBe('region-render');
     expect(decision.reason).toBe('Z2-vector-only-no-image');
   });
 
-  it('maska ma pierwszenstwo nad klastrem, gdy oba sygnaly obecne', () => {
+  it('the mask takes precedence over the cluster when both signals are present', () => {
     const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 3 });
     expect(decision.strategy).toBe('region-render');
     expect(decision.reason).toBe('Z2-masked-direct-would-omit-mask');
@@ -51,7 +51,7 @@ describe('decideExtractionStrategy', () => {
 });
 
 describe('computeMaskedObjIds', () => {
-  it('zbiera objId z masksImageObjId TYLKO dla wpisow z twardym dowodem maski', () => {
+  it('collects the objId from masksImageObjId ONLY for entries with hard mask evidence', () => {
     const maskEntry = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'target1' });
     const weakEvidenceEntry = entry({ objId: 'mask2', maskEvidence: 'geometry', masksImageObjId: 'target2' });
     const result = computeMaskedObjIds([maskEntry, weakEvidenceEntry]);
@@ -59,14 +59,14 @@ describe('computeMaskedObjIds', () => {
     expect(result.has('target2')).toBe(false);
   });
 
-  it('pusty zbior gdy brak wpisow maskujacych', () => {
+  it('an empty set when there are no masking entries', () => {
     const result = computeMaskedObjIds([entry()]);
     expect(result.size).toBe(0);
   });
 });
 
 describe('computeClusterMemberCounts', () => {
-  it('wpisy dzielace clusterId licza sie razem, wliczajac siebie', () => {
+  it('entries sharing a clusterId count together, including themselves', () => {
     const a = entry({ objId: 'a', clusterId: 'p1-c0' });
     const b = entry({ objId: 'b', clusterId: 'p1-c0' });
     const c = entry({ objId: 'c', clusterId: 'p1-c0' });
@@ -76,7 +76,7 @@ describe('computeClusterMemberCounts', () => {
     expect(result.get(c)).toBe(3);
   });
 
-  it('wpis bez clusterId lub jedyny w swoim klastrze liczy sie jako 1', () => {
+  it('an entry without a clusterId, or the only one in its cluster, counts as 1', () => {
     const solo = entry({ objId: 'solo', clusterId: 'p1-c1' });
     const noCluster = entry({ objId: 'nc', clusterId: undefined });
     const result = computeClusterMemberCounts([solo, noCluster]);

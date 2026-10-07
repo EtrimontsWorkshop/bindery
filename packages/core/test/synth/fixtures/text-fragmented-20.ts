@@ -7,12 +7,12 @@ import { embedFont, asciiIdentityMap } from '../fonts.js';
 const FONT_PATH = join(import.meta.dirname, '..', 'assets', 'fonts', 'Lato-Regular.ttf');
 
 const WHOLE_WORDS = Array.from({ length: 40 }, (_, i) => `word${i}`);
-const SINGLE_CHARS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']; // 10 znakow
+const SINGLE_CHARS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']; // 10 characters
 
 /**
- * ~20% itemow krotszych niz 3 znaki — dolny kraniec zakresu ze spike'u fazy 0
- * (Q6: 20-76%). Kazdy token dostaje wlasny wiersz (patrz text-fragmented-75.ts —
- * unika syntetycznych itemow spacji miedzy tokenami na tej samej linii).
+ * ~20% of items shorter than 3 characters — the lower end of the range from the initial spike
+ * (20-76%). Every token gets its own row (see text-fragmented-75.ts — it avoids synthetic space
+ * items between tokens on the same line).
  */
 export function build(): Buffer {
   const writer = new PdfWriter();

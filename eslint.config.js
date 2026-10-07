@@ -10,41 +10,39 @@ export default tseslint.config(
       '**/node_modules/**',
       'spike/**',
       'samples/**',
-      // Artefakty builda zsynchronizowane do korzenia repo (ten katalog jest
-      // tez folderem modulu lokalnej instalacji Foundry) — zrodlo to packages/module/*.
+      // Build artifacts synchronized into the repo root (this directory is also the module folder of
+      // the local Foundry install) — the source is packages/module/*.
       'lib/**',
       'scripts/**',
       'styles/**',
       'templates/**',
-      // [redesign 2a] Prototyp projektowy dostarczony jako referencja HTML/JS
-      // (design_handoff_bindery_redesign/README.md: "nie kod produkcyjny do
-      // skopiowania") — nigdy nie jest importowany ani budowany przez modul,
-      // wiec nie powinien blokowac `npm run lint` wlasnymi bledami `no-undef`
-      // (globalne przegladarkowe API bez `/* global */`, pisane pod otwarcie
-      // bezposrednio w przegladarce, nie pod ESLint tego repo).
+      // A design prototype delivered as an HTML/JS reference (not production code to copy) — never
+      // imported or built by the module, so it must not block `npm run lint` with its own `no-undef`
+      // errors (browser globals without `/* global */`, written to be opened directly in a browser,
+      // not for this repo's ESLint).
       'design_handoff_bindery_redesign/**',
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    // Prefiks "_" oznacza swiadomie nieuzywany parametr (np. zgodnosc z sygnatura
-    // interfejsu) — konwencja powszechna, nie blad.
+    // A "_" prefix marks a deliberately unused parameter (e.g. conforming to an interface
+    // signature) — a common convention, not an error.
     rules: {
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
   {
-    // Skrypty Node CLI (check-boundary, check-size, package-module) — nie kod przegladarki/core.
+    // Node CLI scripts (check-boundary, check-size, package-module) — not browser/core code.
     files: ['**/scripts/**/*.mjs', 'tools/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
     },
   },
   {
-    // Warstwa Foundry (packages/module) — kod przegladarki + globalne API Foundry
-    // (typy pochodza z fvtt-types, ale ESLint sam potrzebuje wlasnej listy globali
-    // do reguly no-undef, bo nie czyta plikow .d.ts).
+    // The Foundry layer (packages/module) — browser code + Foundry's global API (the types come
+    // from fvtt-types, but ESLint needs its own list of globals for the no-undef rule, because it
+    // doesn't read .d.ts files).
     files: ['packages/module/src/**/*.ts'],
     languageOptions: {
       globals: {
@@ -59,30 +57,28 @@ export default tseslint.config(
     },
   },
   {
-    // Generator fixture'ow i harness samokontroli (KROK-3-fixtures.md) — duck-typing
-    // intensywny wobec pdfjs-dist (typy generyczne/niepelne). "Struktura ma znaczenie,
-    // testy generatora — nie" (KROK-3-fixtures.md) — to jest infrastruktura testowa,
-    // nie kod produkcyjny packages/core/src.
+    // Fixture generator and self-check harness — heavy duck-typing against pdfjs-dist (generic/
+    // incomplete types). This is test infrastructure, not production code of packages/core/src.
     files: ['packages/core/test/synth/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {
-    // Bramka A1 / ryzyko I2: packages/core NIE MOZE odwolywac sie do globali Foundry
-    // ani importowac niczego z packages/module. Zobacz packages/core/scripts/check-boundary.mjs
-    // dla weryfikacji drugiego stopnia (skan zbudowanego bundla), bo lint mozna ominac
-    // globalThis['game'] itp. — bundle-scan jest ostatecznym slowem.
+    // packages/core MUST NOT reference Foundry globals or import anything from packages/module.
+    // See packages/core/scripts/check-boundary.mjs for the second-level check (a scan of the built
+    // bundle), because lint can be bypassed with globalThis['game'] etc. — the bundle scan has the
+    // last word.
     files: ['packages/core/src/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',
-        { name: 'game', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
-        { name: 'ui', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
-        { name: 'canvas', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
-        { name: 'Hooks', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
-        { name: 'foundry', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
-        { name: 'CONFIG', message: 'packages/core nie moze znac Foundry (zalozenie A1)' },
+        { name: 'game', message: 'packages/core must not know Foundry' },
+        { name: 'ui', message: 'packages/core must not know Foundry' },
+        { name: 'canvas', message: 'packages/core must not know Foundry' },
+        { name: 'Hooks', message: 'packages/core must not know Foundry' },
+        { name: 'foundry', message: 'packages/core must not know Foundry' },
+        { name: 'CONFIG', message: 'packages/core must not know Foundry' },
       ],
       'no-restricted-imports': [
         'error',
@@ -90,7 +86,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ['**/packages/module/**', '@bindery/module', '@bindery/module/*'],
-              message: 'packages/core nie moze importowac niczego z packages/module (zalozenie A1)',
+              message: 'packages/core must not import anything from packages/module',
             },
           ],
         },
