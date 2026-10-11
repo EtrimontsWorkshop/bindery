@@ -1,3 +1,17 @@
+## [0.3.0]
+
+### Added
+
+- **A public API for statblock profiles** (`game.modules.get('bindery-pdf-importer').api.statblock`): list, read, save, delete and export profiles, introspect an Actor's fields, and use the detection and extraction functions that run a profile. It lets a separate module author profiles without duplicating any of Bindery's import logic.
+- **A "Statblock profiles" window** (Settings → Bindery) to see the profiles available in the world, import one from a `.json` file, export it, or delete it.
+
+### Changed
+
+- **The profile builder is no longer part of this repository.** Creating and editing profiles moves to a separate module; Bindery keeps everything needed to run a profile.
+- Comments, test titles and the messages printed by the build scripts are now in English.
+
+Statblock import is still switched off in every released build, so none of this changes what you can do with PDF import today.
+
 ## [0.2.6]
 
 ### Changed
