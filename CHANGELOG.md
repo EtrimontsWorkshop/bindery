@@ -1,3 +1,9 @@
+## [0.3.1]
+
+### Fixed
+
+- **PDF analysis no longer fails when something else on the page has frozen `Math`.** With some combinations of modules or browser extensions, analyzing a PDF failed with "Cannot define property sumPrecise, object is not extensible" because the PDF library tries to add a missing `Math.sumPrecise` to a locked-down `Math`. Bindery now loads the library with a temporary stand-in in that situation (and logs a warning in the console), so the import works; nothing changes when `Math` is intact.
+
 ## [0.3.0]
 
 ### Added

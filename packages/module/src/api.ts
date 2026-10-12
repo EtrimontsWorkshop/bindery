@@ -1,4 +1,5 @@
 import { ASSET_BASE_URL } from './settings.js';
+import { loadCore } from './loadCore.js';
 import { buildStatblockAPI, type StatblockAPI } from './statblock/api.js';
 import { STATBLOCK_IMPORT_ENABLED } from './statblock/enabled.js';
 
@@ -38,7 +39,7 @@ export function buildAPI(version: string): BinderyAPI {
     version,
     ...(STATBLOCK_IMPORT_ENABLED ? { statblock: buildStatblockAPI() } : {}),
     async inspectDocument(data: ArrayBuffer) {
-      const { inspectDocument } = await import('@bindery/core');
+      const { inspectDocument } = await loadCore();
       return inspectDocument(data, { assetBaseUrl: ASSET_BASE_URL });
     },
   };
@@ -61,7 +62,7 @@ export function buildAPI(version: string): BinderyAPI {
  * `packages/core` has already recognized as unambiguous content.
  */
 export async function extractImagesForReview(data: ArrayBuffer, opts: { signal?: AbortSignal } = {}): Promise<ExtractedImagePreview[]> {
-  const { extractImagesFromDocument } = await import('@bindery/core');
+  const { extractImagesFromDocument } = await loadCore();
   const result = await extractImagesFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, signal: opts.signal });
 
   return result.images
@@ -108,7 +109,7 @@ export async function buildJournalsForReview(
   fileName: string,
   opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<CIFBuildResult> {
-  const { buildCIFFromDocument } = await import('@bindery/core');
+  const { buildCIFFromDocument } = await loadCore();
   const fileHash = await hashArrayBuffer(data);
   const result = await buildCIFFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, fileName, fileHash, signal: opts.signal, onProgress: opts.onProgress });
   return {
@@ -128,6 +129,6 @@ export async function buildJournalsForReview(
  * screen closes.
  */
 export async function openPreviewForReview(data: ArrayBuffer): Promise<import('@bindery/core').PreviewDocument> {
-  const { openPreviewDocument } = await import('@bindery/core');
+  const { openPreviewDocument } = await loadCore();
   return openPreviewDocument(data, { assetBaseUrl: ASSET_BASE_URL });
 }

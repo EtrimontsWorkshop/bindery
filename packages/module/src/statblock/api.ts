@@ -1,4 +1,5 @@
 import type { Diagnostic, StatblockProfile } from '@bindery/core';
+import { loadCore } from '../loadCore.js';
 import { formatDiagnostic } from '../i18n.js';
 import { ASSET_BASE_URL } from '../settings.js';
 
@@ -85,7 +86,7 @@ export function buildStatblockAPI(): StatblockAPI {
       list: async () => (await store()).listProfiles(),
       get: async (id) => (await store()).getProfile(id),
       async save(raw) {
-        const { migrateProfileData, validateProfile } = await import('@bindery/core');
+        const { migrateProfileData, validateProfile } = await loadCore();
         const migrated = migrateProfileData(raw);
         if (!migrated.ok) return { ok: false, issues: [migrated.issue] };
         const result = validateProfile(migrated.data);
@@ -100,7 +101,7 @@ export function buildStatblockAPI(): StatblockAPI {
       introspectInstance: async (...args) => (await import('./schema/introspectActor.js')).introspectDocumentInstance(...args),
     },
     async engine() {
-      const core = await import('@bindery/core');
+      const core = await loadCore();
       return Object.fromEntries(ENGINE_EXPORTS.map((name) => [name, core[name]])) as StatblockEngine;
     },
   };

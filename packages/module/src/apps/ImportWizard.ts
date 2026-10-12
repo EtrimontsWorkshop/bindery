@@ -1,4 +1,5 @@
 import { ASSET_BASE_URL } from '../settings.js';
+import { loadCore } from '../loadCore.js';
 import { buildJournalsForReview, openPreviewForReview, type CIFBuildResult } from '../api.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -181,7 +182,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#fileBuffer = await this.#selectedFile.arrayBuffer();
       // Dynamic import — only now does pdf.js (and @bindery/core, which uses
       // it) actually get loaded. Risk I3.
-      const { inspectDocument } = await import('@bindery/core');
+      const { inspectDocument } = await loadCore();
       const summary = await inspectDocument(this.#fileBuffer, { assetBaseUrl: ASSET_BASE_URL });
       this.#state.status = 'done';
       this.#state.summary = summary;
