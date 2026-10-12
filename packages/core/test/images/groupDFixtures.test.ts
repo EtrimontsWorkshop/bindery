@@ -17,6 +17,7 @@ import { build as buildExtractAnchorLooseFragment } from '../synth/fixtures/extr
 import { build as buildExtractSharedResourceMultipage } from '../synth/fixtures/extract-shared-resource-multipage.js';
 import { build as buildExtractBleedWithContentSibling } from '../synth/fixtures/extract-bleed-with-content-sibling.js';
 import { build as buildExtractBleedBakedInIllustration } from '../synth/fixtures/extract-bleed-baked-in-illustration.js';
+import { build as buildExtractBleedingNeighbor } from '../synth/fixtures/extract-bleeding-neighbor.js';
 
 /**
  * Integration tests of the group D fixtures — every row of the acceptance criteria verified on
@@ -335,4 +336,24 @@ describe('extract-bleed-baked-in-illustration: [at the user\'s request, EXPERIME
     const uncroppedBright = await extract(false, true);
     expect(uncroppedBright.images[0]!.contentHash).toBe(uncroppedDim.images[0]!.contentHash);
   });
+});
+
+describe('extract-bleeding-neighbor: an undecided image that bleeds off the page is not merged into a neighboring photo\'s unit', () => {
+  it('two separate units; the photo\'s unit covers only the photo, so the page area around it (text, margins) is not rendered into it', async () => {
+    const result = await run(buildExtractBleedingNeighbor());
+
+    // Before this rule the tab (it bleeds, so `undecided`) overlapped the photo enough to be merged
+    // into its unit: ONE result whose bbox reached the page edge and below the photo.
+    expect(result.images).toHaveLength(2);
+
+    const photo = result.images.find((img) => img.classification === 'content')!;
+    const tab = result.images.find((img) => img.classification === 'undecided')!;
+    expect(photo).toBeDefined();
+    expect(tab).toBeDefined();
+    expect(photo.entry.occurrences[0]!.bbox.maxX).toBeLessThanOrEqual(612);
+    // The photo is extracted on its own: its pixels are the raw resource (200x170), not a render of a larger area.
+    expect(photo.extractSource).toBe('objs');
+    expect(photo.width).toBe(200);
+    expect(photo.height).toBe(170);
+  }, 60000);
 });

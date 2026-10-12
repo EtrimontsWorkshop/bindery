@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Fixed
+
+- **Pictures next to page-edge pieces are no longer extracted with the page around them.** In some rulebooks a photo sits beside a coloured tab or a corner ornament that runs off the edge of the page. Bindery used to merge such a piece into the photo's unit, so the extracted image grew to the page edge and picked up the text and margins in between. These pieces now stay separate (offered as unchecked "undecided" images) and the photo is cut out on its own.
+
 ## [0.3.1]
 
 ### Fixed

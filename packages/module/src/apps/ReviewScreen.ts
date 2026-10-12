@@ -159,8 +159,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #step: ReviewStep = 'review';
   #tab: ReviewTab = 'images';
-  /** The Statblocks tab's state — created the first time the tab is opened (finding statblocks reads the whole PDF, so it never runs unless asked). */
+  /** The Statblocks tab's state — created in the background right after the review screen first renders, so the tab's counter is accurate before the tab is opened (finding statblocks reads the whole PDF, but never blocks the screen). */
   #statblocks: StatblockReviewState | null = null;
+  /** Detection is started once per review screen, not on every render. */
+  #statblockDetectionStarted = false;
+  #statblocksStarting: Promise<void> | null = null;
   /** [User request] Sub-tabs WITHIN the Images tab — see `ImageSourceTab`/`ImageDestTab`. */
   #imageSourceTab: ImageSourceTab = 'auto';
   // [User request, "all images end up in Unassigned"]
@@ -384,6 +387,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       isTabStatblocks: this.#tab === 'statblocks',
       hasStatblockTab: STATBLOCK_IMPORT_ENABLED && this.#data.fileBuffer !== undefined,
       statblockCount: this.#statblocks?.includedCount ?? 0,
+      statblockCountLabel: this.#statblockCountLabel(),
       statblocks: this.#statblocks?.describe((imageId) => this.#thumbnailFor(imageId)) ?? null,
       // [User request, "two tabs: automatic and manual" + Scene/Journal/Token
       // sub-tabs] See `#visibleImages`/`ImageSourceTab`/`ImageDestTab` — PURE
@@ -433,6 +437,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async _onRender(context: any, options: any): Promise<void> {
     await super._onRender(context, options);
+    if (!this.#statblockDetectionStarted && STATBLOCK_IMPORT_ENABLED && this.#data.fileBuffer !== undefined) {
+      this.#statblockDetectionStarted = true;
+      // After this render has finished: starting detection renders the screen again.
+      setTimeout(() => void this.#ensureStatblocks(), 0);
+    }
     this.#hideThumbPreview();
     this.#wireStatblockControls();
 
@@ -2013,13 +2022,24 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
-  async #ensureStatblocks(): Promise<void> {
+  /** What the tab's counter shows: "…" while detection runs, "–" when there is nothing to count yet (no profile selected), else the number of statblocks ticked for import. */
+  #statblockCountLabel(): string {
+    const state = this.#statblocks;
+    if (!state || state.busy) return '…';
+    return state.rows === null ? '–' : String(state.includedCount);
+  }
+
+  /** Creates the Statblocks tab's state and starts detection — once, even if the tab is opened while the background start is still loading. */
+  #ensureStatblocks(): Promise<void> {
     const fileBuffer = this.#data.fileBuffer;
-    if (!STATBLOCK_IMPORT_ENABLED || this.#statblocks || !fileBuffer) return;
-    const { StatblockReviewState } = await import('../statblock/ui/statblockReviewState.js');
-    this.#statblocks = new StatblockReviewState(fileBuffer, this.#data.document.images, () => void this.render());
-    await this.render();
-    await this.#statblocks.init();
+    if (!STATBLOCK_IMPORT_ENABLED || !fileBuffer) return Promise.resolve();
+    this.#statblocksStarting ??= (async () => {
+      const { StatblockReviewState } = await import('../statblock/ui/statblockReviewState.js');
+      this.#statblocks = new StatblockReviewState(fileBuffer, this.#data.document.images, () => void this.render());
+      await this.render();
+      await this.#statblocks.init();
+    })();
+    return this.#statblocksStarting;
   }
 
   /** Wires the Statblocks tab's controls — the DOM is replaced on every render, so this runs after each one. */

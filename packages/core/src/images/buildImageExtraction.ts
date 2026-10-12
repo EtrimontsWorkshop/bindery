@@ -164,9 +164,23 @@ function isForcedFullBleedContent(c: ClassifiedImage): boolean {
   return c.reason === 'Z1-full-bleed-forced-content';
 }
 
+/**
+ * An image that bleeds off the page and has no evidence of being content (`Z12-bleeding-no-center-text-evidence`)
+ * is typically a piece of the page's own design — a coloured tab at the page edge, a corner ornament —
+ * not part of the picture it happens to overlap. Merging it into a neighbor's unit stretches that unit's
+ * bbox to the edge of the page (and past the picture), so the region render of the unit pulls in whatever
+ * text and margins lie in between. Such an image stays a unit of its own: it is still offered in the
+ * review screen (as `undecided`, unchecked by default), but it no longer changes what the picture next
+ * to it looks like. Observed on a real rulebook whose photos sit next to page-edge tabs and corner pieces.
+ */
+function isBleedingUndecided(c: ClassifiedImage): boolean {
+  return c.reason === 'Z12-bleeding-no-center-text-evidence';
+}
+
 function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): ClassifiedImage[][] {
   const forcedFullBleed = candidates.filter(isForcedFullBleedContent);
-  const clusterable = candidates.filter((c) => !isForcedFullBleedContent(c));
+  const bleedingUndecided = candidates.filter(isBleedingUndecided);
+  const clusterable = candidates.filter((c) => !isForcedFullBleedContent(c) && !isBleedingUndecided(c));
 
   const anchors = clusterable.filter(isAnchorCandidate);
   const rest = clusterable.filter((c) => !isAnchorCandidate(c));
@@ -247,7 +261,7 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
     }
     groups.push(...restGroups.values());
   }
-  groups.push(...forcedFullBleed.map((c) => [c]));
+  groups.push(...forcedFullBleed.map((c) => [c]), ...bleedingUndecided.map((c) => [c]));
   return groups;
 }
 
