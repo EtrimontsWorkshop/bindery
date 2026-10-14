@@ -25,6 +25,7 @@ import { IDENTITY_MATRIX, multiplyMatrix, unitSquareBBox } from '../geometry.js'
 const OP_SAVE = 10;
 const OP_RESTORE = 11;
 const OP_TRANSFORM = 12;
+const OP_SET_GSTATE = 9;
 const OP_SET_FONT = 37;
 const OP_PAINT_FORM_XOBJECT_BEGIN = 74;
 const OP_PAINT_FORM_XOBJECT_END = 75;
@@ -81,6 +82,13 @@ export type WalkEvent =
        */
       intrinsicWidth: number | null;
       intrinsicHeight: number | null;
+      /**
+       * How opaque the image is painted: the product of the fill alpha (`ca`) in force at the paint and of
+       * the alphas the transparency groups around it were opened with. Present ONLY when it is below 1.
+       * A page's own watermark (an ornament, a texture laid over the paper) is painted at 10%-50%;
+       * an illustration is painted fully opaque.
+       */
+      opacity?: number;
     }
   | { type: 'font'; fontName: string; sizeFromMatrix: number; index: number }
   | { type: 'vector'; kind: 'fill' | 'stroke'; bbox: Rect; ctm: Matrix; inGroup: GroupContext | null; index: number }
@@ -257,6 +265,12 @@ interface WalkContext {
   ctm: Matrix;
   ctmStack: Matrix[];
   groupStack: GroupContext[];
+  /** Fill alpha (`ca`) in force now. */
+  alpha: number;
+  /** Saved `alpha`, pushed and popped in step with `ctmStack` (and by transparency groups). */
+  alphaStack: number[];
+  /** The alpha each open transparency group was begun with, parallel to `groupStack`. */
+  groupAlphas: number[];
 }
 
 type OpHandler = (ctx: WalkContext, args: unknown[], index: number) => void;
@@ -265,9 +279,15 @@ function currentGroup(ctx: WalkContext): GroupContext | null {
   return ctx.groupStack.length > 0 ? ctx.groupStack[ctx.groupStack.length - 1]! : null;
 }
 
+/** The opacity an image painted now has (see `WalkEvent['image'].opacity`); 1 when nothing makes it translucent. */
+function currentOpacity(ctx: WalkContext): number {
+  return ctx.groupAlphas.reduce((product, a) => product * a, ctx.alpha);
+}
+
 function handleImagePaint(opcode: number): OpHandler {
   return (ctx, args, index) => {
     const { width, height } = extractIntrinsicSize(opcode, args);
+    const opacity = currentOpacity(ctx);
     ctx.events.push({
       type: 'image',
       opcode,
@@ -278,6 +298,7 @@ function handleImagePaint(opcode: number): OpHandler {
       index,
       intrinsicWidth: width,
       intrinsicHeight: height,
+      ...(opacity < 1 ? { opacity } : {}),
     });
   };
 }
@@ -288,12 +309,25 @@ const HANDLERS = new Map<number, OpHandler>([
     OP_SAVE,
     (ctx) => {
       ctx.ctmStack.push(ctx.ctm);
+      ctx.alphaStack.push(ctx.alpha);
     },
   ],
   [
     OP_RESTORE,
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
+      ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+    },
+  ],
+  [
+    OP_SET_GSTATE,
+    (ctx, args) => {
+      // args[0] is a list of [key, value] pairs; `ca` is the alpha for filling (images included).
+      const pairs = args[0];
+      if (!Array.isArray(pairs)) return;
+      for (const pair of pairs) {
+        if (Array.isArray(pair) && pair[0] === 'ca' && typeof pair[1] === 'number') ctx.alpha = pair[1];
+      }
     },
   ],
   [
@@ -318,6 +352,7 @@ const HANDLERS = new Map<number, OpHandler>([
       // of 100x) — two completely unrelated images end up with an
       // IDENTICAL, absurd bbox.
       ctx.ctmStack.push(ctx.ctm);
+      ctx.alphaStack.push(ctx.alpha);
       const formMatrix = args[0];
       if (formMatrix != null) {
         ctx.ctm = multiplyMatrix(ctx.ctm, toMatrix(formMatrix));
@@ -328,6 +363,7 @@ const HANDLERS = new Map<number, OpHandler>([
     OP_PAINT_FORM_XOBJECT_END,
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
+      ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
     },
   ],
   [
@@ -348,6 +384,11 @@ const HANDLERS = new Map<number, OpHandler>([
       const groupArgs = args[0] as { smask?: { subtype?: string } } | undefined;
       const subtype = groupArgs?.smask?.subtype ?? null;
       ctx.groupStack.push({ subtype, depth: ctx.groupStack.length + 1, beginIndex: index });
+      // A transparency group is composited once, with the alpha that was in force when it began; the
+      // content inside starts opaque again (the group's own alpha is `groupAlphas`).
+      ctx.groupAlphas.push(ctx.alpha);
+      ctx.alphaStack.push(ctx.alpha);
+      ctx.alpha = 1;
       ctx.events.push({ type: 'group', phase: 'begin', subtype, index });
     },
   ],
@@ -355,6 +396,8 @@ const HANDLERS = new Map<number, OpHandler>([
     OP_END_GROUP,
     (ctx, _args, index) => {
       const g = ctx.groupStack.pop();
+      ctx.groupAlphas.pop();
+      ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
       ctx.events.push({ type: 'group', phase: 'end', subtype: g?.subtype ?? null, index });
     },
   ],
@@ -393,7 +436,7 @@ const HANDLERS = new Map<number, OpHandler>([
 export const HANDLED_OPCODES: ReadonlySet<number> = new Set(HANDLERS.keys());
 
 export function walkOperators(ops: OperatorListLike, _pageBox: Rect): WalkEvent[] {
-  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [] };
+  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [], alpha: 1, alphaStack: [], groupAlphas: [] };
 
   const { fnArray, argsArray } = ops;
   for (let i = 0; i < fnArray.length; i++) {

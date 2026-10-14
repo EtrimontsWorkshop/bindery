@@ -186,7 +186,7 @@ export async function extractDirect(
  * building this page's operator list — just reading already-ready
  * dimensions.
  */
-export async function probeIntrinsicLongEdgePx(page: PdfPageForExtract, objId: string): Promise<number | null> {
+export async function probeIntrinsicSizePx(page: PdfPageForExtract, objId: string): Promise<{ width: number; height: number } | null> {
   const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
   for (const objs of sources) {
     const pending = resolveIfReady(objs, objId);
@@ -195,10 +195,98 @@ export async function probeIntrinsicLongEdgePx(page: PdfPageForExtract, objId: s
       const raw = await pending;
       if (raw == null) continue;
       const image = normalizeDecodedImage(raw);
-      return Math.max(image.width, image.height);
+      return { width: image.width, height: image.height };
     } catch {
       continue; // probing is "best-effort" — failed decoding here is not an error, see the function comment.
     }
   }
   return null;
+}
+
+/** The longer edge of {@link probeIntrinsicSizePx}. */
+export async function probeIntrinsicLongEdgePx(page: PdfPageForExtract, objId: string): Promise<number | null> {
+  const size = await probeIntrinsicSizePx(page, objId);
+  return size ? Math.max(size.width, size.height) : null;
+}
+
+/**
+ * Mean brightness (0..1) of resource `objId`, read the way a luminosity mask is read: a white pixel lets
+ * the masked picture through, a black one hides it. `null` when the resource is not available (the same
+ * "best-effort" rules as {@link probeIntrinsicSizePx}). Pixels are sampled on a grid of at most ~250k
+ * points — enough for a share that is compared with a threshold.
+ */
+export async function probeMeanBrightnessFraction(page: PdfPageForExtract, objId: string): Promise<number | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      const image = normalizeDecodedImage(raw);
+      const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
+      let sum = 0;
+      let count = 0;
+      for (let y = 0; y < image.height; y += stride) {
+        for (let x = 0; x < image.width; x += stride) {
+          const i = (y * image.width + x) * 4;
+          sum += (image.rgba[i]! + image.rgba[i + 1]! + image.rgba[i + 2]!) / 3;
+          count++;
+        }
+      }
+      return count > 0 ? sum / count / 255 : null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** The part of a pdf.js operator list that {@link currentObjIdAt} reads. */
+export interface OperatorListLike {
+  fnArray?: ArrayLike<number>;
+  argsArray?: ArrayLike<unknown>;
+}
+
+const OP_PAINT_IMAGE_MASK_XOBJECT = 83;
+const OP_PAINT_IMAGE_XOBJECT = 85;
+const OP_PAINT_IMAGE_XOBJECT_REPEAT = 88;
+
+/**
+ * The id under which pdf.js registered the image painted by operator `index` in THIS document.
+ *
+ * Object ids are not stable between two opens of the same file: a resource used on several pages gets a
+ * shared (`g_...`) id only once pdf.js has seen it a second time, and which page counts as the second
+ * depends on which pages were visited before. The inventory walks every page; extraction opens a fresh
+ * document and visits only the pages that hold units, so an id taken from the inventory can name
+ * another resource there (a mask strip instead of a photo) or none at all. The operator index of a
+ * painted image is the same in both documents, and the operator list says what its id is here. Falls back
+ * to `fallback` when the operator is not an image paint or the list is missing.
+ */
+export function currentObjIdAt(operatorList: unknown, index: number | undefined, fallback: string | null): string | null {
+  if (index === undefined) return fallback;
+  const list = operatorList as OperatorListLike | null | undefined;
+  const fn = list?.fnArray?.[index];
+  const args = list?.argsArray?.[index] as unknown[] | undefined;
+  if (!Array.isArray(args)) return fallback;
+  let id: unknown = null;
+  if (fn === OP_PAINT_IMAGE_XOBJECT || fn === OP_PAINT_IMAGE_XOBJECT_REPEAT) id = args[0];
+  else if (fn === OP_PAINT_IMAGE_MASK_XOBJECT) id = (args[0] as { data?: unknown } | undefined)?.data;
+  return typeof id === 'string' && id.length > 0 ? id : fallback;
+}
+
+/**
+ * Waits until every id in `objIds` is present in `page.objs` or `page.commonObjs`, or until `timeoutMs` has
+ * passed; returns the time spent. In a browser the worker hands decoded resources over asynchronously:
+ * right after `getOperatorList()` many of them (measured: about a quarter of all images, most of the mask
+ * resources) are not registered yet, and all of them are within a few milliseconds. Reading them early
+ * looks like "this resource does not exist".
+ */
+export async function waitForObjects(page: PdfPageForExtract, objIds: readonly string[], timeoutMs: number, stepMs = 10): Promise<number> {
+  const started = Date.now();
+  const missing = (): boolean => objIds.some((id) => !page.objs.has(id) && !page.commonObjs.has(id));
+  while (timeoutMs > 0 && missing() && Date.now() - started < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+  return Date.now() - started;
 }

@@ -1,10 +1,10 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import type { Rect } from './geometry.js';
 import { buildCIFDocument, type BuildCIFDocumentResult } from './cif/buildCIFDocument.js';
 import { extractOutline } from './cif/outline.js';
 import { browserImageEncoder } from './images/encodeImage.js';
 import { browserRegionRenderer } from './images/regionRenderer.js';
 import { buildImageExtraction, type BuildImageExtractionOptions } from './images/buildImageExtraction.js';
+import { groupBlockBoxesByPage } from './images/textBlockBoxes.js';
 import { buildInventory } from './inventory/inventory.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
@@ -60,13 +60,8 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
   // Bboxes of `body`+`caption` blocks (see classify.ts) — the same map is used here
   // AND for images, without needing an additional `getDocument()` call (we
   // already have `blocks`).
-  const bodyBlockBoxesByPage = new Map<number, Rect[]>();
-  for (const b of blocks) {
-    if (b.kind !== 'body' && b.kind !== 'caption') continue;
-    const arr = bodyBlockBoxesByPage.get(b.pageNumber) ?? [];
-    arr.push(b.bbox);
-    bodyBlockBoxesByPage.set(b.pageNumber, arr);
-  }
+  const bodyBlockBoxesByPage = groupBlockBoxesByPage(blocks, new Set(['body', 'caption']));
+  const textBlockBoxesByPage = groupBlockBoxesByPage(blocks);
 
   const outlineDoc = await openDocument(data, assetBaseUrl);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,6 +77,7 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     {
       ...imageOpts,
       bodyBlockBoxesByPage,
+      textBlockBoxesByPage,
     },
   );
 

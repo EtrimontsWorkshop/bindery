@@ -132,6 +132,25 @@ const UNIFORM_COLOR_MIN_FRACTION = 0.995;
  */
 const SMOOTH_BACKGROUND_COARSE_MAX = 3.2;
 const SMOOTH_BACKGROUND_FINE_MAX = 1.5;
+/**
+ * A further case of the same kind, on the coarse gradient alone (paper grain raises the FINE
+ * gradient to 1.7-3.4, which is why the rule above misses it). Measured on a real rulebook:
+ * - A page-sized image that is still undecided (`maxRelativeArea >= 0.9`) and smooth at the coarse scale
+ *   (< 3.2) is a sheet of paper: the six such images have coarse 1.86-1.97 and fine 2.9-3.4, while the
+ *   page-sized illustrations (the cover, a full-page picture) have coarse >= 4.36 (7.2 and 7.9 for those two).
+ *   The fine limit only keeps out a grainy, high-contrast picture.
+ */
+const LARGE_SMOOTH_MIN_AREA = 0.9;
+const LARGE_SMOOTH_COARSE_MAX = 3.2;
+const LARGE_SMOOTH_FINE_MAX = 4.0;
+/**
+ * SPARSE PROPS — a paperclip, a pin, a scrap: a small cut-out whose pixels are mostly transparent. Measured on
+ * a real rulebook: the five paperclips have 10%-17% opaque pixels (alpha above 16); every small picture that
+ * is worth importing — an emblem, a skull — is opaque everywhere, and the sparse images that are not small
+ * (smoke, a splatter, dice) are 13%-24% opaque but cover 12%-37% of the page.
+ */
+const SPARSE_PROP_MAX_OPAQUE_FRACTION = 0.3;
+const SPARSE_PROP_MAX_AREA = 0.05;
 /** Long-side block count for the coarse measure. */
 const SMOOTHNESS_COARSE_BLOCKS = 256;
 /** Images with a shorter side below this are too small to judge as "smooth" — never hidden by this rule. */
@@ -240,6 +259,15 @@ export interface SmoothnessMetrics {
   coarseGradient: number;
   /** Mean absolute luminance difference between neighboring pixels. */
   fineGradient: number;
+}
+
+/** The fraction (0-1) of pixels whose alpha is above 16 — how much of the image is not transparent. See `SPARSE_PROP_MAX_OPAQUE_FRACTION`. */
+export function computeOpaqueFraction(image: DecodedImage): number {
+  const total = image.width * image.height;
+  if (total <= 0) return 1;
+  let opaque = 0;
+  for (let i = 3; i < image.rgba.length; i += 4) if (image.rgba[i]! > 16) opaque++;
+  return opaque / total;
 }
 
 /** See `SMOOTH_BACKGROUND_COARSE_MAX`. Luminance is composited over white so that content drawn in the alpha channel isn't ignored. */
@@ -415,6 +443,8 @@ export interface PreparedEntryForFinalize<TPayload> {
   uniformColorFraction?: number;
   /** See `computeSmoothnessMetrics`. Optional — no value skips the "smooth background" rule (e.g. in unit tests with no real pixels). */
   smoothness?: SmoothnessMetrics;
+  /** See `computeOpaqueFraction` and `SPARSE_PROP_MAX_OPAQUE_FRACTION`. Optional — no value skips the "sparse prop" rule. */
+  opaqueFraction?: number;
   /** See `detectGrid.ts` — a grid auto-detection suggestion, `undefined` when not computed (e.g. tests) or when `detectGrid` found no periodicity. */
   suggestedGrid?: GridDetectionResult;
   payload: TPayload;
@@ -481,7 +511,18 @@ export function finalizeImages<TPayload>(
       const isLongAndNarrow = shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
       const isSmoothBackground =
         d.smoothness !== undefined && d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX && d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX;
-      if (isUniformColor || isLongAndNarrow || isSmoothBackground) {
+      const isLargeSmoothSheet =
+        d.classification === 'undecided' &&
+        d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
+        d.smoothness !== undefined &&
+        d.smoothness.coarseGradient < LARGE_SMOOTH_COARSE_MAX &&
+        d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX;
+      const isSparseProp =
+        d.classification === 'undecided' &&
+        d.opaqueFraction !== undefined &&
+        d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION &&
+        d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
+      if (isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp) {
         return { ...d, classification: 'decoration' as ImageClassification, confidence: RECLASSIFIED_CONFIDENCE };
       }
     }

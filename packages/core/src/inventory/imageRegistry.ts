@@ -23,6 +23,8 @@ export interface ImageOccurrence {
   page: number;
   bbox: Rect;
   index: number;
+  /** Present only when this occurrence is painted translucent (below 1) — see `WalkEvent['image'].opacity`. */
+  opacity?: number;
 }
 
 export interface ImageEntry {
@@ -47,6 +49,12 @@ export interface ImageEntry {
    */
   intrinsicWidth: number | null;
   intrinsicHeight: number | null;
+  /**
+   * The most opaque this resource is ever painted, present ONLY when EVERY occurrence is translucent
+   * (below 1). A resource painted fully opaque anywhere has no `maxOpacity`. Translucent, blended
+   * pictures are the page's own watermarks and texture overlays, not illustrations.
+   */
+  maxOpacity?: number;
   /**
    * The `objId` of another entry that this
    * entry got POSITIONALLY LINKED to (quantized bbox, see
@@ -94,6 +102,7 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
           groupSubtype: e.inGroup?.subtype ?? null,
           intrinsicWidth: e.intrinsicWidth,
           intrinsicHeight: e.intrinsicHeight,
+          ...(e.opacity !== undefined ? { opacity: e.opacity } : {}),
         },
       });
     }
@@ -224,7 +233,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
       entriesByKey.set(key, entry);
     }
 
-    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index });
+    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}) });
 
     // The first occurrence carrying the intrinsic resolution is enough — the
     // same objId always refers to the same resource, so later occurrences
@@ -255,6 +264,9 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
 
   for (const entry of entriesByKey.values()) {
     entry.pageRefs = [...new Set(entry.occurrences.map((o) => o.page))].sort((a, b) => a - b);
+    if (entry.occurrences.length > 0 && entry.occurrences.every((o) => o.opacity !== undefined)) {
+      entry.maxOpacity = Math.max(...entry.occurrences.map((o) => o.opacity!));
+    }
   }
 
   const sorted = [...entriesByKey.values()].sort((a, b) => (a.objId ?? '').localeCompare(b.objId ?? ''));

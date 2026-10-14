@@ -19,6 +19,84 @@ function entry(overrides: Partial<ImageEntry> = {}): ImageEntry {
 }
 
 describe('decideExtractionStrategy', () => {
+  it('a masked raster whose region is cut by page text -> direct (the raw resource is cleaner than a render)', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1, textCrossesRegionEdge: true, rawResourceFitsPlacement: true });
+    expect(decision.strategy).toBe('direct');
+    expect(decision.reason).toBe('Z2-text-crosses-region-prefer-raw-resource');
+  });
+
+  it('a cluster whose region is cut by page text -> direct', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 3, textCrossesRegionEdge: true, rawResourceFitsPlacement: true });
+    expect(decision.strategy).toBe('direct');
+  });
+
+  it('text crossing the region edge does not change a vector-only region (there is no raw resource)', () => {
+    const decision = decideExtractionStrategy({ entry: null, isMasked: false, clusterMemberCount: 1, textCrossesRegionEdge: true, rawResourceFitsPlacement: true });
+    expect(decision.strategy).toBe('region-render');
+  });
+
+  it('text crossing the region edge does not change an inline image without an objId', () => {
+    const decision = decideExtractionStrategy({ entry: entry({ objId: null }), isMasked: true, clusterMemberCount: 1, textCrossesRegionEdge: true, rawResourceFitsPlacement: true });
+    expect(decision.strategy).toBe('region-render');
+  });
+
+  it('text crossing the edge does not make a raw resource of the wrong shape preferred (a texture, not the picture)', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1, textCrossesRegionEdge: true, rawResourceFitsPlacement: false });
+    expect(decision.strategy).toBe('region-render');
+    expect(decision.reason).toBe('Z2-masked-direct-would-omit-mask');
+  });
+
+  it('a masked raster whose mask lets most of it through and whose raw resource fits its place is taken raw even when no text crosses the region', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 4, textCrossesRegionEdge: false, rawResourceFitsPlacement: true, maskMostlyVisible: true });
+    expect(decision.strategy).toBe('direct');
+    expect(decision.reason).toBe('Z2-masked-raw-resource-fits-placement');
+  });
+
+  it('text over the picture is rendered with it, whatever else would make the raw resource preferable', () => {
+    const single = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 1, textOverPicture: true });
+    expect(single.strategy).toBe('region-render');
+    expect(single.reason).toBe('Z2-text-over-picture-is-content');
+    const masked = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1, rawResourceFitsPlacement: true, maskMostlyVisible: true, textOverPicture: true });
+    expect(masked.reason).toBe('Z2-text-over-picture-is-content');
+  });
+
+  it('a unit with other pictures of consequence is rendered even when the raw resource would be clean', () => {
+    const masked = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 3, rawResourceFitsPlacement: true, maskMostlyVisible: true, coMemberAreaShare: 0.07 });
+    expect(masked.strategy).toBe('region-render');
+    expect(masked.reason).toBe('Z2-cluster-has-significant-members');
+    const crossing = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 3, textCrossesRegionEdge: true, rawResourceFitsPlacement: true, coMemberAreaShare: 0.06 });
+    expect(crossing.strategy).toBe('region-render');
+    expect(crossing.reason).toBe('Z2-cluster-has-significant-members');
+  });
+
+  it('small co-members (tape, a crest) do not keep the raw resource from being taken', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 3, rawResourceFitsPlacement: true, maskMostlyVisible: true, coMemberAreaShare: 0.044 });
+    expect(decision.strategy).toBe('direct');
+  });
+
+  it('a masked image whose mask hides a large part of it is rendered (the mask is part of the picture)', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1, textCrossesRegionEdge: false, rawResourceFitsPlacement: true, maskMostlyVisible: false });
+    expect(decision.strategy).toBe('region-render');
+    expect(decision.reason).toBe('Z2-masked-direct-would-omit-mask');
+  });
+
+  it('a masked image whose raw resource does not fit its place is still rendered', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1, textCrossesRegionEdge: false, rawResourceFitsPlacement: false, maskMostlyVisible: true });
+    expect(decision.strategy).toBe('region-render');
+    expect(decision.reason).toBe('Z2-masked-direct-would-omit-mask');
+  });
+
+  it('a masked image with no known shape of the raw resource is rendered', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: true, clusterMemberCount: 1 });
+    expect(decision.strategy).toBe('region-render');
+  });
+
+  it('a cluster with no text crossing its region is rendered even when its raw resource fits', () => {
+    const decision = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 3, textCrossesRegionEdge: false, rawResourceFitsPlacement: true });
+    expect(decision.strategy).toBe('region-render');
+    expect(decision.reason).toBe('Z2-cluster-composition-is-content');
+  });
+
   it('a single image, no mask, no cluster -> direct', () => {
     const decision = decideExtractionStrategy({ entry: entry(), isMasked: false, clusterMemberCount: 1 });
     expect(decision.strategy).toBe('direct');

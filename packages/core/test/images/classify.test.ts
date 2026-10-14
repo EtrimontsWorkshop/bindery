@@ -146,6 +146,122 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z12-bleeding-no-center-text-evidence');
   });
 
+  describe('tiny undecided images and pictures hidden under a later picture', () => {
+    const at = (objId: string, bbox: Rect, index: number, area: number, opacity?: number): ImageEntry =>
+      entry({ objId, maxRelativeArea: area, occurrences: [{ page: 1, bbox, index, ...(opacity !== undefined ? { opacity } : {}) }] });
+    const classifyAll = (entries: ImageEntry[], hideTinyImages = true) => classifyImages(entries, pageBoxMap([1]), new Map(), { hideTinyImages });
+    const reasonOf = (results: ReturnType<typeof classifyAll>, e: ImageEntry) => results.find((c) => c.entry === e)!;
+
+    it('an undecided image below 0.5% of the page is decoration when hiding is on', () => {
+      const tiny = at('tiny', { minX: 10, minY: 10, maxX: 60, maxY: 25 }, 0, 0.003);
+      expect(reasonOf(classifyAll([tiny]), tiny).reason).toBe('Z16-tiny-undecided');
+      expect(reasonOf(classifyAll([tiny], false), tiny).classification).toBe('undecided');
+    });
+
+    it('an undecided image just above 0.5% stays', () => {
+      const small = at('small', { minX: 10, minY: 10, maxX: 80, maxY: 50 }, 0, 0.006);
+      expect(reasonOf(classifyAll([small]), small).classification).toBe('undecided');
+    });
+
+    it('on a page with a crowd of tiny images (a form) the small undecided ones are form elements; the same image elsewhere stays', () => {
+      const tinyOnes = Array.from({ length: 15 }, (_, i) => at(`t${i}`, { minX: 10 + i * 5, minY: 10, maxX: 14 + i * 5, maxY: 14 }, i, 0.001));
+      const banner = at('banner', { minX: 40, minY: 700, maxX: 260, maxY: 760 }, 20, 0.024);
+      expect(reasonOf(classifyAll([...tinyOnes, banner]), banner).reason).toBe('Z18-form-page-element');
+      expect(reasonOf(classifyAll([banner]), banner).classification).toBe('undecided');
+      expect(reasonOf(classifyAll([...tinyOnes.slice(0, 14), banner]), banner).classification).toBe('undecided');
+    });
+
+    it('a larger image on a form page (above 6% of the page) is left alone', () => {
+      const tinyOnes = Array.from({ length: 15 }, (_, i) => at(`t${i}`, { minX: 10 + i * 5, minY: 10, maxX: 14 + i * 5, maxY: 14 }, i, 0.001));
+      const art = at('art', { minX: 100, minY: 200, maxX: 400, maxY: 500 }, 20, 0.18);
+      expect(reasonOf(classifyAll([...tinyOnes, art]), art).classification).not.toBe('decoration');
+    });
+
+    it('the bottom of a stack (covered 75% or more by a later opaque picture) is decoration', () => {
+      const bottom = at('bottom', { minX: 54, minY: 25, maxX: 558, maxY: 347 }, 3, 0.33);
+      const top = at('top', { minX: 61, minY: 35, maxX: 578, maxY: 354 }, 8, 0.34);
+      const results = classifyAll([bottom, top], false);
+      expect(reasonOf(results, bottom).reason).toBe('Z17-covered-by-later-picture');
+      expect(reasonOf(results, top).classification).toBe('content');
+    });
+
+    it('a picture only partly covered (68%) stays', () => {
+      const under = at('under', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 3, 0.3);
+      const over = at('over', { minX: 32, minY: 0, maxX: 200, maxY: 100 }, 8, 0.3);
+      expect(reasonOf(classifyAll([under, over], false), under).classification).not.toBe('decoration');
+    });
+
+    it('a picture covered by one painted EARLIER, or by a translucent one, stays', () => {
+      const a = at('a', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 8, 0.3);
+      const earlier = at('earlier', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 3, 0.3);
+      expect(reasonOf(classifyAll([a, earlier], false), a).classification).not.toBe('decoration');
+      const glass = at('glass', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 9, 0.3, 0.3);
+      expect(reasonOf(classifyAll([a, glass], false), a).classification).not.toBe('decoration');
+    });
+  });
+
+  const BLEED_BBOX = { minX: -20, minY: -20, maxX: 630, maxY: 800 };
+
+  it('a bleeding image painted translucent everywhere (a watermark) -> decoration', () => {
+    const e = entry({ maxRelativeArea: 0.5, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 0, opacity: 0.1 }], maxOpacity: 0.1 });
+    const [result] = classifyImages([e], pageBoxMap([1]));
+    expect(result!.classification).toBe('decoration');
+    expect(result!.reason).toBe('Z12-bleeding-translucent-overlay');
+  });
+
+  it('a bleeding image that is opaque somewhere (no maxOpacity) stays undecided', () => {
+    const e = entry({ maxRelativeArea: 0.5, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 0 }] });
+    const [result] = classifyImages([e], pageBoxMap([1]));
+    expect(result!.classification).toBe('undecided');
+    expect(result!.reason).toBe('Z12-bleeding-no-center-text-evidence');
+  });
+
+  it('a bleeding image that is only mildly translucent (above the watermark range) stays undecided', () => {
+    const e = entry({ maxRelativeArea: 0.5, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 0, opacity: 0.9 }], maxOpacity: 0.9 });
+    const [result] = classifyImages([e], pageBoxMap([1]));
+    expect(result!.reason).toBe('Z12-bleeding-no-center-text-evidence');
+  });
+
+  it('a bleeding image that another image cuts out through a mask -> decoration (a paper scrap or stain)', () => {
+    const holder = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'img1' });
+    const target = entry({ maxRelativeArea: 0.5, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
+    const result = classifyImages([holder, target], pageBoxMap([1])).find((c) => c.entry === target)!;
+    expect(result.classification).toBe('decoration');
+    expect(result.reason).toBe('Z12-bleeding-masked-cutout');
+  });
+
+  describe('small masked strips (adhesive tape, paper scraps)', () => {
+    const maskHolder = (target: string) => entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: target });
+    const strip = (overrides: Partial<ImageEntry>) => entry({ objId: 'tape1', maxRelativeArea: 0.018, intrinsicWidth: 219, intrinsicHeight: 77, ...overrides });
+    const classifyStrip = (e: ImageEntry, masked = true) => classifyImages(masked ? [maskHolder(e.objId!), e] : [e], pageBoxMap([1])).find((c) => c.entry === e)!;
+
+    it('a masked, elongated, small raster -> decoration', () => {
+      const result = classifyStrip(strip({}));
+      expect(result.classification).toBe('decoration');
+      expect(result.reason).toBe('Z15-small-masked-raster');
+    });
+
+    it('a square-ish masked emblem is not hit (the aspect gate)', () => {
+      expect(classifyStrip(strip({ intrinsicWidth: 203, intrinsicHeight: 218, maxRelativeArea: 0.027 })).reason).toBe('Z1-no-strong-signal');
+    });
+
+    it('a masked raster longer than the size limit is not hit', () => {
+      expect(classifyStrip(strip({ intrinsicWidth: 472, intrinsicHeight: 105 })).reason).toBe('Z1-no-strong-signal');
+    });
+
+    it('an unmasked strip is not hit', () => {
+      expect(classifyStrip(strip({}), false).reason).toBe('Z1-no-strong-signal');
+    });
+
+    it('a strip covering 3.5% of the page is not hit', () => {
+      expect(classifyStrip(strip({ maxRelativeArea: 0.035 })).reason).not.toBe('Z15-small-masked-raster');
+    });
+
+    it('an unknown intrinsic size is not hit', () => {
+      expect(classifyStrip(strip({ intrinsicWidth: null, intrinsicHeight: null })).reason).toBe('Z1-no-strong-signal');
+    });
+  });
+
   it('maskEvidence=geometry (weak evidence) with no other signals -> undecided, doesn\'t decide on its own', () => {
     const e = entry({ maskEvidence: 'geometry', maxRelativeArea: 0.02 });
     const [result] = classifyImages([e], pageBoxMap([1]));

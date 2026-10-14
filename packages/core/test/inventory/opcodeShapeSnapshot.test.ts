@@ -97,7 +97,7 @@ describe('an exhaustive snapshot of the argsArray shapes, closed by construction
     expect(nameByNumber.size).toBe(HANDLED_OPCODES.size);
   });
 
-  it('[a negative test] the number of handled opcodes is frozen at 13 — a change signals adding/removing a handler in walkOperators.ts, which MUST go through the snapshot above', () => {
+  it('[a negative test] the number of handled opcodes is frozen at 14 — a change signals adding/removing a handler in walkOperators.ts, which MUST go through the snapshot above', () => {
     // HANDLED_OPCODES is MECHANICALLY equal to the keys of the dispatch table (Map.keys()) in
     // walkOperators.ts — support for a new opcode can't be added without changing this number,
     // which also immediately changes the snapshot content above (a new key in the report = a
@@ -105,6 +105,7 @@ describe('an exhaustive snapshot of the argsArray shapes, closed by construction
     // 11->13: paintFormXObjectBegin/End were added (see walkOperators.ts — discovery: executing a
     // Form XObject was NOT scoped like save/restore, so the CTM from its inside leaked into
     // everything drawn after it on the page).
-    expect(HANDLED_OPCODES.size).toBe(13);
+    // 13->14: setGState was added (only its `ca` is read — the opacity an image is painted with).
+    expect(HANDLED_OPCODES.size).toBe(14);
   });
 });

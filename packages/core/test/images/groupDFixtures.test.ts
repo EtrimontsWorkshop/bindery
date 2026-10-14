@@ -7,6 +7,7 @@ import { nodeCanvasImageEncoder } from '../../src/images/nodeCanvasImageEncoder.
 
 import { build as buildExtractSingleClean } from '../synth/fixtures/extract-single-clean.js';
 import { build as buildExtractMasked } from '../synth/fixtures/extract-masked.js';
+import { build as buildExtractMaskedMostlyVisible } from '../synth/fixtures/extract-masked-mostly-visible.js';
 import { build as buildExtractCluster } from '../synth/fixtures/extract-cluster.js';
 import { build as buildExtractVectorOnly } from '../synth/fixtures/extract-vector-only.js';
 import { build as buildExtractDecorated3pages } from '../synth/fixtures/extract-decorated-3pages.js';
@@ -90,6 +91,15 @@ describe('extract-masked: the mask visible in the result', () => {
       Math.abs(leftPixel[2]! - rightPixel[2]!) > 20 ||
       Math.abs(leftPixel[3]! - rightPixel[3]!) > 20;
     expect(different).toBe(true);
+  });
+});
+
+describe('extract-masked-mostly-visible: a mask that only trims the picture', () => {
+  it('the raw resource is taken, not a render of the page region', async () => {
+    const result = await run(buildExtractMaskedMostlyVisible());
+    const content = result.images.find((img) => img.classification === 'content');
+    expect(content).toBeDefined();
+    expect(content!.extractSource).toBe('objs');
   });
 });
 
@@ -355,5 +365,36 @@ describe('extract-bleeding-neighbor: an undecided image that bleeds off the page
     expect(photo.extractSource).toBe('objs');
     expect(photo.width).toBe(200);
     expect(photo.height).toBe(170);
+  }, 60000);
+});
+
+describe('page text cut by the unit\'s region: the raw image resource is preferred over a render', () => {
+  async function runWithText(buf: Buffer, textBoxes: Array<{ minX: number; minY: number; maxX: number; maxY: number }>) {
+    const invDoc = await openDoc(buf);
+    const inv = await buildInventory(invDoc as never);
+    const doc = await openDoc(buf);
+    const bodyBlockBoxesByPage = new Map([[1, textBoxes]]);
+    return buildImageExtraction(doc, inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 512, bodyBlockBoxesByPage, hideBackgroundImages: false });
+  }
+
+  it('a masked image with a text block crossing its top edge is extracted from the raw resource, not rendered', async () => {
+    // extract-masked draws the image at x 56..556, y 96..696; the block reaches up to y 760 and so cuts the edge.
+    const result = await runWithText(buildExtractMasked(), [{ minX: 40, minY: 650, maxX: 580, maxY: 760 }]);
+    const picture = result.images.find((img) => img.classification !== 'mask')!;
+    expect(picture).toBeDefined();
+    expect(picture.extractSource).toBe('objs');
+  }, 60000);
+
+  it('the same masked image with a text block lying entirely inside its region is still rendered', async () => {
+    const result = await runWithText(buildExtractMasked(), [{ minX: 100, minY: 300, maxX: 300, maxY: 340 }]);
+    const picture = result.images.find((img) => img.classification !== 'mask')!;
+    expect(picture.extractSource).toBe('region-render');
+  }, 60000);
+
+  it('a block that only brushes the edge (under 1% of the region) does not switch the strategy', async () => {
+    // 2pt-high strip over a 500pt-wide region: 1000pt^2 of 300000pt^2.
+    const result = await runWithText(buildExtractMasked(), [{ minX: 40, minY: 694, maxX: 580, maxY: 700 }]);
+    const picture = result.images.find((img) => img.classification !== 'mask')!;
+    expect(picture.extractSource).toBe('region-render');
   }, 60000);
 });

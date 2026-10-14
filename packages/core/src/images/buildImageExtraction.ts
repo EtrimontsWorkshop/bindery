@@ -8,11 +8,11 @@ import { AUTOCROP_BRIGHTEN, brightenCroppedImage } from './brightenImage.js';
 import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
-import { extractDirect, probeIntrinsicLongEdgePx, type PdfPageForExtract } from './extract.js';
-import { computeContentHash, computeLuminanceStdDev, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
+import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMeanBrightnessFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
+import { computeContentHash, computeLuminanceStdDev, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
-import { computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
+import { CO_MEMBER_SIGNIFICANT_AREA, computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
 
 /**
  * Image-extraction orchestration: classification -> strategy -> extraction (region render when
@@ -49,6 +49,12 @@ export interface BuildImageExtractionOptions {
   nearStatblockOrHeadingObjIds?: ReadonlySet<string>;
   /** Bboxes of `body` blocks (text flow) per page — see `classify.ts`. Links the text flow to the image flow, EXPLICITLY via this parameter. */
   bodyBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
+  /**
+   * Bboxes of ALL text blocks (headings, sidebars and the rest, not only `body`/`caption`) per page. Used to
+   * tell a picture that text lies ON (a paper note, a newspaper handout — the text is part of what the page
+   * shows) from one that has text only beside it. Falls back to `bodyBlockBoxesByPage` when absent.
+   */
+  textBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
   /** Bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images, treating them as content instead of background. Off by default. */
   treatFullBleedAsContent?: boolean;
   /** [at the user's request, EXPERIMENTAL] See `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
@@ -57,6 +63,13 @@ export interface BuildImageExtractionOptions {
   hideBackgroundImages?: boolean;
   /** [at the user's request] See `brightenImage.ts`. No effect when a given image wasn't actually cropped by `autoCropUniformMargins`. Off by default. */
   brightenAutoCroppedImages?: boolean;
+  /**
+   * How long, per page, to wait for resources that the planning of a unit needs (the picture and the
+   * masks that cut it) to show up in `page.objs` after `getOperatorList()`. In a browser they arrive
+   * asynchronously. The time is spent only while a needed resource is missing, and once a page's budget
+   * is used up its remaining units do not wait again. Defaults to 1500 ms; 0 disables waiting.
+   */
+  objectSettleTimeoutMs?: number;
 }
 
 export interface BuildImageExtractionResult {
@@ -69,6 +82,18 @@ export interface BuildImageExtractionResult {
 
 /** Reasonable default target for scenes/handouts — configurable per call, for calibration against real documents. */
 const DEFAULT_TARGET_LONG_EDGE_PX = 2048;
+/**
+ * Page-area share from which a picture split off a unit is offered even when it is only `undecided` (below it,
+ * only `content` pictures are split off, so that small leftovers of the stack do not clutter the list).
+ */
+const SPLIT_OFF_MIN_AREA = 0.1;
+
+/** A unit member painted at or below this opacity is a watermark, not a picture, and is left out of `coMemberAreaShare`. */
+const CO_MEMBER_TRANSLUCENT_MAX_OPACITY = 0.6;
+
+/** Default for `objectSettleTimeoutMs`. */
+const DEFAULT_OBJECT_SETTLE_TIMEOUT_MS = 1500;
+
 /** Default hard ceiling — configurable via `maxLongEdgePx`. */
 const DEFAULT_MAX_LONG_EDGE_PX = 4096;
 /** Same threshold as `LARGE_AREA_CONTENT_THRESHOLD` in `classify.ts` — consistency between "large image = content" and "large vector with no image = a drawn map". */
@@ -162,6 +187,86 @@ function isAnchorCandidate(c: ClassifiedImage): boolean {
  */
 function isForcedFullBleedContent(c: ClassifiedImage): boolean {
   return c.reason === 'Z1-full-bleed-forced-content';
+}
+
+/**
+ * Share of a picture's own area that text blocks must cover for the text to count as part of the picture.
+ * Measured on a real rulebook across the masked pictures: photos have 0-13% (a caption laid over a corner,
+ * a neighbor's note), paper notes and newspaper handouts 40%-95%.
+ */
+const TEXT_OVER_PICTURE_FRACTION = 0.3;
+
+/** The share (0-1) of `bbox` covered by `textBoxes`, overlaps between the boxes counted twice and the sum capped. */
+export function textCoverage(bbox: Rect, textBoxes: readonly Rect[] | undefined): number {
+  if (!textBoxes || textBoxes.length === 0) return 0;
+  const area = rectArea(bbox);
+  if (area <= 0) return 0;
+  let covered = 0;
+  for (const t of textBoxes) {
+    const inter = rectIntersection(bbox, t);
+    if (inter) covered += rectArea(inter);
+  }
+  return Math.min(1, covered / area);
+}
+
+/**
+ * Share of the unit's area that text blocks cut by its edge must cover before the raw image resource
+ * is preferred over a render of the region. Measured on a real rulebook whose pictures sit under
+ * text panels: the units with a visible slice of the page's text had 1.4%-19%; 1% catches a single cut
+ * line across the width of a picture while ignoring a block that merely brushes the edge.
+ */
+const TEXT_CROSSING_EDGE_PREFER_RAW_FRACTION = 0.01;
+
+/**
+ * Whether body/caption blocks that the unit's bbox CUTS (they reach outside it) cover enough of it. Such
+ * a block belongs to the surrounding page layout — a render of the region would slice it into the
+ * picture. A block lying entirely INSIDE the bbox (a label on a map, a caption inside a frame) is
+ * judged to belong to the picture's own composition and is not counted.
+ */
+function textCrossesRegionEdge(bbox: Rect, textBoxes: readonly Rect[] | undefined): boolean {
+  if (!textBoxes || textBoxes.length === 0) return false;
+  const area = rectArea(bbox);
+  if (area <= 0) return false;
+  let crossing = 0;
+  for (const t of textBoxes) {
+    const inter = rectIntersection(bbox, t);
+    if (!inter) continue;
+    const inside = t.minX >= bbox.minX && t.maxX <= bbox.maxX && t.minY >= bbox.minY && t.maxY <= bbox.maxY;
+    if (!inside) crossing += rectArea(inter);
+  }
+  return crossing / area >= TEXT_CROSSING_EDGE_PREFER_RAW_FRACTION;
+}
+
+/**
+ * How far the long-to-short edge ratio of a raw resource may differ from the one of the place it is
+ * painted in and still count as "the same picture". Measured on a real rulebook: a picture of 470x473 px
+ * painted into a 239x240 pt box differs by 1%; a paper-texture strip of 1601x119 px painted under a
+ * 243x417 pt picture differs by a factor of 23. Rotation by 90 degrees does not matter (the ratio is
+ * taken long edge over short edge).
+ */
+const RAW_RESOURCE_PLACEMENT_ASPECT_TOLERANCE = 0.25;
+
+/**
+ * The share of a masked picture that its mask must let through for the raw resource to stand in for the
+ * rendered region. Measured on a real rulebook: the masks of photos pinned to the page as tilted prints
+ * are white over 91%-95% of their raster (the rest is the black margin that tilts the edge); a mask that
+ * deliberately hides half of a picture is far below.
+ */
+const MASK_MOSTLY_VISIBLE_FRACTION = 0.8;
+
+/**
+ * Whether the raw pixels of a resource have the proportions of the box they are painted in. The
+ * resource of a masked or clustered unit is not always the picture: it can be a texture or a fill that the
+ * composition stretches under or over the real artwork, and then "the raw resource" is a different image
+ * than what the page shows.
+ */
+export function rawResourceFitsPlacement(raw: { width: number; height: number }, placed: Rect): boolean {
+  const placedW = placed.maxX - placed.minX;
+  const placedH = placed.maxY - placed.minY;
+  if (raw.width <= 0 || raw.height <= 0 || placedW <= 0 || placedH <= 0) return false;
+  const rawRatio = Math.max(raw.width, raw.height) / Math.min(raw.width, raw.height);
+  const placedRatio = Math.max(placedW, placedH) / Math.min(placedW, placedH);
+  return Math.abs(rawRatio - placedRatio) / placedRatio <= RAW_RESOURCE_PLACEMENT_ASPECT_TOLERANCE;
 }
 
 /**
@@ -265,11 +370,52 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
   return groups;
 }
 
+/**
+ * A unit that holds several distinct pictures — pinned prints stacked and overlapping on a page, a photo
+ * with a note laid over its corner — is split into one unit per picture. Rendering their union gives a
+ * region of the page (the pictures, the text and the margin between them); taking one raw resource would
+ * drop the others from every list. Only pictures that are masked cut-outs and that cover a real share of
+ * the page count as pictures of their own; the tape, crests and paperclips that sit on them stay with the
+ * picture they are on, as before.
+ */
+export function splitUnitsOfDistinctPictures(
+  units: readonly ExtractionUnit[],
+  classifiedByEntry: ReadonlyMap<ImageEntry, ClassifiedImage>,
+  maskedObjIds: ReadonlySet<string>,
+): ExtractionUnit[] {
+  return units.flatMap((unit) => {
+    const significantMasked = unit.memberEntries.filter((m) => m.objId !== null && maskedObjIds.has(m.objId) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+    if (unit.memberEntries.length < 2 || significantMasked.length < 2) return [unit];
+    const separate = unit.memberEntries.filter((m) => {
+      if (m === unit.representativeEntry) return true;
+      const c = classifiedByEntry.get(m);
+      return c !== undefined && (m.maxRelativeArea >= SPLIT_OFF_MIN_AREA || (c.classification === 'content' && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA));
+    });
+    return separate.flatMap((m): ExtractionUnit[] => {
+      const c = classifiedByEntry.get(m);
+      const boxes = m.occurrences.filter((o) => o.page === unit.page).map((o) => o.bbox);
+      if (!c || boxes.length === 0) return [];
+      return [
+        {
+          representativeEntry: m,
+          memberEntries: [m],
+          page: unit.page,
+          bbox: boxes.reduce((acc, b) => unionRect(acc, b)),
+          clusterMemberCount: 1,
+          classification: c.classification,
+          confidence: c.confidence,
+          reason: c.reason,
+        },
+      ];
+    });
+  });
+}
+
 function checkAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('buildImageExtraction aborted by AbortSignal', 'AbortError');
 }
 
-interface ExtractionUnit {
+export interface ExtractionUnit {
   /** `null` = a purely vector region (a drawn map), no image to extract. */
   representativeEntry: ImageEntry | null;
   memberEntries: readonly ImageEntry[];
@@ -437,8 +583,10 @@ export async function buildImageExtraction(
 
   const pageBoxByPage = new Map(inventory.perPage.map((p) => [p.pageNumber, p.box]));
   const bodyBlockBoxesByPage = opts.bodyBlockBoxesByPage ?? new Map();
+  const textBlockBoxesByPage = opts.textBlockBoxesByPage ?? bodyBlockBoxesByPage;
   const classified = classifyImages(inventory.images, pageBoxByPage, bodyBlockBoxesByPage, {
     treatFullBleedAsContent: opts.treatFullBleedAsContent ?? false,
+    hideTinyImages: hideBackgroundImages,
   });
   // `Z13-extreme-aspect-ratio-undecided` (see `classify.ts`) lands in
   // `undecided`, not `decoration` — visible in the review screen, but the
@@ -455,9 +603,20 @@ export async function buildImageExtraction(
     });
   }
   const maskedObjIds = computeMaskedObjIds(inventory.images);
+  // Resources that carry a mask, keyed by the resource they mask. They are classified `mask` and never
+  // become units of their own, so a unit finds its masks here.
+  const maskHoldersByTarget = new Map<string, ImageEntry[]>();
+  for (const e of inventory.images) {
+    if ((e.maskEvidence !== 'group' && e.maskEvidence !== 'opcode') || !e.masksImageObjId || e.objId === null) continue;
+    const holders = maskHoldersByTarget.get(e.masksImageObjId) ?? [];
+    holders.push(e);
+    maskHoldersByTarget.set(e.masksImageObjId, holders);
+  }
+  const objectSettleTimeoutMs = opts.objectSettleTimeoutMs ?? DEFAULT_OBJECT_SETTLE_TIMEOUT_MS;
 
   const candidates = classified.filter((c) => c.classification === 'content' || c.classification === 'undecided');
-  const imageUnits = groupIntoUnits(candidates, pageBoxByPage, diagnostics);
+  const classifiedByEntry = new Map(classified.map((c) => [c.entry, c]));
+  const imageUnits = splitUnitsOfDistinctPictures(groupIntoUnits(candidates, pageBoxByPage, diagnostics), classifiedByEntry, maskedObjIds);
 
   const pagesWithAnyImage = new Set<number>();
   for (const entry of inventory.images) for (const occ of entry.occurrences) pagesWithAnyImage.add(occ.page);
@@ -495,18 +654,62 @@ export async function buildImageExtraction(
       // simplest, single image) fell back to a region render, even though
       // `has()` should have returned `true` — the same pattern as
       // `buildTextLayout.ts` (getOperatorList BEFORE getTextContent).
-      await page.getOperatorList();
+      const operatorList = await page.getOperatorList();
       checkAborted(signal);
+      // Time left on this page for waiting on resources that are not registered yet (see `objectSettleTimeoutMs`).
+      let settleBudgetMs = objectSettleTimeoutMs;
+      // The id this document gave the resource that `entry` paints on this page (see `currentObjIdAt`).
+      const idOnThisPage = (entry: ImageEntry): string | null => currentObjIdAt(operatorList, entry.occurrences.find((o) => o.page === pageNumber)?.index, entry.objId);
       for (const unit of unitsByPage.get(pageNumber)!) {
         checkAborted(signal);
         try {
           const isMasked = unit.memberEntries.some((e) => e.objId !== null && maskedObjIds.has(e.objId));
+          const crossesText = textCrossesRegionEdge(unit.bbox, bodyBlockBoxesByPage.get(pageNumber));
+          // Only probed when it can matter: the raw resource is considered for masked units and for
+          // clusters whose region is cut by page text.
+          const rep = unit.representativeEntry;
+          const repId = rep ? idOnThisPage(rep) : null;
+          const holderIds = rep?.objId ? (maskHoldersByTarget.get(rep.objId) ?? []).map(idOnThisPage) : [];
+          const considersRaw = rep?.objId !== undefined && rep?.objId !== null && (isMasked || (crossesText && unit.clusterMemberCount > 1));
+          let fitsPlacement = false;
+          let maskMostlyVisible = false;
+          if (rep && repId && considersRaw) {
+            const needed = [repId, ...(isMasked ? holderIds : [])].filter((id): id is string => id !== null);
+            if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, needed, settleBudgetMs);
+            // The shape of the raw resource: known from the operator list without decoding it; the probe
+            // is the fallback for the opcodes that do not carry it.
+            const placed = rep.occurrences.find((o) => o.page === pageNumber)?.bbox;
+            const rawSize =
+              rep.intrinsicWidth !== null && rep.intrinsicHeight !== null ? { width: rep.intrinsicWidth, height: rep.intrinsicHeight } : await probeIntrinsicSizePx(page, repId);
+            fitsPlacement = rawSize !== null && placed !== undefined && rawResourceFitsPlacement(rawSize, placed);
+            // The mask of a masked picture is a resource of its own (it points at the picture); how much of
+            // the picture it lets through decides whether the mask matters.
+            if (fitsPlacement && isMasked) {
+              const fractions = await Promise.all(holderIds.map((id) => (id === null ? Promise.resolve(null) : probeMeanBrightnessFraction(page, id))));
+              maskMostlyVisible = fractions.length > 0 && fractions.every((f) => f !== null && f >= MASK_MOSTLY_VISIBLE_FRACTION);
+            }
+          }
+          // Other pictures that make up the unit: a raw resource shows only one of them.
+          // A member painted translucent (a watermark) is not a picture of its own and does not count.
+          const coMemberAreaShare = unit.memberEntries.reduce((sum, m) => (m === rep || (m.maxOpacity !== undefined && m.maxOpacity <= CO_MEMBER_TRANSLUCENT_MAX_OPACITY) ? sum : sum + m.maxRelativeArea), 0);
+          // Text that lies ON the picture (a paper note, a newspaper handout) is part of what the page shows.
+          const placedRep = rep?.occurrences.find((o) => o.page === pageNumber)?.bbox;
+          // Not for a full-bleed background the user asked to treat as content: its text is on top of it by
+          // design, and the background without the text is what was asked for.
+          const textOverPicture =
+            unit.reason !== 'Z1-full-bleed-forced-content' &&
+            (unit.reason.startsWith('Z10') || (placedRep !== undefined && textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) >= TEXT_OVER_PICTURE_FRACTION));
           const decision = decideExtractionStrategy({
-            entry: unit.representativeEntry,
+            entry: rep,
             isMasked,
             clusterMemberCount: Math.max(1, unit.clusterMemberCount),
+            textCrossesRegionEdge: crossesText,
+            rawResourceFitsPlacement: fitsPlacement,
+            maskMostlyVisible,
+            coMemberAreaShare,
+            textOverPicture,
           });
-          const objIdForExtraction = decision.strategy === 'direct' ? unit.representativeEntry!.objId : null;
+          const objIdForExtraction = decision.strategy === 'direct' ? repId : null;
 
           // Region-render resolution is DERIVED from the native
           // resolution of the resources in the region, not from a constant —
@@ -519,7 +722,7 @@ export async function buildImageExtraction(
             const intrinsicLongEdgesPx: number[] = [];
             for (const member of unit.memberEntries) {
               if (member.objId === null) continue;
-              const longEdge = await probeIntrinsicLongEdgePx(page, member.objId);
+              const longEdge = await probeIntrinsicLongEdgePx(page, idOnThisPage(member) ?? member.objId);
               if (longEdge !== null) intrinsicLongEdgesPx.push(longEdge);
             }
             effectiveTargetLongEdgePx = computeTargetLongEdgePx({
@@ -571,6 +774,7 @@ export async function buildImageExtraction(
           // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
           const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(image) : undefined;
           const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(image) : undefined;
+          const opaqueFraction = hideBackgroundImages ? computeOpaqueFraction(image) : undefined;
           // Grid suggestion — NOT limited to 'content' (unlike
           // `luminanceStdDev` above): 'undecided' can also end up on stage by
           // the user's manual decision in the review screen), and the cost of
@@ -597,6 +801,7 @@ export async function buildImageExtraction(
             luminanceStdDev,
             uniformColorFraction,
             smoothness,
+            opaqueFraction,
             suggestedGrid,
             payload: encoded,
           });

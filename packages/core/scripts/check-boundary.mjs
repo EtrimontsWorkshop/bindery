@@ -39,7 +39,10 @@ try {
 // restricted words). None of the six real Foundry globals has its OWN first-level method named
 // `test`/`exec` (`ui.test`, `game.exec` etc. don't exist in the Foundry API) — excluding THESE
 // TWO specific, directly measured collisions loses sensitivity to no real use.
-const FALSE_POSITIVE_METHOD_CALL = /^(test|exec)\(/;
+// The same holds for `get(` — a lookup on a Map that got such a name (measured: `ui.get(e)` on a
+// `new Map(...)`). The six Foundry globals have no `get` of their own either: their collections are
+// reached one level deeper (`game.actors.get`, `game.settings.get`), which this pattern still catches.
+const FALSE_POSITIVE_METHOD_CALL = /^(test|exec|get)\(/;
 const violations = [];
 for (const word of RESTRICTED) {
   const re = new RegExp(`\\b${word}\\b\\s*\\.(.{0,6})`, 'g');

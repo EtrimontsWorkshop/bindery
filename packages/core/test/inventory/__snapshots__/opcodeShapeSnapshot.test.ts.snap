@@ -36,6 +36,9 @@ exports[`an exhaustive snapshot of the argsArray shapes, closed by construction 
   "setFont": [
     "arity=2 [string, number]",
   ],
+  "setGState": [
+    "arity=1 [array(len=1)<array(len=2)<boolean|string>>]",
+  ],
   "transform": [
     "arity=6 [number, number, number, number, number, number]",
   ],

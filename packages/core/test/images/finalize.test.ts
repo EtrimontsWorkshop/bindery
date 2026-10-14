@@ -4,6 +4,7 @@ import {
   closeCorrelationByHash,
   computeContentHash,
   computeLuminanceStdDev,
+  computeOpaqueFraction,
   computeSmoothnessMetrics,
   computeUniformColorFraction,
   finalizeImages,
@@ -282,6 +283,45 @@ describe('finalizeImages', () => {
   it('[user request] keeps an image that is smooth at only ONE scale (a faint sketch: low coarse but real fine detail)', async () => {
     const p = await prepared(entry({ objId: 'faint-sketch' }), image(900, 900, 200), { classification: 'undecided', confidence: 0.2, smoothness: { coarseGradient: 2.5, fineGradient: 2.9 } });
     expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('hides a page-sized undecided sheet of paper that is smooth at the coarse scale even when the grain raises the fine gradient', async () => {
+    const paper = await prepared(entry({ objId: 'paper', maxRelativeArea: 1.01 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 1.9, fineGradient: 3.3 } });
+    expect(finalizeImages([paper], new Set()).images[0]!.classification).toBe('decoration');
+  });
+
+  it('keeps a page-sized undecided image with real coarse detail (a cover, a full-page picture)', async () => {
+    const art = await prepared(entry({ objId: 'cover', maxRelativeArea: 1.2 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 7.2, fineGradient: 3.0 } });
+    expect(finalizeImages([art], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('keeps a smaller undecided image with the same smoothness (the large-sheet rule needs a page-sized image)', async () => {
+    const p = await prepared(entry({ objId: 'half-page', maxRelativeArea: 0.5 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 1.9, fineGradient: 3.3 } });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('keeps a page-sized grainy, high-contrast image (the fine limit)', async () => {
+    const p = await prepared(entry({ objId: 'noisy', maxRelativeArea: 1 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 2.0, fineGradient: 6 } });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('hides a small undecided image that is mostly transparent (a paperclip), keeps a small opaque one', async () => {
+    const clip = await prepared(entry({ objId: 'clip', maxRelativeArea: 0.01 }), image(100, 100, 100), { classification: 'undecided', confidence: 0.2, opaqueFraction: 0.12 });
+    const emblem = await prepared(entry({ objId: 'emblem', maxRelativeArea: 0.01 }), image(100, 100, 101), { classification: 'undecided', confidence: 0.2, opaqueFraction: 1 });
+    expect(finalizeImages([clip, emblem], new Set()).images.map((i) => i.classification)).toEqual(['decoration', 'undecided']);
+  });
+
+  it('keeps a sparse image that covers a real share of the page (smoke, a splatter)', async () => {
+    const p = await prepared(entry({ objId: 'smoke', maxRelativeArea: 0.2 }), image(100, 100, 100), { classification: 'undecided', confidence: 0.2, opaqueFraction: 0.13 });
+    expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('computeOpaqueFraction counts pixels with alpha above 16', () => {
+    const rgba = new Uint8ClampedArray(4 * 4);
+    rgba[3] = 255;
+    rgba[7] = 17;
+    rgba[11] = 16;
+    expect(computeOpaqueFraction({ width: 4, height: 1, rgba })).toBeCloseTo(0.5);
   });
 
   it('[user request] hides a long, narrow image (a typical frame/border strip) — content or undecided', async () => {

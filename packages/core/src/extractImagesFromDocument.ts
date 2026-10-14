@@ -3,6 +3,7 @@ import type { Rect } from './geometry.js';
 import { browserImageEncoder, type EncodedImage } from './images/encodeImage.js';
 import { browserRegionRenderer } from './images/regionRenderer.js';
 import { buildImageExtraction, type BuildImageExtractionOptions, type BuildImageExtractionResult } from './images/buildImageExtraction.js';
+import { groupBlockBoxesByPage } from './images/textBlockBoxes.js';
 import { buildInventory } from './inventory/inventory.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
@@ -70,11 +71,11 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
  * comment above the file: every use of pdf.js in the browser needs its OWN
  * independent copy of the bytes.
  */
-async function buildBodyBlockBoxesByPage(
+async function buildBlockBoxesByPage(
   data: ArrayBuffer,
   assetBaseUrl: string,
   inv: Awaited<ReturnType<typeof buildInventory>>,
-): Promise<Map<number, Rect[]>> {
+): Promise<{ body: Map<number, Rect[]>; text: Map<number, Rect[]> }> {
   const layoutDoc = await openDocument(data, assetBaseUrl);
   const fontSizeByKey = new Map(inv.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,15 +91,8 @@ async function buildBodyBlockBoxesByPage(
   // `TEXT_COVERAGE_DECORATION_THRESHOLD`: flavor text on a decorative
   // background often has a font with the `caption` role (smaller/different
   // from the main `body`), not because it's an image caption, but simply
-  // because it's close to an image.
-  const byPage = new Map<number, Rect[]>();
-  for (const b of blocks) {
-    if (b.kind !== 'body' && b.kind !== 'caption') continue;
-    const arr = byPage.get(b.pageNumber) ?? [];
-    arr.push(b.bbox);
-    byPage.set(b.pageNumber, arr);
-  }
-  return byPage;
+  // because it's close to an image. `text` holds every kind of block.
+  return { body: groupBlockBoxesByPage(blocks, new Set(['body', 'caption'])), text: groupBlockBoxesByPage(blocks) };
 }
 
 export async function extractImagesFromDocument(
@@ -110,7 +104,7 @@ export async function extractImagesFromDocument(
   const invDoc = await openDocument(data, assetBaseUrl);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inv = await buildInventory(invDoc as any);
-  const bodyBlockBoxesByPage = await buildBodyBlockBoxesByPage(data, assetBaseUrl, inv);
+  const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage } = await buildBlockBoxesByPage(data, assetBaseUrl, inv);
   const extractDoc = await openDocument(data, assetBaseUrl);
 
   return buildImageExtraction(
@@ -119,7 +113,7 @@ export async function extractImagesFromDocument(
     { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
     browserRegionRenderer,
     browserImageEncoder,
-    { ...extractionOpts, bodyBlockBoxesByPage },
+    { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage },
   );
 }
 

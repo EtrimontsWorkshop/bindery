@@ -6,7 +6,10 @@ import { walkOperators, type WalkEvent } from '../../src/inventory/walkOperators
 const SAVE = 10;
 const RESTORE = 11;
 const TRANSFORM = 12;
+const SET_GSTATE = 9;
 const SET_FONT = 37;
+const PAINT_FORM_XOBJECT_BEGIN = 74;
+const PAINT_FORM_XOBJECT_END = 75;
 const BEGIN_GROUP = 76;
 const END_GROUP = 77;
 const PAINT_IMAGE_MASK_XOBJECT = 83;
@@ -220,5 +223,51 @@ describe('walkOperators — vector regions (rectangles only)', () => {
     const argsArray: unknown[][] = [[FILL, flat, [0, 0, 10, 10]]];
     const events = walkOperators({ fnArray, argsArray }, PAGE_BOX);
     expect(vectorsOf(events)).toHaveLength(0);
+  });
+});
+
+describe('walkOperators — the opacity an image is painted with', () => {
+  const gstate = (ca: number) => [[['BM', 'source-over'], ['CA', 1], ['SMask', false], ['ca', ca]]];
+
+  it('an image painted at full opacity carries no opacity field', () => {
+    const events = walkOperators({ fnArray: [SAVE, SET_GSTATE, PAINT_IMAGE_XOBJECT, RESTORE], argsArray: [[], gstate(1), ['Im1', 4, 4], []] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('opacity');
+  });
+
+  it('reads the fill alpha in force at the paint', () => {
+    const events = walkOperators({ fnArray: [SAVE, SET_GSTATE, PAINT_IMAGE_XOBJECT, RESTORE], argsArray: [[], gstate(0.1), ['Im1', 4, 4], []] }, PAGE_BOX);
+    expect(imagesOf(events)[0]!.opacity).toBeCloseTo(0.1);
+  });
+
+  it('save and restore scope the alpha: an image painted after restore is opaque again', () => {
+    const fnArray = [SAVE, SET_GSTATE, RESTORE, PAINT_IMAGE_XOBJECT];
+    const events = walkOperators({ fnArray, argsArray: [[], gstate(0.3), [], ['Im1', 4, 4]] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('opacity');
+  });
+
+  it('a form scopes the alpha like save/restore', () => {
+    const fnArray = [PAINT_FORM_XOBJECT_BEGIN, SET_GSTATE, PAINT_FORM_XOBJECT_END, PAINT_IMAGE_XOBJECT];
+    const events = walkOperators({ fnArray, argsArray: [[null, null], gstate(0.3), [], ['Im1', 4, 4]] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('opacity');
+  });
+
+  it('a group is composited with the alpha it began with; its content starts opaque and multiplies in', () => {
+    const fnArray = [SAVE, SET_GSTATE, BEGIN_GROUP, PAINT_IMAGE_XOBJECT, SET_GSTATE, PAINT_IMAGE_XOBJECT, END_GROUP, RESTORE];
+    const argsArray: unknown[][] = [[], gstate(0.5), [{ smask: null }], ['Im1', 4, 4], gstate(0.5), ['Im2', 4, 4], [], []];
+    const images = imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX));
+    // Im1: the group's 0.5 x the inner alpha reset to 1. Im2: 0.5 x 0.5.
+    expect(images[0]!.opacity).toBeCloseTo(0.5);
+    expect(images[1]!.opacity).toBeCloseTo(0.25);
+  });
+
+  it('after a group ends the alpha is the one from before it', () => {
+    const fnArray = [SAVE, SET_GSTATE, BEGIN_GROUP, END_GROUP, PAINT_IMAGE_XOBJECT, RESTORE];
+    const argsArray: unknown[][] = [[], gstate(0.5), [{ smask: null }], [], ['Im1', 4, 4], []];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]!.opacity).toBeCloseTo(0.5);
+  });
+
+  it('ignores a malformed setGState', () => {
+    const events = walkOperators({ fnArray: [SET_GSTATE, SET_GSTATE, PAINT_IMAGE_XOBJECT], argsArray: [[], [[['ca']]], ['Im1', 4, 4]] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('opacity');
   });
 });

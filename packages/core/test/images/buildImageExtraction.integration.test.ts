@@ -13,34 +13,36 @@ async function openDoc(buf: Buffer): Promise<PdfDocumentLikeForImages> {
   return doc as unknown as PdfDocumentLikeForImages;
 }
 
-async function run(buf: Buffer) {
+async function run(buf: Buffer, opts: { hideBackgroundImages?: boolean } = {}) {
   const invDoc = await openDoc(buf);
   const inv = await buildInventory(invDoc as never);
   const doc = await openDoc(buf);
-  return buildImageExtraction(doc, inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 256 });
+  return buildImageExtraction(doc, inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 256, ...opts });
 }
 
 /**
  * Integration tests of the orchestrator on fixtures built independently of it — deliberately
- * limited to what those fixtures actually justify: the mask (region-render instead of the raw
- * mask-less resource) and the cluster (one result, not N). Scenarios that require specific
+ * limited to what those fixtures actually justify: the mask (a raw resource when the mask hides nothing,
+ * a region render when it hides part of the picture — see `extract-masked`) and the cluster (one result, not N). Scenarios that require specific
  * classification thresholds (unambiguous content, a purely vector region covering the page, a
  * decoration on many pages next to real content) have their OWN, deliberately built fixtures
  * (`test/synth/fixtures/extract-*.ts`) — see `buildImageExtraction.groupD.test.ts`.
  */
 describe('buildImageExtraction — an integration of the full pipeline on real fixtures', () => {
-  it('a masked image (small, below the large-area threshold) goes through a region-render, not a raw extraction without the mask', async () => {
+  it('a masked image whose mask hides nothing (uniformly white) is taken raw when its resource fits its place', async () => {
     const result = await run(buildImagesLuminosityMask());
     // The mask form itself ('mask') is excluded from the result; only the masked resource remains.
     expect(result.images).toHaveLength(1);
     const maskedContent = result.images[0]!;
     expect(maskedContent.classification).not.toBe('mask');
-    expect(maskedContent.extractSource).toBe('region-render');
+    expect(maskedContent.extractSource).toBe('objs');
     expect(maskedContent.width).toBeGreaterThan(0);
   }, 30000);
 
   it('a cluster of overlapping images (a base + 4 icons on it) gives ONE entry; a completely separate image gives a SECOND', async () => {
-    const result = await run(buildImagesOverlapping());
+    // The stand-in images of this fixture are a fraction of a percent of the page; the rule that hides such
+    // specks from the review list is off, because the test is about clustering.
+    const result = await run(buildImagesOverlapping(), { hideBackgroundImages: false });
     // 6 images: 5 mutually overlapping (a cluster) + 1 completely separate (no overlap).
     expect(result.images).toHaveLength(2);
     const clustered = result.images.find((img) => img.extractSource === 'region-render');

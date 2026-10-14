@@ -1,5 +1,6 @@
 import type { Rect } from '../geometry.js';
 import type { ImageEntry } from '../inventory/imageRegistry.js';
+import { computeMaskedObjIds } from './strategy.js';
 
 /**
  * Content/decoration/mask classification. Input: `ImageEntry[]` from the inventory pass (zero
@@ -61,6 +62,12 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   // signals (`Z1-conflicting-geometry-mask-vs-large-area`).
   'Z11-repeated-no-bleed-evidence': 0.4,
   'Z12-bleeding-no-center-text-evidence': 0.4,
+  'Z12-bleeding-masked-cutout': 0.7,
+  'Z12-bleeding-translucent-overlay': 0.8,
+  'Z15-small-masked-raster': 0.7,
+  'Z16-tiny-undecided': 0.7,
+  'Z17-covered-by-later-picture': 0.8,
+  'Z18-form-page-element': 0.7,
   'Z1-conflicting-geometry-mask-vs-large-area': 0.4,
   'Z1-weak-geometry-mask-evidence': 0.3,
   'Z1-no-strong-signal': 0.2,
@@ -331,6 +338,29 @@ function maxCenterTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: Readonly
 }
 
 /**
+ * Opacity at or below which a bleeding image that is translucent everywhere it is painted counts as a
+ * watermark. Measured on a real rulebook: watermarks at 0.1-0.5, illustrations at 1.
+ */
+const TRANSLUCENT_OVERLAY_MAX_OPACITY = 0.6;
+
+/**
+ * Limits of the tape/paper-scrap rule (`Z15-small-masked-raster`). Measured on a real rulebook: all 46 tape
+ * and scrap rasters are masked, 219-269 px on the long edge, 64-94 px on the short one (aspect 2.4-3.4)
+ * and cover 0.5%-2.5% of the page; the nearest real content, an emblem, is 203x218 px (aspect 1.07) at 2.7%.
+ */
+const SMALL_MASKED_STRIP_MAX_LONG_EDGE_PX = 300;
+const SMALL_MASKED_STRIP_MIN_ASPECT = 2;
+const SMALL_MASKED_STRIP_MAX_AREA = 0.03;
+
+function isSmallMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
+  if (entry.objId === null || !maskedObjIds.has(entry.objId)) return false;
+  const w = entry.intrinsicWidth;
+  const h = entry.intrinsicHeight;
+  if (w === null || h === null || w <= 0 || h <= 0) return false;
+  return Math.max(w, h) <= SMALL_MASKED_STRIP_MAX_LONG_EDGE_PX && Math.max(w, h) / Math.min(w, h) >= SMALL_MASKED_STRIP_MIN_ASPECT && entry.maxRelativeArea < SMALL_MASKED_STRIP_MAX_AREA;
+}
+
+/**
  * Classifies all image registry entries. `'undecided'` is ALLOWED and DESIRED for conflicting
  * signals — the review screen shows these to the user unchecked by default, instead of guessing
  * on their behalf.
@@ -347,12 +377,13 @@ export function classifyImages(
   // Lets a full-bleed background image be treated as content instead of
   // decoration. Defaults to `{}` (off) — behavior identical to before this
   // flag was added.
-  options: { treatFullBleedAsContent?: boolean } = {},
+  options: { treatFullBleedAsContent?: boolean; hideTinyImages?: boolean } = {},
 ): ClassifiedImage[] {
   const treatFullBleedAsContent = options.treatFullBleedAsContent ?? false;
   const correlatedPageCounts = computeCorrelatedPageCounts(entries);
+  const maskedObjIds = computeMaskedObjIds(entries);
 
-  return entries.map((entry): ClassifiedImage => {
+  const first = entries.map((entry): ClassifiedImage => {
     // 1. Hard mask evidence — decision final, regardless of anything else.
     if (entry.maskEvidence === 'group' || entry.maskEvidence === 'opcode') {
       return { entry, classification: 'mask', reason: `Z1-mask-evidence-${entry.maskEvidence}`, confidence: confidenceForReason(`Z1-mask-evidence-${entry.maskEvidence}`) };
@@ -422,6 +453,20 @@ export function classifyImages(
           return { entry, classification: 'content', reason: 'Z1-full-bleed-forced-content', confidence: confidenceForReason('Z1-full-bleed-background') };
         }
         return { entry, classification: 'decoration', reason: 'Z1-full-bleed-background', confidence: confidenceForReason('Z1-full-bleed-background') };
+      }
+      // A bleeding image that another image cuts out through a mask is a shape of the page's own design —
+      // a paper scrap, a stain, a drop shadow, a strip of tape. Rendered on its own it shows nothing but the
+      // page around it, so it is not offered. An unmasked bleeding image stays `undecided`: it may be a
+      // cover or a full-page illustration.
+      if (entry.objId !== null && maskedObjIds.has(entry.objId)) {
+        return { entry, classification: 'decoration', reason: 'Z12-bleeding-masked-cutout', confidence: confidenceForReason('Z12-bleeding-masked-cutout') };
+      }
+      // A bleeding image painted translucent everywhere it appears (a watermark ornament, a texture laid
+      // over the paper) is the page's own atmosphere, not an illustration: the illustrations of the same
+      // book are painted opaque. Measured on a real rulebook: all 11 translucent ones sit at 10%-50% opacity,
+      // all 22 other bleeding images at 100%.
+      if (entry.maxOpacity !== undefined && entry.maxOpacity <= TRANSLUCENT_OVERLAY_MAX_OPACITY) {
+        return { entry, classification: 'decoration', reason: 'Z12-bleeding-translucent-overlay', confidence: confidenceForReason('Z12-bleeding-translucent-overlay') };
       }
       return { entry, classification: 'undecided', reason: 'Z12-bleeding-no-center-text-evidence', confidence: confidenceForReason('Z12-bleeding-no-center-text-evidence') };
     }
@@ -496,11 +541,106 @@ export function classifyImages(
     // final `undecided`/`Z1-no-strong-signal` — otherwise this case would
     // get the lowest possible confidence, even though the aspect ratio IS a
     // real (just unconfirmed) signal.
+    // A small, elongated raster that another image cuts out through a mask is a strip of adhesive tape or a
+    // scrap of paper stuck on a picture. Alone it is never useful, and offering it also stretches the
+    // unit of the picture it sits on. The aspect gate keeps small square-ish masked content (an emblem, a
+    // portrait) out of this rule.
+    if (isSmallMaskedStrip(entry, maskedObjIds)) {
+      return { entry, classification: 'decoration', reason: 'Z15-small-masked-raster', confidence: confidenceForReason('Z15-small-masked-raster') };
+    }
+
     if (!isLargeArea && hasExtremeAspectRatioOccurrence(entry)) {
       return { entry, classification: 'undecided', reason: 'Z13-extreme-aspect-ratio-undecided', confidence: confidenceForReason('Z13-extreme-aspect-ratio-undecided') };
     }
 
     // No strong signal in either direction — don't guess.
     return { entry, classification: 'undecided', reason: 'Z1-no-strong-signal', confidence: confidenceForReason('Z1-no-strong-signal') };
+  });
+  return hideTinyAndCoveredPictures(first, options.hideTinyImages ?? false);
+}
+
+/**
+ * Page-area share below which an image nobody could classify (`undecided`) is not offered. Measured on
+ * a real rulebook: the form elements of a character sheet (label bars, title letters, tick boxes) are
+ * 0.0%-0.5% of the page, spread over a handful of pages in dozens at a time; a 1-inch token is about 1.1%.
+ */
+const TINY_IMAGE_MAX_AREA = 0.005;
+
+/**
+ * A page with at least this many tiny undecided images (see `TINY_IMAGE_MAX_AREA`) is a form — a character
+ * sheet built of label bars, title letters and tick boxes. Measured on a real rulebook: the two sheet pages
+ * have 48 and 66 tiny images; the busiest ordinary page, with a row of small icons, has 10.
+ */
+const FORM_PAGE_MIN_TINY_IMAGES = 15;
+/** On a form page, undecided images below this page-area share are parts of the form (its banners and boxes). */
+const FORM_PAGE_ELEMENT_MAX_AREA = 0.06;
+
+/**
+ * Share of a picture that a later-painted opaque picture must cover for it to count as hidden under it.
+ * Measured on a real rulebook where pinned photos are stacked over one filler picture (the same artwork
+ * under each stack): the hidden ones are covered 79%-100%, the pictures that merely overlap one another
+ * at most 68%.
+ */
+const COVERED_PICTURE_MIN_COVER = 0.75;
+/** Only pictures of at least this page-area share are checked for being covered. */
+const COVERED_PICTURE_MIN_AREA = 0.03;
+
+function bboxArea(b: Rect): number {
+  return Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
+}
+
+function intersectionArea(a: Rect, b: Rect): number {
+  const w = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+  const h = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * Two cuts that need a look at the other images of the page:
+ * - `undecided` images below `TINY_IMAGE_MAX_AREA` are decoration (form elements, specks). Only when
+ *   `hideTiny` is on: it is part of the "never worth reviewing" hiding that geometry-focused tests with tiny
+ *   stand-in images switch off. The same switch covers the form-page rule: on a page with a crowd of tiny
+ *   images (a character sheet) the small undecided ones are parts of the form.
+ * - A picture that a LATER-painted, fully opaque picture covers almost completely is not visible on the
+ *   page — it is the bottom of a stack of pinned photos — and is decoration. Paint order is the
+ *   operator index of the occurrence.
+ */
+function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTiny: boolean): ClassifiedImage[] {
+  const isPicture = (c: ClassifiedImage): boolean => c.classification === 'content' || c.classification === 'undecided';
+  const picturesByPage = new Map<number, ClassifiedImage[]>();
+  for (const c of results) {
+    const occ = c.entry.occurrences[0];
+    if (!occ || !isPicture(c) || c.entry.maxRelativeArea < COVERED_PICTURE_MIN_AREA) continue;
+    const arr = picturesByPage.get(occ.page) ?? [];
+    arr.push(c);
+    picturesByPage.set(occ.page, arr);
+  }
+
+  const tinyPerPage = new Map<number, number>();
+  if (hideTiny) {
+    for (const c of results) {
+      const occ = c.entry.occurrences[0];
+      if (occ && c.classification === 'undecided' && c.entry.maxRelativeArea < TINY_IMAGE_MAX_AREA) tinyPerPage.set(occ.page, (tinyPerPage.get(occ.page) ?? 0) + 1);
+    }
+  }
+
+  return results.map((c): ClassifiedImage => {
+    const formPage = c.entry.occurrences[0] !== undefined && (tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES;
+    if (hideTiny && formPage && c.classification === 'undecided' && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-element', confidence: confidenceForReason('Z18-form-page-element') };
+    }
+    if (hideTiny && c.classification === 'undecided' && c.entry.maxRelativeArea < TINY_IMAGE_MAX_AREA) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z16-tiny-undecided', confidence: confidenceForReason('Z16-tiny-undecided') };
+    }
+    const occ = c.entry.occurrences[0];
+    if (!occ || !isPicture(c) || c.entry.maxRelativeArea < COVERED_PICTURE_MIN_AREA) return c;
+    const area = bboxArea(occ.bbox);
+    if (area <= 0) return c;
+    const covered = (picturesByPage.get(occ.page) ?? []).some((other) => {
+      if (other === c) return false;
+      const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined);
+      return over !== undefined && intersectionArea(occ.bbox, over.bbox) / area >= COVERED_PICTURE_MIN_COVER;
+    });
+    return covered ? { entry: c.entry, classification: 'decoration', reason: 'Z17-covered-by-later-picture', confidence: confidenceForReason('Z17-covered-by-later-picture') } : c;
   });
 }
