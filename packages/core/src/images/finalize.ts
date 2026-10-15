@@ -173,6 +173,15 @@ const BLACK_SHAPE_MIN_OPAQUE_FRACTION = 0.3;
 const BLACK_SHAPE_MIN_DARK_SHARE = 0.98;
 /** A pixel whose every channel is at or below this counts as black in `computeDarkOpaqueShare`. */
 const DARK_CHANNEL_MAX = 40;
+/**
+ * WHITE SHAPES — a strip or a patch whose visible pixels are all white: it cannot be seen on a page, and on a scene it
+ * is a blank. Measured on a real rulebook: a 28x73 px white raster cut from a strip under a page-wide clip; the
+ * pictures of five books are never white at 98% of their visible pixels.
+ */
+const WHITE_SHAPE_MIN_OPAQUE_FRACTION = 0.3;
+const WHITE_SHAPE_MIN_SHARE = 0.98;
+/** A pixel whose every channel is at or above this counts as white in `computeWhiteOpaqueShare`. */
+const WHITE_CHANNEL_MIN = 240;
 /** Long-side block count for the coarse measure. */
 const SMOOTHNESS_COARSE_BLOCKS = 256;
 /** Images with a shorter side below this are too small to judge as "smooth" — never hidden by this rule. */
@@ -266,6 +275,19 @@ export function computeVisibleMeanLuminance(image: DecodedImage): number {
     sum += 0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]!;
   }
   return n > 0 ? sum / n : 0;
+}
+
+/** The share (0-1) of the visible pixels (alpha above 16) that are white — see `WHITE_SHAPE_MIN_SHARE`. 0 when nothing is visible. */
+export function computeWhiteOpaqueShare(image: DecodedImage): number {
+  let visible = 0;
+  let white = 0;
+  const { rgba } = image;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    visible++;
+    if (rgba[i]! >= WHITE_CHANNEL_MIN && rgba[i + 1]! >= WHITE_CHANNEL_MIN && rgba[i + 2]! >= WHITE_CHANNEL_MIN) white++;
+  }
+  return visible > 0 ? white / visible : 0;
 }
 
 /** The share (0-1) of the visible pixels (alpha above 16) that are black — see `BLACK_SHAPE_MIN_DARK_SHARE`. 0 when nothing is visible. */
@@ -505,6 +527,8 @@ export interface PreparedEntryForFinalize<TPayload> {
   height: number;
   /** See `computeLuminanceStdDev`/`FLAT_TEXTURE_STDDEV_THRESHOLD`. Optional — no value skips the "flat texture" reclassification (e.g. in unit tests with no real pixels). */
   luminanceStdDev?: number;
+  /** See `computeWhiteOpaqueShare`. Optional — no value skips the "white shape" rule. */
+  whiteOpaqueShare?: number;
   /** See `computeDarkOpaqueShare`. Optional — no value skips the "black shape" rule. */
   darkOpaqueShare?: number;
   /** See `computeVisibleMeanLuminance`. Optional — no value skips the "light paper sheet" rule. */
@@ -556,7 +580,7 @@ export interface FinalizeResult<TPayload> {
  * can see, before it is done with a unit, that the picture it took would be hidden.
  */
 export function isNeverWorthReviewing(
-  d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare'>,
+  d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare' | 'whiteOpaqueShare'>,
 ): boolean {
   if (d.classification !== 'content' && d.classification !== 'undecided') return false;
   const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
@@ -587,7 +611,12 @@ export function isNeverWorthReviewing(
     d.opaqueFraction >= BLACK_SHAPE_MIN_OPAQUE_FRACTION &&
     d.darkOpaqueShare !== undefined &&
     d.darkOpaqueShare >= BLACK_SHAPE_MIN_DARK_SHARE;
-  return isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp || isLightPaperSheet || isBlackShape;
+  const isWhiteShape =
+    d.opaqueFraction !== undefined &&
+    d.opaqueFraction >= WHITE_SHAPE_MIN_OPAQUE_FRACTION &&
+    d.whiteOpaqueShare !== undefined &&
+    d.whiteOpaqueShare >= WHITE_SHAPE_MIN_SHARE;
+  return isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp || isLightPaperSheet || isBlackShape || isWhiteShape;
 }
 
 /**

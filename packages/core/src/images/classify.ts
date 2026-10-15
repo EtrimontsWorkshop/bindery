@@ -71,6 +71,10 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z18-form-page-element': 0.7,
   'Z19-translucent-copy-of-picture': 0.8,
   'Z20-small-translucent-masked-raster': 0.8,
+  'Z22-page-background-under-content': 0.8,
+  'Z23-masked-strip': 0.8,
+  'Z24-small-bleeding-strip': 0.7,
+  'Z25-translucent-masked-strip': 0.8,
   'Z1-conflicting-geometry-mask-vs-large-area': 0.4,
   'Z1-weak-geometry-mask-evidence': 0.3,
   'Z1-no-strong-signal': 0.2,
@@ -414,6 +418,45 @@ function isSmallMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>
 }
 
 /**
+ * Limits of the strip rules. Measured on a real rulebook: the strips of adhesive tape that hold photos to the page are
+ * masked rasters 521-537 x 69-72 px (aspect 7.3-7.8, the box of a tilted one is 9%-10% of the page), a "NOFORN"
+ * stamp laid over a table is a masked raster at 30% opacity, 469x94 px (aspect 5.0, 3.1%), the slivers of document
+ * sheets at the edge of a page are 160-396 px wide at aspect 3.7-5.4 and 4%-9% of the page; the pictures worth
+ * importing of the three other books are never that narrow when they are masked, translucent or cut by the page edge.
+ */
+const MASKED_STRIP_MIN_ASPECT = 5;
+const MASKED_STRIP_MAX_AREA = 0.15;
+const TRANSLUCENT_STRIP_MAX_OPACITY = 0.5;
+const TRANSLUCENT_STRIP_MIN_ASPECT = 3;
+const TRANSLUCENT_STRIP_MAX_AREA = 0.06;
+const BLEEDING_STRIP_MIN_ASPECT = 3;
+const BLEEDING_STRIP_MAX_AREA = 0.1;
+
+function intrinsicAspect(entry: ImageEntry): number | null {
+  const w = entry.intrinsicWidth;
+  const h = entry.intrinsicHeight;
+  if (w === null || h === null || w <= 0 || h <= 0) return null;
+  return Math.max(w, h) / Math.min(w, h);
+}
+
+function isMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
+  if (entry.objId === null || !maskedObjIds.has(entry.objId)) return false;
+  const aspect = intrinsicAspect(entry);
+  return aspect !== null && aspect >= MASKED_STRIP_MIN_ASPECT && entry.maxRelativeArea < MASKED_STRIP_MAX_AREA;
+}
+
+function isTranslucentMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
+  if (entry.objId === null || !maskedObjIds.has(entry.objId) || entry.maxOpacity === undefined || entry.maxOpacity > TRANSLUCENT_STRIP_MAX_OPACITY) return false;
+  const aspect = intrinsicAspect(entry);
+  return aspect !== null && aspect >= TRANSLUCENT_STRIP_MIN_ASPECT && entry.maxRelativeArea < TRANSLUCENT_STRIP_MAX_AREA;
+}
+
+function isSmallBleedingStrip(entry: ImageEntry): boolean {
+  const aspect = intrinsicAspect(entry);
+  return aspect !== null && aspect >= BLEEDING_STRIP_MIN_ASPECT && entry.maxRelativeArea < BLEEDING_STRIP_MAX_AREA;
+}
+
+/**
  * Classifies all image registry entries. `'undecided'` is ALLOWED and DESIRED for conflicting
  * signals — the review screen shows these to the user unchecked by default, instead of guessing
  * on their behalf.
@@ -521,6 +564,11 @@ export function classifyImages(
       if (isTranslucentEverywhere(entry)) {
         return { entry, classification: 'decoration', reason: 'Z12-bleeding-translucent-overlay', confidence: confidenceForReason('Z12-bleeding-translucent-overlay') };
       }
+      // A narrow sliver of a picture at the edge of the page (the visible end of a document sheet, a strip of tape)
+      // is part of the page's design, not a picture to import.
+      if (isSmallBleedingStrip(entry)) {
+        return { entry, classification: 'decoration', reason: 'Z24-small-bleeding-strip', confidence: confidenceForReason('Z24-small-bleeding-strip') };
+      }
       return { entry, classification: 'undecided', reason: 'Z12-bleeding-no-center-text-evidence', confidence: confidenceForReason('Z12-bleeding-no-center-text-evidence') };
     }
 
@@ -601,6 +649,12 @@ export function classifyImages(
     if (isSmallTranslucentMaskedRaster(entry, maskedObjIds)) {
       return { entry, classification: 'decoration', reason: 'Z20-small-translucent-masked-raster', confidence: confidenceForReason('Z20-small-translucent-masked-raster') };
     }
+    if (isTranslucentMaskedStrip(entry, maskedObjIds)) {
+      return { entry, classification: 'decoration', reason: 'Z25-translucent-masked-strip', confidence: confidenceForReason('Z25-translucent-masked-strip') };
+    }
+    if (isMaskedStrip(entry, maskedObjIds)) {
+      return { entry, classification: 'decoration', reason: 'Z23-masked-strip', confidence: confidenceForReason('Z23-masked-strip') };
+    }
     if (isSmallMaskedStrip(entry, maskedObjIds)) {
       return { entry, classification: 'decoration', reason: 'Z15-small-masked-raster', confidence: confidenceForReason('Z15-small-masked-raster') };
     }
@@ -646,6 +700,13 @@ const COVERED_PICTURE_MIN_COVER = 0.75;
  */
 const TRANSLUCENT_COPY_MIN_OVERLAP = 0.9;
 const TRANSLUCENT_COPY_MIN_BASE_COVER = 0.6;
+/**
+ * A page-filling picture (at least this share of the page) under a content picture of at least
+ * `PAGE_BACKGROUND_MIN_CONTENT_AREA` is the background of that page. Measured on a real rulebook: the textured
+ * section-opener backgrounds fill 100.5% of the page with a photo of 20% painted on them.
+ */
+const PAGE_BACKGROUND_MIN_AREA = 0.95;
+const PAGE_BACKGROUND_MIN_CONTENT_AREA = 0.05;
 /** Only pictures of at least this page-area share are checked for being covered. */
 const COVERED_PICTURE_MIN_AREA = 0.03;
 
@@ -742,6 +803,17 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     }
     const occ = c.entry.occurrences[0];
     if (!occ || !isPicture(c) || c.entry.maxRelativeArea < COVERED_PICTURE_MIN_AREA) return c;
+    // A picture that fills the page and that nobody could judge, with a picture that was judged content painted on it
+    // later, is the page's background (a textured sheet under a photo), not another picture. Not on the first page: the
+    // cover is a picture of its own.
+    if (
+      occ.page > 1 &&
+      c.classification === 'undecided' &&
+      c.entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_AREA &&
+      (picturesByPage.get(occ.page) ?? []).some((other) => other.classification === 'content' && other.entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_CONTENT_AREA && other.entry.occurrences.some((o) => o.page === occ.page && o.index > occ.index))
+    ) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z22-page-background-under-content', confidence: confidenceForReason('Z22-page-background-under-content') };
+    }
     const ownBox = footprint(c.entry, occ.bbox);
     const area = bboxArea(ownBox);
     if (area <= 0) return c;

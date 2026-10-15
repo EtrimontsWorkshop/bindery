@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { correlateImagesByBBox, type ImageEntry } from '../../src/inventory/imageRegistry.js';
+import { correlateImagesByBBox, placementOf, type ImageEntry } from '../../src/inventory/imageRegistry.js';
 
 function entry(
   objId: string,
@@ -103,5 +103,24 @@ describe('correlateImagesByBBox', () => {
     ];
     const result = correlateImagesByBBox(entries);
     expect(result.every((e) => e.correlatedWith === undefined)).toBe(true);
+  });
+});
+
+describe('placementOf', () => {
+  it('is undefined for an upright, unmirrored picture', () => {
+    expect(placementOf([317, 0, 0, 218, 100, 50])).toBeUndefined();
+  });
+
+  it('flags a picture mirrored left to right (a negative horizontal scale)', () => {
+    expect(placementOf([-317, 0, 0, 218, 565, 9])).toEqual({ flipX: true });
+  });
+
+  it('flags a picture mirrored top to bottom, and one that is both', () => {
+    expect(placementOf([317, 0, 0, -218, 100, 300])).toEqual({ flipY: true });
+    expect(placementOf([-317, 0, 0, -218, 400, 300])).toEqual({ flipX: true, flipY: true });
+  });
+
+  it('flags a turned picture as rotated, so that nothing is mapped through its box', () => {
+    expect(placementOf([200, 120, -120, 200, 100, 100])).toEqual({ rotated: true });
   });
 });

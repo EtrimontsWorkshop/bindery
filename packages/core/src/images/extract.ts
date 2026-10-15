@@ -1,6 +1,8 @@
 import type { Rect } from '../geometry.js';
 import type { Diagnostic } from '../text/types.js';
 import { maskRectangularity } from './maskShape.js';
+import type { RawLook } from './blankSheet.js';
+import { opaqueBounds, type FractionalBounds } from './opaqueBounds.js';
 import { normalizeDecodedImage, type DecodedImage } from './normalizeDecodedImage.js';
 import type { PdfPageForRender, RegionRenderer, RenderRegionOptions } from './regionRenderer.js';
 
@@ -361,4 +363,63 @@ export async function probeOpaquePixelStats(page: PdfPageForExtract, objId: stri
 /** The share of opaque pixels of resource `objId`, or `null` — see {@link probeOpaquePixelStats}. */
 export async function probeOpaqueFraction(page: PdfPageForExtract, objId: string): Promise<number | null> {
   return (await probeOpaquePixelStats(page, objId))?.opaqueFraction ?? null;
+}
+
+/** The bounds (image fractions) of the visible part of resource `objId`, or `null` — see {@link opaqueBounds} and {@link probeOpaquePixelStats}. */
+export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string): Promise<FractionalBounds | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      return opaqueBounds(normalizeDecodedImage(raw));
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Luminance, its spread and saturation over the visible pixels of resource `objId` (sampled on a grid of at most
+ * ~250k points), or `null` when the resource is not available or nothing is visible.
+ */
+export async function probeRawLook(page: PdfPageForExtract, objId: string): Promise<RawLook | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      const image = normalizeDecodedImage(raw);
+      const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
+      let n = 0;
+      let sum = 0;
+      let sumSq = 0;
+      let sat = 0;
+      for (let y = 0; y < image.height; y += stride) {
+        for (let x = 0; x < image.width; x += stride) {
+          const i = (y * image.width + x) * 4;
+          if (image.rgba[i + 3]! <= 16) continue;
+          const r = image.rgba[i]!;
+          const g = image.rgba[i + 1]!;
+          const b = image.rgba[i + 2]!;
+          const lum = 0.3 * r + 0.59 * g + 0.11 * b;
+          n++;
+          sum += lum;
+          sumSq += lum * lum;
+          sat += Math.max(r, g, b) - Math.min(r, g, b);
+        }
+      }
+      if (n === 0) return null;
+      const mean = sum / n;
+      return { meanLuminance: mean, luminanceStdDev: Math.sqrt(Math.max(0, sumSq / n - mean * mean)), meanSaturation: sat / n };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }

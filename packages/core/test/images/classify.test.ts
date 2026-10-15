@@ -218,6 +218,17 @@ describe('classifyImages', () => {
       expect(reasonOf(results, front).classification).toBe('content');
     });
 
+    it('a page-filling undecided picture under a content picture is the page background; on the first page (the cover) it is not', () => {
+      const photo = at('photo', { minX: 143, minY: 274, maxX: 495, maxY: 548 }, 8, 0.2);
+      const photoAt = (page: number): ImageEntry => ({ ...photo, occurrences: [{ ...photo.occurrences[0]!, page }] });
+      const backgroundAt = (page: number): ImageEntry => ({ ...at('bg', { minX: -6, minY: -6, maxX: 618, maxY: 798 }, 3, 1.005), occurrences: [{ page, bbox: { minX: -6, minY: -6, maxX: 618, maxY: 798 }, index: 3 }] });
+      const classifyOnPage = (page: number): ReturnType<typeof classifyImages> => classifyImages([backgroundAt(page), photoAt(page)], pageBoxMap([1, 6]), new Map(), { hideTinyImages: false });
+      const background6 = classifyOnPage(6)[0]!;
+      const background1 = classifyOnPage(1)[0]!;
+      expect(background6.reason).toBe('Z22-page-background-under-content');
+      expect(background1.reason).not.toBe('Z22-page-background-under-content');
+    });
+
     it('a picture painted over another that is neither masked nor page-sized (a vignette, a cut-out) does not hide it', () => {
       const illustration = at('illustration', { minX: 309, minY: 55, maxX: 533, maxY: 403 }, 3, 0.16);
       const vignette = at('vignette', { minX: 309, minY: 55, maxX: 533, maxY: 431 }, 8, 0.174);
@@ -286,6 +297,35 @@ describe('classifyImages', () => {
     const over = entry({ occurrences: [{ page: 1, bbox: { minX: -2.5, minY: 10, maxX: 615, maxY: 100 }, index: 0 }] });
     expect(maxBleedOverhangPt(inside, pageBoxMap([1]))).toBe(0);
     expect(maxBleedOverhangPt(over, pageBoxMap([1]))).toBeCloseTo(3);
+  });
+
+  describe('strips: tape, stamps and slivers at the page edge', () => {
+    const maskHolder = (target: string): ImageEntry => entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: target });
+    const classifyOne = (e: ImageEntry, masked = false): ReturnType<typeof classifyImages>[number] => classifyImages(masked ? [maskHolder(e.objId!), e] : [e], pageBoxMap([1])).find((c) => c.entry === e)!;
+
+    it('a masked raster at aspect 7.8 (a strip of tape, whose tilted box is 9% of the page) is decoration', () => {
+      const tape = entry({ objId: 'tape', maxRelativeArea: 0.089, intrinsicWidth: 537, intrinsicHeight: 69, occurrences: [{ page: 1, bbox: { minX: 350, minY: 112, maxX: 591, maxY: 292 }, index: 5 }] });
+      expect(classifyOne(tape, true).reason).toBe('Z23-masked-strip');
+    });
+
+    it('a masked picture that is not that narrow is not a strip', () => {
+      const photo = entry({ objId: 'photo', maxRelativeArea: 0.09, intrinsicWidth: 400, intrinsicHeight: 300, occurrences: [{ page: 1, bbox: { minX: 350, minY: 112, maxX: 500, maxY: 220 }, index: 5 }] });
+      expect(classifyOne(photo, true).reason).not.toBe('Z23-masked-strip');
+    });
+
+    it('a stamp (a masked raster at 30% opacity, aspect 5) is decoration; an emblem at the same opacity (aspect 1.07) is not', () => {
+      const stamp = { ...entry({ objId: 'stamp', maxRelativeArea: 0.031, intrinsicWidth: 469, intrinsicHeight: 94, occurrences: [{ page: 1, bbox: { minX: 214, minY: 91, maxX: 451, maxY: 154 }, index: 5 }] }), maxOpacity: 0.3 };
+      expect(classifyOne(stamp, true).reason).toBe('Z25-translucent-masked-strip');
+      const emblem = { ...entry({ objId: 'emblem', maxRelativeArea: 0.027, intrinsicWidth: 203, intrinsicHeight: 218, occurrences: [{ page: 1, bbox: { minX: 52, minY: 319, maxX: 164, maxY: 437 }, index: 5 }] }), maxOpacity: 0.3 };
+      expect(classifyOne(emblem, true).reason).not.toBe('Z25-translucent-masked-strip');
+    });
+
+    it('a narrow sliver that bleeds off the page (the visible end of a document sheet) is decoration; a wide picture that bleeds is not', () => {
+      const sliver = entry({ objId: 'sliver', maxRelativeArea: 0.092, intrinsicWidth: 162, intrinsicHeight: 880, occurrences: [{ page: 1, bbox: { minX: -21, minY: -5, maxX: 80, maxY: 438 }, index: 5 }] });
+      expect(classifyOne(sliver).reason).toBe('Z24-small-bleeding-strip');
+      const wide = entry({ objId: 'wide', maxRelativeArea: 0.09, intrinsicWidth: 600, intrinsicHeight: 500, occurrences: [{ page: 1, bbox: { minX: -21, minY: -5, maxX: 150, maxY: 150 }, index: 5 }] });
+      expect(classifyOne(wide).reason).not.toBe('Z24-small-bleeding-strip');
+    });
   });
 
   describe('small translucent masked rasters (halftone layers, chapter banners)', () => {

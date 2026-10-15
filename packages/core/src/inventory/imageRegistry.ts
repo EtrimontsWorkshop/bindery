@@ -28,6 +28,29 @@ export interface ImageOccurrence {
   opacity?: number;
   /** Present only when a clipping path cuts this occurrence — see `WalkEvent['image'].clip`. */
   clip?: ClipInfo;
+  /** Present only when the picture is mirrored or turned on the page — see `placementOf`. */
+  placement?: Placement;
+}
+
+/** How the raster lies in its box when that is not the plain upright, unmirrored way. */
+export interface Placement {
+  /** The raster is mirrored left to right (its left edge is the right edge of the box). */
+  flipX?: boolean;
+  /** The raster is mirrored top to bottom. */
+  flipY?: boolean;
+  /** The raster is turned (any angle that is not a mirror): its box is not where its pixels are. */
+  rotated?: boolean;
+}
+
+/** The placement of a picture painted with `ctm` (the unit square's matrix), or `undefined` for the upright, unmirrored one. */
+export function placementOf(ctm: readonly number[]): Placement | undefined {
+  const [a = 1, b = 0, c = 0, d = 1] = ctm;
+  const axisAligned = Math.abs(b) <= 0.01 * Math.max(Math.abs(a), Math.abs(d)) && Math.abs(c) <= 0.01 * Math.max(Math.abs(a), Math.abs(d));
+  if (!axisAligned) return { rotated: true };
+  const placement: Placement = {};
+  if (a < 0) placement.flipX = true;
+  if (d < 0) placement.flipY = true;
+  return placement.flipX || placement.flipY ? placement : undefined;
 }
 
 export interface ImageEntry {
@@ -107,6 +130,7 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
           intrinsicHeight: e.intrinsicHeight,
           ...(e.opacity !== undefined ? { opacity: e.opacity } : {}),
           ...(e.clip !== undefined ? { clip: e.clip } : {}),
+          ...(placementOf(e.ctm) !== undefined ? { placement: placementOf(e.ctm)! } : {}),
         },
       });
     }
@@ -237,7 +261,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
       entriesByKey.set(key, entry);
     }
 
-    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}) });
+    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}), ...(occ.placement !== undefined ? { placement: occ.placement } : {}) });
 
     // The first occurrence carrying the intrinsic resolution is enough — the
     // same objId always refers to the same resource, so later occurrences

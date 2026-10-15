@@ -1,3 +1,12 @@
+## [0.3.5]
+
+### Fixed
+
+- **Strips of tape, stamps and slivers at the page edge are no longer offered.** A masked raster that is a narrow strip (aspect 5 or more) is the tape that holds a photo to the page, whatever the size of its tilted box; a masked raster at up to 50% opacity and aspect 3 or more is a stamp laid over a table ("NOFORN"); a narrow sliver of a picture that bleeds off the page (the visible end of a document sheet, a piece of tape) is part of the page's design. A raster whose visible pixels are all white (a strip cut from a larger sheet by the page's clip) is hidden too.
+- **Page backgrounds are no longer offered under the pictures that lie on them.** A picture that fills the page and could not be classified, with a picture judged to be content painted on it, is the background of that page (a textured section-opener sheet under a photo). The first page, the cover, is not affected.
+- **Tables and forms drawn on a plain sheet are no longer offered as pictures.** A table or a sidebar whose raster is flat white (or flat dark) with the page's text over it, and a page-sized character-sheet form, were rendered as pictures of the page's own text. They are recognized by the look of the raw raster (luminance, its spread, saturation) and hidden. Rasters that are a solid fill under a mask, textured or coloured notes, and grey paper documents are not affected.
+- **A paper note beside a text column is imported with its own writing and without the page text next to it.** A parchment note whose picture also holds a transparent margin (a shadow, a blood streak) was rendered together with that margin, so a strip of the neighboring text column came with it; a note whose text did not cover enough of the whole box was imported as the blank parchment. A note that is mostly visible and mostly covered by text is now judged and rendered by its visible part. This also works for notes that are mirrored on the page (the position of every picture now records whether it is mirrored or turned). Notes whose box holds only a torn margin, line art and faded figures are not touched.
+
 ## [0.3.4]
 
 ### Fixed

@@ -9,8 +9,10 @@ import { applyClipToImage } from './clipMask.js';
 import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
-import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeOpaquePixelStats, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
-import { computeContentHash, computeDarkOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, isNeverWorthReviewing, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
+import { isBlankSheet } from './blankSheet.js';
+import { tightenToVisible } from './opaqueBounds.js';
+import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeOpaqueBounds, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
+import { computeContentHash, computeDarkOpaqueShare, computeWhiteOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, isNeverWorthReviewing, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
 import { CO_MEMBER_SIGNIFICANT_AREA, computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
@@ -226,6 +228,21 @@ export function isTextOverPicture(unitReason: string, representative: ImageEntry
   if (representative !== null && isTranslucentEverywhere(representative)) return false;
   return unitReason.startsWith('Z10') || (placed !== undefined && textCoverage(placed, textBoxes) >= TEXT_OVER_PICTURE_FRACTION);
 }
+
+/**
+ * What a picture must be for its region to be cut to the visible part (see `tightenToVisible`): a note, not line art
+ * or a faded figure. Measured on four real rulebooks: the parchment notes are 56%-100% visible and the page's text
+ * covers 56%-86% of their visible part; the sketches drawn in alpha are 7%-35% visible, and the faded figure whose
+ * white fade runs under a text column is covered 39%.
+ */
+const TIGHTEN_MIN_OPAQUE_FRACTION = 0.4;
+const TIGHTEN_MIN_TEXT_COVERAGE = 0.5;
+/**
+ * ...and the cut has to take page text out of the region: the text beside the visible part must be at least this share
+ * of the box. Measured: 8%-16% for the notes that sit beside a text column, 0%-0.3% for notes whose box only holds a
+ * torn margin (cutting those only crops the edge of the paper).
+ */
+const TIGHTEN_MIN_TEXT_BESIDE_SHARE = 0.03;
 
 /**
  * Share of the unit's area that text blocks cut by its edge must cover before the raw image resource
@@ -936,7 +953,32 @@ export async function buildImageExtraction(
           // Text that lies ON the picture (a paper note, a newspaper handout) is part of what the page shows.
           const placedRep = rep?.occurrences.find((o) => o.page === pageNumber)?.bbox;
           let textOverPicture = isTextOverPicture(unit.reason, rep, placedRep, textBlockBoxesByPage.get(pageNumber));
-          if (textOverPicture && repId) {
+          // A note or a scrap is placed in a box that also holds its transparent margin (a shadow, a splatter), and the
+          // page's own text beside it lies in that margin. Judged and rendered by the part that is visible, the text
+          // that is on the picture stays (it is the note's writing) and the text next to it is left out.
+          let tightenedToVisible = false;
+          if (textOverPicture && rep?.objId && repId && placedRep && !maskedObjIds.has(rep.objId) && coMemberAreaShare < CO_MEMBER_SIGNIFICANT_AREA) {
+            if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
+            const bounds = await probeOpaqueBounds(page, repId);
+            const rawSize = rep.intrinsicWidth !== null && rep.intrinsicHeight !== null ? { width: rep.intrinsicWidth, height: rep.intrinsicHeight } : await probeIntrinsicSizePx(page, repId);
+            const opaque = await probeOpaqueFraction(page, repId);
+            let tight = bounds !== null && rawSize !== null && rawResourceFitsPlacement(rawSize, placedRep) ? tightenToVisible(placedRep, bounds, rep.occurrences.find((o) => o.page === pageNumber)?.placement) : null;
+            // Only a picture that is mostly visible and that the page's text mostly covers (a note with its writing) is
+            // judged by its visible part; line art or a faded figure with text beside it keeps the earlier judgement.
+            if (tight !== null) {
+              const pageText = textBlockBoxesByPage.get(pageNumber);
+              // The text that lies in the box but not on the visible part: what the cut takes out of the region.
+              const textBesideShare = (textCoverage(placedRep, pageText) * rectArea(placedRep) - textCoverage(tight, pageText) * rectArea(tight)) / rectArea(placedRep);
+              if (opaque === null || opaque < TIGHTEN_MIN_OPAQUE_FRACTION || textCoverage(tight, pageText) < TIGHTEN_MIN_TEXT_COVERAGE || textBesideShare < TIGHTEN_MIN_TEXT_BESIDE_SHARE) tight = null;
+            }
+            if (tight !== null) {
+              tightenedToVisible = true;
+              unit = { ...unit, bbox: tight };
+              crossesText = textCrossesRegionEdge(tight, textBlockBoxesByPage.get(pageNumber));
+              textOverPicture = isTextOverPicture(unit.reason, rep, tight, textBlockBoxesByPage.get(pageNumber));
+            }
+          }
+          if (textOverPicture && repId && !tightenedToVisible) {
             // Text in the bbox of a cut-out figure lies on the transparent part around it, not on the picture.
             if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
             const opaque = await probeOpaqueFraction(page, repId);
@@ -952,6 +994,13 @@ export async function buildImageExtraction(
             coMemberAreaShare,
             textOverPicture,
           });
+          // A table or a form drawn on a plain sheet: what the render shows is the page's own text, not a picture.
+          let blankSheet = false;
+          if (decision.strategy === 'region-render' && compositionCount === 1 && repId) {
+            if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
+            const look = await probeRawLook(page, repId);
+            blankSheet = look !== null && isBlankSheet(look, { textOverPicture: decision.reason === 'Z2-text-over-picture-is-content', pageShare: rep?.maxRelativeArea ?? 0 });
+          }
           const objIdForExtraction = decision.strategy === 'direct' ? repId : null;
 
           // Region-render resolution is DERIVED from the native
@@ -1027,6 +1076,8 @@ export async function buildImageExtraction(
           const meanLuminance = judgeSheet ? computeVisibleMeanLuminance(wholeResource) : undefined;
           if (plannedUnit.reason === EDGE_FIGURE_REASON) edgeFigureStdDev = computeVisibleLuminanceStdDev(image);
           const darkOpaqueShare = hideBackgroundImages ? computeDarkOpaqueShare(wholeResource) : undefined;
+          // Of what is saved (after the clip): a strip cut from a larger sheet by the page's clip may show only white.
+          const whiteOpaqueShare = hideBackgroundImages ? computeWhiteOpaqueShare(image) : undefined;
           // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
           const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(wholeResource) : undefined;
           const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(wholeResource) : undefined;
@@ -1048,7 +1099,7 @@ export async function buildImageExtraction(
           const confidence = unit.representativeEntry ? unit.confidence : confidenceForReason('Z1-large-relative-area');
           return {
             entry: entryForFinalize,
-            classification: unit.representativeEntry ? unit.classification : 'content',
+            classification: blankSheet ? 'decoration' : unit.representativeEntry ? unit.classification : 'content',
             confidence,
             extractSource: extractResult.source,
             contentHash,
@@ -1058,6 +1109,7 @@ export async function buildImageExtraction(
             meanLuminance,
             visibleLuminanceStdDev,
             darkOpaqueShare,
+            whiteOpaqueShare,
             uniformColorFraction,
             smoothness,
             opaqueFraction,

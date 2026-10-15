@@ -121,6 +121,20 @@ describe('isNeverWorthReviewing', () => {
     });
   });
 
+  describe('white shapes (a white strip cut from a larger sheet)', () => {
+    const strip = { ...base, opaqueFraction: 0.5, whiteOpaqueShare: 1 };
+
+    it('a raster whose visible pixels are all white is hidden', () => {
+      expect(isNeverWorthReviewing(strip)).toBe(true);
+    });
+
+    it('a picture with white parts, a barely visible raster and one without the measures are not', () => {
+      expect(isNeverWorthReviewing({ ...strip, whiteOpaqueShare: 0.8 })).toBe(false);
+      expect(isNeverWorthReviewing({ ...strip, opaqueFraction: 0.05 })).toBe(false);
+      expect(isNeverWorthReviewing({ ...strip, whiteOpaqueShare: undefined })).toBe(false);
+    });
+  });
+
   describe('light paper sheets (a torn scrap under a handout)', () => {
     const scrap = { ...base, opaqueFraction: 1, meanLuminance: 212, visibleLuminanceStdDev: 16, smoothness: { coarseGradient: 3.52, fineGradient: 3.81 } };
 
