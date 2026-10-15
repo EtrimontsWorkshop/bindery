@@ -1,4 +1,4 @@
-import { ASSET_BASE_URL } from '../settings.js';
+import { ASSET_BASE_URL, MODULE_ID } from '../settings.js';
 import { loadCore } from '../loadCore.js';
 import { buildJournalsForReview, openPreviewForReview, type CIFBuildResult } from '../api.js';
 
@@ -249,6 +249,11 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       if (this.#closed) {
         await previewDocument.destroy();
         return;
+      }
+      // "Add a white background to images": done now, so that the review shows (and edits, rotates) the pictures with it.
+      if (game.settings!.get(MODULE_ID, 'whiteBackground') === true) {
+        const { addWhiteBackgroundToAll } = await import('../documents/whiteBackground.js');
+        await addWhiteBackgroundToAll(result.imageBytesById);
       }
       this.#state.isBuildingReview = false;
       await this.render();

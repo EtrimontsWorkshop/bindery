@@ -13,7 +13,9 @@ import { DEFAULT_WEBP_QUALITY } from '@bindery/core';
  * Erasing works on a full-resolution working canvas (the visible canvas IS
  * that canvas, only scaled with CSS), so what the user paints is exactly what
  * gets saved. Two ways to erase: to transparency, or by painting a solid color
- * (with an eyedropper to sample the surrounding background).
+ * (with an eyedropper to sample the surrounding background). A third action
+ * puts the chosen color behind the whole picture, for sketches and line art
+ * that are hard to read on a transparent background.
  */
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -74,6 +76,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       undo: ImageEraseApp.#onUndo,
       redo: ImageEraseApp.#onRedo,
       reset: ImageEraseApp.#onReset,
+      fillBackground: ImageEraseApp.#onFillBackground,
     },
   };
 
@@ -495,6 +498,21 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#extendBox(0, 0, this.#work.width, this.#work.height, 0);
     this.#ctx.clearRect(0, 0, this.#work.width, this.#work.height);
     this.#ctx.drawImage(this.#source, 0, 0);
+    this.#dirty = true;
+    this.#commitStep();
+  }
+
+  /** Puts the chosen color behind the picture: transparent pixels become that color, translucent ones blend with it. One undo step. */
+  static #onFillBackground(this: ImageEraseApp): void {
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    this.#beginStep();
+    this.#extendBox(0, 0, this.#work.width, this.#work.height, 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = this.#color;
+    ctx.fillRect(0, 0, this.#work.width, this.#work.height);
+    ctx.restore();
     this.#dirty = true;
     this.#commitStep();
   }

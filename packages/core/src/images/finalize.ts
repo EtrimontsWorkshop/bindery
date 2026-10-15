@@ -151,6 +151,28 @@ const LARGE_SMOOTH_FINE_MAX = 4.0;
  */
 const SPARSE_PROP_MAX_OPAQUE_FRACTION = 0.3;
 const SPARSE_PROP_MAX_AREA = 0.05;
+/**
+ * LIGHT PAPER SHEETS — a torn scrap or a sheet of paper under a handout, whose content (a crest, a note) is drawn
+ * on it as vector graphics: an opaque, light, smooth texture. Measured on a real quick-start set: the two scraps are
+ * opaque everywhere, mean luminance 212, luminance spread 16, gradients 3.5-3.8; the scraps under the text of a second
+ * book are 80%-95% opaque (torn edges), mean luminance 177, spread 9-13, gradients 2.5-3.4. The dark illustrations of
+ * other books that are as smooth (portraits, night scenes) have a mean luminance of 48-88, and no other undecided
+ * picture of six books is light, opaque and flat. Luminance is taken over the visible pixels only. Only for an image nobody classified: a map drawn in black lines on a white
+ * sheet is judged by the earlier signals.
+ */
+const PAPER_SHEET_MIN_OPAQUE_FRACTION = 0.8;
+const PAPER_SHEET_MIN_MEAN_LUMINANCE = 150;
+const PAPER_SHEET_MAX_STDDEV = 20;
+const PAPER_SHEET_MAX_GRADIENT = 4.2;
+/**
+ * BLACK SHAPES — a torn black edge, a shadow, a smear of ink: a raster whose visible pixels are all black. Measured on
+ * a real rulebook: the 14 black strips along the page edges have 46%-75% visible pixels, all of them black; the
+ * cut-out pictures of five books are never black at 98% of their visible pixels.
+ */
+const BLACK_SHAPE_MIN_OPAQUE_FRACTION = 0.3;
+const BLACK_SHAPE_MIN_DARK_SHARE = 0.98;
+/** A pixel whose every channel is at or below this counts as black in `computeDarkOpaqueShare`. */
+const DARK_CHANNEL_MAX = 40;
 /** Long-side block count for the coarse measure. */
 const SMOOTHNESS_COARSE_BLOCKS = 256;
 /** Images with a shorter side below this are too small to judge as "smooth" — never hidden by this rule. */
@@ -213,6 +235,50 @@ export function computeLuminanceStdDev(image: DecodedImage): number {
   const mean = sum / n;
   const variance = Math.max(0, sumSq / n - mean * mean);
   return Math.sqrt(variance);
+}
+
+/** Standard deviation (0-255) of the luminance of the visible pixels (alpha above 16); 0 when nothing is visible. */
+export function computeVisibleLuminanceStdDev(image: DecodedImage): number {
+  const { rgba } = image;
+  let n = 0;
+  let sum = 0;
+  let sumSq = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    const lum = 0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]!;
+    n++;
+    sum += lum;
+    sumSq += lum * lum;
+  }
+  if (n === 0) return 0;
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+}
+
+/** The mean luminance (0-255) of the visible pixels (alpha above 16) — see `PAPER_SHEET_MIN_MEAN_LUMINANCE`. 0 when nothing is visible. */
+export function computeVisibleMeanLuminance(image: DecodedImage): number {
+  const { rgba } = image;
+  let n = 0;
+  let sum = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    n++;
+    sum += 0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]!;
+  }
+  return n > 0 ? sum / n : 0;
+}
+
+/** The share (0-1) of the visible pixels (alpha above 16) that are black — see `BLACK_SHAPE_MIN_DARK_SHARE`. 0 when nothing is visible. */
+export function computeDarkOpaqueShare(image: DecodedImage): number {
+  let visible = 0;
+  let dark = 0;
+  const { rgba } = image;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    visible++;
+    if (rgba[i]! <= DARK_CHANNEL_MAX && rgba[i + 1]! <= DARK_CHANNEL_MAX && rgba[i + 2]! <= DARK_CHANNEL_MAX) dark++;
+  }
+  return visible > 0 ? dark / visible : 0;
 }
 
 /**
@@ -439,6 +505,12 @@ export interface PreparedEntryForFinalize<TPayload> {
   height: number;
   /** See `computeLuminanceStdDev`/`FLAT_TEXTURE_STDDEV_THRESHOLD`. Optional — no value skips the "flat texture" reclassification (e.g. in unit tests with no real pixels). */
   luminanceStdDev?: number;
+  /** See `computeDarkOpaqueShare`. Optional — no value skips the "black shape" rule. */
+  darkOpaqueShare?: number;
+  /** See `computeVisibleMeanLuminance`. Optional — no value skips the "light paper sheet" rule. */
+  meanLuminance?: number;
+  /** See `computeVisibleLuminanceStdDev`. Optional — no value skips the "light paper sheet" rule. */
+  visibleLuminanceStdDev?: number;
   /** See `computeUniformColorFraction`. Optional — no value skips the "single-color image" rule (e.g. in unit tests with no real pixels). */
   uniformColorFraction?: number;
   /** See `computeSmoothnessMetrics`. Optional — no value skips the "smooth background" rule (e.g. in unit tests with no real pixels). */
@@ -474,6 +546,58 @@ export interface FinalizeResult<TPayload> {
   duplicatesRemoved: number;
 }
 
+
+/**
+ * Whether an extracted image is one that is hidden from the auto-detected list outright, whatever the earlier signals
+ * said: a single color (blank), a smooth paper/page background, a sparse cut-out prop, or a long narrow strip
+ * (typically a frame/border/divider). `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD` is applied to the DECODED size
+ * here, on top of the bbox-based rules in `classify.ts` (which only ever made such strips `undecided`, so they
+ * still cluttered the list). Recoverable via "Select & cut" on the page preview. Exported so that the extraction
+ * can see, before it is done with a unit, that the picture it took would be hidden.
+ */
+export function isNeverWorthReviewing(
+  d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare'>,
+): boolean {
+  if (d.classification !== 'content' && d.classification !== 'undecided') return false;
+  const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
+  const shortEdge = Math.min(d.width, d.height);
+  const isLongAndNarrow = shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
+  const isSmoothBackground = d.smoothness !== undefined && d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX && d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX;
+  const isLargeSmoothSheet =
+    d.classification === 'undecided' &&
+    d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
+    d.smoothness !== undefined &&
+    d.smoothness.coarseGradient < LARGE_SMOOTH_COARSE_MAX &&
+    d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX;
+  const isSparseProp =
+    d.classification === 'undecided' && d.opaqueFraction !== undefined && d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION && d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
+  const isLightPaperSheet =
+    d.classification === 'undecided' &&
+    d.opaqueFraction !== undefined &&
+    d.opaqueFraction >= PAPER_SHEET_MIN_OPAQUE_FRACTION &&
+    d.meanLuminance !== undefined &&
+    d.meanLuminance >= PAPER_SHEET_MIN_MEAN_LUMINANCE &&
+    d.visibleLuminanceStdDev !== undefined &&
+    d.visibleLuminanceStdDev < PAPER_SHEET_MAX_STDDEV &&
+    d.smoothness !== undefined &&
+    d.smoothness.coarseGradient < PAPER_SHEET_MAX_GRADIENT &&
+    d.smoothness.fineGradient < PAPER_SHEET_MAX_GRADIENT;
+  const isBlackShape =
+    d.opaqueFraction !== undefined &&
+    d.opaqueFraction >= BLACK_SHAPE_MIN_OPAQUE_FRACTION &&
+    d.darkOpaqueShare !== undefined &&
+    d.darkOpaqueShare >= BLACK_SHAPE_MIN_DARK_SHARE;
+  return isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp || isLightPaperSheet || isBlackShape;
+}
+
+/**
+ * Page-area share from which a picture needs the same pixels, not only the same size and place, to count as a
+ * duplicate of another one. Positional correlation is a guess made before anything is decoded; for the small
+ * repeats it was made for (frames, icons, headers) the guess is kept, but a picture that fills half the page or
+ * more is a picture of its own. Measured on a real map set: six full-page maps of one size share one position.
+ */
+const POSITIONAL_DUPLICATE_MAX_AREA = 0.5;
+
 /**
  * Final step: reclassification by absolute size (deferred from classification, see
  * `MIN_ABSOLUTE_PX`), closing correlation via hash, deduplication, target
@@ -505,26 +629,8 @@ export function finalizeImages<TPayload>(
     // the DECODED size here, on top of the bbox-based rules in `classify.ts`
     // (which only ever made such strips `undecided`, so they still cluttered
     // the list). Recoverable via "Select & cut" on the page preview.
-    if (d.classification === 'content' || d.classification === 'undecided') {
-      const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
-      const shortEdge = Math.min(d.width, d.height);
-      const isLongAndNarrow = shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
-      const isSmoothBackground =
-        d.smoothness !== undefined && d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX && d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX;
-      const isLargeSmoothSheet =
-        d.classification === 'undecided' &&
-        d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
-        d.smoothness !== undefined &&
-        d.smoothness.coarseGradient < LARGE_SMOOTH_COARSE_MAX &&
-        d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX;
-      const isSparseProp =
-        d.classification === 'undecided' &&
-        d.opaqueFraction !== undefined &&
-        d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION &&
-        d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
-      if (isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp) {
-        return { ...d, classification: 'decoration' as ImageClassification, confidence: RECLASSIFIED_CONFIDENCE };
-      }
+    if (isNeverWorthReviewing(d)) {
+      return { ...d, classification: 'decoration' as ImageClassification, confidence: RECLASSIFIED_CONFIDENCE };
     }
     if (d.classification === 'content' && (d.width < MIN_ABSOLUTE_PX || d.height < MIN_ABSOLUTE_PX)) {
       diagnostics.push({
@@ -559,7 +665,10 @@ export function finalizeImages<TPayload>(
       return;
     }
     const afterHash = closure.canonicalObjIdByObjId.get(d.entry.objId);
-    canonicalKeyOf.set(d.entry, afterHash ?? d.entry.correlatedWith ?? d.entry.objId);
+    const canonical = afterHash ?? d.entry.correlatedWith ?? d.entry.objId;
+    // Two big pictures of the same size at the same place are not duplicates unless their pixels say so: the maps
+    // of a map set, one to a page, all fill the page the same way.
+    canonicalKeyOf.set(d.entry, d.entry.maxRelativeArea >= POSITIONAL_DUPLICATE_MAX_AREA ? `${canonical}|${d.contentHash}` : canonical);
   });
 
   const groups = new Map<string, typeof reclassified>();

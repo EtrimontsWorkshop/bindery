@@ -63,11 +63,14 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z11-repeated-no-bleed-evidence': 0.4,
   'Z12-bleeding-no-center-text-evidence': 0.4,
   'Z12-bleeding-masked-cutout': 0.7,
+  'Z21-masked-silhouette-at-page-edge': 0.4,
   'Z12-bleeding-translucent-overlay': 0.8,
   'Z15-small-masked-raster': 0.7,
   'Z16-tiny-undecided': 0.7,
   'Z17-covered-by-later-picture': 0.8,
   'Z18-form-page-element': 0.7,
+  'Z19-translucent-copy-of-picture': 0.8,
+  'Z20-small-translucent-masked-raster': 0.8,
   'Z1-conflicting-geometry-mask-vs-large-area': 0.4,
   'Z1-weak-geometry-mask-evidence': 0.3,
   'Z1-no-strong-signal': 0.2,
@@ -238,6 +241,17 @@ function computeCorrelatedPageCounts(entries: readonly ImageEntry[]): Map<ImageE
   return result;
 }
 
+/** How far (pt) the entry's occurrences reach past their page's MediaBox, at most; 0 when none does. */
+export function maxBleedOverhangPt(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Rect>): number {
+  let max = 0;
+  for (const occ of entry.occurrences) {
+    const box = pageBoxByPage.get(occ.page);
+    if (!box) continue;
+    max = Math.max(max, box.minX - occ.bbox.minX, box.minY - occ.bbox.minY, occ.bbox.maxX - box.maxX, occ.bbox.maxY - box.maxY);
+  }
+  return max;
+}
+
 /** Whether ANY occurrence extends past its page's MediaBox — a print-bleed/background signal (F0). */
 function hasBleedingOccurrence(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Rect>): boolean {
   return entry.occurrences.some((occ) => {
@@ -338,10 +352,32 @@ function maxCenterTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: Readonly
 }
 
 /**
- * Opacity at or below which a bleeding image that is translucent everywhere it is painted counts as a
- * watermark. Measured on a real rulebook: watermarks at 0.1-0.5, illustrations at 1.
+ * Opacity at or below which an image that is translucent everywhere it is painted counts as a watermark or an
+ * overlay. Measured on three real rulebooks: watermarks and overlays at 0.08-0.6, illustrations at 0.85-1.
+ * The limit sits a little above 0.6 because PDF stores 0.6 as a 32-bit float, which reads back as 0.600006.
  */
-const TRANSLUCENT_OVERLAY_MAX_OPACITY = 0.6;
+const TRANSLUCENT_OVERLAY_MAX_OPACITY = 0.65;
+
+/**
+ * Whether the image is painted translucent everywhere it appears (see `TRANSLUCENT_OVERLAY_MAX_OPACITY`): a watermark or
+ * a texture laid over the paper, not an illustration. Measured on two real rulebooks: watermarks sit at 8%-50% opacity,
+ * the pictures printed opaque at 85%-100%.
+ */
+export function isTranslucentEverywhere(entry: ImageEntry): boolean {
+  return entry.maxOpacity !== undefined && entry.maxOpacity <= TRANSLUCENT_OVERLAY_MAX_OPACITY;
+}
+
+/**
+ * Opacity at or below which a translucent image is a faint backdrop (a colored panel or halftone layer behind a
+ * figure) rather than a faded picture. Measured on three real rulebooks: the backdrops of one sit at 20%; the faded
+ * pictures and watermarks worth offering sit at 30%-60%.
+ */
+const BACKDROP_SHAPE_MAX_OPACITY = 0.25;
+
+/** Whether the image is a faint backdrop everywhere it is painted (see `BACKDROP_SHAPE_MAX_OPACITY`). */
+export function isBackdropShape(entry: ImageEntry): boolean {
+  return entry.maxOpacity !== undefined && entry.maxOpacity <= BACKDROP_SHAPE_MAX_OPACITY;
+}
 
 /**
  * Limits of the tape/paper-scrap rule (`Z15-small-masked-raster`). Measured on a real rulebook: all 46 tape
@@ -351,6 +387,23 @@ const TRANSLUCENT_OVERLAY_MAX_OPACITY = 0.6;
 const SMALL_MASKED_STRIP_MAX_LONG_EDGE_PX = 300;
 const SMALL_MASKED_STRIP_MIN_ASPECT = 2;
 const SMALL_MASKED_STRIP_MAX_AREA = 0.03;
+
+/**
+ * Limits of the translucent-halftone rule (`Z20-small-translucent-masked-raster`). Measured on a third rulebook: the
+ * halftone layers of its colored shapes and chapter banners are masked rasters painted at 20% opacity, 65-135 x
+ * 105-168 px and 3.0%-5.9% of the page (31 of them); the watermark crests of the other two books, which are offered
+ * as clean originals, cover 7% of the page and more, and an emblem of the first book (203x218 px, 2.7%) is painted at 30%.
+ */
+const SMALL_TRANSLUCENT_MASKED_MAX_AREA = 0.06;
+const SMALL_TRANSLUCENT_MASKED_MAX_LONG_EDGE_PX = 300;
+
+function isSmallTranslucentMaskedRaster(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
+  if (entry.objId === null || !maskedObjIds.has(entry.objId) || !isBackdropShape(entry)) return false;
+  const w = entry.intrinsicWidth;
+  const h = entry.intrinsicHeight;
+  if (w === null || h === null || w <= 0 || h <= 0) return false;
+  return Math.max(w, h) <= SMALL_TRANSLUCENT_MASKED_MAX_LONG_EDGE_PX && entry.maxRelativeArea < SMALL_TRANSLUCENT_MASKED_MAX_AREA;
+}
 
 function isSmallMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
   if (entry.objId === null || !maskedObjIds.has(entry.objId)) return false;
@@ -465,7 +518,7 @@ export function classifyImages(
       // over the paper) is the page's own atmosphere, not an illustration: the illustrations of the same
       // book are painted opaque. Measured on a real rulebook: all 11 translucent ones sit at 10%-50% opacity,
       // all 22 other bleeding images at 100%.
-      if (entry.maxOpacity !== undefined && entry.maxOpacity <= TRANSLUCENT_OVERLAY_MAX_OPACITY) {
+      if (isTranslucentEverywhere(entry)) {
         return { entry, classification: 'decoration', reason: 'Z12-bleeding-translucent-overlay', confidence: confidenceForReason('Z12-bleeding-translucent-overlay') };
       }
       return { entry, classification: 'undecided', reason: 'Z12-bleeding-no-center-text-evidence', confidence: confidenceForReason('Z12-bleeding-no-center-text-evidence') };
@@ -545,6 +598,9 @@ export function classifyImages(
     // scrap of paper stuck on a picture. Alone it is never useful, and offering it also stretches the
     // unit of the picture it sits on. The aspect gate keeps small square-ish masked content (an emblem, a
     // portrait) out of this rule.
+    if (isSmallTranslucentMaskedRaster(entry, maskedObjIds)) {
+      return { entry, classification: 'decoration', reason: 'Z20-small-translucent-masked-raster', confidence: confidenceForReason('Z20-small-translucent-masked-raster') };
+    }
     if (isSmallMaskedStrip(entry, maskedObjIds)) {
       return { entry, classification: 'decoration', reason: 'Z15-small-masked-raster', confidence: confidenceForReason('Z15-small-masked-raster') };
     }
@@ -556,7 +612,7 @@ export function classifyImages(
     // No strong signal in either direction — don't guess.
     return { entry, classification: 'undecided', reason: 'Z1-no-strong-signal', confidence: confidenceForReason('Z1-no-strong-signal') };
   });
-  return hideTinyAndCoveredPictures(first, options.hideTinyImages ?? false);
+  return hideTinyAndCoveredPictures(first, options.hideTinyImages ?? false, maskedObjIds);
 }
 
 /**
@@ -582,11 +638,48 @@ const FORM_PAGE_ELEMENT_MAX_AREA = 0.06;
  * at most 68%.
  */
 const COVERED_PICTURE_MIN_COVER = 0.75;
+/**
+ * A translucent picture counts as a copy of an earlier one when it covers (almost) all of itself with it and the
+ * earlier picture is not much larger. Measured on a real rulebook: the 60%-opaque copies of the same cover art
+ * lie on the original with 99%-100% overlap both ways; the second condition keeps a watermark laid over a
+ * page-sized background from being taken for a copy of it.
+ */
+const TRANSLUCENT_COPY_MIN_OVERLAP = 0.9;
+const TRANSLUCENT_COPY_MIN_BASE_COVER = 0.6;
 /** Only pictures of at least this page-area share are checked for being covered. */
 const COVERED_PICTURE_MIN_AREA = 0.03;
 
+/**
+ * Whether a picture is one that hides what lies under it. A masked picture (a print cut out by its mask) or a
+ * page-sized one does. Any other raster may be a cut-out figure or a faded vignette with a transparent middle,
+ * painted over the picture that is its subject: measured on a real rulebook, an unmasked 376x225 px vignette
+ * that is 23% opaque lies over the illustration it frames and covers 100% of its bbox. Only pixels could
+ * tell those apart, so such pictures never count as covering.
+ */
+function coversForSure(entry: ImageEntry, maskedObjIds: ReadonlySet<string>): boolean {
+  return (entry.objId !== null && maskedObjIds.has(entry.objId)) || entry.maxRelativeArea >= COVERING_PAGE_SIZED_AREA;
+}
+
+/**
+ * A picture that is much larger than the one it covers hides it whatever its pixels are: the small one lies behind
+ * the body of the large one (a strip of paper behind a cut-out figure that is four times its size). Only a covering
+ * picture of about the same size can be a vignette that frames the one under it, which is why the factor is 2.
+ */
+const COVERING_MUCH_LARGER_FACTOR = 2;
+
+/** Share of a picture's box that its mask's box must keep for the mask's box to count as the picture's footprint. */
+const MASK_FOOTPRINT_MIN_SHARE = 0.5;
+
+/** Page-area share from which a picture counts as page-sized in `coversForSure`. */
+const COVERING_PAGE_SIZED_AREA = 0.9;
+
 function bboxArea(b: Rect): number {
   return Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
+}
+
+function intersectionRect(a: Rect, b: Rect): Rect | null {
+  const r = { minX: Math.max(a.minX, b.minX), minY: Math.max(a.minY, b.minY), maxX: Math.min(a.maxX, b.maxX), maxY: Math.min(a.maxY, b.maxY) };
+  return r.maxX > r.minX && r.maxY > r.minY ? r : null;
 }
 
 function intersectionArea(a: Rect, b: Rect): number {
@@ -605,7 +698,7 @@ function intersectionArea(a: Rect, b: Rect): number {
  *   page — it is the bottom of a stack of pinned photos — and is decoration. Paint order is the
  *   operator index of the occurrence.
  */
-function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTiny: boolean): ClassifiedImage[] {
+function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTiny: boolean, maskedObjIds: ReadonlySet<string>): ClassifiedImage[] {
   const isPicture = (c: ClassifiedImage): boolean => c.classification === 'content' || c.classification === 'undecided';
   const picturesByPage = new Map<number, ClassifiedImage[]>();
   for (const c of results) {
@@ -615,6 +708,21 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     arr.push(c);
     picturesByPage.set(occ.page, arr);
   }
+
+  // A masked picture is visible only where its mask lets it through: the mask's box is its footprint when that is
+  // smaller than the picture's own box (a tilted print is placed in the box of the whole rotated raster). A mask
+  // box far smaller than the picture is not its shape and is ignored.
+  const maskBoxByTarget = new Map<string, Rect>();
+  for (const c of results) {
+    const target = c.entry.masksImageObjId;
+    const box = c.entry.occurrences[0]?.bbox;
+    if (target !== undefined && box !== undefined) maskBoxByTarget.set(target, box);
+  }
+  const footprint = (entry: ImageEntry, box: Rect): Rect => {
+    const maskBox = entry.objId === null ? undefined : maskBoxByTarget.get(entry.objId);
+    const shared = maskBox !== undefined ? intersectionRect(box, maskBox) : null;
+    return shared !== null && bboxArea(shared) >= MASK_FOOTPRINT_MIN_SHARE * bboxArea(box) ? shared : box;
+  };
 
   const tinyPerPage = new Map<number, number>();
   if (hideTiny) {
@@ -634,13 +742,26 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     }
     const occ = c.entry.occurrences[0];
     if (!occ || !isPicture(c) || c.entry.maxRelativeArea < COVERED_PICTURE_MIN_AREA) return c;
-    const area = bboxArea(occ.bbox);
+    const ownBox = footprint(c.entry, occ.bbox);
+    const area = bboxArea(ownBox);
     if (area <= 0) return c;
     const covered = (picturesByPage.get(occ.page) ?? []).some((other) => {
-      if (other === c) return false;
+      if (other === c || !(coversForSure(other.entry, maskedObjIds) || other.entry.maxRelativeArea >= COVERING_MUCH_LARGER_FACTOR * c.entry.maxRelativeArea)) return false;
       const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined);
-      return over !== undefined && intersectionArea(occ.bbox, over.bbox) / area >= COVERED_PICTURE_MIN_COVER;
+      return over !== undefined && intersectionArea(ownBox, footprint(other.entry, over.bbox)) / area >= COVERED_PICTURE_MIN_COVER;
     });
-    return covered ? { entry: c.entry, classification: 'decoration', reason: 'Z17-covered-by-later-picture', confidence: confidenceForReason('Z17-covered-by-later-picture') } : c;
+    if (covered) return { entry: c.entry, classification: 'decoration', reason: 'Z17-covered-by-later-picture', confidence: confidenceForReason('Z17-covered-by-later-picture') };
+    // A translucent layer laid exactly over a picture painted before it (a tint or a copy of the same artwork
+    // at 20%-60%) is part of that picture, not another one.
+    const isTranslucentCopy =
+      isTranslucentEverywhere(c.entry) &&
+      (picturesByPage.get(occ.page) ?? []).some((other) => {
+        if (other === c) return false;
+        const base = other.entry.occurrences.find((o) => o.page === occ.page && o.index < occ.index);
+        if (base === undefined) return false;
+        const shared = intersectionArea(occ.bbox, base.bbox);
+        return shared / area >= TRANSLUCENT_COPY_MIN_OVERLAP && shared / bboxArea(base.bbox) >= TRANSLUCENT_COPY_MIN_BASE_COVER;
+      });
+    return isTranslucentCopy ? { entry: c.entry, classification: 'decoration', reason: 'Z19-translucent-copy-of-picture', confidence: confidenceForReason('Z19-translucent-copy-of-picture') } : c;
   });
 }

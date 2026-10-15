@@ -366,6 +366,7 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
       tolerance: this.#tolerance,
       featherPx: DEFAULT_REMOVE_BACKGROUND.featherPx,
       maxAreaFraction: DEFAULT_REMOVE_BACKGROUND.maxAreaFraction,
+      ...(DEFAULT_REMOVE_BACKGROUND.whiteBackgroundMaxAreaFraction !== undefined ? { whiteBackgroundMaxAreaFraction: DEFAULT_REMOVE_BACKGROUND.whiteBackgroundMaxAreaFraction } : {}),
       extraSeeds: this.#clickSeeds,
     });
     this.#bgRemovedCache = { tolerance: this.#tolerance, seedsVersion: this.#seedsVersion, image: result.image };

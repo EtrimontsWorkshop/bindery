@@ -1,5 +1,6 @@
 import type { Matrix, Rect } from '../geometry.js';
 import { IDENTITY_MATRIX, multiplyMatrix, unitSquareBBox } from '../geometry.js';
+import { CLIP_IGNORE_COVERAGE, clipCoverage, flattenPath, restrictingClips, type ClipInfo, type ClipPath } from './clipPaths.js';
 
 /**
  * A single pass over one page's operator list. A pure
@@ -26,6 +27,8 @@ const OP_SAVE = 10;
 const OP_RESTORE = 11;
 const OP_TRANSFORM = 12;
 const OP_SET_GSTATE = 9;
+const OP_CLIP = 29;
+const OP_EO_CLIP = 30;
 const OP_SET_FONT = 37;
 const OP_PAINT_FORM_XOBJECT_BEGIN = 74;
 const OP_PAINT_FORM_XOBJECT_END = 75;
@@ -89,6 +92,12 @@ export type WalkEvent =
        * an illustration is painted fully opaque.
        */
       opacity?: number;
+      /**
+       * Present only when a clipping path cuts the picture (lets less than 97% of it through): the clips that do,
+       * and the CTM they apply with. The raw resource of such a picture is the whole sheet, the page shows
+       * only what the clips let through.
+       */
+      clip?: ClipInfo;
     }
   | { type: 'font'; fontName: string; sizeFromMatrix: number; index: number }
   | { type: 'vector'; kind: 'fill' | 'stroke'; bbox: Rect; ctm: Matrix; inGroup: GroupContext | null; index: number }
@@ -271,6 +280,12 @@ interface WalkContext {
   alphaStack: number[];
   /** The alpha each open transparency group was begun with, parallel to `groupStack`. */
   groupAlphas: number[];
+  /** The clipping paths in force now, outermost first. */
+  clips: ClipPath[];
+  /** Saved `clips.length`, pushed and popped in step with `ctmStack` (and by transparency groups). */
+  clipStack: number[];
+  /** Set by `clip`/`eoClip`: the next path becomes a clip instead of being painted. */
+  pendingClip: boolean;
 }
 
 type OpHandler = (ctx: WalkContext, args: unknown[], index: number) => void;
@@ -284,10 +299,20 @@ function currentOpacity(ctx: WalkContext): number {
   return ctx.groupAlphas.reduce((product, a) => product * a, ctx.alpha);
 }
 
+/** The clips that cut a picture painted now (see `WalkEvent['image'].clip`), or `undefined` when none does. */
+function clipOfPicture(ctx: WalkContext): ClipInfo | undefined {
+  if (ctx.clips.length === 0) return undefined;
+  const restricting = restrictingClips(ctx.clips, unitSquareBBox(ctx.ctm));
+  if (restricting.length === 0) return undefined;
+  const coverage = clipCoverage(restricting, ctx.ctm);
+  return coverage >= CLIP_IGNORE_COVERAGE ? undefined : { paths: restricting, ctm: ctx.ctm, coverage };
+}
+
 function handleImagePaint(opcode: number): OpHandler {
   return (ctx, args, index) => {
     const { width, height } = extractIntrinsicSize(opcode, args);
     const opacity = currentOpacity(ctx);
+    const clip = clipOfPicture(ctx);
     ctx.events.push({
       type: 'image',
       opcode,
@@ -299,6 +324,7 @@ function handleImagePaint(opcode: number): OpHandler {
       intrinsicWidth: width,
       intrinsicHeight: height,
       ...(opacity < 1 ? { opacity } : {}),
+      ...(clip ? { clip } : {}),
     });
   };
 }
@@ -310,6 +336,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctmStack.push(ctx.ctm);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.clipStack.push(ctx.clips.length);
     },
   ],
   [
@@ -317,6 +344,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
     },
   ],
   [
@@ -337,6 +365,18 @@ const HANDLERS = new Map<number, OpHandler>([
     },
   ],
   [
+    OP_CLIP,
+    (ctx) => {
+      ctx.pendingClip = true;
+    },
+  ],
+  [
+    OP_EO_CLIP,
+    (ctx) => {
+      ctx.pendingClip = true;
+    },
+  ],
+  [
     OP_PAINT_FORM_XOBJECT_BEGIN,
     (ctx, args) => {
       // Per the PDF spec, executing a Form XObject is
@@ -353,6 +393,7 @@ const HANDLERS = new Map<number, OpHandler>([
       // IDENTICAL, absurd bbox.
       ctx.ctmStack.push(ctx.ctm);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.clipStack.push(ctx.clips.length);
       const formMatrix = args[0];
       if (formMatrix != null) {
         ctx.ctm = multiplyMatrix(ctx.ctm, toMatrix(formMatrix));
@@ -364,6 +405,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
     },
   ],
   [
@@ -388,6 +430,7 @@ const HANDLERS = new Map<number, OpHandler>([
       // content inside starts opaque again (the group's own alpha is `groupAlphas`).
       ctx.groupAlphas.push(ctx.alpha);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.clipStack.push(ctx.clips.length);
       ctx.alpha = 1;
       ctx.events.push({ type: 'group', phase: 'begin', subtype, index });
     },
@@ -398,6 +441,7 @@ const HANDLERS = new Map<number, OpHandler>([
       const g = ctx.groupStack.pop();
       ctx.groupAlphas.pop();
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
       ctx.events.push({ type: 'group', phase: 'end', subtype: g?.subtype ?? null, index });
     },
   ],
@@ -410,6 +454,11 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx, args, index) => {
       const fillOrStroke = args[0] as number;
       const flat = flattenSubpaths(args[1]);
+      if (ctx.pendingClip) {
+        ctx.pendingClip = false;
+        const clipPath = flattenPath(flat, ctx.ctm);
+        if (clipPath.length > 0) ctx.clips.push(clipPath);
+      }
       const segments = parsePathSegments(flat);
       const rectPoints = rectanglePoints(segments);
       if (rectPoints) {
@@ -436,7 +485,7 @@ const HANDLERS = new Map<number, OpHandler>([
 export const HANDLED_OPCODES: ReadonlySet<number> = new Set(HANDLERS.keys());
 
 export function walkOperators(ops: OperatorListLike, _pageBox: Rect): WalkEvent[] {
-  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [], alpha: 1, alphaStack: [], groupAlphas: [] };
+  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [], alpha: 1, alphaStack: [], groupAlphas: [], clips: [], clipStack: [], pendingClip: false };
 
   const { fnArray, argsArray } = ops;
   for (let i = 0; i < fnArray.length; i++) {

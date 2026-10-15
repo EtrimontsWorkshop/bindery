@@ -14,6 +14,7 @@
       <label><input type="radio" name="eraseTo" value="transparent" {{#if eraseToTransparent}}checked{{/if}} /> {{localize "BINDERY.imageErase.eraseTransparent"}}</label>
       <label><input type="radio" name="eraseTo" value="color" {{#if eraseToColor}}checked{{/if}} /> {{localize "BINDERY.imageErase.eraseColor"}}</label>
       <input type="color" name="color" value="{{color}}" />
+      <button type="button" data-action="fillBackground" title="{{localize "BINDERY.imageErase.fillBackgroundHint"}}">{{localize "BINDERY.imageErase.fillBackground"}}</button>
     </div>
 
     <div class="bindery-image-erase-group">

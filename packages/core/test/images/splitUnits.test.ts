@@ -24,16 +24,16 @@ function unitOf(members: ImageEntry[], rep: ImageEntry): ExtractionUnit {
   return { representativeEntry: rep, memberEntries: members, page: 1, bbox, clusterMemberCount: members.length, classification: 'content', confidence: 0.5, reason: 'Z2-moderate-area-no-mask-evidence' };
 }
 
+const maskedAll = new Set(['photoA', 'photoB', 'note', 'tape', 'smallContent', 'smallUndecided', 'backdrop']);
 const BIG_A = entry('photoA', { minX: 40, minY: 400, maxX: 560, maxY: 750 }, 0.35);
 const BIG_B = entry('photoB', { minX: 60, minY: 470, maxX: 565, maxY: 770 }, 0.32);
 const NOTE = entry('note', { minX: 276, minY: 360, maxX: 567, maxY: 529 }, 0.1);
 const TAPE = entry('tape', { minX: 500, minY: 740, maxX: 580, maxY: 790 }, 0.02);
-const maskedAll = new Set(['photoA', 'photoB', 'note', 'tape']);
 
 describe('splitUnitsOfDistinctPictures', () => {
   const classified = (entries: ImageEntry[]) => new Map(entries.map((e) => [e, classify(e)]));
 
-  it('splits a unit with two or more significant masked pictures into one unit per picture, leaving out the tape', () => {
+  it('splits a unit with two or more significant solid pictures into one unit per picture, leaving out the tape', () => {
     const unit = unitOf([BIG_A, BIG_B, TAPE], BIG_A);
     const result = splitUnitsOfDistinctPictures([unit], classified([BIG_A, BIG_B, TAPE]), maskedAll);
     expect(result.map((u) => u.representativeEntry?.objId)).toEqual(['photoA', 'photoB']);
@@ -46,9 +46,29 @@ describe('splitUnitsOfDistinctPictures', () => {
     expect(splitUnitsOfDistinctPictures([unit], classified([BIG_A, TAPE]), maskedAll)).toEqual([unit]);
   });
 
-  it('keeps a unit whose significant pictures are not masked cut-outs (a composition)', () => {
+  it('keeps a unit whose pictures are not masked cut-outs (a composition) as it is', () => {
     const unit = unitOf([BIG_A, BIG_B], BIG_A);
     expect(splitUnitsOfDistinctPictures([unit], classified([BIG_A, BIG_B]), new Set())).toEqual([unit]);
+  });
+
+  it('splits pictures that are not masked cut-outs when faint backdrops show a layout of figures on panels', () => {
+    const backdrop = { ...entry('backdrop', { minX: 30, minY: 390, maxX: 570, maxY: 760 }, 0.3), maxOpacity: 0.2 };
+    const unit = unitOf([BIG_A, BIG_B, backdrop], backdrop);
+    const result = splitUnitsOfDistinctPictures([unit], classified([BIG_A, BIG_B, backdrop]), new Set());
+    expect(result.map((u) => u.representativeEntry?.objId)).toEqual(['photoA', 'photoB']);
+  });
+
+  it('does not count or offer faint backdrops: a backdrop behind one figure is not a second picture', () => {
+    const backdrop = { ...entry('backdrop', { minX: 30, minY: 390, maxX: 570, maxY: 760 }, 0.3), maxOpacity: 0.2 };
+    const unit = unitOf([BIG_A, backdrop], BIG_A);
+    expect(splitUnitsOfDistinctPictures([unit], classified([BIG_A, backdrop]), maskedAll)).toEqual([unit]);
+  });
+
+  it('leaves faint backdrops out of the units when the solid pictures are split', () => {
+    const backdrop = { ...entry('backdrop', { minX: 30, minY: 390, maxX: 570, maxY: 760 }, 0.3), maxOpacity: 0.2 };
+    const unit = unitOf([BIG_A, BIG_B, backdrop], backdrop);
+    const result = splitUnitsOfDistinctPictures([unit], classified([BIG_A, BIG_B, backdrop]), maskedAll);
+    expect(result.map((u) => u.representativeEntry?.objId)).toEqual(['photoA', 'photoB']);
   });
 
   it('offers a split-off picture below 10% of the page only when it is content', () => {
@@ -61,8 +81,7 @@ describe('splitUnitsOfDistinctPictures', () => {
       [smallContent, classify(smallContent)],
       [smallUndecided, classify(smallUndecided, 'undecided')],
     ]);
-    const masked = new Set(['photoA', 'photoB', 'smallContent', 'smallUndecided']);
-    expect(splitUnitsOfDistinctPictures([unit], byEntry, masked).map((u) => u.representativeEntry?.objId)).toEqual(['photoA', 'photoB', 'smallContent']);
+    expect(splitUnitsOfDistinctPictures([unit], byEntry, maskedAll).map((u) => u.representativeEntry?.objId)).toEqual(['photoA', 'photoB', 'smallContent']);
   });
 
   it('gives a split-off picture its own classification', () => {

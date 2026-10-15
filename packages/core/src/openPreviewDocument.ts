@@ -1,9 +1,9 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Rect } from './geometry.js';
 import { browserImageEncoder, type EncodedImage, type EncodeOptions } from './images/encodeImage.js';
 import { browserRegionRenderer } from './images/regionRenderer.js';
 import { renderPagePreview } from './images/buildPagePreview.js';
 import { renderRotatedRegion, type RotatedPdfRegion } from './images/renderRotatedRegion.js';
+import { openPdf } from './pdfDocument.js';
 
 /**
  * Opens the document ONLY for the purpose of page preview in
@@ -67,17 +67,8 @@ export interface OpenPreviewDocumentOptions {
 }
 
 export async function openPreviewDocument(data: ArrayBuffer, opts: OpenPreviewDocumentOptions): Promise<PreviewDocument> {
-  pdfjs.GlobalWorkerOptions.workerSrc = `${opts.assetBaseUrl}pdf.worker.mjs`;
-  // `PDFDocumentProxy` (the result of `.promise`) does NOT have its own
-  // `destroy()` — it belongs to `PDFDocumentLoadingTask` (the object
-  // returned BY `getDocument()`, even before `.promise` resolves) — hence
-  // we keep BOTH.
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(data.slice(0)),
-    wasmUrl: `${opts.assetBaseUrl}wasm/`,
-    standardFontDataUrl: `${opts.assetBaseUrl}standard_fonts/`,
-  });
-  const doc = await loadingTask.promise;
+  // The document stays open for the life of the review screen; `destroy()` below releases it (see `pdfDocument.ts`).
+  const { doc, destroy } = await openPdf(data, opts.assetBaseUrl);
 
   const boxCache = new Map<number, PreviewPageHandle>();
 
@@ -128,8 +119,6 @@ export async function openPreviewDocument(data: ArrayBuffer, opts: OpenPreviewDo
         page.cleanup();
       }
     },
-    async destroy() {
-      await loadingTask.destroy();
-    },
+    destroy,
   };
 }

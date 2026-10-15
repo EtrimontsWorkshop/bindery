@@ -1,10 +1,10 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Rect } from './geometry.js';
 import { browserImageEncoder, type EncodedImage } from './images/encodeImage.js';
 import { browserRegionRenderer } from './images/regionRenderer.js';
 import { buildImageExtraction, type BuildImageExtractionOptions, type BuildImageExtractionResult } from './images/buildImageExtraction.js';
 import { groupBlockBoxesByPage } from './images/textBlockBoxes.js';
 import { buildInventory } from './inventory/inventory.js';
+import { withPdf } from './pdfDocument.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 
@@ -43,23 +43,14 @@ import { buildPageLayouts } from './layout/buildPageLayout.js';
  * `getDocument()` call — creates an INDEPENDENT copy of the bytes, so
  * detaching one copy doesn't affect the original `data` or subsequent
  * copies.
+ *
+ * Every document is opened for ONE stage and released as soon as the stage is done (`withPdf`), also when
+ * the stage throws or is aborted — see `pdfDocument.ts`.
  */
 
 export interface ExtractImagesFromDocumentOptions extends BuildImageExtractionOptions {
   /** pdf.js asset base directory — see `InspectOptions.assetBaseUrl`. */
   assetBaseUrl: string;
-}
-
-async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
-  pdfjs.GlobalWorkerOptions.workerSrc = `${assetBaseUrl}pdf.worker.mjs`;
-  return pdfjs.getDocument({
-    // `data.slice(0)` — a copy INDEPENDENT from `data`, see the comment
-    // above the file (the browser transfers/detaches the buffer to the
-    // Worker thread per call).
-    data: new Uint8Array(data.slice(0)),
-    wasmUrl: `${assetBaseUrl}wasm/`,
-    standardFontDataUrl: `${assetBaseUrl}standard_fonts/`,
-  }).promise;
 }
 
 /**
@@ -76,10 +67,9 @@ async function buildBlockBoxesByPage(
   assetBaseUrl: string,
   inv: Awaited<ReturnType<typeof buildInventory>>,
 ): Promise<{ body: Map<number, Rect[]>; text: Map<number, Rect[]> }> {
-  const layoutDoc = await openDocument(data, assetBaseUrl);
   const fontSizeByKey = new Map(inv.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textLayout = await buildTextLayout(layoutDoc as any, fontSizeByKey);
+  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
   const { blocks } = buildPageLayouts(textLayout, {
     fontRoles: inv.fontRoles,
     vectors: inv.vectors,
@@ -101,19 +91,19 @@ export async function extractImagesFromDocument(
 ): Promise<BuildImageExtractionResult> {
   const { assetBaseUrl, ...extractionOpts } = opts;
 
-  const invDoc = await openDocument(data, assetBaseUrl);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inv = await buildInventory(invDoc as any);
+  const inv = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any));
   const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage } = await buildBlockBoxesByPage(data, assetBaseUrl, inv);
-  const extractDoc = await openDocument(data, assetBaseUrl);
 
-  return buildImageExtraction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    extractDoc as any,
-    { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
-    browserRegionRenderer,
-    browserImageEncoder,
-    { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage },
+  return withPdf(data, assetBaseUrl, (extractDoc) =>
+    buildImageExtraction(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      extractDoc as any,
+      { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
+      browserRegionRenderer,
+      browserImageEncoder,
+      { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage },
+    ),
   );
 }
 

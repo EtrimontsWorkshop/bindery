@@ -60,6 +60,17 @@ export function registerSettings(): void {
     default: `worlds/${game.world?.id ?? 'world'}/bindery-imports`,
   });
 
+  // Global switch: images that have transparent pixels get a white background when they are saved at import
+  // (sketches exported without a background are hard to read). Applies to every saved image, tokens and portraits too.
+  game.settings!.register(MODULE_ID, 'whiteBackground', {
+    name: 'BINDERY.settings.whiteBackgroundLabel',
+    hint: 'BINDERY.settings.whiteBackgroundHint',
+    scope: 'world',
+    config: true,
+    type: Boolean,
+    default: false,
+  });
+
   // The most recently used grid setting (GridPicker) —
   // remembered per world, not shown in the settings screen (the user
   // changes it ONLY through GridPicker itself).

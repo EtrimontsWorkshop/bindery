@@ -114,13 +114,15 @@
     },
     "imageErase": {
       "title": "Podgląd obrazu i wymazywanie",
-      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany. „Cofnij” cofa tylko ostatni krok (Ctrl+Z), a „Przywróć oryginał” — wszystko.",
+      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany. „Cofnij” cofa tylko ostatni krok (Ctrl+Z), a „Przywróć oryginał” — wszystko. „Wypełnij tło” podkłada wybrany kolor pod cały obraz.",
       "toolView": "Podgląd",
       "toolBrush": "Pędzel",
       "toolRect": "Prostokąt",
       "toolPick": "Pobierz kolor",
       "eraseTo": "Wymaż do:",
       "eraseTransparent": "Przezroczystości",
+      "fillBackground": "Wypełnij tło",
+      "fillBackgroundHint": "Podkłada wybrany kolor pod cały obraz: przezroczyste obszary dostają ten kolor. Przydatne przy szkicach, które trudno czytać na przezroczystym tle.",
       "eraseColor": "Jednolitego koloru",
       "brushSize": "Rozmiar pędzla",
       "zoom": "Powiększenie",
@@ -167,6 +169,8 @@
     "settings": {
       "openWizardMenuLabel": "Importuj PDF…",
       "openWizardMenuHint": "Otwórz kreator importu PDF Bindery.",
+      "whiteBackgroundLabel": "Dodawaj białe tło do obrazów",
+      "whiteBackgroundHint": "Obrazy z przezroczystymi obszarami dostają białe tło zaraz po analizie PDF (czyli przeglądasz je już z tłem) i ponownie przy zapisie (obrazy, które zmieniłeś ręcznie w panelu tokenu lub edytorze, zostają tak, jak je zrobiłeś), co ułatwia czytanie szkiców i rysunków. Dotyczy to także tokenów i portretów w statblockach.",
       "uploadPathLabel": "Folder wgrywania obrazów",
       "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów."
     },

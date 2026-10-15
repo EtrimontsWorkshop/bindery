@@ -7,6 +7,8 @@ const SAVE = 10;
 const RESTORE = 11;
 const TRANSFORM = 12;
 const SET_GSTATE = 9;
+const CLIP = 29;
+const EO_CLIP = 30;
 const SET_FONT = 37;
 const PAINT_FORM_XOBJECT_BEGIN = 74;
 const PAINT_FORM_XOBJECT_END = 75;
@@ -269,5 +271,57 @@ describe('walkOperators — the opacity an image is painted with', () => {
   it('ignores a malformed setGState', () => {
     const events = walkOperators({ fnArray: [SET_GSTATE, SET_GSTATE, PAINT_IMAGE_XOBJECT], argsArray: [[], [[['ca']]], ['Im1', 4, 4]] }, PAGE_BOX);
     expect(imagesOf(events)[0]).not.toHaveProperty('opacity');
+  });
+});
+
+describe('walkOperators — clipping paths', () => {
+  const rectPath = (x0: number, y0: number, x1: number, y1: number) => [DRAW_MOVE_TO, x0, y0, DRAW_LINE_TO, x1, y0, DRAW_LINE_TO, x1, y1, DRAW_LINE_TO, x0, y1, DRAW_CLOSE_PATH];
+  const endPath = (flat: number[]) => [28, flat, [0, 0, 0, 0]];
+
+  it('a picture under a clip that cuts it carries the clip, the CTM and the coverage', () => {
+    const fnArray = [SAVE, CLIP, CONSTRUCT_PATH, SAVE, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [], endPath(rectPath(0, 0, 50, 100)), [], [100, 0, 0, 100, 0, 0], ['Im1', 4, 4]];
+    const image = imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]!;
+    expect(image.clip).toBeDefined();
+    expect(image.clip!.coverage).toBeCloseTo(0.5, 1);
+    expect(image.clip!.ctm).toEqual([100, 0, 0, 100, 0, 0]);
+    expect(image.clip!.paths).toHaveLength(1);
+  });
+
+  it('a page-sized clip, which most pictures are painted under, is not recorded', () => {
+    const fnArray = [SAVE, CLIP, CONSTRUCT_PATH, SAVE, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [], endPath(rectPath(0, 0, 612, 792)), [], [100, 0, 0, 100, 10, 10], ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]).not.toHaveProperty('clip');
+  });
+
+  it('a clip that lets the picture through almost entirely is not recorded', () => {
+    const fnArray = [SAVE, CLIP, CONSTRUCT_PATH, SAVE, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [], endPath(rectPath(0, 0, 99, 100)), [], [100, 0, 0, 100, 0, 0], ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]).not.toHaveProperty('clip');
+  });
+
+  it('restore ends the clip: a picture painted after it carries none', () => {
+    const fnArray = [SAVE, CLIP, CONSTRUCT_PATH, RESTORE, SAVE, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [], endPath(rectPath(0, 0, 50, 100)), [], [], [100, 0, 0, 100, 0, 0], ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]).not.toHaveProperty('clip');
+  });
+
+  it('a form scopes the clip like save/restore', () => {
+    const fnArray = [PAINT_FORM_XOBJECT_BEGIN, CLIP, CONSTRUCT_PATH, PAINT_FORM_XOBJECT_END, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[null, null], [], endPath(rectPath(0, 0, 50, 100)), [], [100, 0, 0, 100, 0, 0], ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]).not.toHaveProperty('clip');
+  });
+
+  it('even-odd clips are recorded the same way', () => {
+    const fnArray = [SAVE, EO_CLIP, CONSTRUCT_PATH, SAVE, TRANSFORM, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [], endPath(rectPath(0, 0, 50, 100)), [], [100, 0, 0, 100, 0, 0], ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]!.clip).toBeDefined();
+  });
+
+  it('the clip is taken in the coordinates in force when the path was built', () => {
+    // the path is the unit square under cm [100 0 0 100 0 0]; the picture is painted under the same cm
+    const fnArray = [SAVE, TRANSFORM, CLIP, CONSTRUCT_PATH, PAINT_IMAGE_XOBJECT];
+    const argsArray: unknown[][] = [[], [100, 0, 0, 100, 0, 0], [], endPath(rectPath(0, 0, 0.5, 1)), ['Im1', 4, 4]];
+    expect(imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX))[0]!.clip!.coverage).toBeCloseTo(0.5, 1);
   });
 });

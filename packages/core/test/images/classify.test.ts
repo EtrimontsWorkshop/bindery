@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyImages, confidenceForReason } from '../../src/images/classify.js';
+import { classifyImages, maxBleedOverhangPt, confidenceForReason } from '../../src/images/classify.js';
 import type { ImageEntry } from '../../src/inventory/imageRegistry.js';
 import type { Rect } from '../../src/geometry.js';
 
@@ -163,6 +163,28 @@ describe('classifyImages', () => {
       expect(reasonOf(classifyAll([small]), small).classification).toBe('undecided');
     });
 
+    it('a picture painted at 60% opacity exactly over an earlier picture is a copy of it (PDF stores 0.6 as 0.600006)', () => {
+      const base = at('base', { minX: 320, minY: 490, maxX: 522, maxY: 745 }, 3, 0.107);
+      const copy = at('copy', { minX: 320, minY: 489, maxX: 522, maxY: 745 }, 8, 0.107, 0.600006);
+      const copyEntry = { ...copy, maxOpacity: 0.600006 };
+      const results = classifyAll([base, copyEntry], false);
+      expect(reasonOf(results, copyEntry).reason).toBe('Z19-translucent-copy-of-picture');
+      expect(reasonOf(results, base).classification).toBe('content');
+    });
+
+    it('a translucent picture over a much larger earlier picture (a watermark on a background) is not a copy', () => {
+      const background = at('background', { minX: 0, minY: 0, maxX: 612, maxY: 792 }, 1, 1);
+      const mark = at('mark', { minX: 200, minY: 300, maxX: 400, maxY: 500 }, 8, 0.08, 0.2);
+      const markEntry = { ...mark, maxOpacity: 0.2 };
+      expect(reasonOf(classifyAll([background, markEntry], false), markEntry).reason).not.toBe('Z19-translucent-copy-of-picture');
+    });
+
+    it('a mildly translucent picture (90%) over an earlier one is not taken for a translucent copy', () => {
+      const base = at('base', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 3, 0.2);
+      const over = { ...at('over', { minX: 0, minY: 0, maxX: 100, maxY: 100 }, 8, 0.2, 0.9), maxOpacity: 0.9 };
+      expect(reasonOf(classifyAll([base, over], false), over).reason).not.toBe('Z19-translucent-copy-of-picture');
+    });
+
     it('on a page with a crowd of tiny images (a form) the small undecided ones are form elements; the same image elsewhere stays', () => {
       const tinyOnes = Array.from({ length: 15 }, (_, i) => at(`t${i}`, { minX: 10 + i * 5, minY: 10, maxX: 14 + i * 5, maxY: 14 }, i, 0.001));
       const banner = at('banner', { minX: 40, minY: 700, maxX: 260, maxY: 760 }, 20, 0.024);
@@ -177,12 +199,41 @@ describe('classifyImages', () => {
       expect(reasonOf(classifyAll([...tinyOnes, art]), art).classification).not.toBe('decoration');
     });
 
-    it('the bottom of a stack (covered 75% or more by a later opaque picture) is decoration', () => {
+    it('the bottom of a stack (covered 75% or more by a later opaque masked picture) is decoration', () => {
       const bottom = at('bottom', { minX: 54, minY: 25, maxX: 558, maxY: 347 }, 3, 0.33);
       const top = at('top', { minX: 61, minY: 35, maxX: 578, maxY: 354 }, 8, 0.34);
-      const results = classifyAll([bottom, top], false);
+      const holder = entry({ objId: 'holder', maskEvidence: 'group', masksImageObjId: 'top' });
+      const results = classifyAll([bottom, top, holder], false);
       expect(reasonOf(results, bottom).reason).toBe('Z17-covered-by-later-picture');
       expect(reasonOf(results, top).classification).toBe('content');
+    });
+
+    it('a tilted print is hidden when the later print covers the part its mask lets through, though not its whole box', () => {
+      const back = at('back', { minX: -1, minY: 124, maxX: 577, maxY: 621 }, 3, 0.59);
+      const backMask = entry({ objId: 'backMask', maskEvidence: 'group', masksImageObjId: 'back', occurrences: [{ page: 1, bbox: { minX: 23, minY: 150, maxX: 567, maxY: 588 }, index: 2 }] });
+      const front = at('front', { minX: 45, minY: 172, maxX: 530, maxY: 551 }, 8, 0.38);
+      const frontMask = entry({ objId: 'frontMask', maskEvidence: 'group', masksImageObjId: 'front', occurrences: [{ page: 1, bbox: { minX: 33, minY: 153, maxX: 555, maxY: 562 }, index: 7 }] });
+      const results = classifyAll([back, backMask, front, frontMask], false);
+      expect(reasonOf(results, back).reason).toBe('Z17-covered-by-later-picture');
+      expect(reasonOf(results, front).classification).toBe('content');
+    });
+
+    it('a picture painted over another that is neither masked nor page-sized (a vignette, a cut-out) does not hide it', () => {
+      const illustration = at('illustration', { minX: 309, minY: 55, maxX: 533, maxY: 403 }, 3, 0.16);
+      const vignette = at('vignette', { minX: 309, minY: 55, maxX: 533, maxY: 431 }, 8, 0.174);
+      expect(reasonOf(classifyAll([illustration, vignette], false), illustration).classification).toBe('content');
+    });
+
+    it('a picture much larger than the one it covers hides it even when it is neither masked nor page-sized (a strip behind a figure)', () => {
+      const strip = at('strip', { minX: 158, minY: 514, maxX: 446, maxY: 650 }, 3, 0.08);
+      const figure = at('figure', { minX: 191, minY: 22, maxX: 452, maxY: 640 }, 8, 0.333);
+      expect(reasonOf(classifyAll([strip, figure], false), strip).reason).toBe('Z17-covered-by-later-picture');
+    });
+
+    it('a later page-sized picture hides what lies under it', () => {
+      const small = at('small', { minX: 100, minY: 100, maxX: 300, maxY: 300 }, 3, 0.1);
+      const page = at('page', { minX: 0, minY: 0, maxX: 612, maxY: 792 }, 8, 1);
+      expect(reasonOf(classifyAll([small, page], false), small).reason).toBe('Z17-covered-by-later-picture');
     });
 
     it('a picture only partly covered (68%) stays', () => {
@@ -230,6 +281,39 @@ describe('classifyImages', () => {
     expect(result.reason).toBe('Z12-bleeding-masked-cutout');
   });
 
+  it('maxBleedOverhangPt: how far an occurrence reaches past the page, 0 when it does not', () => {
+    const inside = entry({ occurrences: [{ page: 1, bbox: { minX: 10, minY: 10, maxX: 100, maxY: 100 }, index: 0 }] });
+    const over = entry({ occurrences: [{ page: 1, bbox: { minX: -2.5, minY: 10, maxX: 615, maxY: 100 }, index: 0 }] });
+    expect(maxBleedOverhangPt(inside, pageBoxMap([1]))).toBe(0);
+    expect(maxBleedOverhangPt(over, pageBoxMap([1]))).toBeCloseTo(3);
+  });
+
+  describe('small translucent masked rasters (halftone layers, chapter banners)', () => {
+    const maskHolder = (target: string) => entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: target });
+    const halftone = (overrides: Partial<ImageEntry>) => ({ ...entry({ objId: 'banner1', maxRelativeArea: 0.042, intrinsicWidth: 80, intrinsicHeight: 157 }), maxOpacity: 0.2, ...overrides });
+    const classifyOne = (e: ImageEntry, masked = true) => classifyImages(masked ? [maskHolder(e.objId!), e] : [e], pageBoxMap([1])).find((c) => c.entry === e)!;
+
+    it('a masked raster painted at 20% opacity covering 4% of the page is decoration, whatever its aspect (80x157 px, aspect 1.96)', () => {
+      const result = classifyOne(halftone({}));
+      expect(result.classification).toBe('decoration');
+      expect(result.reason).toBe('Z20-small-translucent-masked-raster');
+    });
+
+    it('a watermark crest of 8% of the page is not hit', () => {
+      expect(classifyOne(halftone({ maxRelativeArea: 0.083 })).reason).not.toBe('Z20-small-translucent-masked-raster');
+    });
+
+    it('an emblem painted at 30% opacity is not hit', () => {
+      expect(classifyOne(halftone({ maxOpacity: 0.3, intrinsicWidth: 203, intrinsicHeight: 218, maxRelativeArea: 0.027 })).reason).not.toBe('Z20-small-translucent-masked-raster');
+    });
+
+    it('an opaque raster of the same size, an unmasked one and one that is long are not hit', () => {
+      expect(classifyOne({ ...halftone({}), maxOpacity: undefined }).reason).not.toBe('Z20-small-translucent-masked-raster');
+      expect(classifyOne(halftone({}), false).reason).not.toBe('Z20-small-translucent-masked-raster');
+      expect(classifyOne(halftone({ intrinsicWidth: 600, intrinsicHeight: 300 })).reason).not.toBe('Z20-small-translucent-masked-raster');
+    });
+  });
+
   describe('small masked strips (adhesive tape, paper scraps)', () => {
     const maskHolder = (target: string) => entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: target });
     const strip = (overrides: Partial<ImageEntry>) => entry({ objId: 'tape1', maxRelativeArea: 0.018, intrinsicWidth: 219, intrinsicHeight: 77, ...overrides });
@@ -253,8 +337,8 @@ describe('classifyImages', () => {
       expect(classifyStrip(strip({}), false).reason).toBe('Z1-no-strong-signal');
     });
 
-    it('a strip covering 3.5% of the page is not hit', () => {
-      expect(classifyStrip(strip({ maxRelativeArea: 0.035 })).reason).not.toBe('Z15-small-masked-raster');
+    it('a strip covering 4% of the page is not hit', () => {
+      expect(classifyStrip(strip({ maxRelativeArea: 0.04 })).reason).not.toBe('Z15-small-masked-raster');
     });
 
     it('an unknown intrinsic size is not hit', () => {

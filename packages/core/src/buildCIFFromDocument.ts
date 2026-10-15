@@ -1,4 +1,3 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { buildCIFDocument, type BuildCIFDocumentResult } from './cif/buildCIFDocument.js';
 import { extractOutline } from './cif/outline.js';
 import { browserImageEncoder } from './images/encodeImage.js';
@@ -6,6 +5,7 @@ import { browserRegionRenderer } from './images/regionRenderer.js';
 import { buildImageExtraction, type BuildImageExtractionOptions } from './images/buildImageExtraction.js';
 import { groupBlockBoxesByPage } from './images/textBlockBoxes.js';
 import { buildInventory } from './inventory/inventory.js';
+import { withPdf } from './pdfDocument.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 import { buildTextLayout } from './text/buildTextLayout.js';
 
@@ -16,11 +16,15 @@ import { buildTextLayout } from './text/buildTextLayout.js';
  * external in ALL Vite configurations, and the bare-specifier redirect is
  * configured ONLY in `packages/core/vite.config.ts` (check:imports).
  *
- * FOUR separate `getDocument()` calls (inventory, text layout, bookmarks,
- * image extraction) — each with its OWN independent copy of the bytes
- * (`data.slice(0)`), same reason as in `extractImagesFromDocument.ts`: a
- * real browser TRANSFERS (detaches) the buffer to the Worker thread on
- * EVERY `getDocument()` call.
+ * THREE separate `getDocument()` calls (inventory + bookmarks, text layout, image extraction), each
+ * with its OWN independent copy of the bytes (see `openPdf`): a real browser TRANSFERS (detaches) the
+ * buffer to the Worker thread on EVERY `getDocument()` call. They are NOT merged into one document: image
+ * extraction relies on a fresh document (pdf.js object ids and `page.objs` depend on which pages a
+ * document has already visited), and the text layout reads operator lists before text on fresh pages.
+ * Bookmarks do not depend on page state, so they share the inventory document.
+ *
+ * Every document is opened for ONE stage and released as soon as the stage is done (`withPdf`), also when
+ * the stage throws or is aborted: at most one pdf.js worker is alive at a time, and none afterwards.
  */
 
 export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress'> {
@@ -30,26 +34,21 @@ export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOp
   detectedLanguage?: string | null;
 }
 
-async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
-  pdfjs.GlobalWorkerOptions.workerSrc = `${assetBaseUrl}pdf.worker.mjs`;
-  return pdfjs.getDocument({
-    data: new Uint8Array(data.slice(0)),
-    wasmUrl: `${assetBaseUrl}wasm/`,
-    standardFontDataUrl: `${assetBaseUrl}standard_fonts/`,
-  }).promise;
-}
-
 export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFromDocumentOptions): Promise<BuildCIFDocumentResult> {
   const { assetBaseUrl, fileName, fileHash, detectedLanguage, ...imageOpts } = opts;
 
-  const invDoc = await openDocument(data, assetBaseUrl);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inv = await buildInventory(invDoc as any);
+  // Bookmarks do not depend on the state of pages, so they are read from the inventory document.
+  const { inv, pageCount, outline } = await withPdf(data, assetBaseUrl, async (doc) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inventory = await buildInventory(doc as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bookmarks = await extractOutline(doc as any);
+    return { inv: inventory, pageCount: doc.numPages, outline: bookmarks };
+  });
 
-  const layoutDoc = await openDocument(data, assetBaseUrl);
   const fontSizeByKey = new Map(inv.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textLayout = await buildTextLayout(layoutDoc as any, fontSizeByKey);
+  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
   const { blocks } = buildPageLayouts(textLayout, {
     fontRoles: inv.fontRoles,
     vectors: inv.vectors,
@@ -63,28 +62,25 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
   const bodyBlockBoxesByPage = groupBlockBoxesByPage(blocks, new Set(['body', 'caption']));
   const textBlockBoxesByPage = groupBlockBoxesByPage(blocks);
 
-  const outlineDoc = await openDocument(data, assetBaseUrl);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const outline = await extractOutline(outlineDoc as any);
-
-  const extractDoc = await openDocument(data, assetBaseUrl);
-  const imageResult = await buildImageExtraction(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    extractDoc as any,
-    { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
-    browserRegionRenderer,
-    browserImageEncoder,
-    {
-      ...imageOpts,
-      bodyBlockBoxesByPage,
-      textBlockBoxesByPage,
-    },
+  const imageResult = await withPdf(data, assetBaseUrl, (extractDoc) =>
+    buildImageExtraction(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      extractDoc as any,
+      { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
+      browserRegionRenderer,
+      browserImageEncoder,
+      {
+        ...imageOpts,
+        bodyBlockBoxesByPage,
+        textBlockBoxesByPage,
+      },
+    ),
   );
 
   return buildCIFDocument({
     fileName,
     fileHash,
-    pageCount: invDoc.numPages,
+    pageCount,
     detectedLanguage: detectedLanguage ?? null,
     blocks,
     outline,

@@ -1,5 +1,6 @@
 import type { Rect } from '../geometry.js';
 import type { Diagnostic } from '../text/types.js';
+import { maskRectangularity } from './maskShape.js';
 import { normalizeDecodedImage, type DecodedImage } from './normalizeDecodedImage.js';
 import type { PdfPageForRender, RegionRenderer, RenderRegionOptions } from './regionRenderer.js';
 
@@ -242,6 +243,27 @@ export async function probeMeanBrightnessFraction(page: PdfPageForExtract, objId
   return null;
 }
 
+/**
+ * How completely the white area of mask resource `objId` fills its smallest enclosing rectangle (see
+ * `maskRectangularity`). `null` when the resource is not available (the same "best-effort" rules as
+ * {@link probeIntrinsicSizePx}).
+ */
+export async function probeMaskRectangularity(page: PdfPageForExtract, objId: string): Promise<number | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      return maskRectangularity(normalizeDecodedImage(raw));
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 /** The part of a pdf.js operator list that {@link currentObjIdAt} reads. */
 export interface OperatorListLike {
   fnArray?: ArrayLike<number>;
@@ -289,4 +311,54 @@ export async function waitForObjects(page: PdfPageForExtract, objIds: readonly s
     await new Promise((resolve) => setTimeout(resolve, stepMs));
   }
   return Date.now() - started;
+}
+
+/** What {@link probeOpaquePixelStats} measures. */
+export interface OpaquePixelStats {
+  /** The share (0-1) of pixels whose alpha is above 16. */
+  opaqueFraction: number;
+  /** Mean brightness (0-255) of the pixels counted as opaque; 0 when there are none. */
+  meanOpaqueBrightness: number;
+}
+
+/**
+ * How much of resource `objId` is not transparent and how bright that part is, or `null` when the resource is not
+ * available (same best-effort rules as {@link probeIntrinsicSizePx}). A cut-out figure on a transparent ground has a
+ * low opaque share; a sheet of paper or a photo has 1; a faded paper vignette has a low share of bright pixels.
+ * Pixels are sampled on a grid of at most ~250k points.
+ */
+export async function probeOpaquePixelStats(page: PdfPageForExtract, objId: string): Promise<OpaquePixelStats | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      const image = normalizeDecodedImage(raw);
+      const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
+      let opaque = 0;
+      let count = 0;
+      let brightness = 0;
+      for (let y = 0; y < image.height; y += stride) {
+        for (let x = 0; x < image.width; x += stride) {
+          const i = (y * image.width + x) * 4;
+          if (image.rgba[i + 3]! > 16) {
+            opaque++;
+            brightness += (image.rgba[i]! + image.rgba[i + 1]! + image.rgba[i + 2]!) / 3;
+          }
+          count++;
+        }
+      }
+      return count > 0 ? { opaqueFraction: opaque / count, meanOpaqueBrightness: opaque > 0 ? brightness / opaque : 0 } : null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** The share of opaque pixels of resource `objId`, or `null` — see {@link probeOpaquePixelStats}. */
+export async function probeOpaqueFraction(page: PdfPageForExtract, objId: string): Promise<number | null> {
+  return (await probeOpaquePixelStats(page, objId))?.opaqueFraction ?? null;
 }

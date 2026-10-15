@@ -3,13 +3,14 @@ import { overlapRatio, rectArea, rectIntersection, relativeArea, unionRect, type
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { VectorRegion } from '../inventory/vectorRegistry.js';
 import type { Diagnostic } from '../text/types.js';
-import { classifyImages, confidenceForReason, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, type ClassifiedImage, type ImageClassification } from './classify.js';
+import { classifyImages, confidenceForReason, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, isBackdropShape, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
 import { AUTOCROP_BRIGHTEN, brightenCroppedImage } from './brightenImage.js';
+import { applyClipToImage } from './clipMask.js';
 import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
-import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMeanBrightnessFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
-import { computeContentHash, computeLuminanceStdDev, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
+import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeOpaquePixelStats, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
+import { computeContentHash, computeDarkOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, isNeverWorthReviewing, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
 import { CO_MEMBER_SIGNIFICANT_AREA, computeMaskedObjIds, decideExtractionStrategy } from './strategy.js';
@@ -87,9 +88,6 @@ const DEFAULT_TARGET_LONG_EDGE_PX = 2048;
  * only `content` pictures are split off, so that small leftovers of the stack do not clutter the list).
  */
 const SPLIT_OFF_MIN_AREA = 0.1;
-
-/** A unit member painted at or below this opacity is a watermark, not a picture, and is left out of `coMemberAreaShare`. */
-const CO_MEMBER_TRANSLUCENT_MAX_OPACITY = 0.6;
 
 /** Default for `objectSettleTimeoutMs`. */
 const DEFAULT_OBJECT_SETTLE_TIMEOUT_MS = 1500;
@@ -210,6 +208,26 @@ export function textCoverage(bbox: Rect, textBoxes: readonly Rect[] | undefined)
 }
 
 /**
+ * Whether the text that lies over a unit's picture is part of what the picture shows (a paper note, a
+ * newspaper handout: the page draws the text, the resource is blank paper), so that the region has to be
+ * rendered to get it. Not the case for:
+ * - a full-bleed background the user asked to treat as content: its text is on top of it by design, and the
+ *   background without the text is what was asked for;
+ * - a picture that bleeds off the page and was kept (`Z12-bleeding-no-center-text-evidence`): the classifier
+ *   has already established that the centre of such a picture is clear of text, so the text that overlaps
+ *   its bbox sits at its edges or on the part that is off the page (a splatter or a stain under the page's
+ *   own text, not a note with writing on it);
+ * - a picture painted translucent everywhere (a watermark crest or emblem behind a quotation or a text
+ *   column): the text belongs to the page and the emblem is the picture. A render of the region gives the
+ *   faded emblem with the whole text column on it, the raw resource gives the emblem.
+ */
+export function isTextOverPicture(unitReason: string, representative: ImageEntry | null, placed: Rect | undefined, textBoxes: readonly Rect[] | undefined): boolean {
+  if (unitReason === 'Z1-full-bleed-forced-content' || unitReason === 'Z12-bleeding-no-center-text-evidence') return false;
+  if (representative !== null && isTranslucentEverywhere(representative)) return false;
+  return unitReason.startsWith('Z10') || (placed !== undefined && textCoverage(placed, textBoxes) >= TEXT_OVER_PICTURE_FRACTION);
+}
+
+/**
  * Share of the unit's area that text blocks cut by its edge must cover before the raw image resource
  * is preferred over a render of the region. Measured on a real rulebook whose pictures sit under
  * text panels: the units with a visible slice of the page's text had 1.4%-19%; 1% catches a single cut
@@ -250,9 +268,62 @@ const RAW_RESOURCE_PLACEMENT_ASPECT_TOLERANCE = 0.25;
  * The share of a masked picture that its mask must let through for the raw resource to stand in for the
  * rendered region. Measured on a real rulebook: the masks of photos pinned to the page as tilted prints
  * are white over 91%-95% of their raster (the rest is the black margin that tilts the edge); a mask that
- * deliberately hides half of a picture is far below.
+ * deliberately hides half of a picture is far below. A mask that is a tilted rectangle may pass with less,
+ * see `maskLetsMostThrough`.
  */
 const MASK_MOSTLY_VISIBLE_FRACTION = 0.8;
+
+/**
+ * A mask that is a rotated rectangle only tilts or trims the picture, however much of its raster that leaves
+ * black: a print tilted by 10 degrees is white over about 0.75 of its mask, one tilted by 15 degrees over
+ * 0.67. Measured on a second real rulebook with strongly tilted prints: the masks of 17 such photos are white
+ * over 0.72-0.80 of the raster and fill 0.95-0.99 of their smallest enclosing rectangle, while every other
+ * mask that lets less than 0.8 through (a silhouette, a torn edge, a small window) fills 0.04-0.47 of it
+ * (an ellipse would give 0.785). The floor on the white share keeps out a rectangular window that hides most
+ * of the picture.
+ */
+const MASK_TILTED_RECTANGLE_MIN_FRACTION = 0.6;
+const MASK_TILTED_RECTANGLE_MIN_RECTANGULARITY = 0.9;
+/**
+ * The tilted-rectangle allowance is for photos only: a paper note cut out by the same kind of mask carries
+ * the page's own text, which the raw resource does not have. Page text covers up to 14% of the photos that
+ * were measured (a caption touching a corner) and 25% of the one paper note, so the allowance stops at 20%
+ * (the stricter 30% of `TEXT_OVER_PICTURE_FRACTION` still decides what is rendered as text over a picture).
+ */
+const MASK_TILTED_RECTANGLE_MAX_TEXT_COVERAGE = 0.2;
+
+/**
+ * A figure cut out by a silhouette mask and stood against the edge of the page overhangs it by a point or two, which
+ * the bleed rules take for a paper scrap, a stain or a shadow that runs off the page, or for a background with text on
+ * it (those are hidden). Such a picture
+ * is looked at once more: when its mask is a silhouette (it fills less than 0.9 of its smallest enclosing rectangle,
+ * as a tilted print does; measured on a real rulebook: 0.23-0.72 for the figures cut out against the page edge) and the picture has more than one color it is a figure and
+ * is offered; a rectangular mask (a print pinned at the edge) or a flat color (a splatter) keeps the old verdict. Real bleed overhangs the page mostly by 8-19 pt.
+ */
+const EDGE_FIGURE_MAX_OVERHANG_PT = 3;
+const EDGE_FIGURE_REASON = 'Z21-masked-silhouette-at-page-edge';
+const SILHOUETTE_MAX_RECTANGULARITY = MASK_TILTED_RECTANGLE_MIN_RECTANGULARITY;
+/**
+ * What stands against the page edge as a silhouette may also be a splatter, a smear of smoke or a patch of ink (one
+ * color, only the alpha varies), or a faded paper vignette. Measured on three real rulebooks, the luminance spread of
+ * the visible pixels is 0.4-3.3 for the former, 16-19 for the latter and 36-62 for figures and emblems. Page-sized
+ * results (a backdrop) are rendered, not taken raw, and are not offered.
+ */
+const EDGE_FIGURE_MIN_STDDEV = 25;
+
+/** Whether a mask that is white over `whiteFraction` of its raster and has the given rectangularity lets most of the picture through. */
+export function maskLetsMostThrough(whiteFraction: number, rectangularity: number | null): boolean {
+  if (whiteFraction >= MASK_MOSTLY_VISIBLE_FRACTION) return true;
+  return rectangularity !== null && whiteFraction >= MASK_TILTED_RECTANGLE_MIN_FRACTION && rectangularity >= MASK_TILTED_RECTANGLE_MIN_RECTANGULARITY;
+}
+
+/** The shape is only measured when it can change the verdict: a mask below the floor or already mostly white is decided by its white share. */
+async function maskResourceLetsMostThrough(page: PdfPageForExtract, maskObjId: string, tiltedRectangleAllowed: boolean): Promise<boolean> {
+  const fraction = await probeMeanBrightnessFraction(page, maskObjId);
+  if (fraction === null) return false;
+  if (!tiltedRectangleAllowed || fraction >= MASK_MOSTLY_VISIBLE_FRACTION || fraction < MASK_TILTED_RECTANGLE_MIN_FRACTION) return maskLetsMostThrough(fraction, null);
+  return maskLetsMostThrough(fraction, await probeMaskRectangularity(page, maskObjId));
+}
 
 /**
  * Whether the raw pixels of a resource have the proportions of the box they are painted in. The
@@ -372,21 +443,23 @@ function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): 
 
 /**
  * A unit that holds several distinct pictures — pinned prints stacked and overlapping on a page, a photo
- * with a note laid over its corner — is split into one unit per picture. Rendering their union gives a
- * region of the page (the pictures, the text and the margin between them); taking one raw resource would
- * drop the others from every list. Only pictures that are masked cut-outs and that cover a real share of
- * the page count as pictures of their own; the tape, crests and paperclips that sit on them stay with the
- * picture they are on, as before.
+ * with a note laid over its corner, three figures standing in a row — is split into one unit per picture.
+ * Rendering their union gives a region of the page (the pictures, the text and the margin between them); taking
+ * one raw resource would drop the others from every list. Only solid pictures that cover a real share of the
+ * page count as pictures of their own: the faint shapes behind figures and the tape, crests and paperclips
+ * that sit on them are not pictures, and stay out (or with the picture they are on), as before. Pictures that are
+ * not masked cut-outs are told apart only when faint backdrops show that the page is a layout of figures on panels
+ * and not a composition (a collage of pinned photos, a print with a note over its corner).
  */
-export function splitUnitsOfDistinctPictures(
-  units: readonly ExtractionUnit[],
-  classifiedByEntry: ReadonlyMap<ImageEntry, ClassifiedImage>,
-  maskedObjIds: ReadonlySet<string>,
-): ExtractionUnit[] {
+export function splitUnitsOfDistinctPictures(units: readonly ExtractionUnit[], classifiedByEntry: ReadonlyMap<ImageEntry, ClassifiedImage>, maskedObjIds: ReadonlySet<string>): ExtractionUnit[] {
+  const isSolid = (m: ImageEntry): boolean => !isBackdropShape(m);
   return units.flatMap((unit) => {
-    const significantMasked = unit.memberEntries.filter((m) => m.objId !== null && maskedObjIds.has(m.objId) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
-    if (unit.memberEntries.length < 2 || significantMasked.length < 2) return [unit];
+    const significant = unit.memberEntries.filter((m) => isSolid(m) && m.objId !== null && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+    const significantMasked = significant.filter((m) => maskedObjIds.has(m.objId!));
+    const standOnBackdrops = unit.memberEntries.some((m) => isBackdropShape(m));
+    if (unit.memberEntries.length < 2 || (significantMasked.length < 2 && !(standOnBackdrops && significant.length >= 2))) return [unit];
     const separate = unit.memberEntries.filter((m) => {
+      if (!isSolid(m)) return false;
       if (m === unit.representativeEntry) return true;
       const c = classifiedByEntry.get(m);
       return c !== undefined && (m.maxRelativeArea >= SPLIT_OFF_MIN_AREA || (c.classification === 'content' && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA));
@@ -430,6 +503,91 @@ export interface ExtractionUnit {
 }
 
 /**
+ * Share of opaque pixels below which a picture is a cut-out figure on a transparent ground: the text that lies
+ * in its bbox lies on the page (on the transparent part, next to the figure), not on the picture. Measured on a
+ * real rulebook: the cut-out figures are 25%-45% opaque, the paper notes and handouts that carry text are 100%.
+ */
+const TEXT_OVER_PICTURE_MIN_OPAQUE_FRACTION = 0.6;
+/**
+ * A member of a unit counts as covered by another when that one, painted later and fully opaque, covers this much
+ * of it (the same measure as the covered-picture rule of the classifier) — and the covering picture is opaque
+ * for real: at least this share of its pixels (a vignette or a cut-out figure with a transparent middle is not).
+ */
+const COVERED_MEMBER_MIN_COVER = 0.75;
+const COVER_MIN_OPAQUE_FRACTION = 0.9;
+/** Share of the region of a cut-out figure that page text must cover for the render to be judged as dragging text in. */
+const CUTOUT_TEXT_MIN_COVERAGE = 0.01;
+
+/**
+ * A faded paper vignette — the soft white edge laid over an illustration so that it melts into the page — is a
+ * raster that is mostly transparent and whose opaque part is the color of the paper. Measured on a real rulebook:
+ * the vignette is 23% opaque with a mean brightness of 207, the cut-out figures are 33%-51% opaque with a
+ * mean brightness of 53-77. It is not a picture, and the illustration under it is.
+ */
+const PAPER_OVERLAY_MAX_OPAQUE_FRACTION = 0.5;
+const PAPER_OVERLAY_MIN_BRIGHTNESS = 185;
+
+export function isPaperOverlay(stats: { opaqueFraction: number; meanOpaqueBrightness: number }): boolean {
+  return stats.opaqueFraction < PAPER_OVERLAY_MAX_OPAQUE_FRACTION && stats.meanOpaqueBrightness >= PAPER_OVERLAY_MIN_BRIGHTNESS;
+}
+
+/**
+ * The other pictures of consequence of a unit, as units of their own (largest first, at most two): the pictures
+ * that could stand for it if the one it stands for is hidden from the list. Translucent members are not pictures.
+ */
+export function alternativeRepresentatives(unit: ExtractionUnit): ExtractionUnit[] {
+  return unit.memberEntries
+    .filter((m) => m !== unit.representativeEntry && m.objId !== null && !isTranslucentEverywhere(m) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA)
+    .sort((a, b) => b.maxRelativeArea - a.maxRelativeArea)
+    .slice(0, 2)
+    .map((m) => ({ ...unit, representativeEntry: m }));
+}
+
+/**
+ * The members of a unit that make up its composition: everything but the faint backdrops (see `isBackdropShape`),
+ * which are not part of what a raw resource or a render would have to reproduce. A unit of backdrops only keeps
+ * all of them.
+ */
+export function compositionMembers(unit: ExtractionUnit): readonly ImageEntry[] {
+  const solid = unit.memberEntries.filter((m) => !isBackdropShape(m));
+  return solid.length > 0 ? solid : unit.memberEntries;
+}
+
+/**
+ * A faint shape — a colored panel or a halftone layer painted at 20% — that a solid figure stands in front of is
+ * the figure's backdrop, not the picture: taking its raw resource gives the empty panel, rendering the
+ * union copies the backdrop and whatever text surrounds it. Such a unit stands for the largest solid member (at least
+ * `CO_MEMBER_SIGNIFICANT_AREA` of the page) instead. The unit keeps its classification: it was judged as a picture
+ * as a whole.
+ */
+export function withSolidRepresentativeOfBackdrop(unit: ExtractionUnit): ExtractionUnit {
+  const rep = unit.representativeEntry;
+  if (rep === null || !isBackdropShape(rep)) return unit;
+  const solid = unit.memberEntries.filter((m) => m !== rep && m.objId !== null && !isBackdropShape(m) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+  if (solid.length === 0) return unit;
+  const largest = solid.reduce((best, cur) => (cur.maxRelativeArea > best.maxRelativeArea ? cur : best));
+  return { ...unit, representativeEntry: largest };
+}
+
+/**
+ * The member a unit stands for: the largest one. A watermark is not the picture of a unit that holds a real one,
+ * though: when the largest member is painted translucent AND nobody found it to be content (a faint mark below
+ * the share of the page from which a picture is taken for content, laid behind a pinned photo) and the unit also
+ * holds a photo of consequence (a masked picture painted solid, at least `CO_MEMBER_SIGNIFICANT_AREA` of the
+ * page), the unit stands for that photo. Taking the watermark's raw resource would swap the photo for the mark,
+ * and rendering the union copies the page's text into the image. Measured on a real rulebook: the watermarks
+ * behind pinned photos are 8%-10% of the page and undecided; a translucent emblem that is content (25% of the
+ * page, with a splatter over it and a blank paper sheet under it) keeps being the picture of its unit.
+ */
+export function pickUnitRepresentative(group: readonly ClassifiedImage[], maskedObjIds: ReadonlySet<string>): ClassifiedImage {
+  const larger = (best: ClassifiedImage, cur: ClassifiedImage): ClassifiedImage => (cur.entry.maxRelativeArea > best.entry.maxRelativeArea ? cur : best);
+  const largest = group.reduce(larger);
+  if (!isTranslucentEverywhere(largest.entry) || largest.classification !== 'undecided') return largest;
+  const solidPhotos = group.filter((c) => !isTranslucentEverywhere(c.entry) && c.entry.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA && c.entry.objId !== null && maskedObjIds.has(c.entry.objId));
+  return solidPhotos.length > 0 ? solidPhotos.reduce(larger) : largest;
+}
+
+/**
  * Groups candidates (content/undecided) into clusters of overlapping bboxes
  * (a cluster = ONE extraction unit, not N). A unit's bbox is the UNION of
  * all occurrences of all members — so that a region render (when the
@@ -451,11 +609,11 @@ export interface ExtractionUnit {
  * FROM THE GRAPH actually breaks the chain, not just filters its members out
  * of the result.
  */
-function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: ReadonlyMap<number, Rect>, diagnostics: Diagnostic[]): ExtractionUnit[] {
+function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: ReadonlyMap<number, Rect>, maskedObjIds: ReadonlySet<string>, diagnostics: Diagnostic[]): ExtractionUnit[] {
   const groups = partitionCandidatesIntoGroups(candidates);
 
   return groups.map((group) => {
-    const representative = group.reduce((best, cur) => (cur.entry.maxRelativeArea > best.entry.maxRelativeArea ? cur : best));
+    const representative = pickUnitRepresentative(group, maskedObjIds);
     const page = representative.entry.occurrences[0]!.page;
     // Union ONLY of occurrences ON
     // THE SAME page as the unit — observed directly: `g_d0_img_p7_8` (one PDF
@@ -616,7 +774,7 @@ export async function buildImageExtraction(
 
   const candidates = classified.filter((c) => c.classification === 'content' || c.classification === 'undecided');
   const classifiedByEntry = new Map(classified.map((c) => [c.entry, c]));
-  const imageUnits = splitUnitsOfDistinctPictures(groupIntoUnits(candidates, pageBoxByPage, diagnostics), classifiedByEntry, maskedObjIds);
+  const imageUnits = splitUnitsOfDistinctPictures(groupIntoUnits(candidates, pageBoxByPage, maskedObjIds, diagnostics), classifiedByEntry, maskedObjIds);
 
   const pagesWithAnyImage = new Set<number>();
   for (const entry of inventory.images) for (const occ of entry.occurrences) pagesWithAnyImage.add(occ.page);
@@ -624,7 +782,28 @@ export async function buildImageExtraction(
 
   // DETERMINISTIC order, independent of input order: page ascending, within
   // a page by objId (vector regions, with no objId, at the end of each page).
-  const allUnits = [...imageUnits, ...vectorOnlyUnits].sort((a, b) => {
+  // Masked pictures that stand against the page edge: single-member units, so that they change nothing about how
+  // the other pictures are grouped; the page loop drops those whose mask is not a silhouette.
+  const edgeFigureUnits: ExtractionUnit[] = classified
+    .filter(
+      (c) =>
+        (c.reason === 'Z12-bleeding-masked-cutout' || c.reason === 'Z1-full-bleed-background') &&
+        c.entry.objId !== null &&
+        maskedObjIds.has(c.entry.objId) &&
+        c.entry.occurrences.length > 0 &&
+        maxBleedOverhangPt(c.entry, pageBoxByPage) <= EDGE_FIGURE_MAX_OVERHANG_PT,
+    )
+    .map((c) => ({
+      representativeEntry: c.entry,
+      memberEntries: [c.entry],
+      page: c.entry.occurrences[0]!.page,
+      bbox: c.entry.occurrences[0]!.bbox,
+      clusterMemberCount: 1,
+      classification: 'undecided' as const,
+      confidence: confidenceForReason(EDGE_FIGURE_REASON),
+      reason: EDGE_FIGURE_REASON,
+    }));
+  const allUnits = [...imageUnits, ...edgeFigureUnits, ...vectorOnlyUnits].sort((a, b) => {
     if (a.page !== b.page) return a.page - b.page;
     return (a.representativeEntry?.objId ?? '￿').localeCompare(b.representativeEntry?.objId ?? '￿');
   });
@@ -660,17 +839,55 @@ export async function buildImageExtraction(
       let settleBudgetMs = objectSettleTimeoutMs;
       // The id this document gave the resource that `entry` paints on this page (see `currentObjIdAt`).
       const idOnThisPage = (entry: ImageEntry): string | null => currentObjIdAt(operatorList, entry.occurrences.find((o) => o.page === pageNumber)?.index, entry.objId);
-      for (const unit of unitsByPage.get(pageNumber)!) {
-        checkAborted(signal);
-        try {
-          const isMasked = unit.memberEntries.some((e) => e.objId !== null && maskedObjIds.has(e.objId));
-          const crossesText = textCrossesRegionEdge(unit.bbox, bodyBlockBoxesByPage.get(pageNumber));
+      // Luminance spread of what the last extracted unit shows (only measured for `EDGE_FIGURE_REASON` units).
+      let edgeFigureStdDev: number | undefined;
+      // One unit, from the planning of how to take it to the encoded result.
+      const extractUnit = async (plannedUnit: ExtractionUnit): Promise<PreparedEntryForFinalize<EncodedImage>> => {
+        let unit = plannedUnit;
+          // Any kind of text block counts here, not only body and caption: a heading or a sidebar that is cut by
+          // the region ends up in the render just the same.
+          let crossesText = textCrossesRegionEdge(plannedUnit.bbox, textBlockBoxesByPage.get(pageNumber));
+          unit = withSolidRepresentativeOfBackdrop(plannedUnit);
+          // A faded paper vignette is not the picture of its unit: the illustration it frames is, and the vignette
+          // is left out of the unit's other pictures.
+          let overlayMember: ImageEntry | null = null;
+          if (unit.representativeEntry !== null && unit.representativeEntry.objId !== null) {
+            const [alternative] = alternativeRepresentatives(unit);
+            const overlayId = idOnThisPage(unit.representativeEntry);
+            if (alternative !== undefined && overlayId !== null) {
+              if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [overlayId], settleBudgetMs);
+              const stats = await probeOpaquePixelStats(page, overlayId);
+              if (stats !== null && isPaperOverlay(stats)) {
+                overlayMember = unit.representativeEntry;
+                // The region is now the illustration's own: the strip the vignette adds around it is where the
+                // page's text lies.
+                const ownBox = alternative.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.bbox;
+                unit = ownBox ? { ...alternative, bbox: ownBox } : alternative;
+                crossesText = textCrossesRegionEdge(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+              }
+            }
+          }
           // Only probed when it can matter: the raw resource is considered for masked units and for
           // clusters whose region is cut by page text.
+          // Only the solid members make up what a raw resource or a render has to reproduce.
+          const composition = compositionMembers(unit);
+          const isMasked = composition.some((e) => e.objId !== null && maskedObjIds.has(e.objId));
+          const compositionCount = composition.length;
           const rep = unit.representativeEntry;
           const repId = rep ? idOnThisPage(rep) : null;
           const holderIds = rep?.objId ? (maskHoldersByTarget.get(rep.objId) ?? []).map(idOnThisPage) : [];
-          const considersRaw = rep?.objId !== undefined && rep?.objId !== null && (isMasked || (crossesText && unit.clusterMemberCount > 1));
+          // Text inside the bbox of a cut-out figure lies on the transparent part around it. A block that lies
+          // wholly inside the region does not count as "cut" above, but a render of the region copies it just the
+          // same, so for such a picture it counts as text cutting the region.
+          if (!crossesText && rep && repId && (isMasked || compositionCount > 1)) {
+            const textTextBoxes = textBlockBoxesByPage.get(pageNumber);
+            if (textCoverage(unit.bbox, textTextBoxes) >= CUTOUT_TEXT_MIN_COVERAGE) {
+              if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
+              const opaque = await probeOpaqueFraction(page, repId);
+              if (opaque !== null && opaque < TEXT_OVER_PICTURE_MIN_OPAQUE_FRACTION) crossesText = true;
+            }
+          }
+          const considersRaw = rep?.objId !== undefined && rep?.objId !== null && (isMasked || (crossesText && compositionCount > 1));
           let fitsPlacement = false;
           let maskMostlyVisible = false;
           if (rep && repId && considersRaw) {
@@ -685,24 +902,50 @@ export async function buildImageExtraction(
             // The mask of a masked picture is a resource of its own (it points at the picture); how much of
             // the picture it lets through decides whether the mask matters.
             if (fitsPlacement && isMasked) {
-              const fractions = await Promise.all(holderIds.map((id) => (id === null ? Promise.resolve(null) : probeMeanBrightnessFraction(page, id))));
-              maskMostlyVisible = fractions.length > 0 && fractions.every((f) => f !== null && f >= MASK_MOSTLY_VISIBLE_FRACTION);
+              const tiltedRectangleAllowed = placed !== undefined && textCoverage(placed, textBlockBoxesByPage.get(pageNumber)) < MASK_TILTED_RECTANGLE_MAX_TEXT_COVERAGE;
+              const verdicts = await Promise.all(holderIds.map((id) => (id === null ? Promise.resolve(false) : maskResourceLetsMostThrough(page, id, tiltedRectangleAllowed))));
+              maskMostlyVisible = verdicts.length > 0 && verdicts.every(Boolean);
             }
           }
           // Other pictures that make up the unit: a raw resource shows only one of them.
           // A member painted translucent (a watermark) is not a picture of its own and does not count.
-          const coMemberAreaShare = unit.memberEntries.reduce((sum, m) => (m === rep || (m.maxOpacity !== undefined && m.maxOpacity <= CO_MEMBER_TRANSLUCENT_MAX_OPACITY) ? sum : sum + m.maxRelativeArea), 0);
+          // A member that an opaque picture of the same unit covers almost completely is not on the page, and
+          // rendering the union would not show it either.
+          const coveredMembers = new Set<ImageEntry>();
+          for (const m of unit.memberEntries) {
+            if (m === rep || m === overlayMember || isTranslucentEverywhere(m) || m.maxRelativeArea < CO_MEMBER_SIGNIFICANT_AREA) continue;
+            const own = m.occurrences.find((o) => o.page === pageNumber);
+            if (own === undefined) continue;
+            const ownArea = rectArea(own.bbox);
+            for (const c of unit.memberEntries) {
+              if (c === m || ownArea <= 0) continue;
+              const over = c.occurrences.find((o) => o.page === pageNumber && o.index > own.index && o.opacity === undefined);
+              const overlap = over === undefined ? null : rectIntersection(own.bbox, over.bbox);
+              if (over === undefined || overlap === null || rectArea(overlap) / ownArea < COVERED_MEMBER_MIN_COVER) continue;
+              const coverId = idOnThisPage(c);
+              if (coverId === null) continue;
+              if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [coverId], settleBudgetMs);
+              const coverStats = await probeOpaquePixelStats(page, coverId);
+              if (coverStats !== null && coverStats.opaqueFraction >= COVER_MIN_OPAQUE_FRACTION) {
+                coveredMembers.add(m);
+                break;
+              }
+            }
+          }
+          const coMemberAreaShare = unit.memberEntries.reduce((sum, m) => (m === rep || m === overlayMember || coveredMembers.has(m) || isTranslucentEverywhere(m) ? sum : sum + m.maxRelativeArea), 0);
           // Text that lies ON the picture (a paper note, a newspaper handout) is part of what the page shows.
           const placedRep = rep?.occurrences.find((o) => o.page === pageNumber)?.bbox;
-          // Not for a full-bleed background the user asked to treat as content: its text is on top of it by
-          // design, and the background without the text is what was asked for.
-          const textOverPicture =
-            unit.reason !== 'Z1-full-bleed-forced-content' &&
-            (unit.reason.startsWith('Z10') || (placedRep !== undefined && textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) >= TEXT_OVER_PICTURE_FRACTION));
+          let textOverPicture = isTextOverPicture(unit.reason, rep, placedRep, textBlockBoxesByPage.get(pageNumber));
+          if (textOverPicture && repId) {
+            // Text in the bbox of a cut-out figure lies on the transparent part around it, not on the picture.
+            if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
+            const opaque = await probeOpaqueFraction(page, repId);
+            if (opaque !== null && opaque < TEXT_OVER_PICTURE_MIN_OPAQUE_FRACTION) textOverPicture = false;
+          }
           const decision = decideExtractionStrategy({
             entry: rep,
             isMasked,
-            clusterMemberCount: Math.max(1, unit.clusterMemberCount),
+            clusterMemberCount: Math.max(1, compositionCount),
             textCrossesRegionEdge: crossesText,
             rawResourceFitsPlacement: fitsPlacement,
             maskMostlyVisible,
@@ -750,6 +993,13 @@ export async function buildImageExtraction(
           // has the right bbox — cropping its pixels would be pointless and
           // risky).
           let image = extractResult.image;
+          // The page shows a picture painted under a clipping path only where the clip lets it through; the raw
+          // resource is the whole sheet (a figure with the neighbor that the page cuts away). What decides whether
+          // the picture is worth listing (a blank background, a sparse prop) is measured on the whole resource, as it
+          // always was, so that cutting it down does not change what is listed.
+          const wholeResource = image;
+          const clip = unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip;
+          if (clip !== undefined && extractResult.source !== 'region-render') image = applyClipToImage(image, clip);
           if (autoCropUniformMargins && unit.reason === 'Z1-full-bleed-forced-content') {
             const bounds = detectContentBounds(image);
             if (bounds) {
@@ -770,11 +1020,17 @@ export async function buildImageExtraction(
           // Computed ONLY for 'content' candidates — 'undecided'
           // is not subject to this reclassification (see `finalize.ts`), so
           // we save an extra pixel pass where it wouldn't be used anyway.
-          const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(image) : undefined;
+          const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(wholeResource) : undefined;
+          // The "light paper sheet" rule of `finalize.ts` judges 'undecided' candidates, by their visible pixels.
+          const judgeSheet = hideBackgroundImages && unit.classification === 'undecided';
+          const visibleLuminanceStdDev = judgeSheet ? computeVisibleLuminanceStdDev(wholeResource) : undefined;
+          const meanLuminance = judgeSheet ? computeVisibleMeanLuminance(wholeResource) : undefined;
+          if (plannedUnit.reason === EDGE_FIGURE_REASON) edgeFigureStdDev = computeVisibleLuminanceStdDev(image);
+          const darkOpaqueShare = hideBackgroundImages ? computeDarkOpaqueShare(wholeResource) : undefined;
           // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
-          const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(image) : undefined;
-          const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(image) : undefined;
-          const opaqueFraction = hideBackgroundImages ? computeOpaqueFraction(image) : undefined;
+          const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(wholeResource) : undefined;
+          const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(wholeResource) : undefined;
+          const opaqueFraction = hideBackgroundImages ? computeOpaqueFraction(wholeResource) : undefined;
           // Grid suggestion — NOT limited to 'content' (unlike
           // `luminanceStdDev` above): 'undecided' can also end up on stage by
           // the user's manual decision in the review screen), and the cost of
@@ -790,7 +1046,7 @@ export async function buildImageExtraction(
           // `undecided` confidence inherited from `unit.confidence` (which
           // described something else: "no image to extract directly").
           const confidence = unit.representativeEntry ? unit.confidence : confidenceForReason('Z1-large-relative-area');
-          prepared.push({
+          return {
             entry: entryForFinalize,
             classification: unit.representativeEntry ? unit.classification : 'content',
             confidence,
@@ -799,18 +1055,53 @@ export async function buildImageExtraction(
             width: image.width,
             height: image.height,
             luminanceStdDev,
+            meanLuminance,
+            visibleLuminanceStdDev,
+            darkOpaqueShare,
             uniformColorFraction,
             smoothness,
             opaqueFraction,
             suggestedGrid,
             payload: encoded,
-          });
+          };
+      };
+
+      for (const plannedUnit of unitsByPage.get(pageNumber)!) {
+        checkAborted(signal);
+        if (plannedUnit.reason === EDGE_FIGURE_REASON) {
+          const rep = plannedUnit.representativeEntry;
+          const maskIds = rep?.objId ? (maskHoldersByTarget.get(rep.objId) ?? []).map(idOnThisPage).filter((id): id is string => id !== null) : [];
+          if (maskIds.length > 0 && settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, maskIds, settleBudgetMs);
+          const rectangularity = maskIds.length > 0 ? await probeMaskRectangularity(page, maskIds[0]!) : null;
+          if (rectangularity === null || rectangularity >= SILHOUETTE_MAX_RECTANGULARITY) {
+            done++;
+            onProgress?.(done, total);
+            continue;
+          }
+        }
+        try {
+          // The picture a unit stands for may turn out to be one that is hidden from the list as a background or
+          // a prop (a faded vignette painted over the illustration it frames): then the next picture of
+          // consequence in the unit gets its turn, instead of the whole unit vanishing.
+          const candidates = [plannedUnit, ...alternativeRepresentatives(plannedUnit)];
+          edgeFigureStdDev = undefined;
+          let item = await extractUnit(candidates[0]!);
+          if (plannedUnit.reason === EDGE_FIGURE_REASON && (item.extractSource === 'region-render' || (edgeFigureStdDev ?? 0) < EDGE_FIGURE_MIN_STDDEV)) {
+            done++;
+            onProgress?.(done, total);
+            continue;
+          }
+          for (let i = 1; i < candidates.length && isNeverWorthReviewing(item); i++) {
+            const alternative = await extractUnit(candidates[i]!);
+            if (!isNeverWorthReviewing(alternative)) item = alternative;
+          }
+          prepared.push(item);
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') throw err;
           diagnostics.push({
             severity: 'error',
             code: 'IMAGE_EXTRACTION_FAILED',
-            params: { objId: unit.representativeEntry?.objId ?? '(vector-region)', error: err instanceof Error ? err.message : String(err) },
+            params: { objId: plannedUnit.representativeEntry?.objId ?? '(vector-region)', error: err instanceof Error ? err.message : String(err) },
             pageNumber,
           });
         }

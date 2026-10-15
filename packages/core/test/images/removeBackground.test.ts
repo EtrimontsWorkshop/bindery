@@ -43,6 +43,23 @@ describe('removeBackground', () => {
     expect(Array.from(result.image.rgba)).toEqual(Array.from(image.rgba));
   });
 
+  it('a white background that is most of a sketch is removed with the default limits (a non-white one of the same size is a false detection and aborts)', () => {
+    const white = solidCanvas(60, 60, 255, 255, 255);
+    paintRect(white, 20, 20, 20, 20, 40, 60, 90); // 89% background
+    const whiteResult = removeBackground(white, DEFAULT_REMOVE_BACKGROUND);
+    expect(whiteResult.aborted).toBe(false);
+    expect(alphaAt(whiteResult.image, 0, 0)).toBe(0);
+    expect(alphaAt(whiteResult.image, 30, 30)).toBe(255);
+
+    const paper = solidCanvas(60, 60, 230, 225, 210);
+    paintRect(paper, 20, 20, 20, 20, 40, 60, 90);
+    expect(removeBackground(paper, DEFAULT_REMOVE_BACKGROUND).aborted).toBe(true);
+  });
+
+  it('a white background that floods the whole picture (nothing left) still aborts', () => {
+    expect(removeBackground(solidCanvas(30, 30, 255, 255, 255), DEFAULT_REMOVE_BACKGROUND).aborted).toBe(true);
+  });
+
   it('a background + a content island NOT TOUCHING any corner -> the background removed (alpha 0), the content preserved (alpha 255), the content\'s RGB unchanged', () => {
     const image = solidCanvas(60, 60, 230, 225, 210);
     paintRect(image, 20, 20, 20, 20, 40, 60, 90); // the content is 400/3600=11% of the area, the background ~89% — MORE than the default 60% limit, `maxAreaFraction` raised in this test deliberately, to test the removal MECHANICS in isolation from the safeguard (which has its own dedicated test above)

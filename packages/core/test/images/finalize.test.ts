@@ -5,6 +5,8 @@ import {
   computeContentHash,
   computeLuminanceStdDev,
   computeOpaqueFraction,
+  computeDarkOpaqueShare,
+  computeVisibleLuminanceStdDev,
   computeSmoothnessMetrics,
   computeUniformColorFraction,
   finalizeImages,
@@ -316,6 +318,20 @@ describe('finalizeImages', () => {
     expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
   });
 
+  it('computeDarkOpaqueShare: the share of visible pixels that are black, 0 when nothing is visible', () => {
+    // visible black, visible black, visible white, invisible white
+    const rgba = new Uint8ClampedArray([0, 0, 0, 255, 10, 10, 10, 200, 255, 255, 255, 255, 255, 255, 255, 0]);
+    expect(computeDarkOpaqueShare({ width: 4, height: 1, rgba })).toBeCloseTo(2 / 3);
+    expect(computeDarkOpaqueShare({ width: 1, height: 1, rgba: new Uint8ClampedArray([0, 0, 0, 0]) })).toBe(0);
+  });
+
+  it('computeVisibleLuminanceStdDev ignores invisible pixels: one flat color is 0, black and white is about 127', () => {
+    const flat = new Uint8ClampedArray([40, 40, 40, 255, 40, 40, 40, 255, 255, 255, 255, 0]);
+    expect(computeVisibleLuminanceStdDev({ width: 3, height: 1, rgba: flat })).toBeCloseTo(0);
+    const contrast = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]);
+    expect(computeVisibleLuminanceStdDev({ width: 2, height: 1, rgba: contrast })).toBeGreaterThan(120);
+  });
+
   it('computeOpaqueFraction counts pixels with alpha above 16', () => {
     const rgba = new Uint8ClampedArray(4 * 4);
     rgba[3] = 255;
@@ -383,6 +399,28 @@ describe('finalizeImages', () => {
     expect(result.images[0]!.entry.objId).toBe('a');
     expect(result.duplicatesRemoved).toBe(1);
     expect(result.correlationClosedByHash).toBe(1);
+  });
+
+  it('pictures that fill the page and share a size and a place (a map set) are told apart by their pixels', async () => {
+    const pA = await prepared(entry({ objId: 'mapA', maxRelativeArea: 0.96 }), image(4, 4, 10));
+    const pB = await prepared(entry({ objId: 'mapB', maxRelativeArea: 0.96, correlatedWith: 'mapA' }), image(4, 4, 200));
+    const result = finalizeImages([pA, pB], new Set());
+    expect(result.images.map((i) => i.entry.objId)).toEqual(['mapA', 'mapB']);
+    expect(result.duplicatesRemoved).toBe(0);
+  });
+
+  it('big pictures of the same size and place with the same pixels are one picture', async () => {
+    const pA = await prepared(entry({ objId: 'mapA', maxRelativeArea: 0.96 }), image(4, 4, 10));
+    const pB = await prepared(entry({ objId: 'mapB', maxRelativeArea: 0.96, correlatedWith: 'mapA' }), image(4, 4, 10));
+    const result = finalizeImages([pA, pB], new Set());
+    expect(result.images.map((i) => i.entry.objId)).toEqual(['mapA']);
+  });
+
+  it('small pictures linked by size and place stay one picture whatever their pixels (frames, icons)', async () => {
+    const pA = await prepared(entry({ objId: 'iconA', maxRelativeArea: 0.02 }), image(4, 4, 10));
+    const pB = await prepared(entry({ objId: 'iconB', maxRelativeArea: 0.02, correlatedWith: 'iconA' }), image(4, 4, 11));
+    const result = finalizeImages([pA, pB], new Set());
+    expect(result.images).toHaveLength(1);
   });
 
   it('assigns targetKind based on dimensions and adjacency', async () => {

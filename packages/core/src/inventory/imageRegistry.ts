@@ -2,6 +2,7 @@ import { clusterByOverlap } from '../clustering.js';
 import { groupByQuantizedPosition } from '../collections.js';
 import type { Rect } from '../geometry.js';
 import { overlapRatio, relativeArea as computeRelativeArea } from '../geometry.js';
+import type { ClipInfo } from './clipPaths.js';
 import type { WalkEvent } from './walkOperators.js';
 
 /**
@@ -25,6 +26,8 @@ export interface ImageOccurrence {
   index: number;
   /** Present only when this occurrence is painted translucent (below 1) — see `WalkEvent['image'].opacity`. */
   opacity?: number;
+  /** Present only when a clipping path cuts this occurrence — see `WalkEvent['image'].clip`. */
+  clip?: ClipInfo;
 }
 
 export interface ImageEntry {
@@ -103,6 +106,7 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
           intrinsicWidth: e.intrinsicWidth,
           intrinsicHeight: e.intrinsicHeight,
           ...(e.opacity !== undefined ? { opacity: e.opacity } : {}),
+          ...(e.clip !== undefined ? { clip: e.clip } : {}),
         },
       });
     }
@@ -233,7 +237,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
       entriesByKey.set(key, entry);
     }
 
-    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}) });
+    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}) });
 
     // The first occurrence carrying the intrinsic resolution is enough — the
     // same objId always refers to the same resource, so later occurrences

@@ -1,4 +1,5 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { withPdf } from './pdfDocument.js';
 import { classifyQuality, mergeSignals, pickSamplePages, tallySignals } from './quality.js';
 
 export interface DocumentSummary {
@@ -36,27 +37,12 @@ export async function inspectDocument(
   data: ArrayBuffer,
   opts: InspectOptions,
 ): Promise<DocumentSummary> {
-  // pdf.js configuration (not Foundry) — a single source of truth, works
-  // the same in Node (tests) as in the browser. In Node, pdf.js
-  // uses a fake worker automatically, so this line is a no-op outside the browser.
-  pdfjs.GlobalWorkerOptions.workerSrc = `${opts.assetBaseUrl}pdf.worker.mjs`;
+  // Opened and released in `pdfDocument.ts` (workerSrc, an independent copy of the bytes, and the release
+  // also when this throws — a password-protected file makes the open itself throw).
+  return withPdf(data, opts.assetBaseUrl, summarize);
+}
 
-  // `data.slice(0)` — a copy INDEPENDENT from `data`, NOT a view over it
-  // (discovery: in a real browser pdf.js TRANSFERS the buffer to
-  // the Worker thread on `getDocument()`, which DETACHES the original
-  // ArrayBuffer in the main thread). Without this copy the caller (e.g.
-  // `ImportWizard`, which holds one `ArrayBuffer` per selected file)
-  // couldn't reuse the same buffer for a DIFFERENT call (e.g.
-  // `extractImagesFromDocument` after `inspectDocument` on the same file)
-  // — the second attempt would throw `TypeError: Cannot perform Construct
-  // on a detached ArrayBuffer`. See the full description in
-  // `extractImagesFromDocument.ts`.
-  const doc = await pdfjs.getDocument({
-    data: new Uint8Array(data.slice(0)),
-    wasmUrl: `${opts.assetBaseUrl}wasm/`,
-    standardFontDataUrl: `${opts.assetBaseUrl}standard_fonts/`,
-  }).promise;
-
+async function summarize(doc: PDFDocumentProxy): Promise<DocumentSummary> {
   const pageCount = doc.numPages;
 
   let title: string | null = null;

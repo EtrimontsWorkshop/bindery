@@ -279,6 +279,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    */
   #imageRotationState = new Map<string, { originalBytes: Uint8Array; originalFormat: string; totalDeg: number }>();
   /**
+   * Images the user changed by hand in the token panel or the image editor. The "white background" setting does not
+   * put its background back on them when they are saved: a background the user removed on purpose stays removed.
+   */
+  #handEditedImageIds = new Set<string>();
+  /**
    * [User request, "I pick an image from the list, it jumps back to the
    * top"] Scroll position of EVERY virtualized list, tracked LIVE (see
    * `VirtualList`'s `onScroll`) and restored on every remount
@@ -513,7 +518,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#diagnosticList?.destroy();
     for (const url of this.#pageImageCache.values()) URL.revokeObjectURL(url);
     for (const url of this.#thumbnailUrls.values()) URL.revokeObjectURL(url);
-    await this.#data.previewDocument.destroy();
+    try {
+      await this.#data.previewDocument.destroy();
+    } catch (err) {
+      // A failing release must not keep the window open or leave `ReviewScreen.open` unresolved.
+      console.warn('Bindery | releasing the preview document failed:', err);
+    }
     if (!this.#settled) {
       this.#settled = true;
       this.#resolve?.({ confirmed: false });
@@ -1253,6 +1263,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#thumbnailUrls.delete(image.id);
       }
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
+      this.#handEditedImageIds.add(image.id);
       await this.render();
     } catch (err) {
       console.warn('Bindery | image erase failed:', err);
@@ -1294,6 +1305,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#thumbnailUrls.delete(image.id);
       }
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
+      this.#handEditedImageIds.add(image.id);
       await this.render();
     } catch (err) {
       console.warn('Bindery | token preparation failed:', err);
@@ -2180,7 +2192,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           continue;
         }
         try {
-          const upload = await uploadImage({ bytes: bytes.bytes, baseName: `${baseName}-${scene.imageRef}`, format: bytes.format === 'png' ? 'png' : 'webp' });
+          const upload = await uploadImage({ bytes: bytes.bytes, baseName: `${baseName}-${scene.imageRef}`, format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(scene.imageRef) });
           const name = withPrefix(scene.name);
           const grid = await this.#pickGridForImage(bytes, image);
           const created = await createSceneFromImage({ name, imagePath: upload.path, width: image.width, height: image.height, grid, folder: sceneFolderId });
@@ -2251,7 +2263,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
           continue;
         }
         try {
-          const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+          const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
           uploadedPathByImageId.set(image.id, upload.path);
           pages.push({ name: withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`), imagePath: upload.path });
         } catch (err) {
@@ -2295,7 +2307,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       const name = withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`);
       try {
-        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
         uploadedPathByImageId.set(image.id, upload.path);
         if (destination === 'scene') {
           const grid = await this.#pickGridForImage(bytes, image);
@@ -2339,7 +2351,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const bytes = this.#data.imageBytesById.get(imageId);
       if (!image || !bytes) return undefined;
       try {
-        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp' });
+        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
         uploadedPathByImageId.set(imageId, upload.path);
         return upload.path;
       } catch (err) {

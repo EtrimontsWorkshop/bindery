@@ -23,6 +23,12 @@ export interface RemoveBackgroundOptions {
   /** [safeguard] If the fill would cover MORE than this share of the total area (0-1), abort and remove NOTHING — this means the background is NOT uniform (an image mostly "background" by tolerance = a false detection), not that the token genuinely has that much background to remove. */
   maxAreaFraction: number;
   /**
+   * The same limit for an image whose four corners are white (a sketch on white paper, or a picture that has got a
+   * white background behind its transparent parts): such a picture is mostly background by nature (83%-95% in
+   * measured sketches), and a white flood cannot be told from a leak by its size. Defaults to `maxAreaFraction`.
+   */
+  whiteBackgroundMaxAreaFraction?: number;
+  /**
    * Additional flood-fill seed points, BEYOND
    * the 4 corners — pixels manually pointed out by the user in background
    * areas NOT CONNECTED to the image's edge. The classic limitation of any
@@ -68,7 +74,10 @@ export interface RemoveBackgroundResult {
  * the function ABORTS and returns the original (see the test "uniform
  * background... ABORTS").
  */
-export const DEFAULT_REMOVE_BACKGROUND: RemoveBackgroundOptions = { tolerance: 10, featherPx: 2, maxAreaFraction: 0.6 };
+export const DEFAULT_REMOVE_BACKGROUND: RemoveBackgroundOptions = { tolerance: 10, featherPx: 2, maxAreaFraction: 0.6, whiteBackgroundMaxAreaFraction: 0.985 };
+
+/** Every channel of a corner pixel at or above this makes the corner white (see `whiteBackgroundMaxAreaFraction`). */
+const WHITE_CORNER_MIN_CHANNEL = 245;
 
 function colorDistance(rgba: Uint8ClampedArray, idxA: number, idxB: number): number {
   const dr = rgba[idxA]! - rgba[idxB]!;
@@ -142,7 +151,12 @@ export function removeBackground(image: DecodedImage, opts: RemoveBackgroundOpti
   }
 
   const removedFraction = removedCount / totalPixels;
-  if (removedFraction > opts.maxAreaFraction) {
+  const cornersAreWhite = corners.every(([cx, cy]) => {
+    const i = (cy * width + cx) * 4;
+    return rgba[i]! >= WHITE_CORNER_MIN_CHANNEL && rgba[i + 1]! >= WHITE_CORNER_MIN_CHANNEL && rgba[i + 2]! >= WHITE_CORNER_MIN_CHANNEL;
+  });
+  const limit = cornersAreWhite ? (opts.whiteBackgroundMaxAreaFraction ?? opts.maxAreaFraction) : opts.maxAreaFraction;
+  if (removedFraction > limit) {
     return { image, removedFraction, aborted: true };
   }
 

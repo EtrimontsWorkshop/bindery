@@ -114,13 +114,15 @@
     },
     "imageErase": {
       "title": "Image preview and erase",
-      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes. \"Undo\" reverts only the last step (Ctrl+Z); \"Restore original\" reverts everything.",
+      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes. \"Undo\" reverts only the last step (Ctrl+Z); \"Restore original\" reverts everything. \"Fill background\" puts the chosen color behind the whole picture.",
       "toolView": "View",
       "toolBrush": "Brush",
       "toolRect": "Rectangle",
       "toolPick": "Pick color",
       "eraseTo": "Erase to:",
       "eraseTransparent": "Transparent",
+      "fillBackground": "Fill background",
+      "fillBackgroundHint": "Put the chosen color behind the whole picture: transparent areas get that color. Useful for sketches that are hard to read on a transparent background.",
       "eraseColor": "Solid color",
       "brushSize": "Brush size",
       "zoom": "Zoom",
@@ -167,6 +169,8 @@
     "settings": {
       "openWizardMenuLabel": "Import PDF…",
       "openWizardMenuHint": "Open the Bindery PDF import wizard.",
+      "whiteBackgroundLabel": "Add a white background to images",
+      "whiteBackgroundHint": "Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved (images you changed by hand in the token panel or the editor are left as you made them), which makes sketches and line drawings easier to read. This also applies to tokens and statblock portraits.",
       "uploadPathLabel": "Image upload folder",
       "uploadPathHint": "Path (in the world's data storage) where images extracted from PDFs are saved."
     },

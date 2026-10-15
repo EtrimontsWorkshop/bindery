@@ -1,4 +1,5 @@
 import { MODULE_ID } from '../settings.js';
+import { withWhiteBackground } from './whiteBackground.js';
 
 /**
  * The write layer — EXCLUSIVELY `FilePicker.upload()`, zero
@@ -12,6 +13,8 @@ export interface UploadImageInput {
   /** Without extension — added based on `format`. */
   baseName: string;
   format: 'webp' | 'png';
+  /** The image was changed by hand (token panel, image editor): the "white background" setting leaves it as it is. */
+  keepTransparency?: boolean;
 }
 
 export interface UploadImageResult {
@@ -91,8 +94,10 @@ export async function uploadImage(input: UploadImageInput, opts: { signal?: Abor
   opts.signal?.throwIfAborted();
 
   const mimeType = input.format === 'webp' ? 'image/webp' : 'image/png';
+  const whiteBackground = !input.keepTransparency && game.settings!.get(MODULE_ID, 'whiteBackground') === true;
+  const bytes = whiteBackground ? (await withWhiteBackground({ bytes: input.bytes, format: input.format })).bytes : input.bytes;
   // Copy into a new ArrayBuffer (not ArrayBufferLike/SharedArrayBuffer) — required by the `BlobPart` type.
-  const file = new File([new Uint8Array(input.bytes)], fileName, { type: mimeType });
+  const file = new File([new Uint8Array(bytes)], fileName, { type: mimeType });
 
   const response = (await foundry.applications.apps.FilePicker.implementation.upload(source, uploadPath, file, {}, { notify: false })) as
     | { path?: string }

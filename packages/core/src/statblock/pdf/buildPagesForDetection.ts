@@ -1,6 +1,6 @@
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Rect } from '../../geometry.js';
 import { buildInventory } from '../../inventory/inventory.js';
+import { withPdf } from '../../pdfDocument.js';
 import { buildPageLayouts } from '../../layout/buildPageLayout.js';
 import type { SemanticBlock } from '../../semantic/blockBuilder.js';
 import { buildTextLayout } from '../../text/buildTextLayout.js';
@@ -94,15 +94,6 @@ function semanticBlockToElements(block: SemanticBlock): PageTextElement[] {
   return elements;
 }
 
-async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
-  pdfjs.GlobalWorkerOptions.workerSrc = `${assetBaseUrl}pdf.worker.mjs`;
-  return pdfjs.getDocument({
-    data: new Uint8Array(data.slice(0)),
-    wasmUrl: `${assetBaseUrl}wasm/`,
-    standardFontDataUrl: `${assetBaseUrl}standard_fonts/`,
-  }).promise;
-}
-
 /**
  * Batches page-by-page with an `onProgress` callback + `AbortSignal` check
  * between pages — parsing in batches without blocking the UI — the same
@@ -115,15 +106,14 @@ async function openDocument(data: ArrayBuffer, assetBaseUrl: string) {
 export async function buildPagesForDetection(data: ArrayBuffer, options: BuildPagesForDetectionOptions): Promise<PageForDetection[]> {
   const { assetBaseUrl, signal } = options;
 
-  const invDoc = await openDocument(data, assetBaseUrl);
+  // Each document is opened for one stage and released as soon as the stage is done (see `pdfDocument.ts`).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inventory = await buildInventory(invDoc as any);
+  const inventory = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any));
   checkAborted(signal);
 
-  const layoutDoc = await openDocument(data, assetBaseUrl);
   const fontSizeByKey = new Map(inventory.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textLayout = await buildTextLayout(layoutDoc as any, fontSizeByKey);
+  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
   checkAborted(signal);
 
   const { pages: pageLayouts, blocks } = buildPageLayouts(textLayout, {
