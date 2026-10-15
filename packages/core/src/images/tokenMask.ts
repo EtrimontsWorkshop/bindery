@@ -72,8 +72,9 @@ export function isInsideShape(shape: TokenMaskShape, nx: number, ny: number): bo
  */
 export function applyTokenMask(image: DecodedImage, shape: TokenMaskShape, featherPx: number): DecodedImage {
   const { width, height, rgba } = image;
-  const out = new Uint8ClampedArray(rgba.length);
-  out.set(rgba);
+  // The shape is feathered on its own and then multiplied into the picture's alpha: feathering the picture's own
+  // alpha would blur line art that is drawn in the alpha channel (a sketch on a transparent ground).
+  const coverage = new Uint8ClampedArray(rgba.length);
   const halfW = width / 2;
   const halfH = height / 2;
   for (let y = 0; y < height; y++) {
@@ -83,10 +84,12 @@ export function applyTokenMask(image: DecodedImage, shape: TokenMaskShape, feath
     const ny = (y + 0.5 - halfH) / halfH;
     for (let x = 0; x < width; x++) {
       const nx = (x + 0.5 - halfW) / halfW;
-      if (!isInsideShape(shape, nx, ny)) {
-        out[(y * width + x) * 4 + 3] = 0;
-      }
+      coverage[(y * width + x) * 4 + 3] = isInsideShape(shape, nx, ny) ? 255 : 0;
     }
   }
-  return featherAlpha({ width, height, rgba: out }, featherPx);
+  const feathered = featherAlpha({ width, height, rgba: coverage }, featherPx).rgba;
+  const out = new Uint8ClampedArray(rgba.length);
+  out.set(rgba);
+  for (let i = 3; i < out.length; i += 4) out[i] = Math.round((rgba[i]! * feathered[i]!) / 255);
+  return { width, height, rgba: out };
 }

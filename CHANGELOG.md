@@ -1,3 +1,9 @@
+## [0.3.4]
+
+### Fixed
+
+- **Tokens made from line art on a transparent ground are no longer blurred.** The token mask and the background removal smoothed their edges by blurring the picture's whole alpha channel, which also blurred sketches whose lines are drawn in alpha: thick, grey, smeared lines with blocks around them. Only the edge of the shape (or of the removed area) is smoothed now; opaque pictures come out as before.
+
 ## [0.3.3]
 
 ### Added

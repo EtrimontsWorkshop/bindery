@@ -100,4 +100,14 @@ describe('applyTokenMask', () => {
     applyTokenMask(image, 'hex', 1);
     expect(Array.from(image.rgba)).toEqual(Array.from(snapshot));
   });
+
+  it('keeps a one-pixel line that is drawn in the alpha channel sharp inside the shape (feathering is only for the shape edge)', () => {
+    const size = 40;
+    const rgba = new Uint8ClampedArray(size * size * 4); // transparent black
+    for (let y = 0; y < size; y++) rgba[(y * size + 20) * 4 + 3] = 255; // a vertical opaque line
+    const out = applyTokenMask({ width: size, height: size, rgba }, 'circle', 4);
+    expect(alphaAt(out, 20, 20)).toBe(255);
+    expect(alphaAt(out, 18, 20)).toBe(0);
+    expect(alphaAt(out, 22, 20)).toBe(0);
+  });
 });

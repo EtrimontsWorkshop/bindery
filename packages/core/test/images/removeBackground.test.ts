@@ -182,4 +182,16 @@ describe('removeBackground', () => {
     expect(result.aborted).toBe(false);
     expect(alphaAt(result.image, 20, 20)).toBe(255); // the pocket untouched — the point outside the image had no effect
   });
+
+  it('keeps the alpha of the content as it was: alpha stripes inside the kept content are not blurred by the feathering', () => {
+    const size = 60;
+    const image = solidCanvas(size, size, 255, 255, 255);
+    paintRect(image, 15, 15, 30, 30, 20, 20, 20); // dark content
+    for (let y = 15; y < 45; y++) for (let x = 15; x < 45; x++) image.rgba[(y * size + x) * 4 + 3] = x % 2 === 0 ? 255 : 0; // content drawn in the alpha channel
+    const result = removeBackground(image, { tolerance: 10, featherPx: 3, maxAreaFraction: 0.99 });
+    expect(result.aborted).toBe(false);
+    expect(alphaAt(result.image, 0, 0)).toBe(0); // the background is gone
+    expect(alphaAt(result.image, 30, 30)).toBe(255);
+    expect(alphaAt(result.image, 31, 30)).toBe(0);
+  });
 });

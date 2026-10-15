@@ -160,11 +160,13 @@ export function removeBackground(image: DecodedImage, opts: RemoveBackgroundOpti
     return { image, removedFraction, aborted: true };
   }
 
+  // The removed area is feathered on its own and then multiplied into the picture's alpha: feathering the picture's
+  // own alpha would blur line art that is drawn in the alpha channel (a sketch on a transparent ground).
+  const kept = new Uint8ClampedArray(rgba.length);
+  for (let pos = 0; pos < totalPixels; pos++) kept[pos * 4 + 3] = visited[pos] ? 0 : 255;
+  const feathered = featherAlpha({ width, height, rgba: kept }, opts.featherPx).rgba;
   const out = new Uint8ClampedArray(rgba.length);
   out.set(rgba);
-  for (let pos = 0; pos < totalPixels; pos++) {
-    if (visited[pos]) out[pos * 4 + 3] = 0;
-  }
-  const feathered = featherAlpha({ width, height, rgba: out }, opts.featherPx);
-  return { image: feathered, removedFraction, aborted: false };
+  for (let i = 3; i < out.length; i += 4) out[i] = Math.round((rgba[i]! * feathered[i]!) / 255);
+  return { image: { width, height, rgba: out }, removedFraction, aborted: false };
 }
