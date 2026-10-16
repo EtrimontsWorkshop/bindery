@@ -10,6 +10,8 @@ interface Row {
   pageNumber: number;
   snippet: string;
   confidencePercent: number;
+  /** Required labels of the profile that were not found in this statblock — such a candidate is shown for diagnosis but is not ticked for import. */
+  missingLabels: string[];
   include: boolean;
   /** The CIF image chosen for this statblock ('' = none). */
   imageId: string;
@@ -85,7 +87,9 @@ export class StatblockReviewState {
           pageNumber: c.regions[0]?.pageNumber ?? 0,
           snippet: c.elements[0]?.text ?? '',
           confidencePercent: Math.round(c.confidence * 100),
-          include: true,
+          missingLabels: [...c.missingRequiredLabels],
+          // A statblock that lacks a label the profile requires is more likely a false match than a creature: left unticked.
+          include: c.meetsRequirements,
           // The picture nearest to where the statblock starts is the usual portrait — preselected, changeable.
           imageId: findNearestImage(c.regions, imageCandidates) ?? '',
         };
@@ -138,6 +142,7 @@ export class StatblockReviewState {
         page: r.pageNumber,
         snippet: r.snippet,
         confidencePercent: r.confidencePercent,
+        warning: r.missingLabels.length > 0 ? i18n.format('BINDERY.statblockImport.requiredLabelsMissing', { labels: r.missingLabels.join(', ') }) : null,
         include: r.include,
         thumbUrl: r.imageId ? thumbnailFor(r.imageId) : null,
         imageOptions: this.#imageOptionsFor(r, noneLabel),

@@ -114,7 +114,7 @@
     },
     "imageErase": {
       "title": "Image preview and erase",
-      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes. \"Undo\" reverts only the last step (Ctrl+Z); \"Restore original\" reverts everything. \"Fill background\" puts the chosen color behind the whole picture.",
+      "hint": "\"View\" only lets you inspect the image. Pick an erase tool to remove unwanted parts (for example text captured with the illustration), then apply the changes. \"Undo\" reverts only the last step (Ctrl+Z); \"Restore original\" reverts everything. \"Fill background\" puts the chosen color behind the whole picture. \"Rotate left/right\" turns the whole picture by a quarter.",
       "toolView": "View",
       "toolBrush": "Brush",
       "toolRect": "Rectangle",
@@ -131,7 +131,11 @@
       "reset": "Restore original",
       "save": "Apply changes",
       "cancel": "Cancel",
-      "failed": "Couldn't edit this image."
+      "failed": "Couldn't edit this image.",
+      "rotateLeft": "Rotate left",
+      "rotateLeftHint": "Turn the whole picture a quarter turn counterclockwise. One undo step.",
+      "rotateRight": "Rotate right",
+      "rotateRightHint": "Turn the whole picture a quarter turn clockwise. One undo step."
     },
     "tokenPrep": {
       "title": "Prepare token",
@@ -171,6 +175,8 @@
       "openWizardMenuHint": "Open the Bindery PDF import wizard.",
       "whiteBackgroundLabel": "Add a white background to images",
       "whiteBackgroundHint": "Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved (images you changed by hand in the token panel or the editor are left as you made them), which makes sketches and line drawings easier to read. This also applies to tokens and statblock portraits.",
+      "sortByPageLabel": "Sort images by page",
+      "sortByPageHint": "Off: the review lists the images Bindery is sure about by page first, then the undecided ones from the largest to the smallest. On: all images are listed in the order of the book, page by page and from the top of a page to the bottom.",
       "uploadPathLabel": "Image upload folder",
       "uploadPathHint": "Path (in the world's data storage) where images extracted from PDFs are saved."
     },
@@ -226,6 +232,14 @@
       "STATBLOCK_IMPORT_NAME_NOT_FOUND": "Could not find the statblock's name — using \"{fallback}\".",
       "STATBLOCK_IMPORT_PATH_NOT_FOUND": "\"{field}\" no longer exists in the current schema.",
       "STATBLOCK_IMPORT_SCHEMA_UNAVAILABLE": "The item schema for this collection could not be loaded.",
+      "STATBLOCK_IMPORT_AMBIGUOUS_TARGET": "{count} Actors have this name and type and it is unclear which one to update — skipped.",
+      "STATBLOCK_IMPORT_COLLECTION_NOT_FOUND": "The section for collection \"{collectionId}\" was not found in this statblock — the Items already on the Actor were left alone.",
+      "STATBLOCK_IMPORT_REQUIRED_LABELS_MISSING": "These required labels were not found in this statblock: {labels}.",
+      "STATBLOCK_IMPORT_SCHEMA_CHANGED": "The system's schema has changed since this profile was built — check that its fields still map correctly.",
+      "STATBLOCK_IMPORT_TEMPLATE_ACTOR_NOT_FOUND": "The template Actor of this profile ({uuid}) no longer exists.",
+      "STATBLOCK_IMPORT_UNMARKED_ITEMS_KEPT": "{count} Item(s) of the profile's types were not made by an import and were kept.",
+      "STATBLOCK_IMPORT_WRITE_FAILED": "Writing the Actor failed: {message}",
+      "STATBLOCK_REGEX_REFUSED": "The regular expression in \"{field}\" was refused ({problem}): {pattern}",
       "STATBLOCK_INVALID_REGEX": "Invalid regular expression in \"{field}\": {pattern}",
       "STATBLOCK_JOIN_NOT_ARRAY": "Cannot join — the value is not a list.",
       "STATBLOCK_LABEL_NOT_FOUND": "Label \"{labelPattern}\" was not found.",
@@ -271,6 +285,7 @@
       "statusUpdated": "Updated",
       "statusSkipped": "Skipped",
       "statusError": "Failed",
+      "requiredLabelsMissing": "Missing: {labels} — not ticked.",
       "noImage": "No picture",
       "imageLabel": "Picture for this Actor and its token",
       "importHint": "Ticked statblocks become Actors in the next step, together with the images — the chosen picture is uploaded once and used as the Actor's portrait and token."

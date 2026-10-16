@@ -40,13 +40,31 @@ export interface Placement {
   flipY?: boolean;
   /** The raster is turned (any angle that is not a mirror): its box is not where its pixels are. */
   rotated?: boolean;
+  /**
+   * Present when the raster is turned by about a whole number of quarter turns (a picture stored sideways and turned upright
+   * on the page, perhaps tilted a little on top of that): how many quarter turns clockwise its pixels must be turned to look
+   * as the page shows them. Never present for a mirrored picture.
+   */
+  quarterTurns?: 1 | 2 | 3;
 }
+
+/** How far (degrees) from a whole quarter turn a picture may be tilted and still count as turned by it. */
+const QUARTER_TURN_TOLERANCE_DEG = 25;
 
 /** The placement of a picture painted with `ctm` (the unit square's matrix), or `undefined` for the upright, unmirrored one. */
 export function placementOf(ctm: readonly number[]): Placement | undefined {
   const [a = 1, b = 0, c = 0, d = 1] = ctm;
   const axisAligned = Math.abs(b) <= 0.01 * Math.max(Math.abs(a), Math.abs(d)) && Math.abs(c) <= 0.01 * Math.max(Math.abs(a), Math.abs(d));
-  if (!axisAligned) return { rotated: true };
+  if (!axisAligned) {
+    const mirrored = a * d - b * c <= 0;
+    // The direction the raster's own "rightwards" takes on the page (counterclockwise, PDF space is y-up).
+    const angle = (Math.atan2(b, a) * 180) / Math.PI;
+    const quarters = Math.round(angle / 90);
+    if (!mirrored && quarters !== 0 && Math.abs(angle - quarters * 90) <= QUARTER_TURN_TOLERANCE_DEG) {
+      return { rotated: true, quarterTurns: (((-quarters % 4) + 4) % 4) as 1 | 2 | 3 };
+    }
+    return { rotated: true };
+  }
   const placement: Placement = {};
   if (a < 0) placement.flipX = true;
   if (d < 0) placement.flipY = true;

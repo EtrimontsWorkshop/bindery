@@ -4,6 +4,41 @@ import type { ExtractionBlock, ReconstructedLine } from '../extract/types.js';
 import { matchesTextPattern } from '../pdf/matchAnchor.js';
 import type { CollectionSplitRule } from '../profile/schema.js';
 
+export interface CollectionSplitResult {
+  entries: ExtractionBlock[];
+  /**
+   * Whether the collection's own text was located at all: the section heading of a `sectionHeaderThenEntries` rule, or
+   * at least one entry for the other rules. A collection that was not located says nothing about what the Actor should
+   * hold — the statblock may simply not print it, or the rule may not fit this book — and must not be read as "empty".
+   */
+  sectionFound: boolean;
+}
+
+/** The entries of a collection and whether its section was found — see `splitCollectionEntries` below for the rules. */
+export function splitCollectionEntriesDetailed(block: ExtractionBlock, splitRule: CollectionSplitRule): CollectionSplitResult {
+  const lines = reconstructLines(block.elements);
+
+  let startIndex = 0;
+  let endIndex = lines.length;
+  let headerFound = true;
+  if (splitRule.kind === 'sectionHeaderThenEntries' && splitRule.sectionHeaderPattern !== undefined) {
+    const headerIndex = lines.findIndex((line) => matchesTextPattern(line.text, splitRule.sectionHeaderPattern!, splitRule.sectionHeaderIsRegex));
+    headerFound = headerIndex !== -1;
+    startIndex = headerFound ? headerIndex + 1 : lines.length;
+    if (headerFound && splitRule.sectionEndPattern !== undefined) {
+      const relativeEnd = lines.slice(startIndex).findIndex((line) => matchesTextPattern(line.text, splitRule.sectionEndPattern!, splitRule.sectionEndIsRegex));
+      if (relativeEnd !== -1) endIndex = startIndex + relativeEnd;
+    }
+  }
+  const entryLines = lines.slice(startIndex, endIndex);
+  if (entryLines.length === 0) return { entries: [], sectionFound: splitRule.kind === 'sectionHeaderThenEntries' && headerFound };
+
+  const groups = splitRule.kind === 'fixedDelimiter' ? groupByDelimiterLines(entryLines, splitRule.entryBoundaryPattern, splitRule.entryBoundaryIsRegex) : groupByBoundaryLines(entryLines, splitRule.entryBoundaryPattern, splitRule.entryBoundaryIsRegex);
+
+  const entries = groups.map(linesToBlock);
+  return { entries, sectionFound: entries.length > 0 };
+}
+
 /**
  * Splits a
  * collection's own already-located text span into one `ExtractionBlock` per
@@ -14,7 +49,8 @@ import type { CollectionSplitRule } from '../profile/schema.js';
  *
  * `sectionHeaderThenEntries` first skips past the line matching
  * `sectionHeaderPattern` (e.g. the "ATTACKS" heading itself never becomes
- * part of any entry); `repeatingLinePattern` has no such heading to skip.
+ * part of any entry) and stops at the first later line matching
+ * `sectionEndPattern`, if there is one (the next heading, which belongs to no entry); `repeatingLinePattern` has no such heading to skip.
  * Both then delimit entries the same way: a line matching
  * `entryBoundaryPattern` STARTS a new entry (inclusive — e.g. "1. Bite" is
  * itself the first line of that entry). `fixedDelimiter` differs: a
@@ -32,19 +68,7 @@ import type { CollectionSplitRule } from '../profile/schema.js';
  * naturally reports "nothing found" for it instead of losing it silently.
  */
 export function splitCollectionEntries(block: ExtractionBlock, splitRule: CollectionSplitRule): ExtractionBlock[] {
-  const lines = reconstructLines(block.elements);
-
-  let startIndex = 0;
-  if (splitRule.kind === 'sectionHeaderThenEntries' && splitRule.sectionHeaderPattern !== undefined) {
-    const headerIndex = lines.findIndex((line) => matchesTextPattern(line.text, splitRule.sectionHeaderPattern!, splitRule.sectionHeaderIsRegex));
-    startIndex = headerIndex === -1 ? lines.length : headerIndex + 1;
-  }
-  const entryLines = lines.slice(startIndex);
-  if (entryLines.length === 0) return [];
-
-  const groups = splitRule.kind === 'fixedDelimiter' ? groupByDelimiterLines(entryLines, splitRule.entryBoundaryPattern, splitRule.entryBoundaryIsRegex) : groupByBoundaryLines(entryLines, splitRule.entryBoundaryPattern, splitRule.entryBoundaryIsRegex);
-
-  return groups.map(linesToBlock);
+  return splitCollectionEntriesDetailed(block, splitRule).entries;
 }
 
 function groupByBoundaryLines(lines: readonly ReconstructedLine[], pattern: string | undefined, isRegex: boolean | undefined): ReconstructedLine[][] {

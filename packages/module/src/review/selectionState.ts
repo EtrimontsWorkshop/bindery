@@ -44,12 +44,19 @@ function imageArea(image: CIFImage): number {
   return image.width * image.height;
 }
 
+/** Page by page, and on a page from the top of the page to the bottom, left to right (PDF space: a larger `maxY` is higher). */
+function comparePageOrder(a: CIFImage, b: CIFImage): number {
+  return a.provenance.pageNumber - b.provenance.pageNumber || b.provenance.bbox.maxY - a.provenance.bbox.maxY || a.provenance.bbox.minX - b.provenance.bbox.minX;
+}
+
 /**
  * Default order of the image list: `content` (including low-confidence
  * `content`, see above) in ascending page order, THEN `undecided` sorted
- * descending by area.
+ * descending by area. With `byPage`, one list in the order of the book instead
+ * (the classification stays visible on each image).
  */
-export function sortImagesForReview(images: readonly CIFImage[]): CIFImage[] {
+export function sortImagesForReview(images: readonly CIFImage[], byPage = false): CIFImage[] {
+  if (byPage) return [...images].sort(comparePageOrder);
   const content = images.filter((i) => i.classification === 'content').sort((a, b) => a.provenance.pageNumber - b.provenance.pageNumber);
   const undecided = images.filter((i) => i.classification === 'undecided').sort((a, b) => imageArea(b) - imageArea(a));
   return [...content, ...undecided];

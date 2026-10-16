@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { collectRegexIssues } from './regexIssues.js';
 
 /**
  * `StatblockProfile` schema — same contract as the old, deleted
@@ -174,6 +175,9 @@ const collectionSplitRuleSchema = z.object({
   /** e.g. locate a heading like "ATTACKS" (captured, never hardcoded), then treat each following entry until the next heading/anchor as one item. */
   sectionHeaderPattern: z.string().optional(),
   sectionHeaderIsRegex: z.boolean().optional(),
+  /** A line that ENDS the section (`sectionHeaderThenEntries` only): the next heading ("TRAITS" after "ATTACKS"). That line belongs to no entry. Without it the section runs to the end of the statblock. */
+  sectionEndPattern: z.string().optional(),
+  sectionEndIsRegex: z.boolean().optional(),
   entryBoundaryPattern: z.string().optional(),
   entryBoundaryIsRegex: z.boolean().optional(),
 });
@@ -308,7 +312,10 @@ export type ProfileValidationResult = ProfileValidationOk | ProfileValidationFai
 /** Validates untrusted JSON as a `StatblockProfile`. Never throws — a bad profile = `ok: false` + readable errors. */
 export function validateProfile(input: unknown): ProfileValidationResult {
   const result = statblockProfileSchema.safeParse(input);
-  if (result.success) return { ok: true, profile: result.data };
+  if (result.success) {
+    const regexIssues = collectRegexIssues(result.data);
+    return regexIssues.length === 0 ? { ok: true, profile: result.data } : { ok: false, issues: regexIssues };
+  }
   const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
   return { ok: false, issues };
 }

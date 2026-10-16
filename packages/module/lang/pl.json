@@ -114,7 +114,7 @@
     },
     "imageErase": {
       "title": "Podgląd obrazu i wymazywanie",
-      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany. „Cofnij” cofa tylko ostatni krok (Ctrl+Z), a „Przywróć oryginał” — wszystko. „Wypełnij tło” podkłada wybrany kolor pod cały obraz.",
+      "hint": "Tryb „Podgląd” służy tylko do oglądania obrazu. Wybierz narzędzie wymazywania, aby usunąć niepotrzebne fragmenty (np. tekst przechwycony razem z ilustracją), a następnie zatwierdź zmiany. „Cofnij” cofa tylko ostatni krok (Ctrl+Z), a „Przywróć oryginał” — wszystko. „Wypełnij tło” podkłada wybrany kolor pod cały obraz. „Obróć w lewo/prawo” obraca cały obraz o ćwierć obrotu.",
       "toolView": "Podgląd",
       "toolBrush": "Pędzel",
       "toolRect": "Prostokąt",
@@ -131,7 +131,11 @@
       "reset": "Przywróć oryginał",
       "save": "Zatwierdź zmiany",
       "cancel": "Anuluj",
-      "failed": "Nie udało się edytować tego obrazu."
+      "failed": "Nie udało się edytować tego obrazu.",
+      "rotateLeft": "Obróć w lewo",
+      "rotateLeftHint": "Obraca cały obraz o ćwierć obrotu w lewo. To jeden krok cofania.",
+      "rotateRight": "Obróć w prawo",
+      "rotateRightHint": "Obraca cały obraz o ćwierć obrotu w prawo. To jeden krok cofania."
     },
     "tokenPrep": {
       "title": "Przygotuj token",
@@ -171,6 +175,8 @@
       "openWizardMenuHint": "Otwórz kreator importu PDF Bindery.",
       "whiteBackgroundLabel": "Dodawaj białe tło do obrazów",
       "whiteBackgroundHint": "Obrazy z przezroczystymi obszarami dostają białe tło zaraz po analizie PDF (czyli przeglądasz je już z tłem) i ponownie przy zapisie (obrazy, które zmieniłeś ręcznie w panelu tokenu lub edytorze, zostają tak, jak je zrobiłeś), co ułatwia czytanie szkiców i rysunków. Dotyczy to także tokenów i portretów w statblockach.",
+      "sortByPageLabel": "Sortuj obrazy wg stron",
+      "sortByPageHint": "Wyłączone: przegląd pokazuje najpierw obrazy, co do których Bindery ma pewność, wg stron, a potem niepewne od największego do najmniejszego. Włączone: wszystkie obrazy są w kolejności podręcznika, strona po stronie, a na stronie od góry do dołu.",
       "uploadPathLabel": "Folder wgrywania obrazów",
       "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów."
     },
@@ -226,6 +232,14 @@
       "STATBLOCK_IMPORT_NAME_NOT_FOUND": "Nie znaleziono nazwy statblocka — użyto \"{fallback}\".",
       "STATBLOCK_IMPORT_PATH_NOT_FOUND": "\"{field}\" już nie istnieje w aktualnym schemacie.",
       "STATBLOCK_IMPORT_SCHEMA_UNAVAILABLE": "Nie udało się wczytać schematu Itemu dla tej kolekcji.",
+      "STATBLOCK_IMPORT_AMBIGUOUS_TARGET": "{count} Aktorów ma tę nazwę i ten typ i nie wiadomo, którego zaktualizować — pominięto.",
+      "STATBLOCK_IMPORT_COLLECTION_NOT_FOUND": "Nie znaleziono w tym statblocku sekcji kolekcji \"{collectionId}\" — Itemy, które Aktor już ma, zostały nietknięte.",
+      "STATBLOCK_IMPORT_REQUIRED_LABELS_MISSING": "Nie znaleziono w tym statblocku wymaganych etykiet: {labels}.",
+      "STATBLOCK_IMPORT_SCHEMA_CHANGED": "Schemat systemu zmienił się od czasu zbudowania tego profilu — sprawdź, czy jego pola nadal się poprawnie mapują.",
+      "STATBLOCK_IMPORT_TEMPLATE_ACTOR_NOT_FOUND": "Aktor wzorcowy tego profilu ({uuid}) już nie istnieje.",
+      "STATBLOCK_IMPORT_UNMARKED_ITEMS_KEPT": "{count} Item(ów) typów z profilu nie powstało przy imporcie i zostało zachowanych.",
+      "STATBLOCK_IMPORT_WRITE_FAILED": "Zapis Aktora nie powiódł się: {message}",
+      "STATBLOCK_REGEX_REFUSED": "Wyrażenie regularne w \"{field}\" zostało odrzucone ({problem}): {pattern}",
       "STATBLOCK_INVALID_REGEX": "Nieprawidłowe wyrażenie regularne w \"{field}\": {pattern}",
       "STATBLOCK_JOIN_NOT_ARRAY": "Nie można złączyć — wartość nie jest listą.",
       "STATBLOCK_LABEL_NOT_FOUND": "Nie znaleziono etykiety \"{labelPattern}\".",
@@ -271,6 +285,7 @@
       "statusUpdated": "Zaktualizowano",
       "statusSkipped": "Pominięto",
       "statusError": "Błąd",
+      "requiredLabelsMissing": "Brakuje: {labels} — niezaznaczone.",
       "noImage": "Bez obrazu",
       "imageLabel": "Obraz dla tego Actora i jego tokenu",
       "importHint": "Zaznaczone statblocki staną się Actorami w następnym kroku, razem z obrazami — wybrany obraz jest wgrywany raz i służy jako portret i token Actora."

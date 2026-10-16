@@ -13,8 +13,10 @@ export {
 export { setPath } from './setPath.js';
 export { descriptorToConstraints, flattenLeafDescriptors } from './descriptorLookup.js';
 export { resolveTransformChain } from './resolveTransformChain.js';
-export { splitCollectionEntries } from './splitCollectionEntries.js';
+export { splitCollectionEntries, splitCollectionEntriesDetailed, type CollectionSplitResult } from './splitCollectionEntries.js';
 export { extractStatblockInstance } from './extractInstance.js';
 export { buildActorData, type SchemaContext, type BuildActorDataOptions, type BuildActorDataResult } from './buildActorData.js';
+export { prepareStatblock, type PreparedStatblock } from './prepareStatblock.js';
+export { STATBLOCK_ORIGIN_FLAG, readOrigin, originFlags, selectItemsToReplace, countUnmarkedItems, chooseExistingActor, type StatblockOrigin, type FlaggedDocument } from './origin.js';
 export { findNearestImage, type ImageCandidate } from './nearestImage.js';
 export { resolveDuplicateAction } from './resolveDuplicateAction.js';

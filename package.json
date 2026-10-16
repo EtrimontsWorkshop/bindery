@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/module && npm run check:lang && npm run check:lang-usage && npm run check:no-system-names && npm run sync:local",
+    "build": "npm run build --workspace=packages/core && npm run build --workspace=packages/module && npm run check:lang && npm run check:lang-usage && npm run check:no-system-names && npm run check:readme-sync && npm run sync:local",
     "test": "npm run test --workspace=packages/core",
     "lint": "eslint . --max-warnings=0",
     "check:boundary": "npm run check:boundary --workspace=packages/core",
@@ -17,6 +17,7 @@
     "check:lang": "node tools/check-lang.mjs",
     "check:lang-usage": "node tools/check-lang-usage.mjs",
     "check:no-system-names": "node tools/check-no-system-names.mjs",
+    "check:readme-sync": "node tools/check-readme-sync.mjs",
     "sync:local": "node tools/sync-local-module.mjs",
     "deploy:foundry": "node tools/deploy-to-foundry.mjs",
     "check:manifest": "node tools/check-manifest.mjs",

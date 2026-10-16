@@ -123,4 +123,23 @@ describe('placementOf', () => {
   it('flags a turned picture as rotated, so that nothing is mapped through its box', () => {
     expect(placementOf([200, 120, -120, 200, 100, 100])).toEqual({ rotated: true });
   });
+
+  it('a picture turned a quarter clockwise on the page says how to turn its pixels', () => {
+    // The raster's rightwards edge points down on the page, its upwards edge points right.
+    expect(placementOf([0, -300, 200, 0, 100, 500])).toEqual({ rotated: true, quarterTurns: 1 });
+  });
+
+  it('a quarter turn counterclockwise, and a half turn', () => {
+    expect(placementOf([0, 300, -200, 0, 300, 100])).toEqual({ rotated: true, quarterTurns: 3 });
+    expect(placementOf([-200, 0.5, -0.5, -300, 300, 500])).toBeDefined();
+  });
+
+  it('a quarter turn with a slight tilt on top still counts; a diagonal does not; a mirror never does', () => {
+    const tilt = (Math.PI / 180) * 8; // -90 deg - 8 deg
+    const [a, b] = [Math.cos(-Math.PI / 2 - tilt) * 300, Math.sin(-Math.PI / 2 - tilt) * 300];
+    const [c, d] = [Math.cos(-tilt) * 200, Math.sin(-tilt) * 200];
+    expect(placementOf([a, b, c, d, 100, 500])?.quarterTurns).toBe(1);
+    expect(placementOf([200, 200, -200, 200, 100, 100])).toEqual({ rotated: true });
+    expect(placementOf([0, -300, -200, 0, 100, 500])).toEqual({ rotated: true });
+  });
 });

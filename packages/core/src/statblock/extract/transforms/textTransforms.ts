@@ -1,4 +1,5 @@
 import { reconstructLines } from '../reconstructLines.js';
+import { compileProfileRegex, regexProblemDiagnostic } from '../safeRegex.js';
 import type { TransformContext, TransformStepResult } from './types.js';
 
 /** Every text transform below is a no-op passthrough on non-string input, rather than throwing — a chain step that ran into an earlier failure (input already `undefined`) should let a LATER `defaultValue` step catch it, not crash the whole chain. */
@@ -72,13 +73,9 @@ export function stripLigaturesAndOddChars(input: unknown): TransformStepResult {
 
 export function regexExtract(input: unknown, pattern: string, group = 0): TransformStepResult {
   if (!passthroughIfNotString(input)) return { value: undefined, diagnostics: [] };
-  let regex: RegExp;
-  try {
-    regex = new RegExp(pattern);
-  } catch {
-    return { value: undefined, diagnostics: [{ severity: 'error', code: 'STATBLOCK_INVALID_REGEX', params: { pattern, field: 'regexExtract' } }] };
-  }
-  const match = regex.exec(input);
+  const compiled = compileProfileRegex(pattern);
+  if (!compiled.ok) return { value: undefined, diagnostics: [regexProblemDiagnostic(compiled.problem, pattern, 'regexExtract')] };
+  const match = compiled.regex.exec(input);
   if (!match) return { value: undefined, diagnostics: [{ severity: 'warning', code: 'STATBLOCK_REGEX_NO_MATCH', params: { pattern, input } }] };
   const captured = match[group];
   if (captured === undefined) return { value: undefined, diagnostics: [{ severity: 'error', code: 'STATBLOCK_REGEX_GROUP_MISSING', params: { pattern, group } }] };
@@ -88,13 +85,9 @@ export function regexExtract(input: unknown, pattern: string, group = 0): Transf
 export function splitText(input: unknown, separator: string, separatorIsRegex = false): TransformStepResult {
   if (!passthroughIfNotString(input)) return { value: undefined, diagnostics: [] };
   if (!separatorIsRegex) return { value: input.split(separator), diagnostics: [] };
-  let regex: RegExp;
-  try {
-    regex = new RegExp(separator);
-  } catch {
-    return { value: undefined, diagnostics: [{ severity: 'error', code: 'STATBLOCK_INVALID_REGEX', params: { pattern: separator, field: 'split' } }] };
-  }
-  return { value: input.split(regex), diagnostics: [] };
+  const compiled = compileProfileRegex(separator);
+  if (!compiled.ok) return { value: undefined, diagnostics: [regexProblemDiagnostic(compiled.problem, separator, 'split')] };
+  return { value: input.split(compiled.regex), diagnostics: [] };
 }
 
 export function joinText(input: unknown, separator: string): TransformStepResult {

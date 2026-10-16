@@ -19,6 +19,7 @@ function instance(overrides: Partial<ExtractedActorInstance> = {}): ExtractedAct
     name: value('Goblin'),
     fieldValues: {},
     collections: {},
+    missingCollectionIds: [],
     ...overrides,
   };
 }
@@ -130,8 +131,8 @@ describe('buildActorData — collections', () => {
       instance({
         collections: {
           attacks: [
-            { sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Bite'), fieldValues: { dmg: value('1d6') } },
-            { sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Claw'), fieldValues: { dmg: value('1d4') } },
+            { key: 'k1', sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Bite'), fieldValues: { dmg: value('1d6') } },
+            { key: 'k2', sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Claw'), fieldValues: { dmg: value('1d4') } },
           ],
         },
       }),
@@ -139,8 +140,8 @@ describe('buildActorData — collections', () => {
       schema,
     );
     expect(result.data.items).toEqual([
-      { name: 'Bite', type: 'weapon', system: { damage: '1d6' } },
-      { name: 'Claw', type: 'weapon', system: { damage: '1d4' } },
+      { name: 'Bite', type: 'weapon', system: { damage: '1d6' }, collectionId: 'attacks', entryKey: 'k1' },
+      { name: 'Claw', type: 'weapon', system: { damage: '1d4' }, collectionId: 'attacks', entryKey: 'k2' },
     ]);
   });
 
@@ -158,7 +159,7 @@ describe('buildActorData — collections', () => {
       ],
     });
     const result = buildActorData(
-      instance({ collections: { attacks: [{ sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: notFound(), fieldValues: {} }] } }),
+      instance({ collections: { attacks: [{ key: 'k3', sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: notFound(), fieldValues: {} }] } }),
       profile,
       { actorDescriptors: [] },
     );
@@ -179,11 +180,11 @@ describe('buildActorData — collections', () => {
       ],
     });
     const result = buildActorData(
-      instance({ collections: { attacks: [{ sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Bite'), fieldValues: { dmg: value('1d6') } }] } }),
+      instance({ collections: { attacks: [{ key: 'k4', sourceBbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 }, name: value('Bite'), fieldValues: { dmg: value('1d6') } }] } }),
       profile,
       { actorDescriptors: [] },
     );
-    expect(result.data.items).toEqual([{ name: 'Bite', type: 'weapon', system: {} }]);
+    expect(result.data.items).toEqual([{ name: 'Bite', type: 'weapon', system: {}, collectionId: 'attacks', entryKey: 'k4' }]);
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: 'STATBLOCK_IMPORT_SCHEMA_UNAVAILABLE' }));
   });
 });

@@ -94,3 +94,33 @@ describe('extractStatblockInstance', () => {
     expect(instance.collections.attacks).toEqual([]);
   });
 });
+
+describe('extractStatblockInstance — collections that are not there, entry keys and labels on one line', () => {
+  it('gives every entry a stable key: its printed name and how many of that name came before', () => {
+    const elements = [el('ATTACKS', 0, 80), el('1.', 0, 70), el('Bite', 15, 70), el('2.', 0, 50), el('Claw', 15, 50), el('3.', 0, 30), el('Bite', 15, 30)];
+    const instance = extractStatblockInstance(candidate(elements), fullProfile());
+    expect(instance.collections.attacks!.map((e) => e.key)).toEqual(['bite#0', 'claw#0', 'bite#1']);
+  });
+
+  it('reports a collection whose section is missing, but not one that is there and empty', () => {
+    const missing = extractStatblockInstance(candidate([el('Name:', 0, 100), el('Goblin', 40, 100)]), fullProfile());
+    expect(missing.missingCollectionIds).toEqual(['attacks']);
+    expect(missing.collections.attacks).toEqual([]);
+
+    const empty = extractStatblockInstance(candidate([el('Name:', 0, 100), el('Goblin', 40, 100), el('ATTACKS', 0, 80)]), fullProfile());
+    expect(empty.missingCollectionIds).toEqual([]);
+    expect(empty.collections.attacks).toEqual([]);
+  });
+
+  it('stops a value at the next label of the profile when two labels share a line', () => {
+    const profile = minimalProfile({
+      fields: [
+        field('hp', 'hp', 'number', { source: labelSource('HP:'), transforms: [{ kind: 'parseNumber' }] }),
+        field('ac', 'ac', 'number', { source: labelSource('AC:'), transforms: [{ kind: 'parseNumber' }] }),
+      ],
+    });
+    const instance = extractStatblockInstance(candidate([el('HP: 12 AC: 15', 0, 90)]), profile);
+    expect(instance.fieldValues.hp).toMatchObject({ found: true, raw: '12', value: 12 });
+    expect(instance.fieldValues.ac).toMatchObject({ found: true, raw: '15', value: 15 });
+  });
+});

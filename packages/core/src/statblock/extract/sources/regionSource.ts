@@ -2,7 +2,7 @@ import { unionRect, type Rect } from '../../../geometry.js';
 import { toParamValue } from '../diagnosticParam.js';
 import { reconstructLines } from '../reconstructLines.js';
 import { elementBBox, elementCenter, type ExtractionBlock, type RawExtractionResult } from '../types.js';
-import type { RegionSource } from './types.js';
+import type { NormalizedRect, RegionSource } from './types.js';
 
 /** Maps a normalized (0..1) rect onto the block's own bbox — (0,0) is (bbox.minX, bbox.minY), (1,1) is (bbox.maxX, bbox.maxY), regardless of which corner that is "visually" (this project's Y-up PDF-space convention). */
 function denormalizeRect(blockBbox: Rect, normalized: RegionSource['normalizedRect']): Rect {
@@ -13,6 +13,23 @@ function denormalizeRect(blockBbox: Rect, normalized: RegionSource['normalizedRe
     minY: blockBbox.minY + normalized.minY * height,
     maxX: blockBbox.minX + normalized.maxX * width,
     maxY: blockBbox.minY + normalized.maxY * height,
+  };
+}
+
+/**
+ * The inverse of the mapping a region source applies: a rectangle in PDF space as fractions of a block's own bounding
+ * box (0,0 is its minX/minY corner, 1,1 its maxX/maxY corner). What a profile author's selection has to be turned into
+ * to be read back from the same place in every other statblock. `null` when the block has no extent to measure against.
+ */
+export function normalizeRectToBlock(rect: Rect, blockBbox: Rect): NormalizedRect | null {
+  const width = blockBbox.maxX - blockBbox.minX;
+  const height = blockBbox.maxY - blockBbox.minY;
+  if (!(width > 0) || !(height > 0)) return null;
+  return {
+    minX: (rect.minX - blockBbox.minX) / width,
+    minY: (rect.minY - blockBbox.minY) / height,
+    maxX: (rect.maxX - blockBbox.minX) / width,
+    maxY: (rect.maxY - blockBbox.minY) / height,
   };
 }
 

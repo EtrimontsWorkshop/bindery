@@ -193,6 +193,14 @@ describe('classifyImages', () => {
       expect(reasonOf(classifyAll([...tinyOnes.slice(0, 14), banner]), banner).classification).toBe('undecided');
     });
 
+    it('a page-sized undecided picture on a page crowded with small images (a character sheet) is the backdrop of the sheet', () => {
+      const small = Array.from({ length: 15 }, (_, i) => at(`s${i}`, { minX: 10 + i * 30, minY: 10, maxX: 30 + i * 30, maxY: 50 }, i, 0.003));
+      const backdrop = at('backdrop', { minX: -10, minY: -10, maxX: 622, maxY: 802 }, 20, 1.05);
+      expect(reasonOf(classifyAll([...small, backdrop]), backdrop).reason).toBe('Z18-form-page-background');
+      expect(reasonOf(classifyAll([...small.slice(0, 14), backdrop]), backdrop).reason).not.toBe('Z18-form-page-background');
+      expect(reasonOf(classifyAll([backdrop]), backdrop).reason).not.toBe('Z18-form-page-background');
+    });
+
     it('a larger image on a form page (above 6% of the page) is left alone', () => {
       const tinyOnes = Array.from({ length: 15 }, (_, i) => at(`t${i}`, { minX: 10 + i * 5, minY: 10, maxX: 14 + i * 5, maxY: 14 }, i, 0.001));
       const art = at('art', { minX: 100, minY: 200, maxX: 400, maxY: 500 }, 20, 0.18);
@@ -269,6 +277,18 @@ describe('classifyImages', () => {
     const [result] = classifyImages([e], pageBoxMap([1]));
     expect(result!.classification).toBe('decoration');
     expect(result!.reason).toBe('Z12-bleeding-translucent-overlay');
+  });
+
+  it('a big bleeding image painted at 40% (a panel of the layout, as wide as a map) is left for the extraction to judge', () => {
+    const e = entry({ maxRelativeArea: 0.7, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 0, opacity: 0.4 }], maxOpacity: 0.4 });
+    const [result] = classifyImages([e], pageBoxMap([1]));
+    expect(result!.classification).toBe('undecided');
+    expect(result!.reason).toBe('Z12-bleeding-translucent-panel');
+  });
+
+  it('a small bleeding image painted at 40% stays a translucent overlay (decoration)', () => {
+    const e = entry({ maxRelativeArea: 0.2, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 0, opacity: 0.4 }], maxOpacity: 0.4 });
+    expect(classifyImages([e], pageBoxMap([1]))[0]!.reason).toBe('Z12-bleeding-translucent-overlay');
   });
 
   it('a bleeding image that is opaque somewhere (no maxOpacity) stays undecided', () => {

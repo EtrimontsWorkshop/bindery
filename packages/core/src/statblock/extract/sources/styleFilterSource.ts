@@ -1,6 +1,7 @@
 import { unionRect } from '../../../geometry.js';
 import { toParamValue } from '../diagnosticParam.js';
 import { reconstructLines } from '../reconstructLines.js';
+import { compileProfileRegex, testProfileRegex } from '../safeRegex.js';
 import { elementBBox, type ExtractionBlock, type PageTextElement, type RawExtractionResult } from '../types.js';
 import type { StyleFilter, StyleFilterSource } from './types.js';
 
@@ -8,13 +9,8 @@ const FONT_SIZE_EPSILON = 0.01;
 
 function matchesBaseCriteria(el: PageTextElement, filter: StyleFilter): boolean {
   if (filter.fontNamePattern !== undefined) {
-    let regex: RegExp;
-    try {
-      regex = new RegExp(filter.fontNamePattern);
-    } catch {
-      return false;
-    }
-    if (!regex.test(el.fontName)) return false;
+    const compiled = compileProfileRegex(filter.fontNamePattern);
+    if (!compiled.ok || !testProfileRegex(compiled.regex, el.fontName)) return false;
   }
   if (filter.minFontSize !== undefined && el.fontSize < filter.minFontSize) return false;
   if (filter.maxFontSize !== undefined && el.fontSize > filter.maxFontSize) return false;

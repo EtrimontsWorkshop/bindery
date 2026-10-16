@@ -40,6 +40,8 @@ export interface DetectionCandidate {
   confidence: number;
   foundRequiredLabels: readonly string[];
   missingRequiredLabels: readonly string[];
+  /** Whether every required label of the profile was found. A candidate that does not meet this is shown for diagnosis but is not a statblock to import by default; confidence only says how much of what the profile looks for was found. */
+  meetsRequirements: boolean;
 }
 
 /** Progress callback shape for the batched integration layer — reported through a non-blocking callback. */

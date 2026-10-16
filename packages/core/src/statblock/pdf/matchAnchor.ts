@@ -1,15 +1,13 @@
+import { compileProfileRegex, testProfileRegex } from '../extract/safeRegex.js';
 import type { PageTextElement, ReconstructedLine } from '../extract/types.js';
 import type { DetectionConfig } from '../profile/schema.js';
 
-/** Shared text-matching helper — exact trimmed match for plain text, a (safely-compiled) regex otherwise. An invalid regex degrades to "never matches" rather than throwing. */
+/** Shared text-matching helper — exact trimmed match for plain text, a (safely-compiled) regex otherwise. An invalid, over-long or catastrophically backtracking regex degrades to "never matches" rather than throwing or hanging. */
 export function matchesTextPattern(text: string, pattern: string, isRegex?: boolean): boolean {
   const trimmed = text.trim();
   if (!isRegex) return trimmed === pattern;
-  try {
-    return new RegExp(pattern).test(trimmed);
-  } catch {
-    return false;
-  }
+  const compiled = compileProfileRegex(pattern);
+  return compiled.ok && testProfileRegex(compiled.regex, trimmed);
 }
 
 /**
@@ -30,13 +28,8 @@ function lineMatchesHeadingStyle(line: ReconstructedLine, anchor: DetectionConfi
   if (!filter) return false;
   const elementMatches = (el: PageTextElement): boolean => {
     if (filter.fontNamePattern !== undefined) {
-      let regex: RegExp;
-      try {
-        regex = new RegExp(filter.fontNamePattern);
-      } catch {
-        return false;
-      }
-      if (!regex.test(el.fontName)) return false;
+      const compiled = compileProfileRegex(filter.fontNamePattern);
+      if (!compiled.ok || !testProfileRegex(compiled.regex, el.fontName)) return false;
     }
     if (filter.minFontSize !== undefined && el.fontSize < filter.minFontSize) return false;
     if (filter.maxFontSize !== undefined && el.fontSize > filter.maxFontSize) return false;

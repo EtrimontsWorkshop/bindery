@@ -49,6 +49,7 @@ export function candidate(elements: PageTextElement[], overrides: Partial<Detect
     confidence: 1,
     foundRequiredLabels: [],
     missingRequiredLabels: [],
+    meetsRequirements: true,
     ...overrides,
   };
 }

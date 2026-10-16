@@ -1,5 +1,6 @@
 import type { ValueMap } from '../../profile/schema.js';
 import type { TransformStepResult } from './types.js';
+import { compileProfileRegex, regexProblemDiagnostic } from '../safeRegex.js';
 
 function normalizeForFuzzyMatch(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -83,13 +84,9 @@ function applyRegexReplace(input: string, params: Record<string, unknown>): Tran
     return { value: input, diagnostics: [{ severity: 'error', code: 'STATBLOCK_VALUE_MAP_INVALID_PARAMS', params: { kind: 'regexReplace' } }] };
   }
   const flags = typeof params['flags'] === 'string' ? (params['flags'] as string) : 'g';
-  let regex: RegExp;
-  try {
-    regex = new RegExp(pattern, flags);
-  } catch {
-    return { value: input, diagnostics: [{ severity: 'error', code: 'STATBLOCK_INVALID_REGEX', params: { pattern, field: 'regexReplace' } }] };
-  }
-  return { value: input.replace(regex, replacement), diagnostics: [] };
+  const compiled = compileProfileRegex(pattern, flags);
+  if (!compiled.ok) return { value: input, diagnostics: [regexProblemDiagnostic(compiled.problem, pattern, 'regexReplace')] };
+  return { value: input.replace(compiled.regex, replacement), diagnostics: [] };
 }
 
 /** Best-effort COSMETIC normalization only — NOT a dice-notation parser/evaluator (out of scope for this task): lowercases the die-size marker and puts single spaces around +/- so different books' spacing conventions compare equal after this step. */

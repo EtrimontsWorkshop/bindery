@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitCollectionEntries } from '../../../src/statblock/import/splitCollectionEntries.js';
+import { splitCollectionEntries, splitCollectionEntriesDetailed } from '../../../src/statblock/import/splitCollectionEntries.js';
 import type { ExtractionBlock } from '../../../src/statblock/extract/types.js';
 import { el } from './testHelpers.js';
 
@@ -80,5 +80,52 @@ describe('splitCollectionEntries — fixedDelimiter', () => {
     const b = block(el('---', 0, 100), el('Bite', 0, 90));
     const entries = splitCollectionEntries(b, { kind: 'fixedDelimiter', entryBoundaryPattern: '---', entryBoundaryIsRegex: false });
     expect(texts(entries)).toEqual([['Bite']]);
+  });
+});
+
+describe('splitCollectionEntries — the end of a section', () => {
+  const lines = (texts: string[]): ExtractionBlock => ({ bbox: { minX: 0, minY: 0, maxX: 500, maxY: 500 }, elements: texts.map((t, i) => el(t, 10, 400 - i * 20)) });
+  const rule = { kind: 'sectionHeaderThenEntries' as const, sectionHeaderPattern: 'ATTACKS' };
+
+  it('without an end rule the section runs to the end of the statblock, as before', () => {
+    const entries = splitCollectionEntries(lines(['ATTACKS', 'Bite', 'TRAITS', 'Darkvision']), rule);
+    expect(entries.map((e) => e.elements[0]!.text)).toEqual(['Bite', 'TRAITS', 'Darkvision']);
+  });
+
+  it('stops at the line that ends the section, which belongs to no entry', () => {
+    const entries = splitCollectionEntries(lines(['ATTACKS', 'Bite', 'TRAITS', 'Darkvision']), { ...rule, sectionEndPattern: 'TRAITS' });
+    expect(entries.map((e) => e.elements[0]!.text)).toEqual(['Bite']);
+  });
+
+  it('accepts an end rule that is a regular expression, and an end that never comes', () => {
+    const block = lines(['ATTACKS', 'Bite', 'Claw', 'TRAITS', 'Darkvision']);
+    expect(splitCollectionEntries(block, { ...rule, sectionEndPattern: '^[A-Z]{4,}$', sectionEndIsRegex: true }).map((e) => e.elements[0]!.text)).toEqual(['Bite', 'Claw']);
+    expect(splitCollectionEntries(block, { ...rule, sectionEndPattern: 'NOWHERE' })).toHaveLength(4);
+  });
+});
+
+describe('splitCollectionEntriesDetailed — was the section found', () => {
+  const lines = (texts: string[]): ExtractionBlock => ({ bbox: { minX: 0, minY: 0, maxX: 500, maxY: 500 }, elements: texts.map((t, i) => el(t, 10, 400 - i * 20)) });
+  const rule = { kind: 'sectionHeaderThenEntries' as const, sectionHeaderPattern: 'ATTACKS' };
+
+  it('a missing heading is a section that was not found, not an empty one', () => {
+    expect(splitCollectionEntriesDetailed(lines(['Goblin', 'HP: 7']), rule)).toEqual({ entries: [], sectionFound: false });
+  });
+
+  it('a heading with nothing under it is a section that was found and is empty', () => {
+    expect(splitCollectionEntriesDetailed(lines(['Goblin', 'ATTACKS']), rule)).toEqual({ entries: [], sectionFound: true });
+    expect(splitCollectionEntriesDetailed(lines(['ATTACKS', 'TRAITS', 'Darkvision']), { ...rule, sectionEndPattern: 'TRAITS' })).toEqual({ entries: [], sectionFound: true });
+  });
+
+  it('a heading with entries is found', () => {
+    const result = splitCollectionEntriesDetailed(lines(['ATTACKS', 'Bite']), rule);
+    expect(result.sectionFound).toBe(true);
+    expect(result.entries).toHaveLength(1);
+  });
+
+  it('the other rules have found their section when they have entries', () => {
+    const repeating = { kind: 'repeatingLinePattern' as const, entryBoundaryPattern: 'Attack' };
+    expect(splitCollectionEntriesDetailed(lines(['Attack 1', 'Attack 2']), repeating).sectionFound).toBe(true);
+    expect(splitCollectionEntriesDetailed(lines([]), repeating)).toEqual({ entries: [], sectionFound: false });
   });
 });

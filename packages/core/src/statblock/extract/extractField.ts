@@ -2,6 +2,7 @@ import type { Rect } from '../../geometry.js';
 import type { Diagnostic } from '../../text/types.js';
 import { castAndValidate, type FieldTypeConstraints } from './castAndValidate.js';
 import { extractRawValue } from './sources/extractRawValue.js';
+import type { LabelContext } from './sources/labelSource.js';
 import type { FieldSource } from './sources/types.js';
 import { runTransformChain } from './transforms/runChain.js';
 import type { TransformStep } from './transforms/types.js';
@@ -25,8 +26,8 @@ export interface FieldExtractionResult {
 }
 
 /** Runs the full pipeline for one field: locate its raw text (`extractRawValue`), run it through the transform chain, then cast/validate against the target field's type. Pure — no Foundry, no DOM, no I/O; every step degrades to a diagnostic instead of throwing. */
-export function extractField(block: ExtractionBlock, source: FieldSource, transformChain: readonly TransformStep[], constraints: FieldTypeConstraints): FieldExtractionResult {
-  const rawResult = extractRawValue(block, source);
+export function extractField(block: ExtractionBlock, source: FieldSource, transformChain: readonly TransformStep[], constraints: FieldTypeConstraints, context: LabelContext = {}): FieldExtractionResult {
+  const rawResult = extractRawValue(block, source, context);
   const diagnostics: Diagnostic[] = [...rawResult.diagnostics];
 
   if (!rawResult.found) {

@@ -3,13 +3,18 @@ import { overlapRatio, rectArea, rectIntersection, relativeArea, unionRect, type
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { VectorRegion } from '../inventory/vectorRegistry.js';
 import type { Diagnostic } from '../text/types.js';
-import { classifyImages, confidenceForReason, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, isBackdropShape, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
+import { classifyImages, confidenceForReason, LARGE_TRANSLUCENT_PANEL_REASON, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, isBackdropShape, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
 import { AUTOCROP_BRIGHTEN, brightenCroppedImage } from './brightenImage.js';
-import { applyClipToImage } from './clipMask.js';
+import { applyClipToImage, renderThroughRectangularClip } from './clipMask.js';
 import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
 import { isBlankSheet } from './blankSheet.js';
+import type { DecodedImage } from './normalizeDecodedImage.js';
+import { rotateQuarterTurns } from './rotateQuarterTurns.js';
+import { findSpreadPairs } from './spreadPairs.js';
+import { stitchHorizontally } from './stitchHorizontally.js';
+import { drawnShare, isBareDarkTexture, isColorfulPicture, isDrawingOnPanel, isPanelBackdrop, PANEL_MIN_TEXT_COVERAGE, PANEL_PREVIEW_LONG_EDGE_PX, PANEL_FRAMES_PICTURE_MIN_SHARE, PANEL_OVERLAY_MIN_OPAQUE_FRACTION } from './panelBackdrop.js';
 import { tightenToVisible } from './opaqueBounds.js';
 import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeOpaqueBounds, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
 import { computeContentHash, computeDarkOpaqueShare, computeWhiteOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, isNeverWorthReviewing, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
@@ -367,7 +372,8 @@ export function rawResourceFitsPlacement(raw: { width: number; height: number },
  * to it looks like. Observed on a real rulebook whose photos sit next to page-edge tabs and corner pieces.
  */
 function isBleedingUndecided(c: ClassifiedImage): boolean {
-  return c.reason === 'Z12-bleeding-no-center-text-evidence';
+  // A big translucent panel that is only let through to be checked for a drawing stands alone too: joined to the pictures on top of it, it would take them with it when it is hidden.
+  return c.reason === 'Z12-bleeding-no-center-text-evidence' || c.reason === LARGE_TRANSLUCENT_PANEL_REASON;
 }
 
 function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): ClassifiedImage[][] {
@@ -833,6 +839,11 @@ export async function buildImageExtraction(
   }
 
   const prepared: PreparedEntryForFinalize<EncodedImage>[] = [];
+  // The halves of a map that runs across a spread (each half a big translucent panel with a drawing on it).
+  const panelUnits = allUnits.filter((u) => u.reason === LARGE_TRANSLUCENT_PANEL_REASON);
+  const spreadRightOf = findSpreadPairs(panelUnits, pageBoxByPage);
+  const spreadRightHalves = new Set(spreadRightOf.values());
+  let pendingLeftHalf: { item: PreparedEntryForFinalize<EncodedImage>; image: DecodedImage; page: number } | null = null;
   let done = 0;
   const total = allUnits.length;
 
@@ -858,6 +869,8 @@ export async function buildImageExtraction(
       const idOnThisPage = (entry: ImageEntry): string | null => currentObjIdAt(operatorList, entry.occurrences.find((o) => o.page === pageNumber)?.index, entry.objId);
       // Luminance spread of what the last extracted unit shows (only measured for `EDGE_FIGURE_REASON` units).
       let edgeFigureStdDev: number | undefined;
+      // The picture of the last extracted unit when it is a drawing on a big panel (a map): kept so that the two halves of a map across a spread can be joined.
+      let lastPanelImage: DecodedImage | null = null;
       // One unit, from the planning of how to take it to the encoded result.
       const extractUnit = async (plannedUnit: ExtractionUnit): Promise<PreparedEntryForFinalize<EncodedImage>> => {
         let unit = plannedUnit;
@@ -865,6 +878,25 @@ export async function buildImageExtraction(
           // the region ends up in the render just the same.
           let crossesText = textCrossesRegionEdge(plannedUnit.bbox, textBlockBoxesByPage.get(pageNumber));
           unit = withSolidRepresentativeOfBackdrop(plannedUnit);
+          // A dark translucent panel of the page's layout that only touches the picture (the info panel beside a character's portrait) is not part of it: the unit is the picture alone.
+          const solidRep = unit.representativeEntry;
+          if (hideBackgroundImages && solidRep !== null && !isTranslucentEverywhere(solidRep) && unit.memberEntries.length > 1) {
+            const panelMembers: ImageEntry[] = [];
+            for (const member of unit.memberEntries) {
+              if (member === solidRep || member.objId === null || !isTranslucentEverywhere(member) || maskedObjIds.has(member.objId)) continue;
+              const memberId = idOnThisPage(member);
+              if (memberId === null) continue;
+              if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [memberId], settleBudgetMs);
+              const memberLook = await probeRawLook(page, memberId);
+              if (memberLook !== null && isBareDarkTexture(memberLook)) panelMembers.push(member);
+            }
+            const keptMembers = unit.memberEntries.filter((m) => !panelMembers.includes(m));
+            const keptBoxes = keptMembers.map((m) => m.occurrences.find((o) => o.page === pageNumber)?.bbox).filter((b): b is Rect => b !== undefined);
+            if (panelMembers.length > 0 && keptBoxes.length > 0) {
+              unit = { ...unit, memberEntries: keptMembers, bbox: keptBoxes.reduce((acc, b) => unionRect(acc, b)), clusterMemberCount: keptMembers.length };
+              crossesText = textCrossesRegionEdge(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+            }
+          }
           // A faded paper vignette is not the picture of its unit: the illustration it frames is, and the vignette
           // is left out of the unit's other pictures.
           let overlayMember: ImageEntry | null = null;
@@ -874,7 +906,14 @@ export async function buildImageExtraction(
             if (alternative !== undefined && overlayId !== null) {
               if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [overlayId], settleBudgetMs);
               const stats = await probeOpaquePixelStats(page, overlayId);
-              if (stats !== null && isPaperOverlay(stats)) {
+              // A translucent dark texture laid behind a picture (a panel of the page's design) is no more its picture than a paper vignette is.
+              // A panel that frames the picture (a card with a portrait on it) is a unit of its own and stays one.
+              const panelBox = unit.representativeEntry.occurrences.find((o) => o.page === pageNumber)?.bbox;
+              const altBox = alternative.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.bbox;
+              const sharedWithAlt = panelBox !== undefined && altBox !== undefined ? rectIntersection(panelBox, altBox) : null;
+              const framesAlt = sharedWithAlt !== null && altBox !== undefined && rectArea(sharedWithAlt) >= PANEL_FRAMES_PICTURE_MIN_SHARE * rectArea(altBox);
+              const panelLook = stats !== null && !framesAlt && isTranslucentEverywhere(unit.representativeEntry) ? await probeRawLook(page, overlayId) : null;
+              if (stats !== null && (isPaperOverlay(stats) || (stats.opaqueFraction >= PANEL_OVERLAY_MIN_OPAQUE_FRACTION && panelLook !== null && isBareDarkTexture(panelLook)))) {
                 overlayMember = unit.representativeEntry;
                 // The region is now the illustration's own: the strip the vignette adds around it is where the
                 // page's text lies.
@@ -1025,7 +1064,7 @@ export async function buildImageExtraction(
             });
           }
 
-          const extractResult = await extractDirect(
+          let extractResult = await extractDirect(
             page,
             objIdForExtraction,
             unit.bbox,
@@ -1034,6 +1073,53 @@ export async function buildImageExtraction(
             pageNumber,
           );
           diagnostics.push(...extractResult.diagnostics);
+          // A dark translucent panel with a drawing on it (a floor plan, a map): the raw resource is the bare texture, the picture is
+          // what the page shows on it, so the region is rendered instead.
+          const isLargePanel = unit.reason === LARGE_TRANSLUCENT_PANEL_REASON;
+          const placementOfRep = rep?.occurrences.find((o) => o.page === pageNumber)?.placement;
+          let drawnOnPanel = false;
+          if (
+            hideBackgroundImages &&
+            extractResult.source !== 'region-render' &&
+            rep?.objId &&
+            repId &&
+            placedRep &&
+            rep.maxOpacity !== undefined &&
+            isTranslucentEverywhere(rep) &&
+            !maskedObjIds.has(rep.objId) &&
+            // A mirrored or turned raster does not line up with the render, so the two cannot be compared.
+            placementOfRep === undefined
+          ) {
+            const panelCoverage = textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber));
+            const panelLook = panelCoverage < PANEL_MIN_TEXT_COVERAGE ? await probeRawLook(page, repId) : null;
+            const opaqueEnough = panelLook !== null && computeOpaqueFraction(extractResult.image) >= PANEL_OVERLAY_MIN_OPAQUE_FRACTION;
+            // A big translucent raster full of color (a city map under a diagram) is a picture in itself; a dark bare texture is one only with something drawn on it.
+            const isColorfulMap = isLargePanel && opaqueEnough && panelLook !== null && !isBareDarkTexture(panelLook) && isColorfulPicture(panelLook);
+            if (opaqueEnough && panelLook !== null && (isBareDarkTexture(panelLook) || isColorfulMap)) {
+              // Within the page: a panel that bleeds off the edge would otherwise add a blank strip to the render.
+              const pageBox = pageBoxByPage.get(pageNumber);
+              const withinPage = (box: Rect): Rect => (pageBox === undefined ? box : { minX: Math.max(box.minX, pageBox.minX), minY: Math.max(box.minY, pageBox.minY), maxX: Math.min(box.maxX, pageBox.maxX), maxY: Math.min(box.maxY, pageBox.maxY) });
+              // What is rendered is the whole unit (a sign that sticks out of the panel comes with it); what is compared with the raster is the panel's own box.
+              const panelBox = withinPage(unit.bbox);
+              let drawn = isColorfulMap;
+              if (!isColorfulMap) {
+                const preview = await renderer.renderRegion(page, withinPage(placedRep), { targetLongEdgePx: PANEL_PREVIEW_LONG_EDGE_PX, signal });
+                drawn = isDrawingOnPanel({ textCoverage: panelCoverage, drawnShare: drawnShare(preview, extractResult.image) });
+              }
+              if (drawn) {
+                drawnOnPanel = true;
+                const panelLongEdge = await probeIntrinsicLongEdgePx(page, repId);
+                extractResult = await extractDirect(
+                  page,
+                  null,
+                  panelBox,
+                  renderer,
+                  { targetLongEdgePx: computeTargetLongEdgePx({ intrinsicLongEdgesPx: panelLongEdge === null ? [] : [panelLongEdge], representativeMaxRelativeArea: rep.maxRelativeArea, defaultLongEdgePx: targetLongEdgePx, maxLongEdgePx }), signal },
+                  pageNumber,
+                );
+              }
+            }
+          }
 
           // Cropping the empty margin —
           // EXCLUSIVELY for units revealed by `Z1-full-bleed-forced-content`
@@ -1048,7 +1134,13 @@ export async function buildImageExtraction(
           // always was, so that cutting it down does not change what is listed.
           const wholeResource = image;
           const clip = unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip;
-          if (clip !== undefined && extractResult.source !== 'region-render') image = applyClipToImage(image, clip);
+          // A picture the page turns and shows through a plain rectangle comes out as the page shows it: the window, upright, with no tilted frame.
+          const throughWindow = clip !== undefined && extractResult.source !== 'region-render' ? renderThroughRectangularClip(image, clip) : null;
+          if (throughWindow !== null) image = throughWindow;
+          else if (clip !== undefined && extractResult.source !== 'region-render') image = applyClipToImage(image, clip);
+          // A picture stored sideways and turned upright on the page: the raw resource has to be turned the same way.
+          const quarterTurns = rep?.occurrences.find((o) => o.page === pageNumber)?.placement?.quarterTurns;
+          if (throughWindow === null && quarterTurns !== undefined && extractResult.source !== 'region-render' && compositionCount === 1) image = rotateQuarterTurns(image, quarterTurns);
           if (autoCropUniformMargins && unit.reason === 'Z1-full-bleed-forced-content') {
             const bounds = detectContentBounds(image);
             if (bounds) {
@@ -1072,7 +1164,8 @@ export async function buildImageExtraction(
           const luminanceStdDev = unit.classification === 'content' ? computeLuminanceStdDev(wholeResource) : undefined;
           // The "light paper sheet" rule of `finalize.ts` judges 'undecided' candidates, by their visible pixels.
           const judgeSheet = hideBackgroundImages && unit.classification === 'undecided';
-          const visibleLuminanceStdDev = judgeSheet ? computeVisibleLuminanceStdDev(wholeResource) : undefined;
+          // Also for `content`: the rule that hides a smooth background must not hide a smooth painted portrait.
+          const visibleLuminanceStdDev = hideBackgroundImages ? computeVisibleLuminanceStdDev(wholeResource) : undefined;
           const meanLuminance = judgeSheet ? computeVisibleMeanLuminance(wholeResource) : undefined;
           if (plannedUnit.reason === EDGE_FIGURE_REASON) edgeFigureStdDev = computeVisibleLuminanceStdDev(image);
           const darkOpaqueShare = hideBackgroundImages ? computeDarkOpaqueShare(wholeResource) : undefined;
@@ -1082,6 +1175,22 @@ export async function buildImageExtraction(
           const uniformColorFraction = hideBackgroundImages ? computeUniformColorFraction(wholeResource) : undefined;
           const smoothness = hideBackgroundImages ? computeSmoothnessMetrics(wholeResource) : undefined;
           const opaqueFraction = hideBackgroundImages ? computeOpaqueFraction(wholeResource) : undefined;
+          // A panel the page draws behind a box of text: not a picture (see `panelBackdrop.ts`).
+          let panelBackdrop = false;
+          if (hideBackgroundImages && compositionCount === 1 && rep !== null && rep.objId !== null && placedRep !== undefined && opaqueFraction !== undefined) {
+            const rawLook = extractResult.source !== 'region-render' && repId ? await probeRawLook(page, repId) : null;
+            panelBackdrop = isPanelBackdrop({
+              translucent: isTranslucentEverywhere(rep),
+              masked: maskedObjIds.has(rep.objId),
+              opaqueFraction,
+              textCoverage: textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)),
+              extractedRaw: extractResult.source !== 'region-render',
+              confidence: unit.confidence,
+              look: rawLook,
+            });
+          }
+          // A big translucent panel was only let through to be checked for a drawing; without one it is the page's own backdrop.
+          if (isLargePanel && !drawnOnPanel) panelBackdrop = true;
           // Grid suggestion — NOT limited to 'content' (unlike
           // `luminanceStdDev` above): 'undecided' can also end up on stage by
           // the user's manual decision in the review screen), and the cost of
@@ -1089,6 +1198,7 @@ export async function buildImageExtraction(
           // performed anyway.
           const suggestedGrid = detectGrid(image) ?? undefined;
           const encoded = await encoder.encode(image, { format: opts.outputFormat, quality: opts.outputQuality });
+          lastPanelImage = isLargePanel && drawnOnPanel ? image : null;
 
           const entryForFinalize = unit.representativeEntry ?? syntheticVectorOnlyEntry(pageNumber, unit.bbox);
           // A purely vector region forced to 'content' (line
@@ -1099,7 +1209,7 @@ export async function buildImageExtraction(
           const confidence = unit.representativeEntry ? unit.confidence : confidenceForReason('Z1-large-relative-area');
           return {
             entry: entryForFinalize,
-            classification: blankSheet ? 'decoration' : unit.representativeEntry ? unit.classification : 'content',
+            classification: blankSheet || panelBackdrop ? 'decoration' : unit.representativeEntry ? unit.classification : 'content',
             confidence,
             extractSource: extractResult.source,
             contentHash,
@@ -1147,7 +1257,27 @@ export async function buildImageExtraction(
             const alternative = await extractUnit(candidates[i]!);
             if (!isNeverWorthReviewing(alternative)) item = alternative;
           }
-          prepared.push(item);
+          const panelImage = lastPanelImage;
+          // The left half of a map across a spread waits through the rest of its page for the right half on the next one.
+          if (pendingLeftHalf !== null && plannedUnit.page > pendingLeftHalf.page + 1) {
+            prepared.push(pendingLeftHalf.item);
+            pendingLeftHalf = null;
+          }
+          if (panelImage !== null && spreadRightOf.has(plannedUnit)) {
+            if (pendingLeftHalf !== null) prepared.push(pendingLeftHalf.item);
+            pendingLeftHalf = { item, image: panelImage, page: plannedUnit.page };
+          } else if (pendingLeftHalf !== null && spreadRightHalves.has(plannedUnit)) {
+            if (panelImage !== null) {
+              const joined = stitchHorizontally(pendingLeftHalf.image, panelImage);
+              const joinedPayload = await encoder.encode(joined, { format: opts.outputFormat, quality: opts.outputQuality });
+              prepared.push({ ...pendingLeftHalf.item, width: joined.width, height: joined.height, contentHash: await computeContentHash(joined), suggestedGrid: detectGrid(joined) ?? undefined, payload: joinedPayload });
+            } else {
+              prepared.push(pendingLeftHalf.item, item);
+            }
+            pendingLeftHalf = null;
+          } else {
+            prepared.push(item);
+          }
         } catch (err) {
           if (err instanceof DOMException && err.name === 'AbortError') throw err;
           diagnostics.push({
@@ -1165,6 +1295,7 @@ export async function buildImageExtraction(
     }
   }
 
+  if (pendingLeftHalf !== null) prepared.push(pendingLeftHalf.item);
   const finalized = finalizeImages(prepared, nearStatblockOrHeadingObjIds, diagnostics);
 
   return {

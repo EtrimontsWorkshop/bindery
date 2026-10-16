@@ -45,11 +45,28 @@ interface Point {
   y: number;
 }
 
+/** Whole quarter turns clockwise. */
+type Turns = 1 | 2 | 3;
+
 /** One history entry stores only the pixels of the region an edit touched (not the whole canvas), so long histories stay cheap even for large images. */
-interface HistoryStep {
+interface PatchStep {
+  kind: 'patch';
   x: number;
   y: number;
   data: ImageData;
+}
+
+/** A turn of the whole picture. Held in the history as the turn that UNDOES it (and, once undone, as the turn that redoes it), so the stacks swap steps the same way for both kinds. */
+interface TurnStep {
+  kind: 'turn';
+  turns: Turns;
+}
+
+type HistoryStep = PatchStep | TurnStep;
+
+/** The turn that cancels `turns`. */
+function oppositeTurns(turns: Turns): Turns {
+  return (4 - turns) as Turns;
 }
 
 interface Box {
@@ -77,6 +94,8 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       redo: ImageEraseApp.#onRedo,
       reset: ImageEraseApp.#onReset,
       fillBackground: ImageEraseApp.#onFillBackground,
+      rotateLeft: ImageEraseApp.#onRotateLeft,
+      rotateRight: ImageEraseApp.#onRotateRight,
     },
   };
 
@@ -101,6 +120,8 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #dirty = false;
   /** Number of applied edit steps still in effect (also counts steps trimmed off the undo stack), so undoing everything can restore `#dirty = false`. */
   #editCount = 0;
+  /** How many quarter turns clockwise the picture has been turned from the original (0-3), so "Restore original" can turn it back. */
+  #rotation = 0;
 
   #tool: Tool = 'view';
   #eraseTo: EraseTo = 'transparent';
@@ -239,10 +260,11 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const viewport = this.element.querySelector<HTMLElement>('[data-viewport]');
     if (!viewport || !this.#source) return;
     const measurable = viewport.clientWidth > 0 && viewport.clientHeight > 0;
-    const fit = measurable ? Math.min(viewport.clientWidth / this.#source.width, viewport.clientHeight / this.#source.height, MAX_FIT_UPSCALE) : 1;
+    // The working canvas, not the source: once the picture is turned, they differ.
+    const fit = measurable ? Math.min(viewport.clientWidth / this.#work.width, viewport.clientHeight / this.#work.height, MAX_FIT_UPSCALE) : 1;
     const scale = Math.max(fit, 0.01) * this.#zoom;
-    this.#work.style.width = `${Math.round(this.#source.width * scale)}px`;
-    this.#work.style.height = `${Math.round(this.#source.height * scale)}px`;
+    this.#work.style.width = `${Math.round(this.#work.width * scale)}px`;
+    this.#work.style.height = `${Math.round(this.#work.height * scale)}px`;
   }
 
   #displayScale(): number {
@@ -438,7 +460,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const from = (y0 + row) * stride + x0 * 4;
       crop.data.set(pending.before.data.subarray(from, from + rowBytes), row * rowBytes);
     }
-    this.#undoStack.push({ x: x0, y: y0, data: crop });
+    this.#undoStack.push({ kind: 'patch', x: x0, y: y0, data: crop });
     this.#redoStack = [];
     this.#editCount++;
     this.#trimHistory();
@@ -446,7 +468,7 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #trimHistory(): void {
-    const total = (): number => [...this.#undoStack, ...this.#redoStack].reduce((sum, step) => sum + step.data.data.byteLength, 0);
+    const total = (): number => [...this.#undoStack, ...this.#redoStack].reduce((sum, step) => sum + (step.kind === 'patch' ? step.data.data.byteLength : 0), 0);
     while (this.#undoStack.length > MAX_UNDO_STEPS || (this.#undoStack.length > 1 && total() > HISTORY_MEMORY_BUDGET_BYTES)) this.#undoStack.shift();
   }
 
@@ -461,13 +483,54 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     setup('redo', this.#redoStack.length);
   }
 
-  /** Swaps a history step with the current pixels of the same region: applies it and returns what it replaced (for the opposite stack). */
+  /** Applies a history step and returns what it replaced (for the opposite stack): for a patch the pixels it covered, for a turn the turn that reverses it. */
   #swapStep(step: HistoryStep): HistoryStep | null {
+    if (step.kind === 'turn') {
+      this.#applyTurn(step.turns);
+      return { kind: 'turn', turns: oppositeTurns(step.turns) };
+    }
     const ctx = this.#ctx;
     if (!ctx) return null;
     const replaced = ctx.getImageData(step.x, step.y, step.data.width, step.data.height);
     ctx.putImageData(step.data, step.x, step.y);
-    return { x: step.x, y: step.y, data: replaced };
+    return { kind: 'patch', x: step.x, y: step.y, data: replaced };
+  }
+
+  /** Turns the working canvas (and so the picture) by whole quarter turns clockwise, and refits it to the viewport. */
+  #applyTurn(turns: Turns): void {
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    const { width, height } = this.#work;
+    const copy = document.createElement('canvas');
+    copy.width = width;
+    copy.height = height;
+    copy.getContext('2d')?.drawImage(this.#work, 0, 0);
+    const swap = turns !== 2;
+    // Resizing a canvas clears it; the drawing context stays valid.
+    this.#work.width = swap ? height : width;
+    this.#work.height = swap ? width : height;
+    ctx.save();
+    if (turns === 1) ctx.setTransform(0, 1, -1, 0, height, 0);
+    else if (turns === 2) ctx.setTransform(-1, 0, 0, -1, width, height);
+    else ctx.setTransform(0, -1, 1, 0, 0, width);
+    ctx.drawImage(copy, 0, 0);
+    ctx.restore();
+    this.#rotation = (this.#rotation + turns) % 4;
+    this.#hideCursorRing();
+    this.#selectionBox.style.display = 'none';
+    this.#applyZoom();
+    this.#syncBrushControls();
+  }
+
+  /** A turn as one undoable step (the history keeps the turn that reverses it). */
+  #turn(turns: Turns): void {
+    this.#applyTurn(turns);
+    this.#undoStack.push({ kind: 'turn', turns: oppositeTurns(turns) });
+    this.#redoStack = [];
+    this.#editCount++;
+    this.#dirty = true;
+    this.#trimHistory();
+    this.#updateUndoButtonState();
   }
 
   static #onUndo(this: ImageEraseApp): void {
@@ -494,6 +557,8 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   static #onReset(this: ImageEraseApp): void {
     if (!this.#ctx || !this.#source) return;
+    // The original lies the way it was extracted: turn the picture back first (a step of its own).
+    if (this.#rotation !== 0) this.#turn(oppositeTurns(this.#rotation as Turns));
     this.#beginStep();
     this.#extendBox(0, 0, this.#work.width, this.#work.height, 0);
     this.#ctx.clearRect(0, 0, this.#work.width, this.#work.height);
@@ -515,6 +580,14 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     ctx.restore();
     this.#dirty = true;
     this.#commitStep();
+  }
+
+  static #onRotateLeft(this: ImageEraseApp): void {
+    this.#turn(3);
+  }
+
+  static #onRotateRight(this: ImageEraseApp): void {
+    this.#turn(1);
   }
 
   static #onSave(this: ImageEraseApp): void {

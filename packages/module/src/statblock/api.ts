@@ -21,6 +21,9 @@ export type StatblockEngine = Pick<
   | 'extractField'
   | 'reconstructLines'
   | 'resolveTransformChain'
+  | 'normalizeRectToBlock'
+  | 'prepareStatblock'
+  | 'validateProfileAgainstSchema'
 >;
 
 export type SaveProfileResult = { ok: true; profile: StatblockProfile } | { ok: false; issues: readonly string[] };
@@ -74,6 +77,9 @@ const ENGINE_EXPORTS = [
   'extractField',
   'reconstructLines',
   'resolveTransformChain',
+  'normalizeRectToBlock',
+  'prepareStatblock',
+  'validateProfileAgainstSchema',
 ] as const satisfies readonly (keyof StatblockEngine)[];
 
 export function buildStatblockAPI(): StatblockAPI {

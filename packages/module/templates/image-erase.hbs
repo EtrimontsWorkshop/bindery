@@ -27,6 +27,11 @@
     </div>
 
     <div class="bindery-image-erase-group">
+      <button type="button" data-action="rotateLeft" title="{{localize "BINDERY.imageErase.rotateLeftHint"}}">↺ {{localize "BINDERY.imageErase.rotateLeft"}}</button>
+      <button type="button" data-action="rotateRight" title="{{localize "BINDERY.imageErase.rotateRightHint"}}">↻ {{localize "BINDERY.imageErase.rotateRight"}}</button>
+    </div>
+
+    <div class="bindery-image-erase-group">
       <button type="button" data-action="undo" data-label="{{localize "BINDERY.imageErase.undo"}}" {{#unless canUndo}}disabled{{/unless}}>{{localize "BINDERY.imageErase.undo"}}{{#if canUndo}} ({{undoCount}}){{/if}}</button>
       <button type="button" data-action="redo" data-label="{{localize "BINDERY.imageErase.redo"}}" {{#unless canRedo}}disabled{{/unless}}>{{localize "BINDERY.imageErase.redo"}}</button>
       <button type="button" data-action="reset">{{localize "BINDERY.imageErase.reset"}}</button>

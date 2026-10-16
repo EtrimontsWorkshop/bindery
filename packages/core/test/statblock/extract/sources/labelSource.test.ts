@@ -148,3 +148,74 @@ describe('extractFromLabelSource — sourceBbox', () => {
     expect(result.sourceBbox).toEqual({ minX: 0, minY: 0, maxX: 37, maxY: 12 });
   });
 });
+
+describe('extractFromLabelSource — a label that is not an element of its own', () => {
+  it('finds a label and its value inside one element ("HP: 12")', () => {
+    const result = extractFromLabelSource(block([el('HP: 12', 0, 0)]), baseSource);
+    expect(result.found).toBe(true);
+    expect(result.raw).toBe('12');
+  });
+
+  it('reads the same value whichever way the page text was split', () => {
+    const split = extractFromLabelSource(block([el('HP:', 0, 0), el('12', 30, 0)]), baseSource);
+    const joined = extractFromLabelSource(block([el('HP: 12', 0, 0)]), baseSource);
+    expect(joined.raw).toBe(split.raw);
+  });
+
+  it('finds a label that spans several elements ("Hit" + "Points:")', () => {
+    const source: LabelSource = { ...baseSource, labelPattern: 'Hit Points:' };
+    const result = extractFromLabelSource(block([el('Hit', 0, 0), el('Points:', 22, 0), el('27', 66, 0)]), source);
+    expect(result.found).toBe(true);
+    expect(result.raw).toBe('27');
+  });
+
+  it('does not find a label that only appears inside a longer word', () => {
+    expect(extractFromLabelSource(block([el('SHP: 12', 0, 0)]), baseSource).found).toBe(false);
+  });
+
+  it('finds a regex label in the text of a line', () => {
+    const source: LabelSource = { kind: 'label', labelPattern: 'H(it)? ?P:?', labelIsRegex: true, stopAt: 'endOfLine' };
+    const result = extractFromLabelSource(block([el('Name: Goblin HP: 7', 0, 0)]), source);
+    expect(result.found).toBe(true);
+    expect(result.raw).toBe('7');
+  });
+
+  it('prefers the label as an element of its own, as before', () => {
+    const result = extractFromLabelSource(block([el('HP:', 0, 0), el('12', 30, 0), el('HP: 99', 0, -20)]), baseSource);
+    expect(result.raw).toBe('12');
+  });
+});
+
+describe('extractFromLabelSource — other labels on the same line', () => {
+  const others = { otherLabels: [{ pattern: 'AC:', isRegex: false }] };
+
+  it('stops the value where the next printed label of the profile begins', () => {
+    const result = extractFromLabelSource(block([el('HP: 12 AC: 15', 0, 0)]), baseSource, others);
+    expect(result.raw).toBe('12');
+  });
+
+  it('also stops at an element that is a label of its own', () => {
+    const result = extractFromLabelSource(block([el('HP:', 0, 0), el('12', 25, 0), el('AC:', 45, 0), el('15', 70, 0)]), { ...baseSource, stopAt: 'endOfBlock' }, others);
+    expect(result.raw).toBe('12');
+  });
+
+  it('does not cut at its own label', () => {
+    const result = extractFromLabelSource(block([el('HP: 12', 0, 0)]), baseSource, { otherLabels: [{ pattern: 'HP:', isRegex: false }] });
+    expect(result.raw).toBe('12');
+  });
+
+  it('without other labels the rest of the line is the value, as before', () => {
+    expect(extractFromLabelSource(block([el('HP: 12 AC: 15', 0, 0)]), baseSource).raw).toBe('12 AC: 15');
+  });
+});
+
+describe('extractFromLabelSource — patterns that would freeze the page', () => {
+  it('refuses a regex label that backtracks catastrophically, without running it', () => {
+    const source: LabelSource = { kind: 'label', labelPattern: '^(a+)+$', labelIsRegex: true, stopAt: 'endOfLine' };
+    const started = Date.now();
+    const result = extractFromLabelSource(block([el(`${'a'.repeat(40)}!`, 0, 0)]), source);
+    expect(Date.now() - started).toBeLessThan(500);
+    expect(result.found).toBe(false);
+    expect(result.diagnostics[0]!.code).toBe('STATBLOCK_REGEX_REFUSED');
+  });
+});

@@ -17,6 +17,7 @@ declare module 'fvtt-types/configuration' {
     'bindery-pdf-importer.legalNoticeAcknowledged': boolean;
     'bindery-pdf-importer.uploadPath': string;
     'bindery-pdf-importer.whiteBackground': boolean;
+    'bindery-pdf-importer.sortByPage': boolean;
     'bindery-pdf-importer.lastGridConfig': { size: number; offsetX: number; offsetY: number };
     'bindery-pdf-importer.importTargets': ImportTargets;
     'bindery-pdf-importer.tokenPrepDefaults': TokenPrepDefaults;

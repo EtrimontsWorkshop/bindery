@@ -13,6 +13,8 @@ export type ExtractedValue = FieldExtractionResult;
 
 /** One entry within a `ProfileCollection` — its own name plus its `itemFields`' values, scoped to the text span `splitCollectionEntries` carved out for it. */
 export interface ExtractedCollectionEntry {
+  /** Stable within the collection: the entry's own printed name (normalized) and how many entries of that name came before it. Identifies the entry between two imports of the same statblock, which the position in the list does not. */
+  key: string;
   sourceBbox: Rect;
   name: ExtractedValue;
   fieldValues: Record<string, ExtractedValue>;
@@ -32,6 +34,8 @@ export interface ExtractedActorInstance {
   name: ExtractedValue;
   fieldValues: Record<string, ExtractedValue>;
   collections: Record<string, ExtractedCollectionEntry[]>;
+  /** Ids of the collections whose text was not located in this statblock (see `CollectionSplitResult.sectionFound`) — unknown, not empty. */
+  missingCollectionIds: string[];
 }
 
 /** Plain data for one embedded Item, ready for `createEmbeddedDocuments('Item', [...])` — never a literal item type/path, both come from the profile's own `ProfileCollection`. */
@@ -39,6 +43,9 @@ export interface BuiltItemData {
   name: string;
   type: string;
   system: Record<string, unknown>;
+  /** `ProfileCollection.id` this Item came from, and the entry's stable key — what lets a later import tell its own Items from the ones a person added by hand. */
+  collectionId: string;
+  entryKey: string;
 }
 
 /**
@@ -55,6 +62,8 @@ export interface BuiltActorData {
   folder?: string;
   system: Record<string, unknown>;
   items: BuiltItemData[];
+  /** Collections whose text was located, i.e. the ones an update may replace Items of. A collection that is not listed was not found in the statblock, and the Items already on the Actor stay. */
+  replaceableCollectionIds: string[];
 }
 
 export type DuplicatePolicy = 'skip' | 'overwrite' | 'copy';

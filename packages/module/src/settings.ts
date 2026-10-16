@@ -71,6 +71,17 @@ export function registerSettings(): void {
     default: false,
   });
 
+  // Global switch for the order of the review's image list: off keeps the classification groups (content first, then
+  // the undecided ones by size), on lists every image in the order of the pages.
+  game.settings!.register(MODULE_ID, 'sortByPage', {
+    name: 'BINDERY.settings.sortByPageLabel',
+    hint: 'BINDERY.settings.sortByPageHint',
+    scope: 'world',
+    config: true,
+    type: Boolean,
+    default: false,
+  });
+
   // The most recently used grid setting (GridPicker) —
   // remembered per world, not shown in the settings screen (the user
   // changes it ONLY through GridPicker itself).

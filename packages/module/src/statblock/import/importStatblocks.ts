@@ -1,27 +1,33 @@
 import {
-  buildActorData,
-  extractStatblockInstance,
+  chooseExistingActor,
+  countUnmarkedItems,
+  originFlags,
+  prepareStatblock,
   resolveDuplicateAction,
+  selectItemsToReplace,
+  type BuiltItemData,
   type DetectionCandidate,
   type DuplicatePolicy,
   type ImportProgress,
   type ImportReport,
   type SchemaContext,
+  type StatblockOrigin,
   type StatblockProfile,
 } from '@bindery/core';
+import { MODULE_ID } from '../../settings.js';
 import { introspectDocumentInstance } from '../schema/introspectActor.js';
 
 /**
  * The Foundry-facing orchestrator — `Actor.create`/
  * `createEmbeddedDocuments`/`fromUuid`/`game.actors` all live ONLY here,
  * never in `packages/core` (`check:boundary`). Everything that decides
- * WHAT to write (`extractStatblockInstance`, `buildActorData`,
+ * WHAT to write (`prepareStatblock` — extraction, building, validation —
  * `findNearestImage`, `resolveDuplicateAction`) is pure core code, already
  * unit-tested on hand-built mocks without Foundry; this file just calls them in order and performs
  * the actual document writes. Like `pdf/buildPagesForDetection.ts` before
  * it, this file has no automated test of its own — the same precedent
  * (`buildCIFFromDocument.ts` has none either) — verified manually in a live
- * world instead.
+ * world instead; the parts that decide which Items to keep and delete are plain functions below, tested on their own.
  */
 
 export interface ImportStatblocksOptions {
@@ -43,6 +49,10 @@ interface MinimalDocument {
   toObject(): Record<string, unknown>;
 }
 
+function toItemSource(item: BuiltItemData, profileId: string): Record<string, unknown> {
+  return { name: item.name, type: item.type, system: item.system, flags: originFlags(MODULE_ID, { profileId, collectionId: item.collectionId, entryKey: item.entryKey } satisfies StatblockOrigin) };
+}
+
 async function resolveSchemaContext(profile: StatblockProfile): Promise<SchemaContext | null> {
   const templateActor = (await fromUuid(profile.templateActorUuid)) as MinimalDocument | null;
   if (!templateActor) return null;
@@ -62,19 +72,41 @@ async function resolveSchemaContext(profile: StatblockProfile): Promise<SchemaCo
   return { actorDescriptors, itemDescriptorsByCollectionId, resourcePaths };
 }
 
+/** The Actors an import could mean by "the same creature": same name and type, in the target folder when there is one. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function findExistingActor(name: string, type: string, folder: string | undefined): any {
+function findExistingActors(name: string, type: string, folder: string | undefined): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (game.actors as any)?.find((a: any) => a.name === name && a.type === type && (folder ? a.folder?.id === folder : true));
+  return ((game.actors as any)?.filter?.((a: any) => a.name === name && a.type === type && (folder ? a.folder?.id === folder : true)) ?? []) as any[];
 }
 
+/**
+ * Replaces, on an existing Actor, the Items an earlier import made, and updates the Actor. Nothing is deleted until the
+ * new Items exist and the Actor was updated; when a write fails on the way, the new Items are taken back, so that a failure
+ * leaves the Actor as it was rather than half-updated.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function replaceManagedItems(actor: any, profile: StatblockProfile, items: readonly { name: string; type: string; system: Record<string, unknown> }[]): Promise<void> {
-  const managedTypes = new Set(profile.collections.map((c) => c.itemType));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toDelete = (actor.items?.filter((it: any) => managedTypes.has(it.type)).map((it: any) => it.id) ?? []) as string[];
+async function updateExistingActor(actor: any, profile: StatblockProfile, data: ReturnType<typeof prepareStatblock>['data']): Promise<{ keptUnmarked: number }> {
+  const heldItems = (actor.items?.contents ?? Array.from(actor.items ?? [])) as { id: string; type: string; flags?: Record<string, unknown>; getFlag?: (s: string, k: string) => unknown }[];
+  const toDelete = selectItemsToReplace(heldItems, profile.id, data.replaceableCollectionIds, MODULE_ID).map((i) => i.id);
+  const sources = data.items.filter((i) => data.replaceableCollectionIds.includes(i.collectionId)).map((i) => toItemSource(i, profile.id));
+  // Items of the profile's types that nobody marked are kept; counted so that the report can say so.
+  const keptUnmarked = countUnmarkedItems(heldItems, new Set(profile.collections.map((c) => c.itemType)), MODULE_ID);
+
+  let created: { id: string }[] = [];
+  if (sources.length > 0) created = (await actor.createEmbeddedDocuments('Item', sources)) as { id: string }[];
+  try {
+    await actor.update({
+      ...(data.img ? { img: data.img, prototypeToken: { texture: { src: data.img } } } : {}),
+      ...(data.folder ? { folder: data.folder } : {}),
+      system: data.system,
+      flags: originFlags(MODULE_ID, { profileId: profile.id }),
+    });
+  } catch (err) {
+    if (created.length > 0) await actor.deleteEmbeddedDocuments('Item', created.map((i) => i.id)).catch(() => undefined);
+    throw err;
+  }
   if (toDelete.length > 0) await actor.deleteEmbeddedDocuments('Item', toDelete);
-  if (items.length > 0) await actor.createEmbeddedDocuments('Item', items);
+  return { keptUnmarked };
 }
 
 /**
@@ -82,7 +114,8 @@ async function replaceManagedItems(actor: any, profile: StatblockProfile, items:
  * single instance's own failure (an error creating/updating one Actor is
  * caught and reported per-instance, `status: 'error'`) — only an
  * `AbortSignal` or a completely unresolvable template Actor stop the whole
- * run early, both reported rather than left as an uncaught rejection.
+ * run early, both reported rather than left as an uncaught rejection. A statblock that has an error among its
+ * diagnostics is not written at all: it is reported as failed with the diagnostics, instead of leaving an incomplete Actor behind a success.
  */
 export async function importStatblocks(profile: StatblockProfile, candidates: readonly DetectionCandidate[], options: ImportStatblocksOptions): Promise<ImportReport> {
   const report: ImportReport = { created: 0, updated: 0, skipped: 0, failed: 0, instances: [] };
@@ -105,28 +138,38 @@ export async function importStatblocks(profile: StatblockProfile, candidates: re
   for (let i = 0; i < candidates.length; i++) {
     checkAborted(options.signal);
     const c = candidates[i]!;
-    const instance = extractStatblockInstance(c, profile);
     let imagePath: string | undefined;
     try {
       imagePath = await options.resolveImagePath?.(c.id);
     } catch (err) {
       console.warn('Bindery | resolving the statblock image failed:', err);
     }
-    const { data, diagnostics } = buildActorData(instance, profile, schemaContext, { folder: options.folder, img: imagePath });
+    const { instance, data, diagnostics, canImport } = prepareStatblock(c, profile, schemaContext, { folder: options.folder, img: imagePath });
     const pageNumber = instance.regions[0]?.pageNumber;
 
-    const existing = findExistingActor(data.name, data.type, options.folder);
-    const action = resolveDuplicateAction(!!existing, options.duplicatePolicy);
+    if (!canImport) {
+      report.failed++;
+      report.instances.push({ instanceId: instance.id, status: 'error', actorName: data.name, pageNumber, diagnostics });
+      options.onProgress?.({ instancesProcessed: i + 1, totalInstances: total });
+      continue;
+    }
+
+    const matches = findExistingActors(data.name, data.type, options.folder);
+    const existing = chooseExistingActor(matches, profile.id, MODULE_ID);
+    const action = resolveDuplicateAction(existing !== undefined, options.duplicatePolicy);
 
     try {
       if (action === 'skip') {
         report.skipped++;
         report.instances.push({ instanceId: instance.id, status: 'skipped', actorName: data.name, pageNumber, diagnostics });
+      } else if (action === 'update' && existing === null) {
+        report.skipped++;
+        report.instances.push({ instanceId: instance.id, status: 'skipped', actorName: data.name, pageNumber, diagnostics: [...diagnostics, { severity: 'warning', code: 'STATBLOCK_IMPORT_AMBIGUOUS_TARGET', pageNumber, params: { count: matches.length } }] });
       } else if (action === 'update' && existing) {
-        await existing.update({ ...(data.img ? { img: data.img, prototypeToken: { texture: { src: data.img } } } : {}), folder: data.folder, system: data.system });
-        await replaceManagedItems(existing, profile, data.items);
+        const { keptUnmarked } = await updateExistingActor(existing, profile, data);
+        const note: typeof diagnostics = keptUnmarked > 0 ? [{ severity: 'info', code: 'STATBLOCK_IMPORT_UNMARKED_ITEMS_KEPT', pageNumber, params: { count: keptUnmarked } }] : [];
         report.updated++;
-        report.instances.push({ instanceId: instance.id, status: 'updated', actorName: data.name, actorUuid: existing.uuid, pageNumber, diagnostics });
+        report.instances.push({ instanceId: instance.id, status: 'updated', actorName: data.name, actorUuid: existing.uuid, pageNumber, diagnostics: [...diagnostics, ...note] });
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ActorCls = (foundry.documents as any).Actor ?? (globalThis as any).Actor;
@@ -136,7 +179,8 @@ export async function importStatblocks(profile: StatblockProfile, candidates: re
           ...(data.img ? { img: data.img, prototypeToken: { texture: { src: data.img } } } : {}),
           folder: data.folder,
           system: data.system,
-          items: data.items,
+          items: data.items.map((item) => toItemSource(item, profile.id)),
+          flags: originFlags(MODULE_ID, { profileId: profile.id }),
         });
         report.created++;
         report.instances.push({ instanceId: instance.id, status: 'created', actorName: data.name, actorUuid: created?.uuid, pageNumber, diagnostics });

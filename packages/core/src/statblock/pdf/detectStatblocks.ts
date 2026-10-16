@@ -71,6 +71,7 @@ export function detectStatblocks(pages: readonly PageForDetection[], profile: St
       confidence: confidenceResult.confidence,
       foundRequiredLabels: confidenceResult.foundRequiredLabels,
       missingRequiredLabels: confidenceResult.missingRequiredLabels,
+      meetsRequirements: confidenceResult.missingRequiredLabels.length === 0,
     };
   });
 }

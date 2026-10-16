@@ -133,6 +133,13 @@ const UNIFORM_COLOR_MIN_FRACTION = 0.995;
 const SMOOTH_BACKGROUND_COARSE_MAX = 3.2;
 const SMOOTH_BACKGROUND_FINE_MAX = 1.5;
 /**
+ * A painted portrait or a night scene is as smooth as a paper background at both scales (measured on a real starter set:
+ * the dark painted portraits have coarse 2.14-2.80 and fine 0.99-1.39, inside the range of the backgrounds), but it has a figure:
+ * its luminance spread over the visible pixels is 34-56, the washes and panels of the same book are 20-22. A smooth image
+ * with a spread this high is a picture.
+ */
+const SMOOTH_BACKGROUND_MAX_STDDEV = 30;
+/**
  * A further case of the same kind, on the coarse gradient alone (paper grain raises the FINE
  * gradient to 1.7-3.4, which is why the rule above misses it). Measured on a real rulebook:
  * - A page-sized image that is still undecided (`maxRelativeArea >= 0.9`) and smooth at the coarse scale
@@ -586,7 +593,11 @@ export function isNeverWorthReviewing(
   const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
   const shortEdge = Math.min(d.width, d.height);
   const isLongAndNarrow = shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
-  const isSmoothBackground = d.smoothness !== undefined && d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX && d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX;
+  const isSmoothBackground =
+    d.smoothness !== undefined &&
+    d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX &&
+    d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX &&
+    (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < SMOOTH_BACKGROUND_MAX_STDDEV);
   const isLargeSmoothSheet =
     d.classification === 'undecided' &&
     d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
@@ -622,10 +633,11 @@ export function isNeverWorthReviewing(
 /**
  * Page-area share from which a picture needs the same pixels, not only the same size and place, to count as a
  * duplicate of another one. Positional correlation is a guess made before anything is decoded; for the small
- * repeats it was made for (frames, icons, headers) the guess is kept, but a picture that fills half the page or
- * more is a picture of its own. Measured on a real map set: six full-page maps of one size share one position.
+ * repeats it was made for (frames, icons, headers) the guess is kept, but a picture of this size is a picture of
+ * its own. Measured on a real map set: six full-page maps of one size share one position; on a real set of ready
+ * characters: the portraits of four characters (10% of the page each) share one position and one size, one to a page.
  */
-const POSITIONAL_DUPLICATE_MAX_AREA = 0.5;
+const POSITIONAL_DUPLICATE_MAX_AREA = 0.05;
 
 /**
  * Final step: reclassification by absolute size (deferred from classification, see
@@ -695,8 +707,8 @@ export function finalizeImages<TPayload>(
     }
     const afterHash = closure.canonicalObjIdByObjId.get(d.entry.objId);
     const canonical = afterHash ?? d.entry.correlatedWith ?? d.entry.objId;
-    // Two big pictures of the same size at the same place are not duplicates unless their pixels say so: the maps
-    // of a map set, one to a page, all fill the page the same way.
+    // Two pictures of this size at the same place are not duplicates unless their pixels say so: the maps
+    // of a map set or the portraits of a set of characters, one to a page, all fill their place the same way.
     canonicalKeyOf.set(d.entry, d.entry.maxRelativeArea >= POSITIONAL_DUPLICATE_MAX_AREA ? `${canonical}|${d.contentHash}` : canonical);
   });
 

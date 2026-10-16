@@ -132,6 +132,7 @@ export function buildActorData(instance: ExtractedActorInstance, profile: Statbl
   if (profile.inheritUnmappedFromTemplate) applyTemplateInheritance(system, schemaContext.actorDescriptors, mappedPaths);
 
   const items: BuiltItemData[] = [];
+  for (const collectionId of instance.missingCollectionIds) diagnostics.push({ severity: 'warning', code: 'STATBLOCK_IMPORT_COLLECTION_NOT_FOUND', pageNumber, params: { collectionId } });
   for (const collection of profile.collections) {
     const itemDescriptors = schemaContext.itemDescriptorsByCollectionId?.get(collection.id);
     const entries = instance.collections[collection.id] ?? [];
@@ -140,12 +141,12 @@ export function buildActorData(instance: ExtractedActorInstance, profile: Statbl
       const itemSystem: Record<string, unknown> = {};
       const itemMappedPaths = applyFieldsToSystem(itemSystem, collection.itemFields, entry.fieldValues, itemDescriptors, diagnostics, pageNumber);
       if (profile.inheritUnmappedFromTemplate) applyTemplateInheritance(itemSystem, itemDescriptors, itemMappedPaths);
-      items.push({ name: itemName, type: collection.itemType, system: itemSystem });
+      items.push({ name: itemName, type: collection.itemType, system: itemSystem, collectionId: collection.id, entryKey: entry.key });
     }
   }
 
   return {
-    data: { name, type: profile.actorType, img: options.img, folder: options.folder, system, items },
+    data: { name, type: profile.actorType, img: options.img, folder: options.folder, system, items, replaceableCollectionIds: profile.collections.map((c) => c.id).filter((id) => !instance.missingCollectionIds.includes(id)) },
     diagnostics,
   };
 }

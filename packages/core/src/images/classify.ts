@@ -65,10 +65,12 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z12-bleeding-masked-cutout': 0.7,
   'Z21-masked-silhouette-at-page-edge': 0.4,
   'Z12-bleeding-translucent-overlay': 0.8,
+  'Z12-bleeding-translucent-panel': 0.2,
   'Z15-small-masked-raster': 0.7,
   'Z16-tiny-undecided': 0.7,
   'Z17-covered-by-later-picture': 0.8,
   'Z18-form-page-element': 0.7,
+  'Z18-form-page-background': 0.7,
   'Z19-translucent-copy-of-picture': 0.8,
   'Z20-small-translucent-masked-raster': 0.8,
   'Z22-page-background-under-content': 0.8,
@@ -156,8 +158,10 @@ const LARGE_ABSOLUTE_SIZE_PT = 300;
  * of the page, genuinely small on the page despite rendering at a large
  * target resolution — small decorative/portrait elements shouldn't
  * automatically become `content` just because they ARE masked/clustered).
+ * Set at 9% rather than 10% after a set of ready characters: the portraits of its four cards are the same photo format
+ * placed at 9.99%-10.01% of the page, and a limit inside that spread made one of them `content` and the rest `undecided`.
  */
-const MEDIUM_AREA_NO_EVIDENCE_THRESHOLD = 0.1;
+const MEDIUM_AREA_NO_EVIDENCE_THRESHOLD = 0.09;
 
 /**
  * The ratio of the bbox's longer to shorter edge above which an image is SUSPECTED of being a
@@ -372,6 +376,14 @@ export function isTranslucentEverywhere(entry: ImageEntry): boolean {
 }
 
 /**
+ * Page-area share from which a bleeding translucent image is a panel (a dark rectangle laid over the page's background, as wide
+ * as a map) and not a watermark crest or a texture wash: measured on a real starter set, the map panels fill 71% of the page, the
+ * crests and washes of the same book far less.
+ */
+const LARGE_TRANSLUCENT_PANEL_MIN_AREA = 0.3;
+export const LARGE_TRANSLUCENT_PANEL_REASON = 'Z12-bleeding-translucent-panel';
+
+/**
  * Opacity at or below which a translucent image is a faint backdrop (a colored panel or halftone layer behind a
  * figure) rather than a faded picture. Measured on three real rulebooks: the backdrops of one sit at 20%; the faded
  * pictures and watermarks worth offering sit at 30%-60%.
@@ -562,6 +574,10 @@ export function classifyImages(
       // book are painted opaque. Measured on a real rulebook: all 11 translucent ones sit at 10%-50% opacity,
       // all 22 other bleeding images at 100%.
       if (isTranslucentEverywhere(entry)) {
+        // A big one is a panel of the page's design, and a drawing (a map) may lie on it: the extraction judges it by its pixels.
+        if (entry.maxRelativeArea >= LARGE_TRANSLUCENT_PANEL_MIN_AREA && !isBackdropShape(entry)) {
+          return { entry, classification: 'undecided', reason: LARGE_TRANSLUCENT_PANEL_REASON, confidence: confidenceForReason(LARGE_TRANSLUCENT_PANEL_REASON) };
+        }
         return { entry, classification: 'decoration', reason: 'Z12-bleeding-translucent-overlay', confidence: confidenceForReason('Z12-bleeding-translucent-overlay') };
       }
       // A narrow sliver of a picture at the edge of the page (the visible end of a document sheet, a strip of tape)
@@ -785,6 +801,13 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     return shared !== null && bboxArea(shared) >= MASK_FOOTPRINT_MIN_SHARE * bboxArea(box) ? shared : box;
   };
 
+  // Every small picture of a page, however it was judged: a form page is known by how many it has.
+  const smallPerPage = new Map<number, number>();
+  for (const c of results) {
+    const occ = c.entry.occurrences[0];
+    if (occ && c.classification !== 'mask' && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) smallPerPage.set(occ.page, (smallPerPage.get(occ.page) ?? 0) + 1);
+  }
+
   const tinyPerPage = new Map<number, number>();
   if (hideTiny) {
     for (const c of results) {
@@ -797,6 +820,10 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     const formPage = c.entry.occurrences[0] !== undefined && (tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES;
     if (hideTiny && formPage && c.classification === 'undecided' && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-element', confidence: confidenceForReason('Z18-form-page-element') };
+    }
+    // The picture that fills a page crowded with small images (a character sheet, whose boxes and banners are pictures) and that nobody could judge is the backdrop of the sheet.
+    if (hideTiny && c.classification === 'undecided' && c.entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_AREA && c.entry.occurrences[0] !== undefined && (smallPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-background', confidence: confidenceForReason('Z18-form-page-background') };
     }
     if (hideTiny && c.classification === 'undecided' && c.entry.maxRelativeArea < TINY_IMAGE_MAX_AREA) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z16-tiny-undecided', confidence: confidenceForReason('Z16-tiny-undecided') };

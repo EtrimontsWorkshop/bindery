@@ -213,3 +213,47 @@ describe('ProfileFieldDataType stays in sync with SchemaFieldKind', () => {
     expect(profileDataTypes).not.toContain('unsupported');
   });
 });
+
+describe('validateProfile — regular expressions the engine refuses to run', () => {
+  it('rejects an anchor whose regex can take exponential time', () => {
+    const profile = validProfile();
+    profile.detection.anchor = { kind: 'textPattern', pattern: '^(a+)+$', patternIsRegex: true };
+    const result = validateProfile(profile);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues[0]).toContain('detection.anchor.pattern');
+  });
+
+  it('does not judge a plain-text pattern as a regular expression', () => {
+    const profile = validProfile();
+    profile.detection.anchor = { kind: 'textPattern', pattern: '^(a+)+$', patternIsRegex: false };
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+
+  it('rejects a regex in a transform, a label source, a section rule and a value map', () => {
+    const risky = '(\\w+\\s?)*$';
+    const profile = validProfile();
+    profile.fields[0]!.transforms = [{ kind: 'regexExtract', pattern: risky }];
+    profile.nameSource = { kind: 'label', labelPattern: risky, labelIsRegex: true, stopAt: 'endOfLine' };
+    profile.collections[0]!.splitRule = { kind: 'sectionHeaderThenEntries', sectionHeaderPattern: risky, sectionHeaderIsRegex: true };
+    profile.valueMaps = [{ id: 'm', kind: 'regexReplace', params: { pattern: risky, replacement: '' } }];
+    const result = validateProfile(profile);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues.map((i) => i.split(':')[0])).toEqual(['nameSource.labelPattern', 'fields.0.transforms.0.pattern', 'collections.0.splitRule.sectionHeaderPattern', 'valueMaps.0.params.pattern']);
+  });
+
+  it('rejects a regex that is too long, and accepts a pattern with a plain syntax error (it only fails its own field)', () => {
+    const tooLong = validProfile();
+    tooLong.detection.anchor = { kind: 'textPattern', pattern: 'a'.repeat(400), patternIsRegex: true };
+    expect(validateProfile(tooLong).ok).toBe(false);
+
+    const broken = validProfile();
+    broken.detection.anchor = { kind: 'textPattern', pattern: '(unterminated', patternIsRegex: true };
+    expect(validateProfile(broken).ok).toBe(true);
+  });
+
+  it('accepts the optional end of a section', () => {
+    const profile = validProfile();
+    profile.collections[0]!.splitRule = { kind: 'sectionHeaderThenEntries', sectionHeaderPattern: '^ATTACKS$', sectionEndPattern: '^TRAITS$', sectionEndIsRegex: true };
+    expect(validateProfile(profile).ok).toBe(true);
+  });
+});

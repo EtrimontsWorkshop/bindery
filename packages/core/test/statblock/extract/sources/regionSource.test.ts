@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractFromRegionSource } from '../../../../src/statblock/extract/sources/regionSource.js';
+import { extractFromRegionSource, normalizeRectToBlock } from '../../../../src/statblock/extract/sources/regionSource.js';
 import type { ExtractionBlock, PageTextElement } from '../../../../src/statblock/extract/types.js';
 
 function el(text: string, x: number, y: number, w = text.length * 6, h = 10): PageTextElement {
@@ -56,5 +56,25 @@ describe('extractFromRegionSource', () => {
     };
     const result = extractFromRegionSource(block, { kind: 'region', normalizedRect: { minX: 0, minY: 0, maxX: 1, maxY: 1 } });
     expect(result.raw).toBe('Top line\nBottom line');
+  });
+});
+
+describe('normalizeRectToBlock', () => {
+  const block = { minX: 100, minY: 200, maxX: 300, maxY: 600 };
+
+  it('measures a rectangle against the block, not against the page', () => {
+    expect(normalizeRectToBlock({ minX: 150, minY: 300, maxX: 250, maxY: 400 }, block)).toEqual({ minX: 0.25, minY: 0.25, maxX: 0.75, maxY: 0.5 });
+  });
+
+  it('is the inverse of what a region source reads: the same selection finds the same text in the block', () => {
+    const rect = { minX: 150, minY: 300, maxX: 250, maxY: 400 };
+    const normalizedRect = normalizeRectToBlock(rect, block)!;
+    const elements = [el('inside', 160, 340, 40, 10), el('outside', 110, 210, 40, 10)];
+    const result = extractFromRegionSource({ bbox: block, elements }, { kind: 'region', normalizedRect });
+    expect(result.raw).toBe('inside');
+  });
+
+  it('is null for a block without extent', () => {
+    expect(normalizeRectToBlock({ minX: 0, minY: 0, maxX: 1, maxY: 1 }, { minX: 5, minY: 5, maxX: 5, maxY: 9 })).toBeNull();
   });
 });

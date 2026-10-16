@@ -180,6 +180,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   /** Id of the image highlighted by a click ON THE LIST OR on the bbox overlay — works both ways. */
   #highlightedImageId: string | null = null;
+  #arrowKeyHandlers: { onPointerDown: (ev: PointerEvent) => void; onKeyDown: (ev: KeyboardEvent) => void; onKeyUp: (ev: KeyboardEvent) => void } | null = null;
+  /** Whether the last click was inside this window — only then the arrow keys move the highlight. */
+  #keysBelongToWindow = true;
   #overlayImages: readonly CIFImage[] = [];
 
   // ---- [User request, "zooming the PDF in the importer"] --------
@@ -341,7 +344,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   /** The Images list AFTER both levels of filtering (source + destination), in the same order as `sortImagesForReview` — the only thing `#mountImageList`/`#mountOverlay` actually see. */
   #visibleImages(): CIFImage[] {
-    return sortImagesForReview(this.#data.document.images).filter(
+    return sortImagesForReview(this.#data.document.images, game.settings!.get(MODULE_ID, 'sortByPage') === true).filter(
       (i) => (ReviewScreen.#isManualImage(i) ? 'manual' : 'auto') === this.#imageSourceTab && this.#selection.imageDestination(i.id) === this.#imageDestTab,
     );
   }
@@ -472,6 +475,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       if (ev.key === 'Enter') pageNumberInput.blur();
     });
 
+    this.#installArrowKeys();
+
     this.#imageList?.destroy();
     this.#imageList = null;
     this.#sceneList?.destroy();
@@ -511,6 +516,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   override async close(options?: object): Promise<this> {
+    this.#removeArrowKeys();
     this.#hideThumbPreview();
     this.#imageList?.destroy();
     this.#sceneList?.destroy();
@@ -1906,6 +1912,71 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     const el = this.element.querySelector<HTMLElement>('[data-count="images"]');
     if (!el) return;
     el.textContent = `${this.#selection.selectedImageCount} / ${this.#data.document.images.length} ${game.i18n!.localize('BINDERY.review.images' as never)}`;
+  }
+
+  /**
+   * ↑/↓ move the highlighted image through the visible list. The listeners sit on the document rather than on the
+   * window: a re-render or the list recycling its rows removes the focused element, and the focus then falls to the page
+   * body, outside the window — the keys would be lost and Foundry would pan the canvas with them. They are used only
+   * while the last click was inside this window, and a key used here goes no further (neither its press nor its release),
+   * because Foundry pans the canvas with the arrow keys.
+   */
+  #installArrowKeys(): void {
+    if (this.#arrowKeyHandlers !== null) return;
+    // Clicking a row or the page lands the focus on the window itself, so keys typed right after reach it too.
+    this.element.tabIndex = -1;
+    this.element.style.outline = 'none';
+    this.#keysBelongToWindow = true;
+    const usesKey = (ev: KeyboardEvent): boolean => {
+      if ((ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey || !this.#keysBelongToWindow || !this.#imageList) return false;
+      const target = ev.target instanceof HTMLElement ? ev.target : null;
+      // Typing somewhere else (another window, the sidebar) is none of this window's business; the page body is where the focus lands when ours is lost.
+      if (target !== null && target !== document.body && !this.element.contains(target)) return false;
+      // Inside a field, an arrow key belongs to the field (a list's options, a number's step, a caret).
+      return !(target?.closest('select, textarea, [contenteditable="true"]') || (target instanceof HTMLInputElement && target.type !== 'checkbox' && target.type !== 'button'));
+    };
+    const onPointerDown = (ev: PointerEvent): void => {
+      this.#keysBelongToWindow = ev.target instanceof Node && this.element.contains(ev.target);
+    };
+    const onKeyDown = (ev: KeyboardEvent): void => {
+      if (!usesKey(ev)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      void this.#stepHighlightedImage(ev.key === 'ArrowDown' ? 1 : -1);
+    };
+    const onKeyUp = (ev: KeyboardEvent): void => {
+      if (usesKey(ev)) ev.stopPropagation();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('keyup', onKeyUp, true);
+    this.#arrowKeyHandlers = { onPointerDown, onKeyDown, onKeyUp };
+  }
+
+  #removeArrowKeys(): void {
+    if (this.#arrowKeyHandlers === null) return;
+    document.removeEventListener('pointerdown', this.#arrowKeyHandlers.onPointerDown, true);
+    document.removeEventListener('keydown', this.#arrowKeyHandlers.onKeyDown, true);
+    document.removeEventListener('keyup', this.#arrowKeyHandlers.onKeyUp, true);
+    this.#arrowKeyHandlers = null;
+  }
+
+  /** Moves the highlight to the next (`1`) or previous (`-1`) image of the visible list, bringing its page and its row into view. Nothing highlighted yet: starts at the first image. */
+  async #stepHighlightedImage(delta: 1 | -1): Promise<void> {
+    const images = this.#visibleImages();
+    if (images.length === 0) return;
+    const current = images.findIndex((i) => i.id === this.#highlightedImageId);
+    const index = current === -1 ? 0 : Math.min(Math.max(current + delta, 0), images.length - 1);
+    const image = images[index]!;
+    this.#highlightedImageId = image.id;
+    if (this.#currentPageNumber === image.provenance.pageNumber) {
+      this.#refreshImageRowHighlights();
+      void this.#redrawOverlay();
+    } else {
+      this.#currentPageNumber = image.provenance.pageNumber;
+      await this.render();
+    }
+    this.#imageList?.scrollToIndex(index);
   }
 
   /** Updates the highlight class on the already-rendered image list rows, without a full `render()` (see `#redrawOverlay`). */

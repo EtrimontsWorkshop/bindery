@@ -165,7 +165,7 @@
                     <li class="bindery-sb-row">
                       <input type="checkbox" data-sb-include="{{this.id}}" {{#if this.include}}checked{{/if}} />
                       {{#if this.thumbUrl}}<img class="bindery-sb-thumb" src="{{this.thumbUrl}}" alt="" />{{else}}<span class="bindery-sb-thumb bindery-sb-thumb-empty"></span>{{/if}}
-                      <span class="bindery-sb-label">{{localize "BINDERY.statblockImport.pageAbbrev"}} {{this.page}} — {{this.snippet}}</span>
+                      <span class="bindery-sb-label">{{localize "BINDERY.statblockImport.pageAbbrev"}} {{this.page}} — {{this.snippet}}{{#if this.warning}} <em class="bindery-sb-warning">{{this.warning}}</em>{{/if}}</span>
                       <select class="bindery-select" data-sb-image="{{this.id}}" title="{{localize 'BINDERY.statblockImport.imageLabel'}}">
                         {{#each this.imageOptions}}<option value="{{this.id}}" {{#if this.selected}}selected{{/if}}>{{this.label}}</option>{{/each}}
                       </select>
