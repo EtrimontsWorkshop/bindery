@@ -97,10 +97,10 @@ export default defineConfig({
         { src: 'lang/*.json', dest: 'lang', rename: { stripBase: true } },
         { src: 'styles/bindery.css', dest: 'styles', rename: { stripBase: true, name: stylesFileName } },
         { src: 'templates/*.hbs', dest: 'templates', rename: { stripBase: true } },
-        // Fonts are vendored locally (Caprasimo/Figtree/JetBrains Mono): the window must work offline,
+        // Fonts are vendored locally (Figtree/JetBrains Mono): the window must work offline,
         // with no hard runtime dependency on Google Fonts (see the comment at @font-face in bindery.css).
         { src: 'fonts/*.woff2', dest: 'fonts', rename: { stripBase: true } },
-        // The SIL OFL 1.1 license texts for the three font families above must go through the SAME copy
+        // The SIL OFL 1.1 license texts for the font families above must go through the SAME copy
         // step as the .woff2 files, otherwise `tools/sync-local-module.mjs` (which deletes and recreates
         // `fonts/` from `dist/` on every local build) silently drops them, since they are not part of the
         // built output.

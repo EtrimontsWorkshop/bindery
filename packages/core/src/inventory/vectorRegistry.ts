@@ -40,3 +40,20 @@ export function buildVectorRegions(events: readonly WalkEvent[], page: number, p
   }
   return regions;
 }
+
+/** A filled path that is not a rectangle (a part of a drawing) — see `WalkEvent` of type 'shape'. */
+export interface VectorShape {
+  page: number;
+  bbox: Rect;
+  /** Area relative to the page. */
+  relativeArea: number;
+}
+
+/** The shapes of one page, from `walkOperators` events of type 'shape'. */
+export function buildVectorShapes(events: readonly WalkEvent[], page: number, pageBox: Rect): VectorShape[] {
+  const shapes: VectorShape[] = [];
+  for (const e of events) {
+    if (e.type === 'shape') shapes.push({ page, bbox: e.bbox, relativeArea: computeRelativeArea(e.bbox, pageBox) });
+  }
+  return shapes;
+}

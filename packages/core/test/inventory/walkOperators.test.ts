@@ -274,6 +274,40 @@ describe('walkOperators — the opacity an image is painted with', () => {
   });
 });
 
+describe('walkOperators — the blend mode an image is painted with', () => {
+  const blendState = (mode: string) => [[['BM', mode], ['CA', 1], ['SMask', false], ['ca', 1]]];
+
+  it('an image painted with the Normal blend mode carries no blended field', () => {
+    const events = walkOperators({ fnArray: [SAVE, SET_GSTATE, PAINT_IMAGE_XOBJECT, RESTORE], argsArray: [[], blendState('source-over'), ['Im1', 4, 4], []] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('blended');
+  });
+
+  it('an image painted under another blend mode is blended', () => {
+    const events = walkOperators({ fnArray: [SAVE, SET_GSTATE, PAINT_IMAGE_XOBJECT, RESTORE], argsArray: [[], blendState('multiply'), ['Im1', 4, 4], []] }, PAGE_BOX);
+    expect(imagesOf(events)[0]!.blended).toBe(true);
+  });
+
+  it('save and restore scope the blend mode', () => {
+    const events = walkOperators({ fnArray: [SAVE, SET_GSTATE, RESTORE, PAINT_IMAGE_XOBJECT], argsArray: [[], blendState('overlay'), [], ['Im1', 4, 4]] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('blended');
+  });
+
+  it('a group begun under a blend mode blends its content, which itself starts in Normal', () => {
+    const fnArray = [SAVE, SET_GSTATE, BEGIN_GROUP, SET_GSTATE, PAINT_IMAGE_XOBJECT, END_GROUP, PAINT_IMAGE_XOBJECT, RESTORE];
+    const argsArray: unknown[][] = [[], blendState('overlay'), [{ smask: null }], blendState('source-over'), ['Im1', 4, 4], [], ['Im2', 4, 4], []];
+    const images = imagesOf(walkOperators({ fnArray, argsArray }, PAGE_BOX));
+    expect(images[0]!.blended).toBe(true);
+    // After the group ends the blend mode that was in force before it applies again.
+    expect(images[1]!.blended).toBe(true);
+  });
+
+  it('a group begun in Normal does not blend its content', () => {
+    const fnArray = [BEGIN_GROUP, PAINT_IMAGE_XOBJECT, END_GROUP];
+    const events = walkOperators({ fnArray, argsArray: [[{ smask: null }], ['Im1', 4, 4], []] }, PAGE_BOX);
+    expect(imagesOf(events)[0]).not.toHaveProperty('blended');
+  });
+});
+
 describe('walkOperators — clipping paths', () => {
   const rectPath = (x0: number, y0: number, x1: number, y1: number) => [DRAW_MOVE_TO, x0, y0, DRAW_LINE_TO, x1, y0, DRAW_LINE_TO, x1, y1, DRAW_LINE_TO, x0, y1, DRAW_CLOSE_PATH];
   const endPath = (flat: number[]) => [28, flat, [0, 0, 0, 0]];

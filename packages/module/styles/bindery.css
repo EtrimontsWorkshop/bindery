@@ -167,7 +167,7 @@
   --bindery-danger:      #d99a8a;
   --bindery-danger-edge: rgba(217, 154, 138, 0.40);
 
-  --bindery-font-display: "Caprasimo", serif;
+  --bindery-font-display: "Figtree", sans-serif;
   --bindery-font-body:    "Figtree", system-ui, sans-serif;
   --bindery-font-mono:    "JetBrains Mono", ui-monospace, monospace;
 
@@ -184,8 +184,6 @@
    The window must work offline — no runtime dependency on a request to Google Fonts. Each
    family/weight has two files (latin-ext, then latin as a supplement) — the same subset split
    as the original Google files, so Polish diacritics (in latin-ext) work correctly. */
-@font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
-@font-face { font-family: "Caprasimo"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Caprasimo-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
 @font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Figtree-Regular-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
 @font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("../fonts/Figtree-Regular-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122; }
 @font-face { font-family: "Figtree"; font-style: normal; font-weight: 600; font-display: swap; src: url("../fonts/Figtree-SemiBold-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1E00-1EFF, U+2020, U+20A0-20AB, U+2113; }
@@ -239,7 +237,7 @@
 .bindery .window-header .window-title {
   font-family: var(--bindery-font-display);
   font-size: 15px;
-  font-weight: 400;
+  font-weight: 700;
   color: var(--bindery-text);
 }
 
@@ -901,7 +899,7 @@
   margin: 0 0 0.5rem;
   color: var(--bindery-text-2);
   font-family: var(--bindery-font-display);
-  font-weight: 400;
+  font-weight: 700;
 }
 
 .bindery-review-bulkops {

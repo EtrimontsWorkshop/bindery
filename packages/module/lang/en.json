@@ -177,6 +177,8 @@
       "whiteBackgroundHint": "Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved (images you changed by hand in the token panel or the editor are left as you made them), which makes sketches and line drawings easier to read. This also applies to tokens and statblock portraits.",
       "sortByPageLabel": "Sort images by page",
       "sortByPageHint": "Off: the review lists the images Bindery is sure about by page first, then the undecided ones from the largest to the smallest. On: all images are listed in the order of the book, page by page and from the top of a page to the bottom.",
+      "vectorFiguresLabel": "Import vector drawings",
+      "vectorFiguresHint": "Off: the PDF is analysed as before (pictures and maps drawn as big rectangles). On: drawings made of vector paths (a cartoon figure beside the text, a diagram, a logo) are also found, rendered as the part of the page they cover and listed as undecided images, unchecked. The render may contain scraps of text that run past the drawing (the image editor can erase them), and a few tables, diagrams and logos come with them. Takes effect for the next PDF you analyse.",
       "uploadPathLabel": "Image upload folder",
       "uploadPathHint": "Path (in the world's data storage) where images extracted from PDFs are saved."
     },

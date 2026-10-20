@@ -366,7 +366,7 @@ export async function probeOpaqueFraction(page: PdfPageForExtract, objId: string
 }
 
 /** The bounds (image fractions) of the visible part of resource `objId`, or `null` — see {@link opaqueBounds} and {@link probeOpaquePixelStats}. */
-export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string): Promise<FractionalBounds | null> {
+export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string, options?: { bodyShare: number; minLineShare: number }): Promise<FractionalBounds | null> {
   const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
   for (const objs of sources) {
     const pending = resolveIfReady(objs, objId);
@@ -374,7 +374,7 @@ export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string):
     try {
       const raw = await pending;
       if (raw == null) continue;
-      return opaqueBounds(normalizeDecodedImage(raw));
+      return opaqueBounds(normalizeDecodedImage(raw), options);
     } catch {
       continue;
     }

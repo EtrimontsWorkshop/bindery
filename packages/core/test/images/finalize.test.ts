@@ -282,6 +282,14 @@ describe('finalizeImages', () => {
     expect(finalizeImages([strong, undecided], new Set()).images.map((i) => i.classification)).toEqual(['decoration', 'decoration']);
   });
 
+  it('keeps a dark smooth picture (a figure in red light) that is not flat; hides a dark flat panel and a light smooth sheet of the same smoothness', async () => {
+    const smooth = { coarseGradient: 2.3, fineGradient: 1.35 };
+    const picture = await prepared(entry({ objId: 'red-light' }), image(900, 900, 90), { classification: 'undecided', confidence: 0.4, smoothness: smooth, visibleLuminanceStdDev: 23.5, meanLuminance: 53 });
+    const flatPanel = await prepared(entry({ objId: 'dark-panel' }), image(900, 900, 91), { classification: 'undecided', confidence: 0.4, smoothness: smooth, visibleLuminanceStdDev: 10, meanLuminance: 30 });
+    const lightSheet = await prepared(entry({ objId: 'parchment' }), image(900, 900, 92), { classification: 'undecided', confidence: 0.4, smoothness: smooth, visibleLuminanceStdDev: 23.5, meanLuminance: 212 });
+    expect(finalizeImages([picture, flatPanel, lightSheet], new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'decoration', 'decoration']);
+  });
+
   it('[user request] keeps an image that is smooth at only ONE scale (a faint sketch: low coarse but real fine detail)', async () => {
     const p = await prepared(entry({ objId: 'faint-sketch' }), image(900, 900, 200), { classification: 'undecided', confidence: 0.2, smoothness: { coarseGradient: 2.5, fineGradient: 2.9 } });
     expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
@@ -297,6 +305,18 @@ describe('finalizeImages', () => {
     expect(finalizeImages([art], new Set()).images[0]!.classification).toBe('undecided');
   });
 
+  it('keeps a page-sized undecided scene that is smooth but has a subject (a luminance spread of a picture), hides the sheet with a flat spread', async () => {
+    const smooth = { coarseGradient: 2.3, fineGradient: 1.2 };
+    const scene = await prepared(entry({ objId: 'night-scene', maxRelativeArea: 0.91 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: smooth, visibleLuminanceStdDev: 33.7 });
+    const sheet = await prepared(entry({ objId: 'flat-sheet', maxRelativeArea: 0.91 }), image(900, 900, 201), { classification: 'undecided', confidence: 0.4, smoothness: smooth, visibleLuminanceStdDev: 21 });
+    expect(finalizeImages([scene, sheet], new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'decoration']);
+  });
+
+  it('hides a light page-sized sheet with dark shapes on it (a high spread from a few blots) even though the spread is that of a picture', async () => {
+    const blotted = await prepared(entry({ objId: 'white-with-blots', maxRelativeArea: 0.95 }), image(900, 900, 202), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 2.5, fineGradient: 2.1 }, visibleLuminanceStdDev: 58, meanLuminance: 239 });
+    expect(finalizeImages([blotted], new Set()).images[0]!.classification).toBe('decoration');
+  });
+
   it('keeps a smaller undecided image with the same smoothness (the large-sheet rule needs a page-sized image)', async () => {
     const p = await prepared(entry({ objId: 'half-page', maxRelativeArea: 0.5 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 1.9, fineGradient: 3.3 } });
     expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
@@ -305,6 +325,12 @@ describe('finalizeImages', () => {
   it('keeps a page-sized grainy, high-contrast image (the fine limit)', async () => {
     const p = await prepared(entry({ objId: 'noisy', maxRelativeArea: 1 }), image(900, 900, 200), { classification: 'undecided', confidence: 0.4, smoothness: { coarseGradient: 2.0, fineGradient: 6 } });
     expect(finalizeImages([p], new Set()).images[0]!.classification).toBe('undecided');
+  });
+
+  it('hides a picture with next to no visible pixels whatever its size (a glow layer over an illustration), keeps a sparse one with real content', async () => {
+    const glow = await prepared(entry({ objId: 'glow', maxRelativeArea: 0.54 }), image(900, 900, 120), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.004 });
+    const sparse = await prepared(entry({ objId: 'sparse-figure', maxRelativeArea: 0.4 }), image(900, 900, 121), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.031 });
+    expect(finalizeImages([glow, sparse], new Set()).images.map((i) => i.classification)).toEqual(['decoration', 'undecided']);
   });
 
   it('hides a small undecided image that is mostly transparent (a paperclip), keeps a small opaque one', async () => {

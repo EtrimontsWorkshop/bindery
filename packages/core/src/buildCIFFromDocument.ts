@@ -27,7 +27,7 @@ import { buildTextLayout } from './text/buildTextLayout.js';
  * the stage throws or is aborted: at most one pdf.js worker is alive at a time, and none afterwards.
  */
 
-export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress'> {
+export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress' | 'includeVectorFigures'> {
   assetBaseUrl: string;
   fileName: string;
   fileHash: string;
@@ -66,7 +66,7 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
     buildImageExtraction(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       extractDoc as any,
-      { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
+      { images: inv.images, vectors: inv.vectors, shapes: inv.shapes, perPage: inv.perPage },
       browserRegionRenderer,
       browserImageEncoder,
       {

@@ -2,7 +2,7 @@ import type { Rect } from '../geometry.js';
 import { fontSizeFromTransform } from '../layout/textGeometry.js';
 import { buildFontKey, rankFontRoles, stripSubsetPrefix, type FontEntry, type FontRole } from './fontRegistry.js';
 import { buildImageEntries, type ImageEntry, type PageImageEvents } from './imageRegistry.js';
-import { buildVectorRegions, type VectorRegion } from './vectorRegistry.js';
+import { buildVectorRegions, buildVectorShapes, type VectorRegion, type VectorShape } from './vectorRegistry.js';
 import { walkOperators } from './walkOperators.js';
 
 /**
@@ -17,8 +17,13 @@ export interface InventoryResult {
   fontRoles: Map<string, FontRole>;
   images: ImageEntry[];
   vectors: VectorRegion[];
+  /** Filled paths that are not rectangles (parts of drawings), per page; a page with more than `MAX_SHAPES_PER_PAGE` of them (text drawn as outlines) has none. */
+  shapes: VectorShape[];
   perPage: { pageNumber: number; box: Rect; rotation: number }[];
 }
+
+/** A page with more shapes than this is a page of text drawn as outlines or of a hatched pattern, not of illustrations: its shapes are not kept. */
+const MAX_SHAPES_PER_PAGE = 20000;
 
 export interface BuildInventoryOptions {
   signal?: AbortSignal;
@@ -72,6 +77,7 @@ export async function buildInventory(
   const perPage: { pageNumber: number; box: Rect; rotation: number }[] = [];
   const perPageImageEvents: PageImageEvents[] = [];
   const allVectors: VectorRegion[] = [];
+  const allShapes: VectorShape[] = [];
   const fontAccByKey = new Map<string, FontAccumulator>();
 
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
@@ -89,6 +95,8 @@ export async function buildInventory(
 
       perPageImageEvents.push({ page: pageNumber, pageBox, events });
       allVectors.push(...buildVectorRegions(events, pageNumber, pageBox));
+      const pageShapes = buildVectorShapes(events, pageNumber, pageBox);
+      if (pageShapes.length <= MAX_SHAPES_PER_PAGE) allShapes.push(...pageShapes);
 
       // Font fingerprinting: getTextContent() is a SEPARATE pdf.js call (not a
       // second pass over the operator list's fnArray) — needed for real
@@ -172,6 +180,7 @@ export async function buildInventory(
     fontRoles,
     images,
     vectors: allVectors,
+    shapes: allShapes,
     perPage,
   };
 }

@@ -177,6 +177,8 @@
       "whiteBackgroundHint": "Obrazy z przezroczystymi obszarami dostają białe tło zaraz po analizie PDF (czyli przeglądasz je już z tłem) i ponownie przy zapisie (obrazy, które zmieniłeś ręcznie w panelu tokenu lub edytorze, zostają tak, jak je zrobiłeś), co ułatwia czytanie szkiców i rysunków. Dotyczy to także tokenów i portretów w statblockach.",
       "sortByPageLabel": "Sortuj obrazy wg stron",
       "sortByPageHint": "Wyłączone: przegląd pokazuje najpierw obrazy, co do których Bindery ma pewność, wg stron, a potem niepewne od największego do najmniejszego. Włączone: wszystkie obrazy są w kolejności podręcznika, strona po stronie, a na stronie od góry do dołu.",
+      "vectorFiguresLabel": "Importuj rysunki wektorowe",
+      "vectorFiguresHint": "Wyłączone: PDF jest analizowany jak dotąd (obrazy i mapy rysowane wielkimi prostokątami). Włączone: Bindery szuka też rysunków złożonych ze ścieżek wektorowych (postać rysowana obok tekstu, diagram, logo), renderuje fragment strony, który zajmują, i pokazuje je jako niepewne obrazy, odznaczone. W obrazie mogą być strzępy tekstu omijającego rysunek (edytor obrazu pozwala je wymazać), a razem z rysunkami trafi się też kilka tabel, diagramów i logo. Działa od następnego analizowanego PDF.",
       "uploadPathLabel": "Folder wgrywania obrazów",
       "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów."
     },

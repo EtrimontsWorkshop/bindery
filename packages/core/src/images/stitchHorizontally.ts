@@ -1,7 +1,7 @@
 import type { DecodedImage } from './normalizeDecodedImage.js';
 
 /** `image` scaled to `height` pixels tall, keeping its proportions (nearest neighbor: it only absorbs a rounding difference between two renders). */
-function scaleToHeight(image: DecodedImage, height: number): DecodedImage {
+export function scaleToHeight(image: DecodedImage, height: number): DecodedImage {
   if (image.height === height) return image;
   const width = Math.max(1, Math.round((image.width * height) / image.height));
   const rgba = new Uint8ClampedArray(width * height * 4);

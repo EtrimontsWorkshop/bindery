@@ -1,4 +1,4 @@
-import { ASSET_BASE_URL } from './settings.js';
+import { ASSET_BASE_URL, MODULE_ID } from './settings.js';
 import { loadCore } from './loadCore.js';
 import { buildStatblockAPI, type StatblockAPI } from './statblock/api.js';
 import { STATBLOCK_IMPORT_ENABLED } from './statblock/enabled.js';
@@ -63,7 +63,7 @@ export function buildAPI(version: string): BinderyAPI {
  */
 export async function extractImagesForReview(data: ArrayBuffer, opts: { signal?: AbortSignal } = {}): Promise<ExtractedImagePreview[]> {
   const { extractImagesFromDocument } = await loadCore();
-  const result = await extractImagesFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, signal: opts.signal });
+  const result = await extractImagesFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, signal: opts.signal, includeVectorFigures: game.settings!.get(MODULE_ID, 'vectorFigures') === true });
 
   return result.images
     .filter((img) => img.classification === 'content')
@@ -111,7 +111,14 @@ export async function buildJournalsForReview(
 ): Promise<CIFBuildResult> {
   const { buildCIFFromDocument } = await loadCore();
   const fileHash = await hashArrayBuffer(data);
-  const result = await buildCIFFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, fileName, fileHash, signal: opts.signal, onProgress: opts.onProgress });
+  const result = await buildCIFFromDocument(data, {
+    assetBaseUrl: ASSET_BASE_URL,
+    fileName,
+    fileHash,
+    signal: opts.signal,
+    onProgress: opts.onProgress,
+    includeVectorFigures: game.settings!.get(MODULE_ID, 'vectorFigures') === true,
+  });
   return {
     preview: {
       journals: result.document.journals.map((j) => ({ name: j.name, pageCount: j.pages.length })),

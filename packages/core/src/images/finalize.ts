@@ -140,6 +140,15 @@ const SMOOTH_BACKGROUND_FINE_MAX = 1.5;
  */
 const SMOOTH_BACKGROUND_MAX_STDDEV = 30;
 /**
+ * A dark picture that is smooth and monochrome (a figure in red light, a room lit by one lamp, a smoky street) is as smooth as a wash
+ * at both scales, because its gradients are small in absolute terms, and has a spread of 17-27. Measured on a real rulebook and a
+ * starter set: seven such pictures, among them a page-wide illustration and portraits, had a mean luminance of 40-63 and a spread
+ * of 17.7-26.6, while the washes and sheets that the rule exists for are light (mean 207-254), or flat (spread below 15). A dark smooth
+ * image that is not flat is a picture.
+ */
+const SMOOTH_BACKGROUND_DARK_MEAN_MAX = 100;
+const SMOOTH_BACKGROUND_DARK_PICTURE_MIN_STDDEV = 15;
+/**
  * A further case of the same kind, on the coarse gradient alone (paper grain raises the FINE
  * gradient to 1.7-3.4, which is why the rule above misses it). Measured on a real rulebook:
  * - A page-sized image that is still undecided (`maxRelativeArea >= 0.9`) and smooth at the coarse scale
@@ -151,6 +160,19 @@ const LARGE_SMOOTH_MIN_AREA = 0.9;
 const LARGE_SMOOTH_COARSE_MAX = 3.2;
 const LARGE_SMOOTH_FINE_MAX = 4.0;
 /**
+ * A page-sized night scene is as smooth as a sheet of paper at the coarse scale, but it has a subject: the two halves of a
+ * misty town across a spread measure coarse 3.34 and 2.34, and a luminance spread over the visible pixels of 41.9 and 33.7,
+ * while the sheets of paper and the washes of the books measured are 20-22. A smooth page-sized image with a spread this
+ * high is a picture (the same limit as for a smooth background).
+ */
+const LARGE_SMOOTH_MAX_STDDEV = 30;
+/**
+ * The exception above is for scenes, not for a white page with a few dark shapes on it: a sheet that is light over its visible
+ * pixels (a decorative blot, a stamp on paper) has a high spread only because of those shapes. Measured on a real rulebook: the
+ * eight such sheets have a mean luminance of 235-246 and 90%-94% white pixels; the pictures the exception is for, 18-149.
+ */
+const LARGE_SMOOTH_LIGHT_MEAN_LUMINANCE = 200;
+/**
  * SPARSE PROPS — a paperclip, a pin, a scrap: a small cut-out whose pixels are mostly transparent. Measured on
  * a real rulebook: the five paperclips have 10%-17% opaque pixels (alpha above 16); every small picture that
  * is worth importing — an emblem, a skull — is opaque everywhere, and the sparse images that are not small
@@ -158,6 +180,12 @@ const LARGE_SMOOTH_FINE_MAX = 4.0;
  */
 const SPARSE_PROP_MAX_OPAQUE_FRACTION = 0.3;
 const SPARSE_PROP_MAX_AREA = 0.05;
+/**
+ * A picture with next to no visible pixels, whatever its size: a glow, a spark or a wisp of smoke painted as a separate layer over
+ * an illustration, in a raster of the illustration's size. Measured on 18 real books: the two such layers have 0.4% and 0.8% opaque
+ * pixels; the sparsest picture of every other book has 3.1%.
+ */
+const NEARLY_EMPTY_MAX_OPAQUE_FRACTION = 0.02;
 /**
  * LIGHT PAPER SHEETS — a torn scrap or a sheet of paper under a handout, whose content (a crest, a note) is drawn
  * on it as vector graphics: an opaque, light, smooth texture. Measured on a real quick-start set: the two scraps are
@@ -597,13 +625,15 @@ export function isNeverWorthReviewing(
     d.smoothness !== undefined &&
     d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX &&
     d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX &&
-    (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < SMOOTH_BACKGROUND_MAX_STDDEV);
+    (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < SMOOTH_BACKGROUND_MAX_STDDEV) &&
+    !(d.meanLuminance !== undefined && d.meanLuminance < SMOOTH_BACKGROUND_DARK_MEAN_MAX && d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= SMOOTH_BACKGROUND_DARK_PICTURE_MIN_STDDEV);
   const isLargeSmoothSheet =
     d.classification === 'undecided' &&
     d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
     d.smoothness !== undefined &&
     d.smoothness.coarseGradient < LARGE_SMOOTH_COARSE_MAX &&
-    d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX;
+    d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX &&
+    (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < LARGE_SMOOTH_MAX_STDDEV || (d.meanLuminance !== undefined && d.meanLuminance >= LARGE_SMOOTH_LIGHT_MEAN_LUMINANCE));
   const isSparseProp =
     d.classification === 'undecided' && d.opaqueFraction !== undefined && d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION && d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
   const isLightPaperSheet =
@@ -617,6 +647,7 @@ export function isNeverWorthReviewing(
     d.smoothness !== undefined &&
     d.smoothness.coarseGradient < PAPER_SHEET_MAX_GRADIENT &&
     d.smoothness.fineGradient < PAPER_SHEET_MAX_GRADIENT;
+  const isNearlyEmpty = d.opaqueFraction !== undefined && d.opaqueFraction < NEARLY_EMPTY_MAX_OPAQUE_FRACTION;
   const isBlackShape =
     d.opaqueFraction !== undefined &&
     d.opaqueFraction >= BLACK_SHAPE_MIN_OPAQUE_FRACTION &&
@@ -627,7 +658,7 @@ export function isNeverWorthReviewing(
     d.opaqueFraction >= WHITE_SHAPE_MIN_OPAQUE_FRACTION &&
     d.whiteOpaqueShare !== undefined &&
     d.whiteOpaqueShare >= WHITE_SHAPE_MIN_SHARE;
-  return isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp || isLightPaperSheet || isBlackShape || isWhiteShape;
+  return isUniformColor || isLongAndNarrow || isSmoothBackground || isLargeSmoothSheet || isSparseProp || isNearlyEmpty || isLightPaperSheet || isBlackShape || isWhiteShape;
 }
 
 /**

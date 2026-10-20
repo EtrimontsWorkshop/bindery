@@ -62,7 +62,10 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   // signals (`Z1-conflicting-geometry-mask-vs-large-area`).
   'Z11-repeated-no-bleed-evidence': 0.4,
   'Z12-bleeding-no-center-text-evidence': 0.4,
+  'Z12-flush-no-center-text-evidence': 0.4,
+  'Z2-vector-figure': 0.3,
   'Z12-bleeding-masked-cutout': 0.7,
+  'Z12-bleeding-masked-large-picture': 0.4,
   'Z21-masked-silhouette-at-page-edge': 0.4,
   'Z12-bleeding-translucent-overlay': 0.8,
   'Z12-bleeding-translucent-panel': 0.2,
@@ -129,6 +132,17 @@ const LARGE_AREA_CONTENT_THRESHOLD = 0.4;
  * to typical print bleed (usually >=9pt/3mm).
  */
 const BLEED_TOLERANCE_PT = 1;
+
+/**
+ * A picture placed flush with the edge of the page is not a background spread over it: it reaches past the edge by a point or
+ * two at one side or at two (a corner of the page) (a column of pictures with caption banners, a chapter opener with its title over the picture, a figure cut out beside
+ * the text: 1.0-1.2 pt over), while print bleed is 3 mm (8.5 pt) and runs over the whole page. Such a picture of
+ * less than 60% of the page is judged by its text coverage with a higher limit: a title or a banner covers the center of a picture up to 32% (measured
+ * on 35 such pictures of 9 books), a sheet of paper with text on it, 35% and more. Whatever lies in between is left to the pixels of the picture.
+ */
+const FLUSH_PICTURE_MAX_OVERHANG_PT = 2;
+const FLUSH_PICTURE_MAX_AREA = 0.6;
+const FLUSH_PICTURE_TEXT_COVERAGE_DECORATION_THRESHOLD = 0.4;
 
 /**
  * Length of the bbox's longer edge (in page pt, NOT source
@@ -274,6 +288,18 @@ function hasBleedingOccurrence(entry: ImageEntry, pageBoxByPage: ReadonlyMap<num
   });
 }
 
+/** Whether every occurrence that reaches past the page does so at two sides at most and by at most `FLUSH_PICTURE_MAX_OVERHANG_PT`, and the picture is less than `FLUSH_PICTURE_MAX_AREA` of the page. */
+function isFlushPicture(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Rect>): boolean {
+  if (entry.maxRelativeArea >= FLUSH_PICTURE_MAX_AREA) return false;
+  for (const occ of entry.occurrences) {
+    const box = pageBoxByPage.get(occ.page);
+    if (!box) continue;
+    const overhangs = [box.minX - occ.bbox.minX, box.minY - occ.bbox.minY, occ.bbox.maxX - box.maxX, occ.bbox.maxY - box.maxY].filter((o) => o > BLEED_TOLERANCE_PT);
+    if (overhangs.length > 2 || overhangs.some((o) => o > FLUSH_PICTURE_MAX_OVERHANG_PT)) return false;
+  }
+  return true;
+}
+
 /** Whether ANY occurrence has a bbox longer edge >= the threshold — see `LARGE_ABSOLUTE_SIZE_PT`. */
 function hasLargeAbsoluteOccurrence(entry: ImageEntry): boolean {
   return entry.occurrences.some((occ) => Math.max(occ.bbox.maxX - occ.bbox.minX, occ.bbox.maxY - occ.bbox.minY) >= LARGE_ABSOLUTE_SIZE_PT);
@@ -381,7 +407,16 @@ export function isTranslucentEverywhere(entry: ImageEntry): boolean {
  * crests and washes of the same book far less.
  */
 const LARGE_TRANSLUCENT_PANEL_MIN_AREA = 0.3;
+/** Page-area share from which a bleeding picture that a mask cuts out is an illustration and not a scrap of the page's design. */
+const LARGE_MASKED_CUTOUT_MIN_AREA = 0.3;
+/** ...and below this: a masked picture that fills the page is the page's own background, as before. */
+const LARGE_MASKED_CUTOUT_MAX_AREA = 0.7;
+export const LARGE_MASKED_CUTOUT_REASON = 'Z12-bleeding-masked-large-picture';
+/** Share of each of two boxes that their overlap must cover for the two to be the same place on the page. */
+const SAME_PLACE_MIN_SHARE = 0.9;
 export const LARGE_TRANSLUCENT_PANEL_REASON = 'Z12-bleeding-translucent-panel';
+/** A picture that reaches past the page by a point or two only (see `FLUSH_PICTURE_MAX_OVERHANG_PT`) and that nothing speaks for or against: it belongs to the layout, so it may be one picture with its neighbors. */
+export const FLUSH_UNDECIDED_REASON = 'Z12-flush-no-center-text-evidence';
 
 /**
  * Opacity at or below which a translucent image is a faint backdrop (a colored panel or halftone layer behind a
@@ -552,7 +587,7 @@ export function classifyImages(
     // has a paragraph on it, a deliberate full-bleed illustration usually
     // doesn't.
     if (hasBleedingOccurrence(entry, pageBoxByPage)) {
-      if (centerTextCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD) {
+      if (centerTextCoverage >= (isFlushPicture(entry, pageBoxByPage) ? FLUSH_PICTURE_TEXT_COVERAGE_DECORATION_THRESHOLD : TEXT_COVERAGE_DECORATION_THRESHOLD)) {
         // [at the user's request] `treatFullBleedAsContent` bypasses the
         // assumption "full bleed + text on top = repeating background"
         // right here. Publications with a bespoke illustration under every
@@ -565,8 +600,13 @@ export function classifyImages(
       // A bleeding image that another image cuts out through a mask is a shape of the page's own design —
       // a paper scrap, a stain, a drop shadow, a strip of tape. Rendered on its own it shows nothing but the
       // page around it, so it is not offered. An unmasked bleeding image stays `undecided`: it may be a
-      // cover or a full-page illustration.
+      // cover or a full-page illustration. So does a masked one that fills between a third and seven tenths of the page: scraps
+      // and stains are small, and a picture of that size cut out by a mask (an illustration at the foot of a page
+      // with rounded corners, a photo pinned on a handout) is an illustration; one that fills the page is its background.
       if (entry.objId !== null && maskedObjIds.has(entry.objId)) {
+        if (entry.maxRelativeArea >= LARGE_MASKED_CUTOUT_MIN_AREA && entry.maxRelativeArea < LARGE_MASKED_CUTOUT_MAX_AREA && !isTranslucentEverywhere(entry)) {
+          return { entry, classification: 'undecided', reason: LARGE_MASKED_CUTOUT_REASON, confidence: confidenceForReason(LARGE_MASKED_CUTOUT_REASON) };
+        }
         return { entry, classification: 'decoration', reason: 'Z12-bleeding-masked-cutout', confidence: confidenceForReason('Z12-bleeding-masked-cutout') };
       }
       // A bleeding image painted translucent everywhere it appears (a watermark ornament, a texture laid
@@ -584,6 +624,9 @@ export function classifyImages(
       // is part of the page's design, not a picture to import.
       if (isSmallBleedingStrip(entry)) {
         return { entry, classification: 'decoration', reason: 'Z24-small-bleeding-strip', confidence: confidenceForReason('Z24-small-bleeding-strip') };
+      }
+      if (isFlushPicture(entry, pageBoxByPage)) {
+        return { entry, classification: 'undecided', reason: FLUSH_UNDECIDED_REASON, confidence: confidenceForReason(FLUSH_UNDECIDED_REASON) };
       }
       return { entry, classification: 'undecided', reason: 'Z12-bleeding-no-center-text-evidence', confidence: confidenceForReason('Z12-bleeding-no-center-text-evidence') };
     }
@@ -698,6 +741,8 @@ const TINY_IMAGE_MAX_AREA = 0.005;
  * have 48 and 66 tiny images; the busiest ordinary page, with a row of small icons, has 10.
  */
 const FORM_PAGE_MIN_TINY_IMAGES = 15;
+/** A page with this many small pictures and masks (a crew list of portraits, a character sheet) is laid out of small parts: its small undecided pictures are parts of the layout. Measured on a real starter set: 22 on a handout page with a crew list, and a page of that book with one portrait has 4. */
+const CROWDED_PAGE_MIN_SMALL_IMAGES = 20;
 /** On a form page, undecided images below this page-area share are parts of the form (its banners and boxes). */
 const FORM_PAGE_ELEMENT_MAX_AREA = 0.06;
 
@@ -803,9 +848,13 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
 
   // Every small picture of a page, however it was judged: a form page is known by how many it has.
   const smallPerPage = new Map<number, number>();
+  // The same count with the masks of the pictures: a page of small portraits, each cut out by its own mask.
+  const smallWithMasksPerPage = new Map<number, number>();
   for (const c of results) {
     const occ = c.entry.occurrences[0];
-    if (occ && c.classification !== 'mask' && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) smallPerPage.set(occ.page, (smallPerPage.get(occ.page) ?? 0) + 1);
+    if (!occ || c.entry.maxRelativeArea >= FORM_PAGE_ELEMENT_MAX_AREA) continue;
+    smallWithMasksPerPage.set(occ.page, (smallWithMasksPerPage.get(occ.page) ?? 0) + 1);
+    if (c.classification !== 'mask') smallPerPage.set(occ.page, (smallPerPage.get(occ.page) ?? 0) + 1);
   }
 
   const tinyPerPage = new Map<number, number>();
@@ -817,7 +866,9 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
   }
 
   return results.map((c): ClassifiedImage => {
-    const formPage = c.entry.occurrences[0] !== undefined && (tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES;
+    const formPage =
+      c.entry.occurrences[0] !== undefined &&
+      ((tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES || (smallWithMasksPerPage.get(c.entry.occurrences[0].page) ?? 0) >= CROWDED_PAGE_MIN_SMALL_IMAGES);
     if (hideTiny && formPage && c.classification === 'undecided' && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-element', confidence: confidenceForReason('Z18-form-page-element') };
     }
@@ -841,12 +892,27 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     ) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z22-page-background-under-content', confidence: confidenceForReason('Z22-page-background-under-content') };
     }
+    // A big masked picture painted exactly where another picture of the page is painted is that picture again (an illustration
+    // drawn once raw and once cut out by its mask): the raw one is offered, the copy would only be a second entry for it.
+    if (
+      c.reason === LARGE_MASKED_CUTOUT_REASON &&
+      (picturesByPage.get(occ.page) ?? []).some((other) => {
+        if (other === c || other.reason === LARGE_MASKED_CUTOUT_REASON) return false;
+        const there = other.entry.occurrences.find((o) => o.page === occ.page);
+        if (there === undefined) return false;
+        const shared = intersectionArea(occ.bbox, there.bbox);
+        return shared >= SAME_PLACE_MIN_SHARE * bboxArea(occ.bbox) && shared >= SAME_PLACE_MIN_SHARE * bboxArea(there.bbox);
+      })
+    ) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z12-bleeding-masked-cutout', confidence: confidenceForReason('Z12-bleeding-masked-cutout') };
+    }
     const ownBox = footprint(c.entry, occ.bbox);
     const area = bboxArea(ownBox);
     if (area <= 0) return c;
     const covered = (picturesByPage.get(occ.page) ?? []).some((other) => {
-      if (other === c || !(coversForSure(other.entry, maskedObjIds) || other.entry.maxRelativeArea >= COVERING_MUCH_LARGER_FACTOR * c.entry.maxRelativeArea)) return false;
-      const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined);
+      // A big masked picture offered only as a possibility (it may be a frame or a splatter) does not hide what lies under it.
+      if (other === c || other.reason === LARGE_MASKED_CUTOUT_REASON || !(coversForSure(other.entry, maskedObjIds) || other.entry.maxRelativeArea >= COVERING_MUCH_LARGER_FACTOR * c.entry.maxRelativeArea)) return false;
+      const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined && !o.blended);
       return over !== undefined && intersectionArea(ownBox, footprint(other.entry, over.bbox)) / area >= COVERED_PICTURE_MIN_COVER;
     });
     if (covered) return { entry: c.entry, classification: 'decoration', reason: 'Z17-covered-by-later-picture', confidence: confidenceForReason('Z17-covered-by-later-picture') };

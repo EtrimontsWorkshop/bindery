@@ -134,6 +134,41 @@ describe('classifyImages', () => {
     expect(result!.reason).toBe('Z1-full-bleed-background');
   });
 
+  describe('a small picture flush with one edge of the page (a column of pictures with caption banners)', () => {
+    const flush = (overhang: number): ImageEntry => entry({ maxRelativeArea: 0.08, occurrences: [{ page: 1, bbox: { minX: 330, minY: 200, maxX: 612 + overhang, maxY: 370 }, index: 0 }] });
+    // A caption banner over the lower part of the picture's central area: about 20% of it.
+    const banner = new Map([[1, [{ minX: 371, minY: 225, maxX: 572, maxY: 249 }]]]);
+    const panelText = new Map([[1, [{ minX: 371, minY: 225, maxX: 572, maxY: 290 }]]]); // more than half
+
+    it('with no text on it it is undecided for a reason of its own (it may be one picture with its neighbors); a real print bleed keeps the bleeding reason', () => {
+      expect(classifyImages([flush(1.1)], pageBoxMap([1]))[0]!.reason).toBe('Z12-flush-no-center-text-evidence');
+      expect(classifyImages([flush(9)], pageBoxMap([1]))[0]!.reason).toBe('Z12-bleeding-no-center-text-evidence');
+    });
+
+    it('is judged by a higher text coverage limit: a caption banner does not make it a background', () => {
+      const [result] = classifyImages([flush(1.1)], pageBoxMap([1]), banner);
+      expect(result!.classification).toBe('undecided');
+    });
+
+    it('is still a background when text covers its center as it does a panel of the layout', () => {
+      const [result] = classifyImages([flush(1.1)], pageBoxMap([1]), panelText);
+      expect(result!.reason).toBe('Z1-full-bleed-background');
+    });
+
+    it('is a background with the same caption when it runs over by a real print bleed, or over three sides', () => {
+      expect(classifyImages([flush(9)], pageBoxMap([1]), banner)[0]!.reason).toBe('Z1-full-bleed-background');
+      const wide = entry({ maxRelativeArea: 0.08, occurrences: [{ page: 1, bbox: { minX: -1.1, minY: 600, maxX: 613.1, maxY: 793.1 }, index: 0 }] });
+      const wideBanner = new Map([[1, [{ minX: 150, minY: 628, maxX: 450, maxY: 690 }]]]);
+      expect(classifyImages([wide], pageBoxMap([1]), wideBanner)[0]!.reason).toBe('Z1-full-bleed-background');
+    });
+
+    it('a picture in the corner of the page (over two edges by a point each) with a title across its center is not a background', () => {
+      const corner = entry({ maxRelativeArea: 0.36, occurrences: [{ page: 1, bbox: { minX: 40, minY: 357, maxX: 613.1, maxY: 793.1 }, index: 0 }] });
+      const title = new Map([[1, [{ minX: 140, minY: 480, maxX: 540, maxY: 600 }]]]);
+      expect(classifyImages([corner], pageBoxMap([1]), title)[0]!.classification).toBe('undecided');
+    });
+  });
+
   it('a bbox extending past the MediaBox WITHOUT text in the middle (one signal) -> undecided, not decoration', () => {
     // A real case from the reference set: a full-page map/spread illustration legitimately
     // extends past the bleed too.
@@ -201,6 +236,13 @@ describe('classifyImages', () => {
       expect(reasonOf(classifyAll([backdrop]), backdrop).reason).not.toBe('Z18-form-page-background');
     });
 
+    it('on a page crowded with small pictures and their masks (a crew list of portraits) a small undecided picture is a part of the layout', () => {
+      const masks = Array.from({ length: 21 }, (_, i) => entry({ objId: `m${i}`, maskEvidence: 'group', maxRelativeArea: 0.01, occurrences: [{ page: 1, bbox: { minX: 10 + i * 20, minY: 10, maxX: 25 + i * 20, maxY: 40 }, index: i }] }));
+      const avatar = at('avatar', { minX: 428, minY: 36, maxX: 524, maxY: 163 }, 30, 0.024);
+      expect(reasonOf(classifyAll([...masks, avatar]), avatar).reason).toBe('Z18-form-page-element');
+      expect(reasonOf(classifyAll([...masks.slice(0, 10), avatar]), avatar).classification).toBe('undecided');
+    });
+
     it('a larger image on a form page (above 6% of the page) is left alone', () => {
       const tinyOnes = Array.from({ length: 15 }, (_, i) => at(`t${i}`, { minX: 10 + i * 5, minY: 10, maxX: 14 + i * 5, maxY: 14 }, i, 0.001));
       const art = at('art', { minX: 100, minY: 200, maxX: 400, maxY: 500 }, 20, 0.18);
@@ -247,6 +289,12 @@ describe('classifyImages', () => {
       const strip = at('strip', { minX: 158, minY: 514, maxX: 446, maxY: 650 }, 3, 0.08);
       const figure = at('figure', { minX: 191, minY: 22, maxX: 452, maxY: 640 }, 8, 0.333);
       expect(reasonOf(classifyAll([strip, figure], false), strip).reason).toBe('Z17-covered-by-later-picture');
+    });
+
+    it('a later page-sized picture painted with a blend mode (a texture laid over a map) does not hide what lies under it', () => {
+      const map = at('map', { minX: 0, minY: 35, maxX: 596, maxY: 791 }, 3, 0.9);
+      const texture = entry({ objId: 'texture', maxRelativeArea: 0.93, occurrences: [{ page: 1, bbox: { minX: 0, minY: 34, maxX: 596, maxY: 812 }, index: 8, blended: true }] });
+      expect(reasonOf(classifyAll([map, texture], false), map).reason).not.toBe('Z17-covered-by-later-picture');
     });
 
     it('a later page-sized picture hides what lies under it', () => {
@@ -306,10 +354,30 @@ describe('classifyImages', () => {
 
   it('a bleeding image that another image cuts out through a mask -> decoration (a paper scrap or stain)', () => {
     const holder = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'img1' });
-    const target = entry({ maxRelativeArea: 0.5, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
+    const target = entry({ maxRelativeArea: 0.2, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
     const result = classifyImages([holder, target], pageBoxMap([1])).find((c) => c.entry === target)!;
     expect(result.classification).toBe('decoration');
     expect(result.reason).toBe('Z12-bleeding-masked-cutout');
+  });
+
+  it('a bleeding image that a mask cuts out and that fills a third to seven tenths of the page is an illustration, left undecided; a page-sized one stays a background', () => {
+    const holder = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'img1' });
+    const target = entry({ maxRelativeArea: 0.4, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
+    const result = classifyImages([holder, target], pageBoxMap([1])).find((c) => c.entry === target)!;
+    expect(result.classification).toBe('undecided');
+    expect(result.reason).toBe('Z12-bleeding-masked-large-picture');
+    const pageSized = entry({ objId: 'img2', maxRelativeArea: 1.0, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 2 }] });
+    const holder2 = entry({ objId: 'mask2', maskEvidence: 'group', masksImageObjId: 'img2' });
+    expect(classifyImages([holder2, pageSized], pageBoxMap([1])).find((c) => c.entry === pageSized)!.reason).toBe('Z12-bleeding-masked-cutout');
+  });
+
+  it('a large masked picture painted at exactly the place of another picture (the same illustration drawn raw and again cut out) is not offered a second time', () => {
+    const raw = entry({ objId: 'raw', maxRelativeArea: 0.4, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
+    const holder = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'copy' });
+    const copy = entry({ objId: 'copy', maxRelativeArea: 0.4, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 3 }] });
+    const results = classifyImages([raw, holder, copy], pageBoxMap([1]));
+    expect(results.find((c) => c.entry === raw)!.classification).toBe('undecided');
+    expect(results.find((c) => c.entry === copy)!.reason).toBe('Z12-bleeding-masked-cutout');
   });
 
   it('maxBleedOverhangPt: how far an occurrence reaches past the page, 0 when it does not', () => {

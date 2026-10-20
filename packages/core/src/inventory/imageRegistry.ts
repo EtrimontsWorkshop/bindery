@@ -26,6 +26,8 @@ export interface ImageOccurrence {
   index: number;
   /** Present only when this occurrence is painted translucent (below 1) — see `WalkEvent['image'].opacity`. */
   opacity?: number;
+  /** Present only when this occurrence is composited with a blend mode other than Normal — see `WalkEvent['image'].blended`. */
+  blended?: true;
   /** Present only when a clipping path cuts this occurrence — see `WalkEvent['image'].clip`. */
   clip?: ClipInfo;
   /** Present only when the picture is mirrored or turned on the page — see `placementOf`. */
@@ -147,6 +149,7 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
           intrinsicWidth: e.intrinsicWidth,
           intrinsicHeight: e.intrinsicHeight,
           ...(e.opacity !== undefined ? { opacity: e.opacity } : {}),
+          ...(e.blended ? { blended: true as const } : {}),
           ...(e.clip !== undefined ? { clip: e.clip } : {}),
           ...(placementOf(e.ctm) !== undefined ? { placement: placementOf(e.ctm)! } : {}),
         },
@@ -279,7 +282,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
       entriesByKey.set(key, entry);
     }
 
-    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}), ...(occ.placement !== undefined ? { placement: occ.placement } : {}) });
+    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.blended ? { blended: true as const } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}), ...(occ.placement !== undefined ? { placement: occ.placement } : {}) });
 
     // The first occurrence carrying the intrinsic resolution is enough — the
     // same objId always refers to the same resource, so later occurrences

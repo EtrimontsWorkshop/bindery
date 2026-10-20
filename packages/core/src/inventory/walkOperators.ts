@@ -93,6 +93,12 @@ export type WalkEvent =
        */
       opacity?: number;
       /**
+       * Present (true) only when the picture is composited with a blend mode other than Normal (overlay, multiply, soft
+       * light...), its own or that of a transparency group around it. Such a picture tints what lies under it instead of
+       * hiding it: a texture laid over a map with `overlay` leaves the map visible.
+       */
+      blended?: true;
+      /**
        * Present only when a clipping path cuts the picture (lets less than 97% of it through): the clips that do,
        * and the CTM they apply with. The raw resource of such a picture is the whole sheet, the page shows
        * only what the clips let through.
@@ -101,6 +107,8 @@ export type WalkEvent =
     }
   | { type: 'font'; fontName: string; sizeFromMatrix: number; index: number }
   | { type: 'vector'; kind: 'fill' | 'stroke'; bbox: Rect; ctm: Matrix; inGroup: GroupContext | null; index: number }
+  /** A filled path that is not an axis-aligned rectangle (a curve, a polygon): a part of a drawing. `bbox` is the box of the path's points, control points included. */
+  | { type: 'shape'; bbox: Rect; index: number }
   | { type: 'group'; phase: 'begin' | 'end'; subtype: string | null; index: number };
 
 export interface OperatorListLike {
@@ -182,6 +190,42 @@ function parsePathSegments(flat: number[]): PathSegment[] {
     }
   }
   return segments;
+}
+
+/** The box (page space) of every point of a packed path, the control points of curves included; `null` for a path with no points. */
+function pathBounds(flat: number[], ctm: Matrix): Rect | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const take = (x: number, y: number): void => {
+    const px = ctm[0] * x + ctm[2] * y + ctm[4];
+    const py = ctm[1] * x + ctm[3] * y + ctm[5];
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (py < minY) minY = py;
+    if (py > maxY) maxY = py;
+  };
+  let i = 0;
+  while (i < flat.length) {
+    const op = flat[i++]!;
+    if (op === DRAW_MOVE_TO || op === DRAW_LINE_TO) {
+      take(flat[i]!, flat[i + 1]!);
+      i += 2;
+    } else if (op === DRAW_CURVE_TO) {
+      take(flat[i]!, flat[i + 1]!);
+      take(flat[i + 2]!, flat[i + 3]!);
+      take(flat[i + 4]!, flat[i + 5]!);
+      i += 6;
+    } else if (op === DRAW_QUADRATIC_CURVE_TO) {
+      take(flat[i]!, flat[i + 1]!);
+      take(flat[i + 2]!, flat[i + 3]!);
+      i += 4;
+    } else if (op !== DRAW_CLOSE_PATH) {
+      break;
+    }
+  }
+  return minX === Infinity ? null : { minX, minY, maxX, maxY };
 }
 
 /**
@@ -280,12 +324,24 @@ interface WalkContext {
   alphaStack: number[];
   /** The alpha each open transparency group was begun with, parallel to `groupStack`. */
   groupAlphas: number[];
+  /** Whether a blend mode other than Normal is in force now. */
+  blended: boolean;
+  /** Saved `blended`, pushed and popped in step with `alphaStack`. */
+  blendStack: boolean[];
+  /** Whether each open transparency group was begun under a blend mode other than Normal, parallel to `groupStack`. */
+  groupBlends: boolean[];
   /** The clipping paths in force now, outermost first. */
   clips: ClipPath[];
   /** Saved `clips.length`, pushed and popped in step with `ctmStack` (and by transparency groups). */
   clipStack: number[];
   /** Set by `clip`/`eoClip`: the next path becomes a clip instead of being painted. */
   pendingClip: boolean;
+}
+
+/** pdf.js names the Normal blend mode `source-over`; an unknown or list-valued mode counts as blended only when it is not Normal. */
+function isBlendedMode(mode: unknown): boolean {
+  const name = Array.isArray(mode) ? mode[0] : mode;
+  return typeof name === 'string' && name !== 'source-over' && name !== 'Normal' && name !== 'Compatible';
 }
 
 type OpHandler = (ctx: WalkContext, args: unknown[], index: number) => void;
@@ -297,6 +353,11 @@ function currentGroup(ctx: WalkContext): GroupContext | null {
 /** The opacity an image painted now has (see `WalkEvent['image'].opacity`); 1 when nothing makes it translucent. */
 function currentOpacity(ctx: WalkContext): number {
   return ctx.groupAlphas.reduce((product, a) => product * a, ctx.alpha);
+}
+
+/** Whether an image painted now is composited with a blend mode other than Normal (its own or its group's). */
+function currentBlended(ctx: WalkContext): boolean {
+  return ctx.blended || ctx.groupBlends.some(Boolean);
 }
 
 /** The clips that cut a picture painted now (see `WalkEvent['image'].clip`), or `undefined` when none does. */
@@ -312,6 +373,7 @@ function handleImagePaint(opcode: number): OpHandler {
   return (ctx, args, index) => {
     const { width, height } = extractIntrinsicSize(opcode, args);
     const opacity = currentOpacity(ctx);
+    const blended = currentBlended(ctx);
     const clip = clipOfPicture(ctx);
     ctx.events.push({
       type: 'image',
@@ -324,6 +386,7 @@ function handleImagePaint(opcode: number): OpHandler {
       intrinsicWidth: width,
       intrinsicHeight: height,
       ...(opacity < 1 ? { opacity } : {}),
+      ...(blended ? { blended: true as const } : {}),
       ...(clip ? { clip } : {}),
     });
   };
@@ -336,6 +399,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctmStack.push(ctx.ctm);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.blendStack.push(ctx.blended);
       ctx.clipStack.push(ctx.clips.length);
     },
   ],
@@ -344,6 +408,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.blended = ctx.blendStack.pop() ?? ctx.blended;
       ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
     },
   ],
@@ -355,6 +420,7 @@ const HANDLERS = new Map<number, OpHandler>([
       if (!Array.isArray(pairs)) return;
       for (const pair of pairs) {
         if (Array.isArray(pair) && pair[0] === 'ca' && typeof pair[1] === 'number') ctx.alpha = pair[1];
+        if (Array.isArray(pair) && pair[0] === 'BM') ctx.blended = isBlendedMode(pair[1]);
       }
     },
   ],
@@ -393,6 +459,7 @@ const HANDLERS = new Map<number, OpHandler>([
       // IDENTICAL, absurd bbox.
       ctx.ctmStack.push(ctx.ctm);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.blendStack.push(ctx.blended);
       ctx.clipStack.push(ctx.clips.length);
       const formMatrix = args[0];
       if (formMatrix != null) {
@@ -405,6 +472,7 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx) => {
       ctx.ctm = ctx.ctmStack.pop() ?? ctx.ctm;
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.blended = ctx.blendStack.pop() ?? ctx.blended;
       ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
     },
   ],
@@ -429,9 +497,12 @@ const HANDLERS = new Map<number, OpHandler>([
       // A transparency group is composited once, with the alpha that was in force when it began; the
       // content inside starts opaque again (the group's own alpha is `groupAlphas`).
       ctx.groupAlphas.push(ctx.alpha);
+      ctx.groupBlends.push(ctx.blended);
       ctx.alphaStack.push(ctx.alpha);
+      ctx.blendStack.push(ctx.blended);
       ctx.clipStack.push(ctx.clips.length);
       ctx.alpha = 1;
+      ctx.blended = false;
       ctx.events.push({ type: 'group', phase: 'begin', subtype, index });
     },
   ],
@@ -440,7 +511,9 @@ const HANDLERS = new Map<number, OpHandler>([
     (ctx, _args, index) => {
       const g = ctx.groupStack.pop();
       ctx.groupAlphas.pop();
+      ctx.groupBlends.pop();
       ctx.alpha = ctx.alphaStack.pop() ?? ctx.alpha;
+      ctx.blended = ctx.blendStack.pop() ?? ctx.blended;
       ctx.clips.length = Math.min(ctx.clips.length, ctx.clipStack.pop() ?? ctx.clips.length);
       ctx.events.push({ type: 'group', phase: 'end', subtype: g?.subtype ?? null, index });
     },
@@ -470,6 +543,9 @@ const HANDLERS = new Map<number, OpHandler>([
         if (STROKE_SUBOPS.has(fillOrStroke)) {
           ctx.events.push({ type: 'vector', kind: 'stroke', bbox, ctm: ctx.ctm, inGroup, index });
         }
+      } else if (FILL_SUBOPS.has(fillOrStroke)) {
+        const bbox = pathBounds(flat, ctx.ctm);
+        if (bbox !== null) ctx.events.push({ type: 'shape', bbox, index });
       }
     },
   ],
@@ -485,7 +561,7 @@ const HANDLERS = new Map<number, OpHandler>([
 export const HANDLED_OPCODES: ReadonlySet<number> = new Set(HANDLERS.keys());
 
 export function walkOperators(ops: OperatorListLike, _pageBox: Rect): WalkEvent[] {
-  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [], alpha: 1, alphaStack: [], groupAlphas: [], clips: [], clipStack: [], pendingClip: false };
+  const ctx: WalkContext = { events: [], ctm: IDENTITY_MATRIX, ctmStack: [], groupStack: [], alpha: 1, alphaStack: [], groupAlphas: [], blended: false, blendStack: [], groupBlends: [], clips: [], clipStack: [], pendingClip: false };
 
   const { fnArray, argsArray } = ops;
   for (let i = 0; i < fnArray.length; i++) {

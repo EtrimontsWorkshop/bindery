@@ -99,7 +99,7 @@ export async function extractImagesFromDocument(
     buildImageExtraction(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       extractDoc as any,
-      { images: inv.images, vectors: inv.vectors, perPage: inv.perPage },
+      { images: inv.images, vectors: inv.vectors, shapes: inv.shapes, perPage: inv.perPage },
       browserRegionRenderer,
       browserImageEncoder,
       { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTextOverPicture, pickUnitRepresentative } from '../../src/images/buildImageExtraction.js';
+import { isTextOverPicture, looksLikePlainTextCard, pickUnitRepresentative } from '../../src/images/buildImageExtraction.js';
 import { isTranslucentEverywhere, type ClassifiedImage } from '../../src/images/classify.js';
 import type { ImageEntry } from '../../src/inventory/imageRegistry.js';
 import type { Rect } from '../../src/geometry.js';
@@ -90,5 +90,15 @@ describe('pickUnitRepresentative', () => {
 
   it('a single member is its own representative', () => {
     expect(pickUnitRepresentative([classified(watermark)], new Set()).entry.objId).toBe('watermark');
+  });
+});
+
+describe('looksLikePlainTextCard', () => {
+  it('a smooth opaque panel is a card of the page text; a textured one, a translucent one and an unknown one are not', () => {
+    expect(looksLikePlainTextCard({ luminanceStdDev: 20 }, 1)).toBe(true);
+    expect(looksLikePlainTextCard({ luminanceStdDev: 45 }, 1)).toBe(false);
+    expect(looksLikePlainTextCard({ luminanceStdDev: 20 }, 0.6)).toBe(false);
+    expect(looksLikePlainTextCard(null, 1)).toBe(false);
+    expect(looksLikePlainTextCard({ luminanceStdDev: 20 }, null)).toBe(false);
   });
 });

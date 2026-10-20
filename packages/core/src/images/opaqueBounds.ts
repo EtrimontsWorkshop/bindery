@@ -27,8 +27,14 @@ export interface FractionalBounds {
   y1: number;
 }
 
-/** The bounds (0-1, in image fractions) of the visible part of the image, or `null` when nothing is visible. */
-export function opaqueBounds(image: DecodedImage): FractionalBounds | null {
+/** For `opaqueBounds` taken over the whole extent of what is drawn (several pieces spread over a transparent field): a row or column counts when 0.3% of it is visible. */
+export const FULL_EXTENT_BOUNDS = { bodyShare: 0, minLineShare: 0.003 } as const;
+
+/**
+ * The bounds (0-1, in image fractions) of the visible part of the image, or `null` when nothing is visible. By default it is the body of one
+ * picture (a note, a scrap); with `FULL_EXTENT_BOUNDS` it is everything that is drawn.
+ */
+export function opaqueBounds(image: DecodedImage, options: { bodyShare: number; minLineShare: number } = { bodyShare: BODY_SHARE, minLineShare: MIN_LINE_SHARE }): FractionalBounds | null {
   const { width, height, rgba } = image;
   if (width <= 0 || height <= 0) return null;
   const sx = Math.max(1, Math.ceil(width / MAX_SAMPLES_PER_AXIS));
@@ -50,7 +56,7 @@ export function opaqueBounds(image: DecodedImage): FractionalBounds | null {
   // along the edge of a note is visible over a smaller share of the lines than the note itself.
   const bodyLines = (counts: Uint32Array, lineLength: number): { first: number; last: number } => {
     const peak = Math.max(...counts) / lineLength;
-    const limit = Math.max(MIN_LINE_SHARE, BODY_SHARE * peak);
+    const limit = Math.max(options.minLineShare, options.bodyShare * peak);
     const first = counts.findIndex((n) => n / lineLength >= limit);
     let last = -1;
     for (let i = counts.length - 1; i >= 0; i--) {
