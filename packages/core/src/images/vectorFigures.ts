@@ -27,6 +27,10 @@ const MAX_SHAPE_PAGE_SHARE = 0.25;
 /** A shape thinner than this (both sides, in points) is a hairline or a dot. */
 const MIN_SHAPE_SIDE_PT = 0.5;
 const GRID_CELL_PT = 16;
+/** A shape that holds all the others of its cluster and is this many times the area of their union is a plate the drawing lies on (the patch of paper at a page's corner), not a part of it. */
+const BACKDROP_MIN_AREA_RATIO = 2.5;
+/** How far (points) the others may stick out of the plate and it still holds them. */
+const BACKDROP_HOLD_TOLERANCE_PT = 2;
 
 export interface FigureShape {
   bbox: Rect;
@@ -34,6 +38,8 @@ export interface FigureShape {
 
 export interface VectorFigure {
   bbox: Rect;
+  /** The box of the cluster as it was found, with the plate that the drawing lies on (see `withoutBackdrop`); `bbox` is the same without it. What covers the drawing is judged by this box. */
+  foundBbox: Rect;
   shapeCount: number;
   /** The boxes of the shapes the drawing is made of. */
   shapeBoxes: Rect[];
@@ -105,14 +111,37 @@ export function findVectorFigures(shapes: readonly FigureShape[], pageBox: Rect)
   });
 
   const figures: VectorFigure[] = [];
-  for (const c of clusters.values()) {
+  for (const cluster of clusters.values()) {
+    const c = withoutBackdrop(cluster);
     const w = c.bbox.maxX - c.bbox.minX;
     const h = c.bbox.maxY - c.bbox.minY;
     const share = (w * h) / pageArea;
-    if (c.count < MIN_SHAPES || Math.min(w, h) < MIN_SIDE_PT || share < MIN_PAGE_SHARE || share > MAX_PAGE_SHARE) continue;
+    // How much of the page a drawing is is judged by the cluster as it was found, with its plate: the crop to the drawing is a refinement of it, not a smaller drawing.
+    const foundShare = rectArea(cluster.bbox) / pageArea;
+    if (c.count < MIN_SHAPES || Math.min(w, h) < MIN_SIDE_PT || foundShare < MIN_PAGE_SHARE || share > MAX_PAGE_SHARE) continue;
     if (Math.max(w, h) / Math.min(w, h) > MAX_ASPECT || w / (pageBox.maxX - pageBox.minX) > MAX_WIDTH_SHARE) continue;
     if (c.shapeArea / (w * h) < MIN_FILL) continue;
-    figures.push({ bbox: c.bbox, shapeCount: c.count, shapeBoxes: c.boxes });
+    figures.push({ bbox: c.bbox, foundBbox: cluster.bbox, shapeCount: c.count, shapeBoxes: c.boxes });
   }
   return figures.sort((a, b) => a.bbox.minY - b.bbox.minY || a.bbox.minX - b.bbox.minX);
+}
+
+interface Cluster {
+  bbox: Rect;
+  count: number;
+  shapeArea: number;
+  boxes: Rect[];
+}
+
+/** `cluster` without the plate that its other shapes lie on, when it has one (see `BACKDROP_MIN_AREA_RATIO`); the cluster as it was otherwise. */
+function withoutBackdrop(cluster: Cluster): Cluster {
+  if (cluster.boxes.length < 2) return cluster;
+  let largest = 0;
+  for (let i = 1; i < cluster.boxes.length; i++) if (rectArea(cluster.boxes[i]!) > rectArea(cluster.boxes[largest]!)) largest = i;
+  const plate = cluster.boxes[largest]!;
+  const others = cluster.boxes.filter((_, i) => i !== largest);
+  const union = others.reduce((acc, b) => ({ minX: Math.min(acc.minX, b.minX), minY: Math.min(acc.minY, b.minY), maxX: Math.max(acc.maxX, b.maxX), maxY: Math.max(acc.maxY, b.maxY) }), others[0]!);
+  const holds = union.minX >= plate.minX - BACKDROP_HOLD_TOLERANCE_PT && union.minY >= plate.minY - BACKDROP_HOLD_TOLERANCE_PT && union.maxX <= plate.maxX + BACKDROP_HOLD_TOLERANCE_PT && union.maxY <= plate.maxY + BACKDROP_HOLD_TOLERANCE_PT;
+  if (!holds || rectArea(plate) < BACKDROP_MIN_AREA_RATIO * rectArea(union)) return cluster;
+  return { bbox: union, count: others.length, shapeArea: cluster.shapeArea - rectArea(plate), boxes: others };
 }

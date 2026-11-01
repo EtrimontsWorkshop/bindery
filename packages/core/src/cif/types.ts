@@ -40,12 +40,19 @@ export interface CIFImage {
   caption?: string;
   /**
    * `'content'` or `'undecided'` — ONLY these two values enter the CIF
-   * (`decoration`/`mask` are rejected earlier, see `buildCIFDocument.ts`).
+   * (`decoration`/`mask` are rejected earlier, see `buildCIFDocument.ts`;
+   * a `decoration` that is a box of text enters as `undecided` with `holdsText`).
    * The review screen uses this field for default checking/sorting —
    * `packages/module` does NOT compute the classification itself, it only READS
    * what `core` has already decided (`check:boundary`).
    */
   classification: 'content' | 'undecided';
+  /**
+   * The picture is a card or box of text (a note, a sidebar, a stat block on parchment) that `core` hides by
+   * default as the layout's own text, not a picture. It is `undecided` here; the review screen lists it only when
+   * the user asks for pictures with text.
+   */
+  holdsText?: boolean;
   /** See `ClassifiedImage.confidence` in `images/classify.ts`. */
   confidence: number;
   /**

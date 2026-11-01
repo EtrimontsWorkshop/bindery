@@ -59,18 +59,77 @@ function fillPolygons(polygons: readonly number[][], width: number, height: numb
  * `image` with everything outside the clips made transparent, cropped to the visible part. Returns `image` itself
  * when the clips cannot be applied (singular CTM) or leave nothing.
  */
-export function applyClipToImage(image: DecodedImage, clip: Pick<ClipInfo, 'paths' | 'ctm'>): DecodedImage {
-  const { width, height } = image;
-  if (width <= 0 || height <= 0 || clip.paths.length === 0) return image;
+/** A picture is a drawing on white paper when at least this share of its pixels is near white. */
+const PAPER_DRAWING_MIN_WHITE_SHARE = 0.5;
+const PAPER_MIN_CHANNEL = 225;
+
+/** Whether most of `image` is white paper (a sketch or a drawing on a white sheet). Sampled on a grid of at most ~250k points. */
+function isDrawingOnPaper(image: DecodedImage): boolean {
+  const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
+  let n = 0;
+  let white = 0;
+  for (let y = 0; y < image.height; y += stride) {
+    for (let x = 0; x < image.width; x += stride) {
+      const i = (y * image.width + x) * 4;
+      n++;
+      if (image.rgba[i + 3]! >= 16 && Math.min(image.rgba[i]!, image.rgba[i + 1]!, image.rgba[i + 2]!) >= PAPER_MIN_CHANNEL) white++;
+    }
+  }
+  return n > 0 && white >= PAPER_DRAWING_MIN_WHITE_SHARE * n;
+}
+
+/** Pixels (1 = inside) that all the paths of `clip` let through, or null when the CTM is singular or there is no path. */
+function maskOfClip(clip: Pick<ClipInfo, 'paths' | 'ctm'>, width: number, height: number): Uint8Array | null {
   let combined: Uint8Array | null = null;
   for (const path of clip.paths) {
     const polygons = toPixelPolygons(path, clip.ctm, width, height);
-    if (polygons === null) return image;
+    if (polygons === null) return null;
     const mask = fillPolygons(polygons, width, height);
     if (combined === null) combined = mask;
     else for (let i = 0; i < combined.length; i++) combined[i] = combined[i]! & mask[i]!;
   }
+  return combined;
+}
+
+/** Clears every piece of `mask` (4-connected) but the largest one. */
+function keepLargestPiece(mask: Uint8Array, width: number, height: number): void {
+  const label = new Int32Array(width * height);
+  const stack: number[] = [];
+  let best = 0;
+  let bestSize = 0;
+  let next = 0;
+  for (let start = 0; start < mask.length; start++) {
+    if (!mask[start] || label[start]) continue;
+    next++;
+    let size = 0;
+    label[start] = next;
+    stack.push(start);
+    while (stack.length > 0) {
+      const p = stack.pop()!;
+      size++;
+      const x = p % width;
+      if (x > 0 && mask[p - 1] && !label[p - 1]) { label[p - 1] = next; stack.push(p - 1); }
+      if (x < width - 1 && mask[p + 1] && !label[p + 1]) { label[p + 1] = next; stack.push(p + 1); }
+      if (p >= width && mask[p - width] && !label[p - width]) { label[p - width] = next; stack.push(p - width); }
+      if (p < width * (height - 1) && mask[p + width] && !label[p + width]) { label[p + width] = next; stack.push(p + width); }
+    }
+    if (size > bestSize) { bestSize = size; best = next; }
+  }
+  for (let i = 0; i < mask.length; i++) if (mask[i] && label[i] !== best) mask[i] = 0;
+}
+
+export function applyClipToImage(image: DecodedImage, clip: Pick<ClipInfo, 'paths' | 'ctm'>, options: { hiddenBecomesPaper?: boolean; holes?: readonly Pick<ClipInfo, 'paths' | 'ctm'>[] } = {}): DecodedImage {
+  const { width, height } = image;
+  if (width <= 0 || height <= 0 || clip.paths.length === 0) return image;
+  const combined = maskOfClip(clip, width, height);
   if (combined === null) return image;
+  // What other pictures painted over this one cover is not shown of it either.
+  for (const hole of options.holes ?? []) {
+    const covered = maskOfClip(hole, width, height);
+    if (covered !== null) for (let i = 0; i < combined.length; i++) if (covered[i]) combined[i] = 0;
+  }
+  // Cutting other pictures out can leave slivers of the picture that stick out from behind them: only the largest piece is its visible part.
+  if ((options.holes?.length ?? 0) > 0) keepLargestPiece(combined, width, height);
 
   let minX = width;
   let minY = height;
@@ -88,14 +147,43 @@ export function applyClipToImage(image: DecodedImage, clip: Pick<ClipInfo, 'path
   }
   if (maxX < minX || maxY < minY) return image;
 
-  const outW = maxX - minX + 1;
-  const outH = maxY - minY + 1;
+  let outW = maxX - minX + 1;
+  let outH = maxY - minY + 1;
+  // A photo pinned to the page at a slight angle is cut by a tilted quadrilateral; the largest upright rectangle inside it is the picture without
+  // the skewed edge and the transparent corners. A silhouette (a figure, a torn shape) has no rectangle of that size inside it and keeps its cut.
+  let visible = 0;
+  let seeThrough = 0;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (!combined[y * width + x]) continue;
+      visible++;
+      if (image.rgba[(y * width + x) * 4 + 3]! < OPAQUE_MIN_ALPHA) seeThrough++;
+    }
+  }
+  // Only a picture that fills its frame (a photo) is trimmed: a figure cut out on a transparent ground has parts of itself in the corners of the frame.
+  if (visible < NEAR_SOLID_MIN_FILL * outW * outH && seeThrough <= MAX_SEE_THROUGH_SHARE * visible) {
+    const inner = largestRectangleIn(combined, width, minX, minY, maxX, maxY);
+    if (inner !== null && (inner.maxX - inner.minX + 1) * (inner.maxY - inner.minY + 1) >= INSCRIBED_MIN_SHARE * visible) {
+      minX = inner.minX;
+      minY = inner.minY;
+      maxX = inner.maxX;
+      maxY = inner.maxY;
+      outW = maxX - minX + 1;
+      outH = maxY - minY + 1;
+    }
+  }
+  const hiddenBecomesPaper = options.hiddenBecomesPaper === true && isDrawingOnPaper(image);
   const rgba = new Uint8ClampedArray(outW * outH * 4);
   for (let y = 0; y < outH; y++) {
     for (let x = 0; x < outW; x++) {
       const src = (minY + y) * width + (minX + x);
       const dst = (y * outW + x) * 4;
-      if (!combined[src]) continue;
+      if (!combined[src]) {
+        // A drawing on white paper that the page multiplies over its background shows nothing where white lies, so what the clip hides can be white paper: a
+        // transparent polygon with a hard edge in its place means nothing off the page.
+        if (hiddenBecomesPaper) rgba.fill(255, dst, dst + 4);
+        continue;
+      }
       rgba[dst] = image.rgba[src * 4]!;
       rgba[dst + 1] = image.rgba[src * 4 + 1]!;
       rgba[dst + 2] = image.rgba[src * 4 + 2]!;
@@ -103,6 +191,41 @@ export function applyClipToImage(image: DecodedImage, clip: Pick<ClipInfo, 'path
     }
   }
   return { width: outW, height: outH, rgba };
+}
+
+/** Share of its bounding box that the visible part must fill for the cut to count as already (nearly) a rectangle and be left as it is. */
+const NEAR_SOLID_MIN_FILL = 0.97;
+/** Share of the visible area that the largest upright rectangle inside it must take for the picture to be cut to that rectangle. */
+const INSCRIBED_MIN_SHARE = 0.9;
+/** A pixel with at least this alpha counts as opaque; a picture with more than this share of see-through pixels in its frame is a cut-out figure. */
+const OPAQUE_MIN_ALPHA = 250;
+const MAX_SEE_THROUGH_SHARE = 0.02;
+
+/** The largest axis-aligned rectangle that lies wholly in `mask` (1 = inside) within the given bounds, or null when there is none. */
+function largestRectangleIn(mask: Uint8Array, stride: number, minX: number, minY: number, maxX: number, maxY: number): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  const w = maxX - minX + 1;
+  const heights = new Int32Array(w);
+  let best = 0;
+  let found: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
+  const stack: number[] = [];
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = 0; x < w; x++) heights[x] = mask[y * stride + minX + x] ? heights[x]! + 1 : 0;
+    stack.length = 0;
+    for (let x = 0; x <= w; x++) {
+      const h = x === w ? 0 : heights[x]!;
+      while (stack.length > 0 && heights[stack[stack.length - 1]!]! >= h) {
+        const height = heights[stack.pop()!]!;
+        const left = stack.length === 0 ? 0 : stack[stack.length - 1]! + 1;
+        const area = height * (x - left);
+        if (area > best) {
+          best = area;
+          found = { minX: minX + left, minY: y - height + 1, maxX: minX + x - 1, maxY: y };
+        }
+      }
+      stack.push(x);
+    }
+  }
+  return found;
 }
 
 /** Rectangle (page space) that a clip path is exactly, or null when it is anything else. */
@@ -126,11 +249,63 @@ function axisAlignedRectOf(path: ClipPath): { minX: number; minY: number; maxX: 
   return onEdge && maxX - minX > tolerance && maxY - minY > tolerance ? { minX, minY, maxX, maxY } : null;
 }
 
+/** Share of its bounding box that a clip polygon must fill (a frame tilted by a degree or two, or with rounded corners) to count as a rectangle. */
+const NEAR_RECTANGLE_MIN_FILL = 0.9;
+
+/** The bounding box of a clip that is one polygon filling nearly all of it (a slightly tilted or rounded window), or null. */
+function nearRectangleOf(path: ClipPath): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  if (path.length !== 1) return null;
+  const polygon = path[0]!;
+  const n = polygon.length / 2;
+  if (n < 4) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let twiceArea = 0;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const x = polygon[2 * i]!;
+    const y = polygon[2 * i + 1]!;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    twiceArea += polygon[2 * j]! * y - x * polygon[2 * j + 1]!;
+  }
+  const boxArea = (maxX - minX) * (maxY - minY);
+  return boxArea > 0 && Math.abs(twiceArea) / 2 >= NEAR_RECTANGLE_MIN_FILL * boxArea ? { minX, minY, maxX, maxY } : null;
+}
+
 /** Share of the window that may lie outside the picture (interpolation at the edge) for the window to count as inside it. */
 const MAX_OUTSIDE_SHARE = 0.02;
 
 /** How far (relative) the CTM's axes may stray from the page's axes for the picture to count as upright. */
 const UPRIGHT_TOLERANCE = 0.02;
+
+/** Share of a turned picture's footprint on the page that a clip must cover for the page to show the whole picture (the clip is the picture's own outline or the page, not a frame cut out of it). */
+const WHOLE_PICTURE_MIN_COVERAGE = 0.9;
+/** How far (degrees) a picture may be turned from upright to count as askew rather than turned by a quarter or half turn. */
+const MAX_ASKEW_DEG = 15;
+
+/**
+ * Whether the page shows the whole of a picture that it paints turned (a scan laid slightly askew, its outline or the page's edge as the clip): one
+ * clip polygon that covers most of the picture's footprint is not a frame cut out of the picture. The raw pixels are then the picture as it was
+ * drawn (straight), and cutting them to the clip would only trim their edge and leave transparent corners.
+ */
+export function clipShowsWholePicture(clip: Pick<ClipInfo, 'paths' | 'ctm'>): boolean {
+  const [a, b, c, d] = clip.ctm;
+  const det = a * d - b * c;
+  if (!Number.isFinite(det) || Math.abs(det) < 1e-12 || clip.paths.length !== 1 || clip.paths[0]!.length !== 1) return false;
+  const scale = Math.max(Math.abs(a), Math.abs(d), 1e-9);
+  if (Math.abs(b) <= UPRIGHT_TOLERANCE * scale && Math.abs(c) <= UPRIGHT_TOLERANCE * scale) return false;
+  // Only a picture that is slightly askew: one that is turned by a quarter or half turn is turned upright by its raw pixels' own rotation.
+  if (Math.abs((Math.atan2(b, a) * 180) / Math.PI) > MAX_ASKEW_DEG) return false;
+  const polygon = clip.paths[0]![0]!;
+  const n = polygon.length / 2;
+  let twiceArea = 0;
+  for (let i = 0, j = n - 1; i < n; j = i++) twiceArea += polygon[2 * j]! * polygon[2 * i + 1]! - polygon[2 * i]! * polygon[2 * j + 1]!;
+  return Math.abs(twiceArea) / 2 >= WHOLE_PICTURE_MIN_COVERAGE * Math.abs(det);
+}
 
 /**
  * A picture that the page turns (any angle) and shows through a window that is a plain rectangle: the page's own look of it
@@ -146,11 +321,11 @@ export function renderThroughRectangularClip(image: DecodedImage, clip: Pick<Cli
   if (width <= 0 || height <= 0 || clip.paths.length === 0 || !Number.isFinite(det) || Math.abs(det) < 1e-12) return null;
   const scale = Math.max(Math.abs(a), Math.abs(d), 1e-9);
   if (Math.abs(b) <= UPRIGHT_TOLERANCE * scale && Math.abs(c) <= UPRIGHT_TOLERANCE * scale) return null;
-  if (det < 0) return null;
+  if (det < 0 || clipShowsWholePicture(clip)) return null;
 
   let window: { minX: number; minY: number; maxX: number; maxY: number } | null = null;
   for (const path of clip.paths) {
-    const rect = axisAlignedRectOf(path);
+    const rect = axisAlignedRectOf(path) ?? nearRectangleOf(path);
     if (rect === null) return null;
     window = window === null ? rect : { minX: Math.max(window.minX, rect.minX), minY: Math.max(window.minY, rect.minY), maxX: Math.min(window.maxX, rect.maxX), maxY: Math.min(window.maxY, rect.maxY) };
   }

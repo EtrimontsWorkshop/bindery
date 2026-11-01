@@ -4,6 +4,7 @@ import { maskRectangularity } from './maskShape.js';
 import type { RawLook } from './blankSheet.js';
 import { opaqueBounds, type FractionalBounds } from './opaqueBounds.js';
 import { normalizeDecodedImage, type DecodedImage } from './normalizeDecodedImage.js';
+import type { OpaqueMask } from './opaqueOverlap.js';
 import type { PdfPageForRender, RegionRenderer, RenderRegionOptions } from './regionRenderer.js';
 
 /**
@@ -353,6 +354,99 @@ export async function probeOpaquePixelStats(page: PdfPageForExtract, objId: stri
         }
       }
       return count > 0 ? { opaqueFraction: opaque / count, meanOpaqueBrightness: opaque > 0 ? brightness / opaque : 0 } : null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Where resource `objId` is not transparent, on a grid of at most `maxEdge` cells along its longer side (a cell is opaque when any pixel of it is
+ * above 16 alpha, so that a thin object is not lost), or `null` when the resource is not available.
+ */
+export async function probeOpaqueMask(page: PdfPageForExtract, objId: string, maxEdge = 96): Promise<OpaqueMask | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      const image = normalizeDecodedImage(raw);
+      if (image.width <= 0 || image.height <= 0) continue;
+      const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+      const opaque = new Uint8Array(width * height);
+      for (let y = 0; y < image.height; y++) {
+        const cy = Math.min(height - 1, Math.floor((y * height) / image.height));
+        for (let x = 0; x < image.width; x++) {
+          if (image.rgba[(y * image.width + x) * 4 + 3]! > 16) opaque[cy * width + Math.min(width - 1, Math.floor((x * width) / image.width))] = 1;
+        }
+      }
+      return { width, height, opaque };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** A pixel is ink when it differs from the paper (the median color of the raster's edge) by more than this in some channel. */
+const INK_MIN_DIFFERENCE = 40;
+/** A cell of the ink mask is ink when this share of its pixels is. */
+const INK_MIN_CELL_SHARE = 0.12;
+
+/**
+ * Where resource `objId` is inked, on a grid of at most `maxEdge` cells along its longer side: a picture drawn on paper (a figure on white) has its paper
+ * everywhere around the drawing, and the paper shows nothing once the page multiplies the picture onto it. The paper is the median color of the edge of the
+ * raster. `null` when the resource is not available.
+ */
+export async function probeInkMask(page: PdfPageForExtract, objId: string, maxEdge = 96): Promise<OpaqueMask | null> {
+  const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
+  for (const objs of sources) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      const image = normalizeDecodedImage(raw);
+      if (image.width <= 0 || image.height <= 0) continue;
+      const { width: w, height: h, rgba } = image;
+      const edge: number[][] = [[], [], []];
+      const takeEdge = (x: number, y: number): void => {
+        const at = (y * w + x) * 4;
+        if (rgba[at + 3]! <= 16) return;
+        for (let c = 0; c < 3; c++) edge[c]!.push(rgba[at + c]!);
+      };
+      for (let x = 0; x < w; x++) {
+        takeEdge(x, 0);
+        takeEdge(x, h - 1);
+      }
+      for (let y = 1; y < h - 1; y++) {
+        takeEdge(0, y);
+        takeEdge(w - 1, y);
+      }
+      if (edge[0]!.length === 0) continue;
+      const paper = edge.map((values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]!);
+      const scale = Math.min(1, maxEdge / Math.max(w, h));
+      const width = Math.max(1, Math.round(w * scale));
+      const height = Math.max(1, Math.round(h * scale));
+      const inked = new Uint32Array(width * height);
+      const total = new Uint32Array(width * height);
+      for (let y = 0; y < h; y++) {
+        const cy = Math.min(height - 1, Math.floor((y * height) / h));
+        for (let x = 0; x < w; x++) {
+          const cell = cy * width + Math.min(width - 1, Math.floor((x * width) / w));
+          const at = (y * w + x) * 4;
+          total[cell]!++;
+          if (rgba[at + 3]! > 16 && (Math.abs(rgba[at]! - paper[0]!) > INK_MIN_DIFFERENCE || Math.abs(rgba[at + 1]! - paper[1]!) > INK_MIN_DIFFERENCE || Math.abs(rgba[at + 2]! - paper[2]!) > INK_MIN_DIFFERENCE)) inked[cell]!++;
+        }
+      }
+      const opaque = new Uint8Array(width * height);
+      for (let i = 0; i < opaque.length; i++) if (total[i]! > 0 && inked[i]! >= INK_MIN_CELL_SHARE * total[i]!) opaque[i] = 1;
+      return { width, height, opaque };
     } catch {
       continue;
     }

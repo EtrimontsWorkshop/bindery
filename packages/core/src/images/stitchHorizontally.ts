@@ -26,3 +26,13 @@ export function stitchHorizontally(left: DecodedImage, right: DecodedImage): Dec
   }
   return { width, height: left.height, rgba };
 }
+
+/** `image` without its first `columns` pixel columns (the part of the right half that the left half already shows, where the two rasters overlap on the page). */
+export function dropLeftColumns(image: DecodedImage, columns: number): DecodedImage {
+  const drop = Math.max(0, Math.min(image.width - 1, Math.round(columns)));
+  if (drop === 0) return image;
+  const width = image.width - drop;
+  const rgba = new Uint8ClampedArray(width * image.height * 4);
+  for (let y = 0; y < image.height; y++) rgba.set(image.rgba.subarray((y * image.width + drop) * 4, (y + 1) * image.width * 4), y * width * 4);
+  return { width, height: image.height, rgba };
+}

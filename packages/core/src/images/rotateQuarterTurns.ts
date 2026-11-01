@@ -21,3 +21,19 @@ export function rotateQuarterTurns(image: DecodedImage, turns: 1 | 2 | 3): Decod
   }
   return { width: outWidth, height: outHeight, rgba: out };
 }
+
+/** Mirrors an image left to right and/or top to bottom, as the page paints a mirrored picture. Pure; the input is not changed. */
+export function mirrorImage(image: DecodedImage, flipX: boolean, flipY: boolean): DecodedImage {
+  if (!flipX && !flipY) return image;
+  const { width, height, rgba } = image;
+  const out = new Uint8ClampedArray(rgba.length);
+  for (let y = 0; y < height; y++) {
+    const ny = flipY ? height - 1 - y : y;
+    for (let x = 0; x < width; x++) {
+      const nx = flipX ? width - 1 - x : x;
+      const from = (y * width + x) * 4;
+      out.set(rgba.subarray(from, from + 4), (ny * width + nx) * 4);
+    }
+  }
+  return { width, height, rgba: out };
+}

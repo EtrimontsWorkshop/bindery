@@ -3,6 +3,8 @@ import { scaleToHeight } from './stitchHorizontally.js';
 
 /** Share of the seam's rows that must carry some drawing on at least one side: a seam of plain paper joins nothing. */
 const SEAM_MIN_INK_ROW_SHARE = 0.02;
+/** Share of the seam's rows with a drawing on either side up to which the seam of two pieces that meet on one page counts as blank paper. */
+const SEAM_BLANK_MAX_INK_ROW_SHARE = 0.1;
 /** Of the rows with a drawing, the share in which both sides have one: a figure that runs across the gutter is drawn on both pages. */
 const SEAM_MIN_BOTH_INK_SHARE = 0.6;
 /**
@@ -47,7 +49,7 @@ function seamPixel(image: DecodedImage, row: number, firstColumn: number, column
  * seam, on both sides in the same rows, in colors that go on across it. Two unrelated pictures that merely meet at the edges of facing pages
  * (a column of figures, a pair of portraits) do not pass.
  */
-export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage): boolean {
+export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage, options: { blankSeamJoins?: boolean } = {}): boolean {
   if (left.height <= 0 || right.height <= 0 || left.width <= 0 || right.width <= 0) return false;
   const second = scaleToHeight(right, left.height);
   const columns = Math.max(1, Math.round(left.height / 500));
@@ -74,6 +76,9 @@ export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage
       }
     }
   }
+  // Two pieces of one picture on one page that meet where the drawing has faded out to paper (a rank of figures cut through the smoke between them) have
+  // next to nothing to compare at the seam; pieces that are made to meet side by side on a page are the same picture then.
+  if (options.blankSeamJoins === true && inkRows <= SEAM_BLANK_MAX_INK_ROW_SHARE * left.height) return true;
   if (inkRows < SEAM_MIN_INK_ROW_SHARE * left.height || bothRows < SEAM_MIN_BOTH_INK_SHARE * inkRows) return false;
   return jump / bothRows <= SEAM_MAX_JUMP_FACTOR * (inner / bothRows) + SEAM_JUMP_ALLOWANCE;
 }

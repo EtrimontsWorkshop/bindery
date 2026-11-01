@@ -49,6 +49,7 @@
       "destinationJournal": "Journal (handout)",
       "destinationToken": "Token (tylko zapis)",
       "destinationUnassigned": "Nieprzydzielone obrazy",
+      "destinationUnassignedText": "Nieprzydzielone obrazy z tekstem",
       "prepareToken": "Przygotuj token…",
       "thumbnailOpenTitle": "Kliknij, aby zobaczyć podgląd obrazu i wymazać jego fragmenty",
       "destinationApply": "Ustaw zaznaczonym",
@@ -179,6 +180,8 @@
       "sortByPageHint": "Wyłączone: przegląd pokazuje najpierw obrazy, co do których Bindery ma pewność, wg stron, a potem niepewne od największego do najmniejszego. Włączone: wszystkie obrazy są w kolejności podręcznika, strona po stronie, a na stronie od góry do dołu.",
       "vectorFiguresLabel": "Importuj rysunki wektorowe",
       "vectorFiguresHint": "Wyłączone: PDF jest analizowany jak dotąd (obrazy i mapy rysowane wielkimi prostokątami). Włączone: Bindery szuka też rysunków złożonych ze ścieżek wektorowych (postać rysowana obok tekstu, diagram, logo), renderuje fragment strony, który zajmują, i pokazuje je jako niepewne obrazy, odznaczone. W obrazie mogą być strzępy tekstu omijającego rysunek (edytor obrazu pozwala je wymazać), a razem z rysunkami trafi się też kilka tabel, diagramów i logo. Działa od następnego analizowanego PDF.",
+      "removeMapNumbersLabel": "Usuwaj numery z map",
+      "removeMapNumbersHint": "Wyłączone: mapy są importowane tak, jak narysowano. Włączone: numerowane znaczniki map (czarne kółka z białą cyfrą, klucz do pomieszczeń planu) są zamalowywane kolorem tła wokół nich we wszystkich obrazach, które mają ich co najmniej trzy. Fragment rysunku pod znacznikiem przepada, znacznik między grubymi ścianami lub liniami może zostać, a mapa z jednym lub dwoma znacznikami zostaje bez zmian.",
       "uploadPathLabel": "Folder wgrywania obrazów",
       "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów."
     },

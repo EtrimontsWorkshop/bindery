@@ -27,7 +27,7 @@ import { buildTextLayout } from './text/buildTextLayout.js';
  * the stage throws or is aborted: at most one pdf.js worker is alive at a time, and none afterwards.
  */
 
-export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress' | 'includeVectorFigures'> {
+export interface BuildCIFFromDocumentOptions extends Pick<BuildImageExtractionOptions, 'targetLongEdgePx' | 'maxLongEdgePx' | 'outputFormat' | 'outputQuality' | 'signal' | 'onProgress' | 'includeVectorFigures' | 'removeNumberMarkers'> {
   assetBaseUrl: string;
   fileName: string;
   fileHash: string;
@@ -61,6 +61,7 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
   // already have `blocks`).
   const bodyBlockBoxesByPage = groupBlockBoxesByPage(blocks, new Set(['body', 'caption']));
   const textBlockBoxesByPage = groupBlockBoxesByPage(blocks);
+  const headingBlockBoxesByPage = groupBlockBoxesByPage(blocks, new Set(['heading']));
 
   const imageResult = await withPdf(data, assetBaseUrl, (extractDoc) =>
     buildImageExtraction(
@@ -73,6 +74,7 @@ export async function buildCIFFromDocument(data: ArrayBuffer, opts: BuildCIFFrom
         ...imageOpts,
         bodyBlockBoxesByPage,
         textBlockBoxesByPage,
+        headingBlockBoxesByPage,
       },
     ),
   );

@@ -1,25 +1,32 @@
 import { clusterByOverlap } from '../clustering.js';
-import { overlapRatio, rectArea, rectIntersection, relativeArea, unionRect, type Rect } from '../geometry.js';
+import { overlapRatio, rectArea, rectIntersection, relativeArea, unionRect, type Matrix, type Rect } from '../geometry.js';
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { VectorRegion, VectorShape } from '../inventory/vectorRegistry.js';
 import type { Diagnostic } from '../text/types.js';
-import { classifyImages, confidenceForReason, FLUSH_UNDECIDED_REASON, LARGE_MASKED_CUTOUT_REASON, LARGE_TRANSLUCENT_PANEL_REASON, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, isBackdropShape, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
+import { classifyImages, confidenceForReason, FLUSH_UNDECIDED_REASON, LARGE_MASKED_CUTOUT_REASON, TEXT_BESIDE_BLENDED_REASON, TEXT_OVER_SMALL_REASON, LARGE_TRANSLUCENT_PANEL_REASON, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, isBackdropShape, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
 import { AUTOCROP_BRIGHTEN, brightenCroppedImage } from './brightenImage.js';
-import { applyClipToImage, renderThroughRectangularClip } from './clipMask.js';
+import { cardOfPiece, cardWithoutPictures } from './cardBesidePictures.js';
+import { looksLikeTrackOfBoxes } from './boxGrid.js';
+import { looksLikeInkSplatter } from './inkSplatter.js';
+import { isFormOrTable, isPartOfSheet, looksLikeDocument, looksLikeDocumentOnDark, looksLikeLargePrintNote, measureRasterText } from './rasterText.js';
+import { shrinkToCenter } from './classify.js';
+import { applyClipToImage, clipShowsWholePicture, renderThroughRectangularClip } from './clipMask.js';
 import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder, OutputFormat } from './encodeImage.js';
-import { isBlankSheet } from './blankSheet.js';
+import { isBlankSheet, looksLikeWhiteWash } from './blankSheet.js';
 import type { DecodedImage } from './normalizeDecodedImage.js';
-import { rotateQuarterTurns } from './rotateQuarterTurns.js';
+import { mirrorImage, rotateQuarterTurns } from './rotateQuarterTurns.js';
+import { eraseNumberMarkers } from './numberMarkers.js';
 import { findSpreadPairs } from './spreadPairs.js';
-import { stitchHorizontally } from './stitchHorizontally.js';
+import { dropLeftColumns, stitchHorizontally } from './stitchHorizontally.js';
 import { halvesContinueAcrossSeam } from './spreadSeam.js';
 import { findVectorFigures } from './vectorFigures.js';
 import { eraseTextAroundFigure } from './eraseFigureText.js';
 import { drawnShare, isBareDarkTexture, isColorfulPicture, isDrawingOnPanel, isPanelBackdrop, PANEL_MIN_TEXT_COVERAGE, PANEL_PREVIEW_LONG_EDGE_PX, PANEL_FRAMES_PICTURE_MIN_SHARE, PANEL_OVERLAY_MIN_OPAQUE_FRACTION } from './panelBackdrop.js';
 import { FULL_EXTENT_BOUNDS, tightenToVisible } from './opaqueBounds.js';
-import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeOpaqueBounds, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
+import { connectedGroups, placedInksOverlap, placedMasksOverlap, type PlacedMask } from './opaqueOverlap.js';
+import { currentObjIdAt, extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeMaskRectangularity, probeMeanBrightnessFraction, probeInkMask, probeOpaqueBounds, probeOpaqueMask, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
 import { computeContentHash, computeDarkOpaqueShare, computeWhiteOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, finalizeImages, isNeverWorthReviewing, type FinalizedImage, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
@@ -68,6 +75,8 @@ export interface BuildImageExtractionOptions {
    * shows) from one that has text only beside it. Falls back to `bodyBlockBoxesByPage` when absent.
    */
   textBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
+  /** Bboxes of the `heading` blocks per page: a plate whose only text is headings (a banner with the title of a chapter) is told from a box of text with them. */
+  headingBlockBoxesByPage?: ReadonlyMap<number, readonly Rect[]>;
   /** Bypasses `Z1-full-bleed-background`/`Z9-high-body-text-coverage` for full-bleed images, treating them as content instead of background. Off by default. */
   treatFullBleedAsContent?: boolean;
   /** [at the user's request, EXPERIMENTAL] See `cropUniformMargins.ts`. No effect when `treatFullBleedAsContent` is off. Off by default. */
@@ -88,6 +97,11 @@ export interface BuildImageExtractionOptions {
    * Needs the inventory's `shapes`. Off by default: without it only rasters and the big rectangular fills of maps are offered.
    */
   includeVectorFigures?: boolean;
+  /**
+   * Paint over the numbered markers of a map (black discs with a white number in them) in every extracted picture that has at least three of
+   * them (see `numberMarkers.ts`). Off by default.
+   */
+  removeNumberMarkers?: boolean;
 }
 
 export interface BuildImageExtractionResult {
@@ -105,6 +119,69 @@ const DEFAULT_TARGET_LONG_EDGE_PX = 2048;
  * only `content` pictures are split off, so that small leftovers of the stack do not clutter the list).
  */
 const SPLIT_OFF_MIN_AREA = 0.1;
+/** The reason of a picture that page text covers in its middle (see `classify.ts`). */
+const HIGH_TEXT_COVERAGE_REASON = 'Z10-high-center-text-coverage';
+/** The classifier's reason for a picture that the page's body text covers (taken for a backdrop). */
+const TEXT_COVERED_BACKDROP_REASON = 'Z9-high-body-text-coverage';
+/** A box of a text-covered picture that is a note, not a page background: its share of the page at most. */
+const NOTE_MAX_AREA = 0.3;
+/** The share of a piece's box that the page's text crosses the edge of, from which the piece is cut out of a larger note. */
+const NOTE_PIECE_MIN_TEXT_CROSSING = 0.5;
+/** A picture of at least this page-area share, offered by itself, is cut away from the card of text it lies over (see `cardWithoutPictures`). */
+/**
+ * A raster of a unit that is only offered because page text lies over its box is a photo with notes pinned over it (a cork board), not a card of text, when it is dark on the whole
+ * and has a picture's texture, and the text is not over its middle. Measured on one rulebook: the cards of text have a mean luminance of 217-233, the photos 45-116 with a texture
+ * deviation of 15-41 and 0.22-0.43 of their middle under text; the empty dark backdrops of cards in other books (a green stone, a grey plate) have a deviation of 1-16 or 0.59-0.92 of
+ * their middle under text.
+ */
+const PHOTO_UNDER_TEXT_MAX_MEAN_LUMINANCE = 170;
+/** A plain card of text this light is paper (measured: 198-236 for the cards of text of one rulebook, 71-139 for the maps with labels). */
+const PAPER_CARD_MIN_MEAN_LUMINANCE = 170;
+/** A raster that is not one of the notes pinned on a photo and that the page labels (a map) is taken raw only when it is lighter than a black shape: the raw of a photo on black is a black shape, which is hidden. Measured: the maps 71-139, the black polaroid photo 27. */
+const MAP_UNDER_LABELS_MIN_MEAN_LUMINANCE = 60;
+/** A note on light paper whose middle the page's text covers this much is a box of text, whatever the texture of its torn edges and stains (a card with a raw deviation of 40 and 0.81 of its middle under text). */
+const PAPER_NOTE_MIN_CENTER_COVERAGE = 0.5;
+const PHOTO_UNDER_TEXT_MIN_STDDEV = 10;
+const PHOTO_UNDER_TEXT_MAX_CENTER_COVERAGE = 0.5;
+
+export function isPhotoUnderNotes(look: { meanLuminance: number; luminanceStdDev: number } | null, centerTextCoverage: number): boolean {
+  return look !== null && look.meanLuminance < PHOTO_UNDER_TEXT_MAX_MEAN_LUMINANCE && look.luminanceStdDev >= PHOTO_UNDER_TEXT_MIN_STDDEV && centerTextCoverage <= PHOTO_UNDER_TEXT_MAX_CENTER_COVERAGE;
+}
+const PICTURE_OVER_CARD_MIN_AREA = 0.05;
+/**
+ * A banner: a flat plate (a title of a chapter on a band of colour) whose only text is headings. At least this share of its box is under the page's text and at least this much of that text is
+ * headings, on a raster whose own pixels have no texture (a deviation of at most `BANNER_MAX_RAW_STDDEV`; the art that a title is laid over has far more, and so have the handwritten notes whose
+ * lines the layout takes for headings: 9-20). Measured on the four chapter banners of one rulebook (0.43-0.54 under text, all of it headings, a blank raster under them) and on the box of text beside
+ * them (0.54 under text, 0.05 of it headings), and on a banner with a warning on a dark plate (deviation 4.8).
+ */
+const BANNER_MIN_TEXT_COVERAGE = 0.3;
+const BANNER_MIN_HEADING_SHARE = 0.9;
+const BANNER_MAX_RAW_STDDEV = 6;
+
+/** Whether the page's text over a plate, and the share of it that is headings, are those of a banner (see `BANNER_MIN_TEXT_COVERAGE`). */
+export function isHeadingBannerText(textOverPlate: number, headingsOverPlate: number): boolean {
+  return textOverPlate >= BANNER_MIN_TEXT_COVERAGE && headingsOverPlate >= BANNER_MIN_HEADING_SHARE * textOverPlate;
+}
+/**
+ * A card of the page that is painted later and overlaps this share of a card's box lies over it: the render shows that card on this one, and the visible part of this one is what the clips leave.
+ * Measured: the two cards that are covered that much by a later card (a note under a larger note, a card under a banner) 0.43-0.45; the cards that touch their neighbours at their edges only 0.01-0.26,
+ * whose own clip would cut away their own writing. A picture bigger than the limit is a backdrop, not a neighbour.
+ */
+const NEIGHBOUR_CARD_MIN_OVERLAP = 0.4;
+const NEIGHBOUR_CARD_MAX_AREA = 0.6;
+/** A cut that leaves less than this share of the render's pixels is a mistake of the clip, not the card's shape. */
+const CLIP_CUT_MIN_REMAINING_SHARE = 0.25;
+/** The share of the middle of a panel's box that the page's text covers from which the text lies ON the panel (a note), not beside it (a cut-out the text wraps around). */
+const TEXT_PANEL_CENTER_MIN_COVERAGE = 0.4;
+/** A clip with more points than this is the outline of a subject, not the frame of a note (whose torn edge has a few points). */
+const CUT_OUT_OUTLINE_MIN_POINTS = 12;
+/** A raster this dark and this even (measured: mean 7.7, spread 1.2 for a shadow laid over a page; dark paintings and figures in black are well above both) shows nothing of its own. */
+const DARK_CUTOUT_MAX_MEAN_LUMINANCE = 20;
+const DARK_CUTOUT_MAX_STDDEV = 5;
+/** The share of a render's box, and of its middle, that the page's text covers from which the render is a box of text whatever its look (a newspaper). */
+const TEXT_FILLS_BOX_MIN_COVERAGE = 0.6;
+/** Share of the largest picture split off from a unit from which another picture of the unit is split off too, however small it is. */
+const SPLIT_PEER_MIN_SHARE = 0.75;
 
 /** Default for `objectSettleTimeoutMs`. */
 const DEFAULT_OBJECT_SETTLE_TIMEOUT_MS = 1500;
@@ -152,6 +229,29 @@ const CLUSTER_AREA_SAFEGUARD_THRESHOLD = 0.85;
  * than not changing it).
  */
 const INDEPENDENT_IMAGE_AREA_THRESHOLD = 0.1;
+/** Page-area share from which the largest raster of a unit can be a wash or a card that the unit's small pictures lie on. */
+const UNDER_PICTURES_MIN_AREA = 0.05;
+/** Share of opaque pixels below which a picture is a cut-out object on a transparent ground (a figure, an item) and not a photo. */
+const CUT_OUT_MAX_OPAQUE_FRACTION = 0.6;
+/** Share of a plain card that page text must cover for the card to be one the text lies on (the cards of items have a line or two of it). */
+const CARD_UNDER_PICTURES_MIN_TEXT_COVERAGE = 0.03;
+/** A card of items is small (the cards of one rulebook are 7% of the page), light paper, and has items of consequence on it, not a speck or a crest. */
+const CARD_UNDER_PICTURES_MAX_AREA = 0.1;
+const CARD_UNDER_PICTURES_MIN_LUMINANCE = 200;
+const CARD_ITEM_MIN_AREA = 0.02;
+/** A flush card of text (a stat block on parchment) is opaque over this share and has at least this share of its box covered by text. */
+const FLUSH_CARD_MIN_OPAQUE_FRACTION = 0.85;
+const FLUSH_CARD_MIN_TEXT_COVERAGE = 0.15;
+/** Share of the box of a rendered image that page text must cover for the image to be a panel of text (measured on one rulebook: its panels of text are 18%-90%, its pictures and drawings with captions 0%-6%). */
+const TEXT_PANEL_HIDE_MIN_COVERAGE = 0.15;
+/** The raster of a panel of text is a smooth, almost colorless gradient (measured on one rulebook: a luminance spread of 8-27 and a saturation of 5-31 on all its 192 panels). */
+const TEXT_PANEL_MAX_RAW_STDDEV = 30;
+const TEXT_PANEL_MAX_RAW_SATURATION = 32;
+/** A tinted panel (parchment, dark green) is smooth too: it is told from a picture by the book repeating its look (see `repeatedPanelLooks`), not by its color alone (measured: the cards of one rulebook 11-34 and the pictures with captions from 45). */
+/** The text coverage from which a render can be a tinted panel (the cards of a layout carry a few lines of text: 10%-60% of their box measured on one rulebook, its pictures with captions below 8%). */
+const TEXT_PANEL_STYLE_MIN_COVERAGE = 0.08;
+const TEXT_PANEL_TINTED_MAX_RAW_STDDEV = 36;
+const TEXT_PANEL_TINTED_MAX_RAW_SATURATION = 140;
 const EDGE_TOUCH_MAX_OVERLAP_RATIO = 0.2;
 
 function isAnchorCandidate(c: ClassifiedImage): boolean {
@@ -227,6 +327,50 @@ const LARGE_CUTOUT_MIN_OPAQUE_FRACTION = 0.5;
 const SPREAD_HALF_MIN_AREA = 0.08;
 /** Share of each of two pictures' boxes that their overlap must cover for the two to lie in the same place. */
 const SAME_FOOTPRINT_MIN_SHARE = 0.9;
+/** A small picture that is less than this share on the representative, next to a representative of at least `BESIDE_MIN_REPRESENTATIVE_AREA` of the page, is decoration beside it. */
+const BESIDE_MAX_SHARE_ON_REPRESENTATIVE = 0.5;
+const BESIDE_MIN_REPRESENTATIVE_AREA = 0.2;
+/** A flush strip at least this long for its width, beside a representative of at least this share of the page, is the layout's margin. */
+const EDGE_STRIP_MIN_ASPECT = 3;
+const EDGE_STRIP_MIN_REPRESENTATIVE_AREA = 0.3;
+/** Share of the box of a flush picture beside a big representative that page text must cover for the picture to be the backdrop of that text. */
+const TEXT_BACKDROP_MIN_COVERAGE = 0.08;
+
+/** Whether a flush raster is a card of text that fills a page margin: plain, opaque, with at least `FLUSH_CARD_MIN_TEXT_COVERAGE` of its box covered by page text (a stat block on parchment). */
+export function isFlushCardOfText(look: { luminanceStdDev: number } | null, opaqueFraction: number | null, textCoverageOverCard: number): boolean {
+  return look !== null && look.luminanceStdDev <= TEXT_PANEL_MAX_STDDEV && opaqueFraction !== null && opaqueFraction >= FLUSH_CARD_MIN_OPAQUE_FRACTION && textCoverageOverCard >= FLUSH_CARD_MIN_TEXT_COVERAGE;
+}
+
+/** Whether an image that was rendered with the page's text on it is a panel of text (a sidebar, a list, a box of rules) and not a picture: that much of its box is covered by page text. */
+export function isTextPanel(source: string, textCoverageOverImage: number): boolean {
+  return source === 'region-render' && textCoverageOverImage >= TEXT_PANEL_HIDE_MIN_COVERAGE;
+}
+
+/** Whether a raster is a small card of light paper that page text lies on (the cards of items of a rulebook): small, light, plain and opaque, with some text over it. */
+export function isSmallCardOfText(area: number, look: { meanLuminance: number; luminanceStdDev: number } | null, opaqueFraction: number | null, textCoverageOverCard: number): boolean {
+  return area <= CARD_UNDER_PICTURES_MAX_AREA && look !== null && look.meanLuminance >= CARD_UNDER_PICTURES_MIN_LUMINANCE && looksLikePlainTextCard(look, opaqueFraction) && textCoverageOverCard >= CARD_UNDER_PICTURES_MIN_TEXT_COVERAGE;
+}
+
+/** True for a small picture (below the significant share of the page) that lies mostly outside a representative of consequence. */
+export function isSmallPieceBesideRepresentative(memberBox: Rect, memberArea: number, representativeBox: Rect, representativeArea: number): boolean {
+  if (memberArea >= CO_MEMBER_SIGNIFICANT_AREA || representativeArea < BESIDE_MIN_REPRESENTATIVE_AREA || rectArea(memberBox) <= 0) return false;
+  const shared = rectIntersection(representativeBox, memberBox);
+  return shared === null || rectArea(shared) < BESIDE_MAX_SHARE_ON_REPRESENTATIVE * rectArea(memberBox);
+}
+
+/** True for a box at least `EDGE_STRIP_MIN_ASPECT` times as long as it is wide: a strip along the page edge. */
+export function isLongStrip(box: Rect): boolean {
+  const w = box.maxX - box.minX;
+  const h = box.maxY - box.minY;
+  return Math.min(w, h) > 0 && Math.max(w, h) / Math.min(w, h) >= EDGE_STRIP_MIN_ASPECT;
+}
+
+/** True for a picture that lies mostly outside the representative and has page text over at least `TEXT_BACKDROP_MIN_COVERAGE` of its box: the backdrop of that text. */
+export function isBackdropOfTextBesideRepresentative(memberBox: Rect, representativeBox: Rect, textCoverageOfMember: number): boolean {
+  const shared = rectIntersection(representativeBox, memberBox);
+  if (shared !== null && rectArea(shared) >= BESIDE_MAX_SHARE_ON_REPRESENTATIVE * rectArea(memberBox)) return false;
+  return textCoverageOfMember >= TEXT_BACKDROP_MIN_COVERAGE;
+}
 
 /** Whether the raw pixels of a panel are those of a plain card the page puts its text on: smooth and opaque (see `TEXT_PANEL_MAX_STDDEV`). */
 export function looksLikePlainTextCard(look: { luminanceStdDev: number } | null, opaqueFraction: number | null): boolean {
@@ -261,7 +405,7 @@ export function textCoverage(bbox: Rect, textBoxes: readonly Rect[] | undefined)
  *   faded emblem with the whole text column on it, the raw resource gives the emblem.
  */
 export function isTextOverPicture(unitReason: string, representative: ImageEntry | null, placed: Rect | undefined, textBoxes: readonly Rect[] | undefined): boolean {
-  if (unitReason === 'Z1-full-bleed-forced-content' || unitReason === 'Z12-bleeding-no-center-text-evidence' || unitReason === FLUSH_UNDECIDED_REASON || unitReason === LARGE_MASKED_CUTOUT_REASON) return false;
+  if (unitReason === 'Z1-full-bleed-forced-content' || unitReason === 'Z12-bleeding-no-center-text-evidence' || unitReason === FLUSH_UNDECIDED_REASON || unitReason === LARGE_MASKED_CUTOUT_REASON || unitReason === TEXT_BESIDE_BLENDED_REASON) return false;
   if (representative !== null && isTranslucentEverywhere(representative)) return false;
   return unitReason.startsWith('Z10') || (placed !== undefined && textCoverage(placed, textBoxes) >= TEXT_OVER_PICTURE_FRACTION);
 }
@@ -290,15 +434,21 @@ const TIGHTEN_MIN_TEXT_BESIDE_SHARE = 0.03;
 const TEXT_CROSSING_EDGE_PREFER_RAW_FRACTION = 0.01;
 
 /**
+ * Share of a picture's box that text blocks cutting its edge cover, from which the text is the page's own text running past the picture and
+ * not the writing on it (a note's text lies inside the note): the picture is taken from its own pixels.
+ */
+const TEXT_RUNS_PAST_PICTURE_MIN_SHARE = 0.15;
+
+/**
  * Whether body/caption blocks that the unit's bbox CUTS (they reach outside it) cover enough of it. Such
  * a block belongs to the surrounding page layout — a render of the region would slice it into the
  * picture. A block lying entirely INSIDE the bbox (a label on a map, a caption inside a frame) is
  * judged to belong to the picture's own composition and is not counted.
  */
-function textCrossesRegionEdge(bbox: Rect, textBoxes: readonly Rect[] | undefined): boolean {
-  if (!textBoxes || textBoxes.length === 0) return false;
+export function textCrossingShare(bbox: Rect, textBoxes: readonly Rect[] | undefined): number {
+  if (!textBoxes || textBoxes.length === 0) return 0;
   const area = rectArea(bbox);
-  if (area <= 0) return false;
+  if (area <= 0) return 0;
   let crossing = 0;
   for (const t of textBoxes) {
     const inter = rectIntersection(bbox, t);
@@ -306,7 +456,11 @@ function textCrossesRegionEdge(bbox: Rect, textBoxes: readonly Rect[] | undefine
     const inside = t.minX >= bbox.minX && t.maxX <= bbox.maxX && t.minY >= bbox.minY && t.maxY <= bbox.maxY;
     if (!inside) crossing += rectArea(inter);
   }
-  return crossing / area >= TEXT_CROSSING_EDGE_PREFER_RAW_FRACTION;
+  return crossing / area;
+}
+
+function textCrossesRegionEdge(bbox: Rect, textBoxes: readonly Rect[] | undefined): boolean {
+  return textCrossingShare(bbox, textBoxes) >= TEXT_CROSSING_EDGE_PREFER_RAW_FRACTION;
 }
 
 /**
@@ -405,7 +559,8 @@ export function rawResourceFitsPlacement(raw: { width: number; height: number },
  */
 function isBleedingUndecided(c: ClassifiedImage): boolean {
   // A big translucent panel that is only let through to be checked for a drawing stands alone too: joined to the pictures on top of it, it would take them with it when it is hidden.
-  return c.reason === 'Z12-bleeding-no-center-text-evidence' || c.reason === LARGE_TRANSLUCENT_PANEL_REASON || c.reason === LARGE_MASKED_CUTOUT_REASON;
+  // A small picture offered only because text lies over its box (a card, or an object on a card) stands alone too: it is judged by its own pixels and does not take over the unit of the pictures beside it.
+  return c.reason === 'Z12-bleeding-no-center-text-evidence' || c.reason === LARGE_TRANSLUCENT_PANEL_REASON || c.reason === LARGE_MASKED_CUTOUT_REASON || c.reason === TEXT_OVER_SMALL_REASON;
 }
 
 function partitionCandidatesIntoGroups(candidates: readonly ClassifiedImage[]): ClassifiedImage[][] {
@@ -567,6 +722,116 @@ const SPLIT_TEXT_CARD_PICTURE_MIN_AREA = 0.1;
 /** A picture lying this far on the card (a photo on a newspaper clipping, a signature on a sheet) is part of it: the card is left whole. */
 const SPLIT_TEXT_CARD_MAX_PICTURE_ON_CARD = 0.8;
 
+/** Share of the smaller of two frames that they may overlap by and still be two pictures. */
+const FRAMES_MAX_OVERLAP_SHARE = 0.25;
+/** Two pictures without frames: the boxes of their rasters may overlap by this share of the smaller one (neighbors that touch) and still be two pictures. */
+const BOXES_MAX_OVERLAP_SHARE = 0.1;
+
+/** The outline (a polygon, flat x/y pairs) of the frame (the clip) a picture is shown in on `page`, or undefined when it is not shown in one. */
+function visibleWindow(entry: ImageEntry, page: number): readonly number[] | undefined {
+  const polygon = entry.occurrences.find((o) => o.page === page)?.clip?.paths[0]?.[0];
+  return polygon === undefined || polygon.length < 6 ? undefined : polygon;
+}
+
+function polygonArea(polygon: readonly number[]): number {
+  let twice = 0;
+  for (let i = 0, j = polygon.length / 2 - 1; i < polygon.length / 2; j = i++) twice += polygon[2 * j]! * polygon[2 * i + 1]! - polygon[2 * i]! * polygon[2 * j + 1]!;
+  return Math.abs(twice) / 2;
+}
+
+/** The part of `subject` that lies inside the convex polygon `clip` (Sutherland-Hodgman), as flat x/y pairs. */
+function clipPolygon(subject: readonly number[], clip: readonly number[]): number[] {
+  let output = [...subject];
+  const n = clip.length / 2;
+  let orientation = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const k = (i + 2) % n;
+    orientation += (clip[2 * j]! - clip[2 * i]!) * (clip[2 * k + 1]! - clip[2 * j + 1]!) - (clip[2 * j + 1]! - clip[2 * i + 1]!) * (clip[2 * k]! - clip[2 * j]!);
+  }
+  const sign = orientation >= 0 ? 1 : -1;
+  for (let i = 0; i < n && output.length > 0; i++) {
+    const j = (i + 1) % n;
+    const ax = clip[2 * i]!;
+    const ay = clip[2 * i + 1]!;
+    const bx = clip[2 * j]!;
+    const by = clip[2 * j + 1]!;
+    const inside = (x: number, y: number) => sign * ((bx - ax) * (y - ay) - (by - ay) * (x - ax)) >= 0;
+    const input = output;
+    output = [];
+    for (let p = 0; p < input.length / 2; p++) {
+      const q = (p + input.length / 2 - 1) % (input.length / 2);
+      const cx = input[2 * p]!;
+      const cy = input[2 * p + 1]!;
+      const px = input[2 * q]!;
+      const py = input[2 * q + 1]!;
+      if (inside(cx, cy) !== inside(px, py)) {
+        const denominator = (px - cx) * (by - ay) - (py - cy) * (bx - ax);
+        if (denominator !== 0) {
+          const t = ((ax - cx) * (by - ay) - (ay - cy) * (bx - ax)) / denominator;
+          output.push(cx + t * (px - cx), cy + t * (py - cy));
+        }
+      }
+      if (inside(cx, cy)) output.push(cx, cy);
+    }
+  }
+  return output;
+}
+
+/** Tiles of one picture (a page-wide illustration cut into rasters) lie edge to edge: the boxes may overlap by this much (in points) at a seam, or be this far apart. */
+const TILE_SEAM_MAX_OVERLAP_PT = 1.5;
+const TILE_SEAM_MAX_GAP_PT = 0.5;
+/** The seam runs along this share of the shorter side of the two tiles. */
+const TILE_SEAM_MIN_ALIGNED_SHARE = 0.9;
+/** The tiles of one picture have the same pixel density (a collage of different pictures hardly ever does): the densities differ by at most this share. */
+const TILE_MAX_DENSITY_DIFFERENCE = 0.05;
+
+export interface TileSource {
+  box: Rect;
+  pixelWidth: number;
+  pixelHeight: number;
+}
+
+/** True when the two rasters meet at a seam: edge to edge along one axis, aligned along the other, and of the same pixel density. */
+export function areSeamedTiles(a: TileSource, b: TileSource): boolean {
+  const widthA = a.box.maxX - a.box.minX;
+  const heightA = a.box.maxY - a.box.minY;
+  const widthB = b.box.maxX - b.box.minX;
+  const heightB = b.box.maxY - b.box.minY;
+  if (widthA <= 0 || heightA <= 0 || widthB <= 0 || heightB <= 0 || a.pixelWidth <= 0 || a.pixelHeight <= 0 || b.pixelWidth <= 0 || b.pixelHeight <= 0) return false;
+  const densityA = Math.sqrt((a.pixelWidth * a.pixelHeight) / (widthA * heightA));
+  const densityB = Math.sqrt((b.pixelWidth * b.pixelHeight) / (widthB * heightB));
+  if (Math.abs(densityA - densityB) > TILE_MAX_DENSITY_DIFFERENCE * Math.max(densityA, densityB)) return false;
+  const atSeam = (end: number, start: number): boolean => end - start <= TILE_SEAM_MAX_OVERLAP_PT && start - end <= TILE_SEAM_MAX_GAP_PT;
+  const alongX = Math.min(a.box.maxX, b.box.maxX) - Math.max(a.box.minX, b.box.minX);
+  const alongY = Math.min(a.box.maxY, b.box.maxY) - Math.max(a.box.minY, b.box.minY);
+  const sideBySide = (atSeam(a.box.maxX, b.box.minX) || atSeam(b.box.maxX, a.box.minX)) && alongY >= TILE_SEAM_MIN_ALIGNED_SHARE * Math.min(heightA, heightB);
+  const stacked = (atSeam(a.box.maxY, b.box.minY) || atSeam(b.box.maxY, a.box.minY)) && alongX >= TILE_SEAM_MIN_ALIGNED_SHARE * Math.min(widthA, widthB);
+  return sideBySide || stacked;
+}
+
+/** Whether `b` is `a` painted a second time: a raster of the same size over the same box (within a point). */
+function isRepaintOf(a: { entry: ImageEntry; box: Rect }, b: { entry: ImageEntry; box: Rect }): boolean {
+  const near = (x: number, y: number): boolean => Math.abs(x - y) <= 1;
+  return a.entry.intrinsicWidth === b.entry.intrinsicWidth && a.entry.intrinsicHeight === b.entry.intrinsicHeight && near(a.box.minX, b.box.minX) && near(a.box.minY, b.box.minY) && near(a.box.maxX, b.box.maxX) && near(a.box.maxY, b.box.maxY);
+}
+
+/** `unit` without the rasters that repaint another of its members on this page (see `isRepaintOf`). */
+function withoutRepaints(unit: ExtractionUnit): ExtractionUnit {
+  const boxOf = (m: ImageEntry): Rect | undefined => m.occurrences.find((o) => o.page === unit.page)?.bbox;
+  const kept = unit.memberEntries.filter((m, at) => {
+    const box = boxOf(m);
+    return box === undefined || !unit.memberEntries.slice(0, at).some((k) => boxOf(k) !== undefined && isRepaintOf({ entry: k, box: boxOf(k)! }, { entry: m, box }));
+  });
+  if (kept.length === unit.memberEntries.length) return unit;
+  return { ...unit, memberEntries: kept, clusterMemberCount: kept.length };
+}
+
+function windowsAreApart(a: readonly number[], b: readonly number[], maxShare: number): boolean {
+  const shared = polygonArea(clipPolygon(a, b));
+  return shared < maxShare * Math.min(polygonArea(a), polygonArea(b));
+}
+
 export function splitUnitsOfDistinctPictures(
   units: readonly ExtractionUnit[],
   classifiedByEntry: ReadonlyMap<ImageEntry, ClassifiedImage>,
@@ -574,17 +839,36 @@ export function splitUnitsOfDistinctPictures(
   textBoxesByPage?: ReadonlyMap<number, readonly Rect[]>,
 ): ExtractionUnit[] {
   const isSolid = (m: ImageEntry): boolean => !isBackdropShape(m);
-  return units.flatMap((unit) => {
-    const significant = unit.memberEntries.filter((m) => isSolid(m) && m.objId !== null && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+  return units.flatMap((planned) => {
+    // A raster painted a second time over the same box (the same picture, painted again to blend it or to cover its edge) is not another picture of the unit.
+    const unit = withoutRepaints(planned);
+    // A panel of text laid over pictures (a masked panel painted at 90%, with the page's text on it) is not part of them: a render of the unit would carry its text.
+    // Each picture of the unit is a picture of its own, taken from its own pixels.
+    const isTextPanelOverPictures = (m: ImageEntry): boolean => m.maxOpacity !== undefined && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA && classifiedByEntry.get(m)?.reason === HIGH_TEXT_COVERAGE_REASON;
+    if (unit.memberEntries.length >= 2 && unit.memberEntries.some(isTextPanelOverPictures) && unit.memberEntries.some((m) => !isTextPanelOverPictures(m) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA)) {
+      return unit.memberEntries.flatMap((m): ExtractionUnit[] => {
+        const c = classifiedByEntry.get(m);
+        const boxes = m.occurrences.filter((o) => o.page === unit.page).map((o) => o.bbox);
+        if (!c || boxes.length === 0 || m.maxRelativeArea < CO_MEMBER_SIGNIFICANT_AREA) return [];
+        return [{ representativeEntry: m, memberEntries: [m], page: unit.page, bbox: boxes.reduce((acc, b) => unionRect(acc, b)), clusterMemberCount: 1, classification: c.classification, confidence: c.confidence, reason: c.reason }];
+      });
+    }
+    const significant = unit.memberEntries.filter((m) => isSolid(m) && !isPanelBehindFigure(m, unit) && m.objId !== null && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
     const underFullPageIllustration = unit.representativeEntry !== null && unit.representativeEntry.maxRelativeArea >= SPLIT_BANNER_REPRESENTATIVE_MIN_AREA;
     const significantMasked = unit.memberEntries.filter((m) => isSolid(m) && m.objId !== null && m.maxRelativeArea >= (underFullPageIllustration ? SPLIT_BANNER_MASKED_MIN_AREA : CO_MEMBER_SIGNIFICANT_AREA) && maskedObjIds.has(m.objId));
     const standOnBackdrops = unit.memberEntries.some((m) => isBackdropShape(m));
     // A big card of the layout (a panel with a stat block, painted at 90%: not a faint overlay, not fully opaque) with figures standing on it: the figures are pictures of their own.
     const standOnCard = unit.memberEntries.some((m) => m.maxOpacity !== undefined && m.maxOpacity < 1 && !isTranslucentEverywhere(m) && m.maxRelativeArea >= LAYOUT_CARD_MIN_AREA);
     // A card of text (a parchment with a stat block) laid over a picture: the two are told apart, the picture is not part of the card.
+    const classifierFoundCard = unit.memberEntries.some((m) => m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA && classifiedByEntry.get(m)?.reason === HIGH_TEXT_COVERAGE_REASON);
     const isTextCard = (m: ImageEntry): boolean => {
       const own = m.occurrences.find((o) => o.page === unit.page)?.bbox;
-      return own !== undefined && m.maxOpacity === undefined && textCoverage(own, textBoxesByPage?.get(unit.page)) >= SPLIT_TEXT_CARD_MIN_COVERAGE;
+      const reason = classifiedByEntry.get(m)?.reason;
+      if (own === undefined || m.maxOpacity !== undefined) return false;
+      if (reason === HIGH_TEXT_COVERAGE_REASON) return true;
+      // When the classifier found a card of text among the members, the others are the pictures the card lies on, however much of their box the page's text blocks cover.
+      if (classifierFoundCard) return false;
+      return textCoverage(own, textBoxesByPage?.get(unit.page)) >= SPLIT_TEXT_CARD_MIN_COVERAGE;
     };
     const boxOnPage = (m: ImageEntry): Rect | undefined => m.occurrences.find((o) => o.page === unit.page)?.bbox;
     const standOnTextCard =
@@ -600,14 +884,75 @@ export function splitUnitsOfDistinctPictures(
             return shared === null || rectArea(shared) < SPLIT_TEXT_CARD_MAX_PICTURE_ON_CARD * rectArea(pictureBox);
           }),
       );
+    // Pictures of which some are shown in frames of their own (a clip) and whose frames do not overlap the others (three floor plans stacked on a page,
+    // a creature beside swirls of wind): the boxes of their rasters overlap where the frames do not, which is no reason to join them. The pictures whose
+    // outlines overlap stay together; the groups that remain are separate pictures.
+    if (significantMasked.length < 2 && !(standOnBackdrops || standOnCard || standOnTextCard) && significant.length >= 2) {
+      const outlines = significant.map((m) => {
+        const box = boxOnPage(m);
+        return visibleWindow(m, unit.page) ?? (box === undefined ? undefined : [box.minX, box.minY, box.maxX, box.minY, box.maxX, box.maxY, box.minX, box.maxY]);
+      });
+      if (outlines.every((o): o is readonly number[] => o !== undefined)) {
+        const parent = significant.map((_, i) => i);
+        const find = (i: number): number => {
+          while (parent[i] !== i) i = parent[i]!;
+          return i;
+        };
+        const tileOf = (m: ImageEntry): TileSource | undefined => {
+          const box = boxOnPage(m);
+          return box === undefined || m.intrinsicWidth === null || m.intrinsicHeight === null || visibleWindow(m, unit.page) !== undefined || m.occurrences.find((o) => o.page === unit.page)?.placement?.rotated === true ? undefined : { box, pixelWidth: m.intrinsicWidth, pixelHeight: m.intrinsicHeight };
+        };
+        const seamed = (i: number, j: number): boolean => {
+          const a = tileOf(significant[i]!);
+          const b = tileOf(significant[j]!);
+          return a !== undefined && b !== undefined && areSeamedTiles(a, b);
+        };
+        for (let i = 0; i < outlines.length; i++) for (let j = i + 1; j < outlines.length; j++) if (seamed(i, j) || !windowsAreApart(outlines[i] as readonly number[], outlines[j] as readonly number[], visibleWindow(significant[i]!, unit.page) === undefined && visibleWindow(significant[j]!, unit.page) === undefined ? BOXES_MAX_OVERLAP_SHARE : FRAMES_MAX_OVERLAP_SHARE)) parent[find(i)] = find(j);
+        const components = new Map<number, ImageEntry[]>();
+        significant.forEach((m, i) => components.set(find(i), [...(components.get(find(i)) ?? []), m]));
+        if (components.size >= 2) {
+          return [...components.values()].flatMap((members): ExtractionUnit[] => {
+            const representative = members.reduce((best, m) => (m.maxRelativeArea > best.maxRelativeArea ? m : best));
+            const c = classifiedByEntry.get(representative);
+            const boxes = members.flatMap((m) => m.occurrences.filter((o) => o.page === unit.page).map((o) => o.bbox));
+            if (!c || boxes.length === 0) return [];
+            return [{ representativeEntry: representative, memberEntries: members, page: unit.page, bbox: boxes.reduce((acc, b) => unionRect(acc, b)), clusterMemberCount: members.length, classification: c.classification, confidence: c.confidence, reason: c.reason }];
+          });
+        }
+      }
+    }
     if (unit.memberEntries.length < 2 || (significantMasked.length < 2 && !((standOnBackdrops || standOnCard || standOnTextCard) && significant.length >= 2))) return [unit];
-    const separate = unit.memberEntries.filter((m) => {
+    const isSplitOff = (m: ImageEntry): boolean => {
       if (!isSolid(m)) return false;
       if (m === unit.representativeEntry) return true;
       const c = classifiedByEntry.get(m);
       return c !== undefined && (m.maxRelativeArea >= SPLIT_OFF_MIN_AREA || (c.classification === 'content' && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA));
-    });
-    return separate.flatMap((m): ExtractionUnit[] => {
+    };
+    // A picture of consequence that lies clear of the pictures split off (at most `FRAMES_MAX_OVERLAP_SHARE` of its box on any of them: the second figure of a pair, an
+    // armor beside the others) is a picture of its own, not a leftover of the stack: only the pieces that sit on the pictures are.
+    // The flush washes of the layout that are split off with them are not pictures to keep clear of.
+    const splitOff = unit.memberEntries.filter((m) => isSplitOff(m) && classifiedByEntry.get(m)?.reason !== FLUSH_UNDECIDED_REASON);
+    const clearOfSplitOff = (m: ImageEntry): boolean => {
+      const box = boxOnPage(m);
+      if (box === undefined || rectArea(box) <= 0 || !isSolid(m) || isTextCard(m) || isPanelBehindFigure(m, unit) || m.maxRelativeArea < CO_MEMBER_SIGNIFICANT_AREA || classifiedByEntry.get(m) === undefined) return false;
+      return splitOff.every((o) => {
+        const shared = boxOnPage(o) === undefined ? null : rectIntersection(box, boxOnPage(o)!);
+        return shared === null || rectArea(shared) <= FRAMES_MAX_OVERLAP_SHARE * rectArea(box);
+      });
+    };
+    // A picture nearly as large as the largest one split off (the third snapshot of a stack, pinned slightly over the others) is its peer as well.
+    const largestSplitOff = splitOff.reduce((largest, m) => Math.max(largest, m.maxRelativeArea), 0);
+    const isPeerOfSplitOff = (m: ImageEntry): boolean =>
+      isSolid(m) && !isTextCard(m) && !isPanelBehindFigure(m, unit) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA && m.maxRelativeArea >= SPLIT_PEER_MIN_SHARE * largestSplitOff && classifiedByEntry.get(m) !== undefined;
+    const separate = unit.memberEntries.filter((m) => isSplitOff(m) || clearOfSplitOff(m) || isPeerOfSplitOff(m));
+    const isRepaintOfEarlier = (m: ImageEntry, at: number): boolean => {
+      const box = boxOnPage(m);
+      return box !== undefined && separate.slice(0, at).some((k) => {
+        const earlier = boxOnPage(k);
+        return earlier !== undefined && isRepaintOf({ entry: k, box: earlier }, { entry: m, box });
+      });
+    };
+    return separate.filter((m, at) => !isRepaintOfEarlier(m, at)).flatMap((m): ExtractionUnit[] => {
       const c = classifiedByEntry.get(m);
       const boxes = m.occurrences.filter((o) => o.page === unit.page).map((o) => o.bbox);
       if (!c || boxes.length === 0) return [];
@@ -690,13 +1035,29 @@ export function alternativeRepresentatives(unit: ExtractionUnit): ExtractionUnit
     .map((m) => ({ ...unit, representativeEntry: m }));
 }
 
+/** Page-area share from which a faded layer counts as a panel (the misty ground a figure stands on) and not as a picture of its own. */
+const PANEL_BEHIND_FIGURE_MIN_AREA = 0.1;
+/** ...and up to this share (a faded picture that fills most of the page is a background art of its own) and at up to this opacity (the faded pictures worth offering sit at 50%-65%). */
+const PANEL_BEHIND_FIGURE_MAX_AREA = 0.5;
+const PANEL_BEHIND_FIGURE_MAX_OPACITY = 0.45;
+
+/**
+ * A large layer painted faded (at most 45% opaque everywhere it appears) in a unit that also holds an opaque picture of consequence: the misty panel the figure
+ * stands in front of, not a second picture. On its own a faded picture is a picture worth offering (a watermark, a faded sketch); it is the figure
+ * beside it that makes it a backdrop.
+ */
+export function isPanelBehindFigure(entry: ImageEntry, unit: ExtractionUnit): boolean {
+  if (entry.maxOpacity === undefined || entry.maxOpacity > PANEL_BEHIND_FIGURE_MAX_OPACITY || entry.maxRelativeArea < PANEL_BEHIND_FIGURE_MIN_AREA || entry.maxRelativeArea > PANEL_BEHIND_FIGURE_MAX_AREA) return false;
+  return unit.memberEntries.some((m) => m !== entry && m.maxOpacity === undefined && !isBackdropShape(m) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+}
+
 /**
  * The members of a unit that make up its composition: everything but the faint backdrops (see `isBackdropShape`),
  * which are not part of what a raw resource or a render would have to reproduce. A unit of backdrops only keeps
  * all of them.
  */
 export function compositionMembers(unit: ExtractionUnit): readonly ImageEntry[] {
-  const solid = unit.memberEntries.filter((m) => !isBackdropShape(m));
+  const solid = unit.memberEntries.filter((m) => !isBackdropShape(m) && !isPanelBehindFigure(m, unit));
   return solid.length > 0 ? solid : unit.memberEntries;
 }
 
@@ -709,11 +1070,18 @@ export function compositionMembers(unit: ExtractionUnit): readonly ImageEntry[] 
  */
 export function withSolidRepresentativeOfBackdrop(unit: ExtractionUnit): ExtractionUnit {
   const rep = unit.representativeEntry;
-  if (rep === null || !isBackdropShape(rep)) return unit;
-  const solid = unit.memberEntries.filter((m) => m !== rep && m.objId !== null && !isBackdropShape(m) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
+  if (rep === null || !(isBackdropShape(rep) || isPanelBehindFigure(rep, unit))) return unit;
+  const solid = unit.memberEntries.filter((m) => m !== rep && m.objId !== null && !isBackdropShape(m) && !isPanelBehindFigure(m, unit) && m.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA);
   if (solid.length === 0) return unit;
   const largest = solid.reduce((best, cur) => (cur.maxRelativeArea > best.maxRelativeArea ? cur : best));
   return { ...unit, representativeEntry: largest };
+}
+
+/** The painting of `entry` on `page` that lies on top: the last one in the paint order (a picture painted twice shows as its upper painting does). */
+export function topOccurrenceOnPage(entry: ImageEntry, page: number): ImageEntry['occurrences'][number] | undefined {
+  let top: ImageEntry['occurrences'][number] | undefined;
+  for (const o of entry.occurrences) if (o.page === page && (top === undefined || o.index > top.index)) top = o;
+  return top;
 }
 
 /**
@@ -732,6 +1100,27 @@ export function pickUnitRepresentative(group: readonly ClassifiedImage[], masked
   if (!isTranslucentEverywhere(largest.entry) || largest.classification !== 'undecided') return largest;
   const solidPhotos = group.filter((c) => !isTranslucentEverywhere(c.entry) && c.entry.maxRelativeArea >= CO_MEMBER_SIGNIFICANT_AREA && c.entry.objId !== null && maskedObjIds.has(c.entry.objId));
   return solidPhotos.length > 0 ? solidPhotos.reduce(larger) : largest;
+}
+
+/** Places that lie this close (points) are one place: the shadow of a picture, a copy a hair's breadth off. */
+const SAME_PLACE_GAP_PT = 2;
+
+/** The first of `boxes` with every box that lies on it or touches it, transitively, united: where one picture is painted first. */
+export function firstPlaceOfPicture(boxes: readonly Rect[]): Rect {
+  const touches = (a: Rect, b: Rect): boolean => a.minX <= b.maxX + SAME_PLACE_GAP_PT && b.minX <= a.maxX + SAME_PLACE_GAP_PT && a.minY <= b.maxY + SAME_PLACE_GAP_PT && b.minY <= a.maxY + SAME_PLACE_GAP_PT;
+  let place = boxes[0]!;
+  const taken = new Set<number>([0]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (let i = 1; i < boxes.length; i++) {
+      if (taken.has(i) || !touches(place, boxes[i]!)) continue;
+      place = unionRect(place, boxes[i]!);
+      taken.add(i);
+      grew = true;
+    }
+  }
+  return place;
 }
 
 /**
@@ -779,9 +1168,10 @@ function groupIntoUnits(candidates: readonly ClassifiedImage[], pageBoxByPage: R
     // multi-page entry. Raising the threshold to 5 pages (+ soft
     // fallback to `undecided` instead of `decoration`) let such an entry into
     // extraction for the first time, surfacing the dormant bug.
-    const bbox = group
-      .flatMap((c) => c.entry.occurrences.filter((o) => o.page === page).map((o) => o.bbox))
-      .reduce<Rect | null>((acc, b) => (acc ? unionRect(acc, b) : b), null)!;
+    const boxesOnPage = group.flatMap((c) => c.entry.occurrences.filter((o) => o.page === page).map((o) => o.bbox));
+    // One picture that the page paints in places far apart (a scoreboard at the top and again at the foot) is one picture where it is first painted: the union of its places would
+    // be a region with the whole page between them.
+    const bbox = group.length === 1 ? firstPlaceOfPicture(boxesOnPage) : boxesOnPage.reduce<Rect | null>((acc, b) => (acc ? unionRect(acc, b) : b), null)!;
     let classification = representative.classification;
     let confidence = representative.confidence;
     let reason = representative.reason;
@@ -882,7 +1272,7 @@ export function findVectorFigureUnits(
     arr.push(s);
     shapesByPage.set(s.page, arr);
   }
-  const found: { page: number; bbox: Rect; shapeCount: number; shapeBoxes: Rect[] }[] = [];
+  const found: { page: number; bbox: Rect; foundBbox: Rect; shapeCount: number; shapeBoxes: Rect[] }[] = [];
   for (const [page, pageShapes] of shapesByPage) {
     const box = pageBoxByPage.get(page);
     if (box === undefined) continue;
@@ -901,9 +1291,9 @@ export function findVectorFigureUnits(
   return found
     .filter((f) => {
       if ((pagesOfSignature.get(signature(f))?.size ?? 0) >= FIGURE_REPEAT_PAGES) return false;
-      if (textCoverage(f.bbox, textBoxesByPage.get(f.page)) >= FIGURE_MAX_TEXT_COVERAGE) return false;
-      const area = rectArea(f.bbox);
-      const covered = (imagesByPage.get(f.page) ?? []).reduce((sum, b) => sum + rectArea(rectIntersection(f.bbox, b) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 }), 0);
+      if (textCoverage(f.foundBbox, textBoxesByPage.get(f.page)) >= FIGURE_MAX_TEXT_COVERAGE) return false;
+      const area = rectArea(f.foundBbox);
+      const covered = (imagesByPage.get(f.page) ?? []).reduce((sum, b) => sum + rectArea(rectIntersection(f.foundBbox, b) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 }), 0);
       return area > 0 && covered / area < FIGURE_MAX_IMAGE_COVER;
     })
     .map((f): ExtractionUnit => ({
@@ -953,6 +1343,7 @@ export async function buildImageExtraction(
   const pageBoxByPage = new Map(inventory.perPage.map((p) => [p.pageNumber, p.box]));
   const pageRotationByPage = new Map(inventory.perPage.map((p) => [p.pageNumber, p.rotation]));
   const bodyBlockBoxesByPage = opts.bodyBlockBoxesByPage ?? new Map();
+  const headingBlockBoxesByPage = opts.headingBlockBoxesByPage ?? new Map();
   const textBlockBoxesByPage = opts.textBlockBoxesByPage ?? bodyBlockBoxesByPage;
   const classified = classifyImages(inventory.images, pageBoxByPage, bodyBlockBoxesByPage, {
     treatFullBleedAsContent: opts.treatFullBleedAsContent ?? false,
@@ -1028,16 +1419,19 @@ export async function buildImageExtraction(
   }
 
   const prepared: PreparedEntryForFinalize<EncodedImage>[] = [];
+  // Pages with a form read from pixels, and the rasters that are ruled like one but have too little print to be taken for it alone.
+  const formPages = new Set<number>();
+  const possibleSheetParts: { item: PreparedEntryForFinalize<EncodedImage>; page: number }[] = [];
   // The placeholder entries of the vector drawings found: they are dropped again when what the page shows there is a picture that is offered anyway.
   const figureEntries = new Set<ImageEntry>();
   // The halves of a picture that runs across a spread: a map (each half a big translucent panel with a drawing on it) or an illustration
   // (each half a picture of its own that reaches the gutter). The latter are joined only when their pixels go on across the seam.
   const halfCandidates = allUnits.filter((u) => u.reason === LARGE_TRANSLUCENT_PANEL_REASON || ((u.classification === 'content' || u.classification === 'undecided') && u.representativeEntry !== null && u.representativeEntry.maxRelativeArea >= SPREAD_HALF_MIN_AREA));
-  const spreadRightOf = findSpreadPairs(halfCandidates, pageBoxByPage);
+  const spreadRightOf = findSpreadPairs(halfCandidates, pageBoxByPage, (u) => (u.memberEntries.length === 1 && u.representativeEntry?.intrinsicWidth != null && u.representativeEntry.intrinsicHeight != null ? { width: u.representativeEntry.intrinsicWidth, height: u.representativeEntry.intrinsicHeight } : undefined));
   const spreadRightHalves = new Set(spreadRightOf.values());
-  let pendingLeftHalf: { item: PreparedEntryForFinalize<EncodedImage>; image: DecodedImage; page: number; isPanel: boolean } | null = null;
+  let pendingLeftHalf: { item: PreparedEntryForFinalize<EncodedImage>; image: DecodedImage; page: number; isPanel: boolean; box: Rect } | null = null;
   let done = 0;
-  const total = allUnits.length;
+  let total = allUnits.length;
 
   // Sequentially, page by page — NEVER Promise.all across multiple pages (same pattern as
   // `inventory.ts`). `page.cleanup()` after every page (measured: -58% peak RSS).
@@ -1153,6 +1547,36 @@ export async function buildImageExtraction(
             const shared = rectIntersection(repOwnBox, box);
             return shared !== null && rectArea(shared) >= SAME_FOOTPRINT_MIN_SHARE * rectArea(repOwnBox) && rectArea(shared) >= SAME_FOOTPRINT_MIN_SHARE * rectArea(box);
           };
+          // A small picture that lies mostly outside the representative (an ornament that sticks out of the bottom of an illustration) is a piece of the
+          // page's decoration beside it: a render of the unit would stretch down to it and take the text of the page on the way.
+          const isDecorationBesideRepresentative = (m: ImageEntry): boolean => {
+            const box = m.occurrences.find((o) => o.page === pageNumber)?.bbox;
+            if (m === unit.representativeEntry || repOwnBox === undefined || box === undefined || m.objId === null || maskedObjIds.has(m.objId) || isBackdropShape(m)) return false;
+            return isSmallPieceBesideRepresentative(box, m.maxRelativeArea, repOwnBox, unit.representativeEntry?.maxRelativeArea ?? 0);
+          };
+          // A long strip flush with the page edge (a misty margin of the layout) that overlaps a big picture is the page's decoration too: a render of the unit
+          // would stretch along the strip, over whatever text lies beside the picture.
+          const isEdgeStripOverRepresentative = (m: ImageEntry): boolean => {
+            const box = m.occurrences.find((o) => o.page === pageNumber)?.bbox;
+            if (m === unit.representativeEntry || box === undefined || m.objId === null || maskedObjIds.has(m.objId)) return false;
+            if (classifiedByEntry.get(m)?.reason !== FLUSH_UNDECIDED_REASON || (unit.representativeEntry?.maxRelativeArea ?? 0) < EDGE_STRIP_MIN_REPRESENTATIVE_AREA) return false;
+            return isLongStrip(box);
+          };
+          // A flush picture that lies mostly outside a big representative and has the page's text on it is the backdrop of that text (a misty corner under a
+          // quote), not a piece of the representative: a render of the unit would take the text with it.
+          const isTextBackdropBesideRepresentative = (m: ImageEntry): boolean => {
+            const box = m.occurrences.find((o) => o.page === pageNumber)?.bbox;
+            if (m === unit.representativeEntry || repOwnBox === undefined || box === undefined || m.objId === null || maskedObjIds.has(m.objId)) return false;
+            if (classifiedByEntry.get(m)?.reason !== FLUSH_UNDECIDED_REASON || (unit.representativeEntry?.maxRelativeArea ?? 0) < EDGE_STRIP_MIN_REPRESENTATIVE_AREA) return false;
+            return isBackdropOfTextBesideRepresentative(box, repOwnBox, textCoverage(box, textBlockBoxesByPage.get(pageNumber)));
+          };
+          const beside = unit.memberEntries.filter((m) => isDecorationBesideRepresentative(m) || isEdgeStripOverRepresentative(m) || isTextBackdropBesideRepresentative(m));
+          if (beside.length > 0) {
+            const kept = unit.memberEntries.filter((m) => !beside.includes(m));
+            const keptBoxes = kept.map((m) => m.occurrences.find((o) => o.page === pageNumber)?.bbox).filter((b): b is Rect => b !== undefined);
+            if (keptBoxes.length > 0) unit = { ...unit, memberEntries: kept, bbox: keptBoxes.reduce((acc, b) => unionRect(acc, b)), clusterMemberCount: kept.length };
+            crossesText = textCrossesRegionEdge(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+          }
           const composition = compositionMembers(unit).filter((m) => !isCopyOfRepresentative(m));
           const isMasked = composition.some((e) => e.objId !== null && maskedObjIds.has(e.objId));
           const compositionCount = composition.length;
@@ -1228,7 +1652,9 @@ export async function buildImageExtraction(
             const memberOpaque = memberLook !== null ? await probeOpaqueFraction(page, memberId) : null;
             if (looksLikePlainTextCard(memberLook, memberOpaque)) textCardMembers.add(m);
           }
-          const coMemberAreaShare = unit.memberEntries.reduce((sum, m) => (m === rep || m === overlayMember || coveredMembers.has(m) || textCardMembers.has(m) || isTranslucentEverywhere(m) ? sum : sum + m.maxRelativeArea), 0);
+          // A raster blended into the page (a wash of colour, a stain under the picture) is the page's own paint, not another picture of the unit.
+          const isBlendedOnPage = (m: ImageEntry): boolean => m.occurrences.find((o) => o.page === pageNumber)?.blended === true;
+          const coMemberAreaShare = unit.memberEntries.reduce((sum, m) => (m === rep || m === overlayMember || coveredMembers.has(m) || textCardMembers.has(m) || isTranslucentEverywhere(m) || isBlendedOnPage(m) ? sum : sum + m.maxRelativeArea), 0);
           // Text that lies ON the picture (a paper note, a newspaper handout) is part of what the page shows.
           const placedRep = rep?.occurrences.find((o) => o.page === pageNumber)?.bbox;
           let textOverPicture = isTextOverPicture(unit.reason, rep, placedRep, textBlockBoxesByPage.get(pageNumber));
@@ -1263,13 +1689,32 @@ export async function buildImageExtraction(
             const opaque = await probeOpaqueFraction(page, repId);
             if (opaque !== null && opaque < TEXT_OVER_PICTURE_MIN_OPAQUE_FRACTION) textOverPicture = false;
           }
+          let textIsOnPlainCard = false;
           // A plain opaque panel with a lot of the page's text on it is the text's card: what the page shows, not the bare raster.
           if (!textOverPicture && rep?.objId && repId && placedRep && !isTranslucentEverywhere(rep) && rep.maxRelativeArea <= TEXT_PANEL_MAX_AREA && textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) >= TEXT_PANEL_MIN_TEXT_COVERAGE) {
             if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [repId], settleBudgetMs);
             const panelRawLook = await probeRawLook(page, repId);
             const panelRawOpaque = panelRawLook !== null ? await probeOpaqueFraction(page, repId) : null;
-            if (looksLikePlainTextCard(panelRawLook, panelRawOpaque)) textOverPicture = true;
+            if (looksLikePlainTextCard(panelRawLook, panelRawOpaque)) {
+              textOverPicture = true;
+              textIsOnPlainCard = true;
+            }
           }
+          // A plain raster that is mostly blank (a faded sketch in a corner of a white sheet) passes for the card of the page's text, but text that
+          // runs past its edge is the page's own text (a column the picture lies across), not writing on the card: the picture is taken raw.
+          if (textIsOnPlainCard && textCrossingShare(unit.bbox, textBlockBoxesByPage.get(pageNumber)) >= TEXT_RUNS_PAST_PICTURE_MIN_SHARE) {
+            textOverPicture = false;
+          }
+          // A photo with notes pinned over it: the photo is what is offered, taken from its own pixels (the render would carry the notes), and it is not a card of text.
+          // The same holds for a map with its labels laid over it by the page: taken from its own pixels, it is the map without them.
+          const photoLook = (unit.reason === TEXT_OVER_SMALL_REASON || textOverPicture) && repId !== null ? await probeRawLook(page, repId) : null;
+          const isPhotoUnderText = isPhotoUnderNotes(photoLook, textCoverage(shrinkToCenter(unit.bbox), textBlockBoxesByPage.get(pageNumber))) && (unit.reason === TEXT_OVER_SMALL_REASON || (photoLook?.meanLuminance ?? 0) >= MAP_UNDER_LABELS_MIN_MEAN_LUMINANCE);
+          if (isPhotoUnderText) {
+            textOverPicture = false;
+            textIsOnPlainCard = false;
+          }
+          // Light paper that is a plain card of the page's text (a strip of parchment with writing turned on its side) is a box of text, whatever the share of the page's text over it.
+          const textOnPaperCard = textIsOnPlainCard && photoLook !== null && photoLook.meanLuminance >= PAPER_CARD_MIN_MEAN_LUMINANCE;
           const decision = decideExtractionStrategy({
             entry: rep,
             isMasked,
@@ -1318,6 +1763,30 @@ export async function buildImageExtraction(
               .flatMap((c) => c.entry.occurrences.filter((o) => o.page === pageNumber).map((o) => o.bbox));
             const extended = extendToEdgeOrnaments(unit.bbox, ornaments, pageBoxByPage.get(pageNumber));
             unit = { ...unit, bbox: extended };
+          }
+          // A note drawn from several pieces: the piece that is offered lies inside the box of the note, which the classifier took for a backdrop because the page's text covers it.
+          // Only a piece whose edge cuts the note's text (measured: 0.71 for a piece of a note, 0.39 for a card of items): the rest of the note lies beyond it.
+          if (decision.strategy === 'region-render' && (unit.reason === TEXT_OVER_SMALL_REASON || unit.reason === HIGH_TEXT_COVERAGE_REASON) && textCrossingShare(unit.bbox, textBlockBoxesByPage.get(pageNumber)) >= NOTE_PIECE_MIN_TEXT_CROSSING) {
+            const wholeNotes = classified
+              .filter((c) => c.classification === 'decoration' && c.reason === TEXT_COVERED_BACKDROP_REASON && c.entry !== rep && c.entry.maxRelativeArea <= NOTE_MAX_AREA)
+              .flatMap((c) => c.entry.occurrences.filter((o) => o.page === pageNumber).map((o) => o.bbox));
+            unit = { ...unit, bbox: cardOfPiece(unit.bbox, wholeNotes) };
+          }
+          // What lies over what is the order in which the page paints them.
+          const paintedAt = (u: ExtractionUnit): number => u.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.index ?? -1;
+          const isCardOfText = (u: ExtractionUnit): boolean => u.reason === HIGH_TEXT_COVERAGE_REASON || u.reason === TEXT_OVER_SMALL_REASON;
+          // A card of text with a picture lying over it that is offered by itself (a photo pinned to a note): the card is what the picture leaves of it.
+          if (decision.strategy === 'region-render' && unit.reason === HIGH_TEXT_COVERAGE_REASON) {
+            const picturesOverCard = pageUnits
+              .filter((other) => other !== plannedUnit && other.classification === 'content' && !isCardOfText(other) && (other.representativeEntry?.maxRelativeArea ?? 0) >= PICTURE_OVER_CARD_MIN_AREA && paintedAt(other) > paintedAt(plannedUnit))
+              .map((other) => other.bbox);
+            unit = { ...unit, bbox: cardWithoutPictures(unit.bbox, picturesOverCard) };
+          }
+          // A picture judged content with a card of text lying over its edge (a note pinned to the foot of a photo): the picture is what the card leaves of it, not the card's top strip as well.
+          // Not for a picture that is itself a note: the boxes of tilted notes overlap by more than their shapes do, and the cut would take their own lines.
+          else if (decision.strategy === 'region-render' && unit.classification === 'content' && !isCardOfText(unit)) {
+            const cardsOverPicture = pageUnits.filter((other) => other !== plannedUnit && isCardOfText(other) && paintedAt(other) > paintedAt(plannedUnit)).map((other) => other.bbox);
+            unit = { ...unit, bbox: cardWithoutPictures(unit.bbox, cardsOverPicture) };
           }
           let extractResult = await extractDirect(
             page,
@@ -1395,11 +1864,44 @@ export async function buildImageExtraction(
           const clip = unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip;
           // A picture the page turns and shows through a plain rectangle comes out as the page shows it: the window, upright, with no tilted frame.
           const throughWindow = clip !== undefined && extractResult.source !== 'region-render' ? renderThroughRectangularClip(image, clip) : null;
+          // A card of text that other cards lie against, taken as a render of its region, shows slices of its neighbours at its edges: the clip it was painted under is what the page shows of it.
+          const cardRegionClip = clip !== undefined && extractResult.source === 'region-render' && (unit.reason === HIGH_TEXT_COVERAGE_REASON || unit.reason === TEXT_OVER_SMALL_REASON) && !clipShowsWholePicture(clip) ? clip : undefined;
+          const unitArea = rectArea(unit.bbox);
+          const hasNeighbourCards = cardRegionClip !== undefined && unitArea > 0 && pageUnits.some((other) => {
+            if (other === plannedUnit || !(isCardOfText(other) || other.classification === 'content') || (other.representativeEntry?.maxRelativeArea ?? 0) >= NEIGHBOUR_CARD_MAX_AREA || paintedAt(other) <= paintedAt(plannedUnit)) return false;
+            const shared = rectIntersection(unit.bbox, other.bbox);
+            return shared !== null && rectArea(shared) >= NEIGHBOUR_CARD_MIN_OVERLAP * unitArea;
+          });
+          if (cardRegionClip !== undefined && hasNeighbourCards) {
+            const regionCtm: Matrix = [unit.bbox.maxX - unit.bbox.minX, 0, 0, unit.bbox.maxY - unit.bbox.minY, unit.bbox.minX, unit.bbox.minY];
+            // The neighbours painted later lie over this card: where their clips cover it the page shows them, not the card.
+            const holes = pageUnits
+              .filter((other) => other !== plannedUnit && (isCardOfText(other) || other.classification === 'content') && (other.representativeEntry?.maxRelativeArea ?? 0) < NEIGHBOUR_CARD_MAX_AREA && paintedAt(other) > paintedAt(plannedUnit))
+              .flatMap((other) => {
+                const otherClip = other.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip;
+                if (otherClip !== undefined) return !clipShowsWholePicture(otherClip) ? [{ paths: otherClip.paths, ctm: regionCtm }] : [];
+                // A card of text that is not cut by a clip (its shape is in its pixels) is taken by its box: it lies over this one by a good part of it, which is why this is done at all.
+                const b = other.bbox;
+                return isCardOfText(other) ? [{ paths: [[[b.minX, b.minY, b.maxX, b.minY, b.maxX, b.maxY, b.minX, b.maxY]]], ctm: regionCtm }] : [];
+              });
+            const cut = applyClipToImage(image, { paths: cardRegionClip.paths, ctm: regionCtm }, { holes });
+            // A clip that leaves hardly anything of the render is not the card's shape: the render is kept as it is.
+            if (cut.width * cut.height >= CLIP_CUT_MIN_REMAINING_SHARE * image.width * image.height) image = cut;
+          }
           if (throughWindow !== null) image = throughWindow;
-          else if (clip !== undefined && extractResult.source !== 'region-render') image = applyClipToImage(image, clip);
+          else if (clip !== undefined && extractResult.source !== 'region-render' && !clipShowsWholePicture(clip)) image = applyClipToImage(image, clip, { hiddenBecomesPaper: unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.blended === true });
           // A picture stored sideways and turned upright on the page: the raw resource has to be turned the same way.
-          const quarterTurns = rep?.occurrences.find((o) => o.page === pageNumber)?.placement?.quarterTurns;
+          // A picture painted more than once on a page (a shadow under it, a copy turned the other way) is shown as the last of its paintings shows it.
+          const topPainting = rep === null ? undefined : topOccurrenceOnPage(rep, pageNumber);
+          const quarterTurns = topPainting?.placement?.quarterTurns;
           if (throughWindow === null && quarterTurns !== undefined && extractResult.source !== 'region-render' && compositionCount === 1) image = rotateQuarterTurns(image, quarterTurns);
+          // A picture the page paints mirrored (a negative scale) comes out of the raw resource the other way round.
+          const placementOfPainted = topPainting?.placement;
+          if (throughWindow === null && (placementOfPainted?.flipX || placementOfPainted?.flipY) && extractResult.source !== 'region-render' && compositionCount === 1) {
+            image = mirrorImage(image, placementOfPainted.flipX === true, placementOfPainted.flipY === true);
+          }
+          // The numbers of a map's key are painted over when the user asked for it.
+          if (opts.removeNumberMarkers === true) image = eraseNumberMarkers(image) ?? image;
           if (autoCropUniformMargins && unit.reason === 'Z1-full-bleed-forced-content') {
             const bounds = detectContentBounds(image);
             if (bounds) {
@@ -1449,6 +1951,36 @@ export async function buildImageExtraction(
           }
           // A big picture cut out by a mask that is mostly transparent (a splatter, a smudge) is a decoration whose box happens to be big.
           const sparseLargeCutout = unit.reason === LARGE_MASKED_CUTOUT_REASON && opaqueFraction !== undefined && opaqueFraction < LARGE_CUTOUT_MIN_OPAQUE_FRACTION;
+          // A big picture cut out by a mask whose raster is a plain dark texture (a vignette, a shadow laid over the page that reaches off its edge) shows nothing of its own.
+          const cutoutLook = unit.reason === LARGE_MASKED_CUTOUT_REASON && repId !== null ? await probeRawLook(page, repId) : null;
+          const darkLargeCutout = cutoutLook !== null && cutoutLook.meanLuminance <= DARK_CUTOUT_MAX_MEAN_LUMINANCE && cutoutLook.luminanceStdDev <= DARK_CUTOUT_MAX_STDDEV;
+          // A small picture offered only because text lies over its box is kept when it is a cut-out object (mostly transparent: an item on a card); a card or a photo, opaque all over, under text is not.
+          const rawOpaque = unit.reason === TEXT_OVER_SMALL_REASON && repId !== null ? await probeOpaqueFraction(page, repId) : null;
+          // A raster blended into the page (a strip of tape, a stain) with text under it is not a box of text: it is hidden, not offered as one.
+          const isOverlayOfPage = unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.blended === true;
+          const textCard = unit.reason === TEXT_OVER_SMALL_REASON && !isPhotoUnderText && (rawOpaque === null || rawOpaque >= CUT_OUT_MAX_OPAQUE_FRACTION);
+          // A flush card of text (a stat block on parchment) is the backdrop of its text, not a picture, whether it was extracted raw or as a render with its text on it.
+          const flushCardLook = unit.reason === FLUSH_UNDECIDED_REASON && repId !== null ? await probeRawLook(page, repId) : null;
+          const flushCard = flushCardLook !== null && isFlushCardOfText(flushCardLook, repId === null ? null : await probeOpaqueFraction(page, repId), placedRep ? textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) : 0);
+          // A render of a picture of the page's layout (not a drawing of paths) with at least 15% of its box covered by page text, on a plain raster: a candidate for a panel of text
+          // (a sidebar, a list, a box of rules). Whether the panels are hidden is decided for the whole book (see `isBookOfTextPanels`).
+          let textPanelCandidate = false;
+          let textPanelKey: string | undefined;
+          let textPanelLook: { stdDev: number; saturation: number; mean: number; coverage: number; textOnCenter: boolean } | undefined;
+          const panelCoverage = textCoverage(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+          // A picture shown through the outline of its subject (many points) is a cut-out that the text wraps around: the boxes of the wrapped text reach over its middle, but the text is not on it.
+          const isCutOutByOutline = unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip?.paths.some((path) => path.some((polygon) => polygon.length / 2 > CUT_OUT_OUTLINE_MIN_POINTS)) === true;
+          const centerCoverage = textCoverage(shrinkToCenter(unit.bbox), textBlockBoxesByPage.get(pageNumber));
+          // Text over most of a render and over most of its middle (a newspaper, a page of a document) is what the render shows, whatever the look of the raster under it.
+          const textFillsBox = extractResult.source === 'region-render' && unit.representativeEntry !== null && !isCutOutByOutline && panelCoverage >= TEXT_FILLS_BOX_MIN_COVERAGE && centerCoverage >= TEXT_FILLS_BOX_MIN_COVERAGE;
+          if (unit.representativeEntry !== null && repId !== null && extractResult.source === 'region-render' && panelCoverage >= TEXT_PANEL_STYLE_MIN_COVERAGE) {
+            const panelLook = await probeRawLook(page, repId);
+            textPanelCandidate = isTextPanel(extractResult.source, panelCoverage) && panelLook !== null && panelLook.luminanceStdDev <= TEXT_PANEL_MAX_RAW_STDDEV && panelLook.meanSaturation <= TEXT_PANEL_MAX_RAW_SATURATION;
+            if (panelLook !== null && panelLook.luminanceStdDev <= TEXT_PANEL_TINTED_MAX_RAW_STDDEV && panelLook.meanSaturation <= TEXT_PANEL_TINTED_MAX_RAW_SATURATION) {
+              textPanelKey = `${unit.representativeEntry.intrinsicWidth}x${unit.representativeEntry.intrinsicHeight}:${panelLook.luminanceStdDev.toFixed(1)}:${panelLook.meanSaturation.toFixed(1)}`;
+              textPanelLook = { stdDev: panelLook.luminanceStdDev, saturation: panelLook.meanSaturation, mean: panelLook.meanLuminance, coverage: panelCoverage, textOnCenter: unit.reason === HIGH_TEXT_COVERAGE_REASON || (!isCutOutByOutline && centerCoverage >= TEXT_PANEL_CENTER_MIN_COVERAGE) };
+            }
+          }
           // A big translucent panel was only let through to be checked for a drawing; without one it is the page's own backdrop.
           if (isLargePanel && !drawnOnPanel) panelBackdrop = true;
           // Grid suggestion — NOT limited to 'content' (unlike
@@ -1469,9 +2001,33 @@ export async function buildImageExtraction(
           // described something else: "no image to extract directly").
           if (unit.representativeEntry === null && unit.reason === VECTOR_FIGURE_REASON) figureEntries.add(entryForFinalize);
           const confidence = unit.representativeEntry || unit.reason === VECTOR_FIGURE_REASON ? unit.confidence : confidenceForReason('Z1-large-relative-area');
+          // A form or a table that is a picture with its text drawn into it (a filled character sheet): the page has no text of it to find, so the pixels are read.
+          const hiddenByPixels = blankSheet || panelBackdrop || sparseLargeCutout || darkLargeCutout || textCard || flushCard || (unit.reason === VECTOR_FIGURE_REASON && unit.representativeEntry === null && whiteOpaqueShare !== undefined && whiteOpaqueShare >= FIGURE_MAX_WHITE_SHARE);
+          const rasterMeasure = hideBackgroundImages && !hiddenByPixels && unit.classification !== 'decoration' && unit.classification !== 'mask' ? measureRasterText(image) : null;
+          const rasterForm = rasterMeasure !== null && (isFormOrTable(rasterMeasure) || looksLikeDocument(rasterMeasure) || looksLikeLargePrintNote(rasterMeasure) || looksLikeDocumentOnDark(rasterMeasure));
+          // A splatter of blood or paint laid on the page is the page's decoration, not a picture.
+          // A splatter painted with a blend mode is rendered on the page's tinted paper, where its ink is not on white: its own raster shows it on white.
+          let splatterOnTint = false;
+          if (hideBackgroundImages && !hiddenByPixels && !rasterForm && unit.classification !== 'decoration' && unit.classification !== 'mask' && extractResult.source === 'region-render' && repId !== null && isBlendedOnPage(unit.representativeEntry ?? rep!)) {
+            const rawOfRep = await extractDirect(page, repId, unit.bbox, renderer, { targetLongEdgePx, signal }, pageNumber);
+            splatterOnTint = rawOfRep.source !== 'region-render' && looksLikeInkSplatter(rawOfRep.image);
+          }
+          const inkSplatter = hideBackgroundImages && !hiddenByPixels && !rasterForm && unit.classification !== 'decoration' && unit.classification !== 'mask' && (splatterOnTint || looksLikeInkSplatter(image));
+          // A track of tick boxes (stress, wounds) belongs to the character sheet and is no picture either.
+          const boxTrack = hideBackgroundImages && !hiddenByPixels && !rasterForm && !inkSplatter && unit.classification !== 'decoration' && unit.classification !== 'mask' && looksLikeTrackOfBoxes(image);
+          // A banner (a title on a plate of colour) is no picture and no box of text: it is not offered at all.
+          let headingBanner = false;
+          if (hideBackgroundImages && !hiddenByPixels && extractResult.source === 'region-render' && repId !== null && unit.classification !== 'decoration' && unit.classification !== 'mask') {
+            const everyText = textCoverage(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+            const headings = textCoverage(unit.bbox, headingBlockBoxesByPage.get(pageNumber));
+            if (isHeadingBannerText(everyText, headings)) {
+              const bannerLook = await probeRawLook(page, repId);
+              headingBanner = bannerLook !== null && bannerLook.luminanceStdDev <= BANNER_MAX_RAW_STDDEV;
+            }
+          }
           const result: PreparedEntryForFinalize<EncodedImage> = {
             entry: entryForFinalize,
-            classification: blankSheet || panelBackdrop || sparseLargeCutout || (unit.reason === VECTOR_FIGURE_REASON && unit.representativeEntry === null && whiteOpaqueShare !== undefined && whiteOpaqueShare >= FIGURE_MAX_WHITE_SHARE) ? 'decoration' : unit.representativeEntry || unit.reason === VECTOR_FIGURE_REASON ? unit.classification : 'content',
+            classification: hiddenByPixels || rasterForm || inkSplatter || boxTrack || headingBanner ? 'decoration' : unit.representativeEntry || unit.reason === VECTOR_FIGURE_REASON ? unit.classification : 'content',
             confidence,
             extractSource: extractResult.source,
             contentHash,
@@ -1486,13 +2042,131 @@ export async function buildImageExtraction(
             smoothness,
             opaqueFraction,
             suggestedGrid,
+            textPanelCandidate,
+            textPanelKey,
+            textFillsBox: textFillsBox ? true : undefined,
+            textOnPaperCard: textOnPaperCard || (unit.reason === HIGH_TEXT_COVERAGE_REASON && extractResult.source === 'region-render' && photoLook !== null && photoLook.meanLuminance >= PAPER_CARD_MIN_MEAN_LUMINANCE && centerCoverage >= PAPER_NOTE_MIN_CENTER_COVERAGE) ? true : undefined,
+            textPanelLook,
+            holdsText: !headingBanner && ((rasterForm && unit.representativeEntry !== null) || ((textCard || flushCard) && !blankSheet && !panelBackdrop && !sparseLargeCutout && !darkLargeCutout && !isOverlayOfPage)) ? true : undefined,
             payload: encoded,
           };
           imageByItem.set(result, image);
+          if (rasterForm) formPages.add(unit.page);
+          else if (rasterMeasure !== null && !inkSplatter && !boxTrack && isPartOfSheet(rasterMeasure)) possibleSheetParts.push({ item: result, page: unit.page });
           return result;
       };
 
-      for (const plannedUnit of unitsByPage.get(pageNumber)!) {
+      // The right piece of a picture stored in two pieces on one page waits for the left one, which is extracted first.
+      const unitOfMembers = (u: ExtractionUnit, members: readonly ImageEntry[], boxes: readonly Rect[]): ExtractionUnit => {
+        const representative = members.reduce((best, m) => (m.maxRelativeArea > best.maxRelativeArea ? m : best));
+        const judged = classifiedByEntry.get(representative);
+        return {
+          representativeEntry: representative,
+          memberEntries: members,
+          page: u.page,
+          bbox: boxes.reduce((acc, b) => unionRect(acc, b)),
+          clusterMemberCount: members.length,
+          classification: judged?.classification ?? u.classification,
+          confidence: judged?.confidence ?? u.confidence,
+          reason: judged?.reason ?? u.reason,
+        };
+      };
+      // The pictures of a unit that are not one picture: a white wash the page lays under its pictures is a unit of its own, and small pictures whose boxes overlap
+      // but whose visible pixels do not (cut-out objects laid out side by side, a rack of weapons) are separate pictures.
+      // Pictures drawn on white paper and multiplied onto the page (figures that stand on the page's own tint): their rasters overlap by their paper, which shows
+      // nothing. When the inked parts of the rasters do not overlap, they are separate pictures, each taken from its own pixels (a render would carry the page's text).
+      const splitBlendedByInk = async (u: ExtractionUnit): Promise<ExtractionUnit[] | null> => {
+        const placedInk: { entry: ImageEntry; item: PlacedMask }[] = [];
+        for (const member of u.memberEntries) {
+          const own = member.occurrences.find((o) => o.page === pageNumber);
+          const memberId = idOnThisPage(member);
+          if (own === undefined || memberId === null || member.objId === null || own.blended !== true || own.clip !== undefined || own.placement?.rotated === true) return null;
+          if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [memberId], settleBudgetMs);
+          const mask = await probeInkMask(page, memberId);
+          if (mask === null) return null;
+          placedInk.push({ entry: member, item: { box: own.bbox, flipX: own.placement?.flipX === true, flipY: own.placement?.flipY === true, mask } });
+        }
+        // Tiles that lie edge to edge (a row of icons cut from one strip) are one picture even though their inked parts do not overlap.
+        const tileOf = (p: (typeof placedInk)[number]): TileSource | undefined => (p.entry.intrinsicWidth === null || p.entry.intrinsicHeight === null ? undefined : { box: p.item.box, pixelWidth: p.entry.intrinsicWidth, pixelHeight: p.entry.intrinsicHeight });
+        const groups = connectedGroups(placedInk.length, (i, j) => {
+          if (placedInksOverlap(placedInk[i]!.item, placedInk[j]!.item)) return true;
+          const a = tileOf(placedInk[i]!);
+          const b = tileOf(placedInk[j]!);
+          return a !== undefined && b !== undefined && areSeamedTiles(a, b);
+        });
+        if (groups.length < 2) return null;
+        return groups.map((indices) => unitOfMembers(u, indices.map((i) => placedInk[i]!.entry), indices.map((i) => placedInk[i]!.item.box)));
+      };
+      const splitByVisiblePixels = async (u: ExtractionUnit): Promise<ExtractionUnit[]> => {
+        if (u.memberEntries.length < 2 || u.representativeEntry === null || spreadRightOf.has(u) || spreadRightHalves.has(u)) return [u];
+        const byInk = await splitBlendedByInk(u);
+        if (byInk !== null) return byInk;
+        const pieces: ExtractionUnit[] = [];
+        let rest = u;
+        const wash = u.representativeEntry;
+        const washId = idOnThisPage(wash);
+        const washBox = wash.occurrences.find((o) => o.page === pageNumber)?.bbox;
+        if (wash.objId !== null && washId !== null && washBox !== undefined && wash.maxRelativeArea >= UNDER_PICTURES_MIN_AREA) {
+          if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [washId], settleBudgetMs);
+          const washLook = await probeRawLook(page, washId);
+          // A white mist, or a plain card of paper the page's text lies on: what the small pictures of the unit lie on, not a picture of the unit.
+          const isCardOfText = isSmallCardOfText(wash.maxRelativeArea, washLook, await probeOpaqueFraction(page, washId), textCoverage(washBox, textBlockBoxesByPage.get(pageNumber)));
+          const others = u.memberEntries.filter((m) => m !== wash);
+          // A card of text that has only cut-out objects (on a transparent ground) lying on it: the cards of items, not a note with a photo pinned to it.
+          let onlyCutOuts = isCardOfText && others.every((m) => m.maxRelativeArea >= CARD_ITEM_MIN_AREA);
+          for (const m of onlyCutOuts ? others : []) {
+            const memberId = idOnThisPage(m);
+            if (memberId === null) { onlyCutOuts = false; break; }
+            if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [memberId], settleBudgetMs);
+            const opaque = await probeOpaqueFraction(page, memberId);
+            if (opaque === null || opaque >= CUT_OUT_MAX_OPAQUE_FRACTION) { onlyCutOuts = false; break; }
+          }
+          if ((looksLikeWhiteWash(washLook) && !maskedObjIds.has(wash.objId)) || onlyCutOuts) {
+            const otherBoxes = others.map((m) => m.occurrences.find((o) => o.page === pageNumber)?.bbox).filter((b): b is Rect => b !== undefined);
+            if (others.length > 0 && otherBoxes.length === others.length) {
+              const card = unitOfMembers(u, [wash], [washBox]);
+              // The card the text lies on is not a picture of the page: it is hidden, and the pictures that lay on it are offered.
+              pieces.push(onlyCutOuts ? { ...card, classification: 'decoration' } : card);
+              rest = unitOfMembers(u, others, otherBoxes);
+            }
+          }
+        }
+        if (rest.memberEntries.length < 2) return [...pieces, rest];
+        const placed: { entry: ImageEntry; item: PlacedMask; framed: boolean }[] = [];
+        for (const member of rest.memberEntries) {
+          const own = member.occurrences.find((o) => o.page === pageNumber);
+          const memberId = idOnThisPage(member);
+          if (own === undefined || memberId === null || member.objId === null || maskedObjIds.has(member.objId) || isTranslucentEverywhere(member) || member.maxRelativeArea >= INDEPENDENT_IMAGE_AREA_THRESHOLD) return [...pieces, rest];
+          // A picture in a frame, turned or blended is taken for opaque all over its box: its pixels are not mapped.
+          if (own.clip !== undefined || own.placement?.rotated === true || own.blended === true) {
+            placed.push({ entry: member, framed: true, item: { box: own.bbox, flipX: false, flipY: false, mask: { width: 1, height: 1, opaque: new Uint8Array([1]) } } });
+            continue;
+          }
+          if (settleBudgetMs > 0) settleBudgetMs -= await waitForObjects(page, [memberId], settleBudgetMs);
+          const mask = await probeOpaqueMask(page, memberId);
+          if (mask === null) return [...pieces, rest];
+          placed.push({ entry: member, framed: false, item: { box: own.bbox, flipX: own.placement?.flipX === true, flipY: own.placement?.flipY === true, mask } });
+        }
+        // The tiles of one picture lie edge to edge: their visible pixels hardly overlap, but they are not separate pictures.
+        const tileOf = (p: (typeof placed)[number]): TileSource | undefined => (p.framed || p.entry.intrinsicWidth === null || p.entry.intrinsicHeight === null ? undefined : { box: p.item.box, pixelWidth: p.entry.intrinsicWidth, pixelHeight: p.entry.intrinsicHeight });
+        const groups = connectedGroups(placed.length, (i, j) => {
+          if (placedMasksOverlap(placed[i]!.item, placed[j]!.item)) return true;
+          const a = tileOf(placed[i]!);
+          const b = tileOf(placed[j]!);
+          return a !== undefined && b !== undefined && areSeamedTiles(a, b);
+        });
+        if (groups.length < 2) return [...pieces, rest];
+        return [...pieces, ...groups.map((indices) => unitOfMembers(u, indices.map((i) => placed[i]!.entry), indices.map((i) => placed[i]!.item.box)))];
+      };
+      const pageUnits: ExtractionUnit[] = [];
+      for (const planned of unitsByPage.get(pageNumber) ?? []) pageUnits.push(...(await splitByVisiblePixels(planned)));
+      // A unit split into its pictures is more units to extract: the total grows with them, so the progress never runs past it.
+      total += pageUnits.length - (unitsByPage.get(pageNumber)?.length ?? 0);
+      const rightPieceOf = new Map<ExtractionUnit, ExtractionUnit>();
+      for (const [leftUnit, rightUnit] of spreadRightOf) if (leftUnit.page === pageNumber && rightUnit.page === pageNumber) rightPieceOf.set(leftUnit, rightUnit);
+      const rightPieces = new Set(rightPieceOf.values());
+      const orderedUnits = pageUnits.flatMap((u) => (rightPieces.has(u) ? [] : rightPieceOf.has(u) ? [u, rightPieceOf.get(u)!] : [u]));
+      for (const plannedUnit of orderedUnits) {
         checkAborted(signal);
         if (plannedUnit.reason === EDGE_FIGURE_REASON) {
           const rep = plannedUnit.representativeEntry;
@@ -1533,10 +2207,13 @@ export async function buildImageExtraction(
           }
           if (halfImage !== null && offered && spreadRightOf.has(plannedUnit)) {
             if (pendingLeftHalf !== null) prepared.push(pendingLeftHalf.item);
-            pendingLeftHalf = { item, image: halfImage, page: plannedUnit.page, isPanel: isPanelHalf };
+            pendingLeftHalf = { item, image: halfImage, page: plannedUnit.page, isPanel: isPanelHalf, box: plannedUnit.bbox };
           } else if (pendingLeftHalf !== null && spreadRightHalves.has(plannedUnit)) {
-            if (halfImage !== null && pendingLeftHalf.isPanel === isPanelHalf && (isPanelHalf || halvesContinueAcrossSeam(pendingLeftHalf.image, halfImage))) {
-              const joined = stitchHorizontally(pendingLeftHalf.image, halfImage);
+            // Two halves cut with a margin overlap on the page: the right one shows again the columns the left one ends with.
+            const overlapPt = pendingLeftHalf.page === plannedUnit.page ? pendingLeftHalf.box.maxX - plannedUnit.bbox.minX : 0;
+            const rightHalf = halfImage !== null && overlapPt > 0 && plannedUnit.bbox.maxX > plannedUnit.bbox.minX ? dropLeftColumns(halfImage, (overlapPt * halfImage.width) / (plannedUnit.bbox.maxX - plannedUnit.bbox.minX)) : halfImage;
+            if (rightHalf !== null && pendingLeftHalf.isPanel === isPanelHalf && (isPanelHalf || halvesContinueAcrossSeam(pendingLeftHalf.image, rightHalf, { blankSeamJoins: pendingLeftHalf.page === plannedUnit.page }))) {
+              const joined = stitchHorizontally(pendingLeftHalf.image, rightHalf);
               const joinedPayload = await encoder.encode(joined, { format: opts.outputFormat, quality: opts.outputQuality });
               prepared.push({ ...pendingLeftHalf.item, width: joined.width, height: joined.height, contentHash: await computeContentHash(joined), suggestedGrid: detectGrid(joined) ?? undefined, payload: joinedPayload });
             } else {
@@ -1564,6 +2241,12 @@ export async function buildImageExtraction(
   }
 
   if (pendingLeftHalf !== null) prepared.push(pendingLeftHalf.item);
+  // The other part of a sheet whose first part was recognised (its second page, drawn in a handwriting): text in a picture as well.
+  for (const part of possibleSheetParts) {
+    if (!formPages.has(part.page)) continue;
+    part.item.classification = 'decoration';
+    part.item.holdsText = true;
+  }
   const finalized = finalizeImages(prepared, nearStatblockOrHeadingObjIds, diagnostics);
 
   const isOffered = (i: { classification: ImageClassification }): boolean => i.classification === 'content' || i.classification === 'undecided';

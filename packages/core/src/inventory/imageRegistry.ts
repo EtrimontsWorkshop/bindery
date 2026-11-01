@@ -40,7 +40,7 @@ export interface Placement {
   flipX?: boolean;
   /** The raster is mirrored top to bottom. */
   flipY?: boolean;
-  /** The raster is turned (any angle that is not a mirror): its box is not where its pixels are. */
+  /** The raster is turned (any angle that is not a quarter turn): its box is not where its pixels are. A raster that is also mirrored carries `flipX` or `flipY` as well. */
   rotated?: boolean;
   /**
    * Present when the raster is turned by about a whole number of quarter turns (a picture stored sideways and turned upright
@@ -52,6 +52,8 @@ export interface Placement {
 
 /** How far (degrees) from a whole quarter turn a picture may be tilted and still count as turned by it. */
 const QUARTER_TURN_TOLERANCE_DEG = 25;
+/** How far (degrees) from upright a mirrored picture may be tilted for its mirroring to be told (a diagonal or a sideways one is not). */
+const MIRRORED_TILT_MAX_DEG = 45;
 
 /** The placement of a picture painted with `ctm` (the unit square's matrix), or `undefined` for the upright, unmirrored one. */
 export function placementOf(ctm: readonly number[]): Placement | undefined {
@@ -65,6 +67,9 @@ export function placementOf(ctm: readonly number[]): Placement | undefined {
     if (!mirrored && quarters !== 0 && Math.abs(angle - quarters * 90) <= QUARTER_TURN_TOLERANCE_DEG) {
       return { rotated: true, quarterTurns: (((-quarters % 4) + 4) % 4) as 1 | 2 | 3 };
     }
+    // Mirrored and tilted by a few degrees: when the raster's rightwards points to the right of the page its downwards is the mirrored axis, when it points to the left its rightwards is.
+    if (mirrored && Math.abs(angle) <= MIRRORED_TILT_MAX_DEG) return { rotated: true, flipY: true };
+    if (mirrored && Math.abs(angle) >= 180 - MIRRORED_TILT_MAX_DEG) return { rotated: true, flipX: true };
     return { rotated: true };
   }
   const placement: Placement = {};

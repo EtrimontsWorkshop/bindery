@@ -31,7 +31,7 @@ export interface BuildCIFDocumentInput {
   blocks: readonly SemanticBlock[];
   /** [] when the PDF has no bookmarks — the heading-based fallback (Z4b) kicks in automatically. */
   outline: readonly ResolvedOutlineNode[];
-  /** `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here) — see `buildCIFImages`. */
+  /** `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here, except a `decoration` that is a box of text: it enters as `undecided` with `holdsText`) — see `buildCIFImages`. */
   images: readonly FinalizedImage<EncodedImage>[];
   diagnostics: readonly Diagnostic[];
 }
@@ -53,7 +53,9 @@ function buildCIFImages(images: readonly FinalizedImage<EncodedImage>[]): { cifI
     // the review phase. `decoration`/`mask`
     // are still rejected — those are already DECIDED negatives, there's
     // nothing to show for review.
-    if (img.classification !== 'content' && img.classification !== 'undecided') continue;
+    // A box of text hidden as a decoration is the one exception: it enters as `undecided`, marked, for the review to offer on request.
+    const boxOfText = img.classification === 'decoration' && img.holdsText === true;
+    if (img.classification !== 'content' && img.classification !== 'undecided' && !boxOfText) continue;
     const occ = img.entry.occurrences[0];
     if (!occ) continue;
     const id = img.entry.objId ?? `cif-image-${autoIndex++}`;
@@ -65,7 +67,8 @@ function buildCIFImages(images: readonly FinalizedImage<EncodedImage>[]): { cifI
       format: img.payload.format,
       // Placeholder — the Foundry layer replaces it with the real path AFTER upload (see file header).
       assetRef: id,
-      classification: img.classification,
+      classification: img.classification === 'content' ? 'content' : 'undecided',
+      ...(boxOfText ? { holdsText: true } : {}),
       confidence: img.confidence,
       suggestedGrid: img.suggestedGrid,
       rawText: '',
@@ -114,7 +117,8 @@ export function buildCIFDocument(input: BuildCIFDocumentInput): BuildCIFDocument
   const journalDrafts = buildJournalDrafts(blocksWithLevels, markers, input.fileName);
 
   const { cifImages, imageBytesById } = buildCIFImages(input.images);
-  const imagesForHtml: EmbeddedImageForHtml[] = cifImages.map((img) => ({
+  // The text of a box of text is in the journal's own text already, so the box is not embedded again.
+  const imagesForHtml: EmbeddedImageForHtml[] = cifImages.filter((img) => img.holdsText !== true).map((img) => ({
     id: img.id,
     assetRef: img.assetRef,
     pageNumber: img.provenance.pageNumber,

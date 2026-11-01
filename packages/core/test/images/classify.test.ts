@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyImages, maxBleedOverhangPt, confidenceForReason } from '../../src/images/classify.js';
+import { classifyImages, isBackdropShape, maxBleedOverhangPt, confidenceForReason } from '../../src/images/classify.js';
 import type { ImageEntry } from '../../src/inventory/imageRegistry.js';
 import type { Rect } from '../../src/geometry.js';
 
@@ -371,6 +371,29 @@ describe('classifyImages', () => {
     expect(classifyImages([holder2, pageSized], pageBoxMap([1])).find((c) => c.entry === pageSized)!.reason).toBe('Z12-bleeding-masked-cutout');
   });
 
+  it('a masked layer offered only as a possibility is hidden by a judged picture that is as large and painted over most of it (a misty margin under a map)', () => {
+    const mist = entry({ objId: 'mist', maxRelativeArea: 0.405, occurrences: [{ page: 1, bbox: { minX: -3, minY: 140, maxX: 318, maxY: 755 }, index: 140 }] });
+    const mistMask = entry({ objId: 'mistMask', maskEvidence: 'group', masksImageObjId: 'mist' });
+    const map = entry({ objId: 'map', maxRelativeArea: 0.66, occurrences: [{ page: 1, bbox: { minX: 60, minY: 59, maxX: 535, maxY: 757 }, index: 359 }] });
+    const result = classifyImages([mistMask, mist, map], pageBoxMap([1])).find((c) => c.entry === mist)!;
+    expect(result.reason).toBe('Z17-covered-by-later-picture');
+    const smallMap = entry({ objId: 'smallMap', maxRelativeArea: 0.3, occurrences: [{ page: 1, bbox: { minX: 60, minY: 59, maxX: 535, maxY: 757 }, index: 359 }] });
+    expect(classifyImages([mistMask, mist, smallMap], pageBoxMap([1])).find((c) => c.entry === mist)!.reason).toBe('Z12-bleeding-masked-large-picture');
+  });
+
+  it('a pinned photo under another pinned photo that is only offered as a possibility (a stack of prints) is hidden; not when the one over it is blended', () => {
+    const frame = { paths: [[[0, 0, 612, 0, 612, 792, 0, 792]]] } as unknown as NonNullable<ImageEntry['occurrences'][number]['clip']>;
+    const back = entry({ objId: 'back', maxRelativeArea: 0.22, occurrences: [{ page: 1, bbox: { minX: 68, minY: 28, maxX: 365, maxY: 396 }, index: 207, clip: frame, placement: { rotated: true } }] });
+    const backMask = entry({ objId: 'backMask', maskEvidence: 'group', masksImageObjId: 'back', occurrences: [{ page: 1, bbox: { minX: 60, minY: 25, maxX: 573, maxY: 405 }, index: 186 }] });
+    const front = entry({ objId: 'front', maxRelativeArea: 0.6, occurrences: [{ page: 1, bbox: { minX: 85, minY: -7, maxX: 577, maxY: 588 }, index: 252, clip: frame, placement: { rotated: true } }] });
+    const frontMask = entry({ objId: 'frontMask', maskEvidence: 'group', masksImageObjId: 'front', occurrences: [{ page: 1, bbox: { minX: 75, minY: 32, maxX: 587, maxY: 409 }, index: 231 }] });
+    const results = classifyImages([backMask, back, frontMask, front], pageBoxMap([1]));
+    expect(results.find((c) => c.entry === back)!.reason).toBe('Z17-covered-by-later-picture');
+    expect(results.find((c) => c.entry === front)!.reason).toBe('Z12-bleeding-masked-large-picture');
+    const blendedFront = { ...front, occurrences: [{ ...front.occurrences[0]!, blended: true as const }] };
+    expect(classifyImages([backMask, back, frontMask, blendedFront], pageBoxMap([1])).find((c) => c.entry === back)!.reason).not.toBe('Z17-covered-by-later-picture');
+  });
+
   it('a large masked picture painted at exactly the place of another picture (the same illustration drawn raw and again cut out) is not offered a second time', () => {
     const raw = entry({ objId: 'raw', maxRelativeArea: 0.4, occurrences: [{ page: 1, bbox: BLEED_BBOX, index: 1 }] });
     const holder = entry({ objId: 'mask1', maskEvidence: 'group', masksImageObjId: 'copy' });
@@ -689,5 +712,109 @@ describe('classifyImages — confidence filled in and consistent with reason', (
 
   it('confidenceForReason returns a default value for an unrecognized reason (safe for future rules)', () => {
     expect(confidenceForReason('some-future-rule-not-yet-mapped')).toBe(0.5);
+  });
+});
+
+describe('classifyImages — a blended drawing that the page text wraps around', () => {
+  const covered = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
+  const drawing = (overrides: Partial<ImageEntry> = {}): ImageEntry =>
+    entry({ maxRelativeArea: 0.05, occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0, blended: true }], ...overrides });
+
+  it('is offered, not hidden, when the boxes of the text lie over it', () => {
+    const [result] = classifyImages([drawing()], pageBoxMap([1]), covered);
+    expect(result!.classification).toBe('undecided');
+    expect(result!.reason).toBe('Z9-text-beside-blended-picture');
+  });
+
+  it('stays decoration when it is tiny or translucent, and is offered by the rule of small pictures when it is not blended', () => {
+    expect(classifyImages([drawing({ maxRelativeArea: 0.01 })], pageBoxMap([1]), covered)[0]!.reason).toBe('Z9-high-body-text-coverage');
+    expect(classifyImages([drawing({ maxOpacity: 0.3 })], pageBoxMap([1]), covered)[0]!.reason).toBe('Z9-high-body-text-coverage');
+    // A small picture that is not blended is offered for its pixels to be judged by the rule of small pictures under text.
+    const plain = drawing({ occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0 }] });
+    expect(classifyImages([plain], pageBoxMap([1]), covered)[0]!.reason).toBe('Z9-text-over-small-picture');
+  });
+});
+
+describe('classifyImages — a flush picture of up to seven tenths of the page', () => {
+  const tall = (area: number): ImageEntry => entry({ maxRelativeArea: area, occurrences: [{ page: 1, bbox: { minX: -1.5, minY: 25, maxX: 560, maxY: 594 }, index: 0 }] });
+  const someText = new Map([[1, [{ minX: 100, minY: 400, maxX: 300, maxY: 594 }]]]); // about a third of its center
+
+  it('is judged like a smaller flush picture: text over part of it does not make it a background', () => {
+    const [result] = classifyImages([tall(0.65)], pageBoxMap([1]), someText);
+    expect(result!.classification).toBe('undecided');
+  });
+
+  it('a picture of seven tenths or more is still taken for a background under such text', () => {
+    expect(classifyImages([tall(0.75)], pageBoxMap([1]), new Map([[1, [{ minX: 0, minY: 25, maxX: 560, maxY: 594 }]]]))[0]!.reason).toBe('Z1-full-bleed-background');
+  });
+});
+
+describe('classifyImages — a sheet of paper blended over the page', () => {
+  const sheet = (maxOpacity: number | undefined): ImageEntry =>
+    entry({
+      maxRelativeArea: 0.5,
+      maxOpacity,
+      occurrences: [{ page: 1, bbox: { minX: -1.5, minY: -100, maxX: 560, maxY: 300 }, index: 0, blended: true }],
+    });
+
+  it('a large masked picture painted blended at partial opacity is a texture of the page, not an illustration', () => {
+    const masked = { ...sheet(0.8), objId: 'paper' };
+    const holder = entry({ objId: 'holder', maskEvidence: 'group', masksImageObjId: 'paper', maxRelativeArea: 0.5, occurrences: masked.occurrences });
+    const [, result] = classifyImages([holder, masked], pageBoxMap([1]));
+    expect(result!.classification).toBe('decoration');
+  });
+
+  it('the same picture painted opaque is still offered', () => {
+    const masked = { ...sheet(undefined), objId: 'picture' };
+    const holder = entry({ objId: 'holder', maskEvidence: 'group', masksImageObjId: 'picture', maxRelativeArea: 0.5, occurrences: masked.occurrences });
+    const [, result] = classifyImages([holder, masked], pageBoxMap([1]));
+    expect(result!.classification).toBe('undecided');
+  });
+});
+
+describe('isBackdropShape', () => {
+  const layer = (maxOpacity: number, maxRelativeArea: number, blended: boolean): ImageEntry =>
+    entry({ maxOpacity, maxRelativeArea, occurrences: [{ page: 1, bbox: { minX: 0, minY: 0, maxX: 100, maxY: 100 }, index: 0, ...(blended ? { blended: true as const } : {}) }] });
+
+  it('is a layer painted at up to a quarter, or a large blended layer at up to 35% (a panel multiplied behind a figure)', () => {
+    expect(isBackdropShape(layer(0.2, 0.05, false))).toBe(true);
+    expect(isBackdropShape(layer(0.3, 0.14, true))).toBe(true);
+    expect(isBackdropShape(layer(0.3, 0.14, false))).toBe(false);
+  });
+
+  it('leaves a small blended picture at 30% (a faded sketch, a stain) and anything fainter than opaque-ish pictures alone', () => {
+    expect(isBackdropShape(layer(0.3, 0.03, true))).toBe(false);
+    expect(isBackdropShape(layer(0.5, 0.2, true))).toBe(false);
+    expect(isBackdropShape(entry({ maxRelativeArea: 0.2 }))).toBe(false);
+  });
+});
+
+describe('classifyImages — a small picture with page text over its box', () => {
+  const covered = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
+  const small = (area: number): ImageEntry => entry({ maxRelativeArea: area, occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0 }] });
+
+  it('is offered for its pixels to be judged (an object on a card of text) when it is between 2% and 10% of the page', () => {
+    const [result] = classifyImages([small(0.05)], pageBoxMap([1]), covered);
+    expect(result!.classification).toBe('undecided');
+    expect(result!.reason).toBe('Z9-text-over-small-picture');
+  });
+
+  it('is hidden when it is tinier than that', () => {
+    const [result] = classifyImages([small(0.01)], pageBoxMap([1]), covered);
+    expect(result!.classification).toBe('decoration');
+  });
+});
+
+
+describe('classifyImages — a note with text on it on a page crowded with small pictures', () => {
+  it('is not taken for an element of a form, though a small picture of the same size without text over it is', () => {
+    const small = Array.from({ length: 20 }, (_, i) => entry({ objId: `s${i}`, maxRelativeArea: 0.003, occurrences: [{ page: 1, bbox: { minX: 10 + i * 20, minY: 10, maxX: 25 + i * 20, maxY: 25 }, index: i }] }));
+    const note = (id: string, bbox: Rect): ImageEntry => entry({ objId: id, maxRelativeArea: 0.05, occurrences: [{ page: 1, bbox, index: 40 }] });
+    const noteBox = { minX: 100, minY: 300, maxX: 260, maxY: 440 };
+    const bare = { minX: 300, minY: 300, maxX: 460, maxY: 440 };
+    const covered = new Map([[1, [{ minX: 95, minY: 295, maxX: 265, maxY: 445 }]]]);
+    const results = classifyImages([...small, note('note', noteBox), note('bare', bare)], pageBoxMap([1]), covered, { hideTinyImages: true });
+    expect(results.find((c) => c.entry.objId === 'note')!.reason).toBe('Z9-text-over-small-picture');
+    expect(results.find((c) => c.entry.objId === 'bare')!.reason).toBe('Z18-form-page-element');
   });
 });

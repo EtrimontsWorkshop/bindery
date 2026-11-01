@@ -42,7 +42,8 @@ try {
 // The same holds for `get(` — a lookup on a Map that got such a name (measured: `ui.get(e)` on a
 // `new Map(...)`). The six Foundry globals have no `get` of their own either: their collections are
 // reached one level deeper (`game.actors.get`, `game.settings.get`), which this pattern still catches.
-const FALSE_POSITIVE_METHOD_CALL = /^(test|exec|get)\(/;
+// Likewise `has(` (measured: `ui.has(o)` on a `new Set(...)`): none of the six globals has a `has` of its own.
+const FALSE_POSITIVE_METHOD_CALL = /^(test|exec|get|has)\(/;
 const violations = [];
 for (const word of RESTRICTED) {
   const re = new RegExp(`\\b${word}\\b\\s*\\.(.{0,6})`, 'g');

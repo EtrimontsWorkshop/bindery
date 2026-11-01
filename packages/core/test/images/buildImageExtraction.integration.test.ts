@@ -69,6 +69,17 @@ describe('buildImageExtraction — an integration of the full pipeline on real f
     expect(r1.correlationClosedByHash).toBe(r2.correlationClosedByHash);
   }, 30000);
 
+  it('reports progress that never runs past its total and ends on it', async () => {
+    const buf = buildExtractDecorated3pages();
+    const inv = await buildInventory((await openDoc(buf)) as never);
+    const reports: [number, number][] = [];
+    await buildImageExtraction(await openDoc(buf), inv, nodeCanvasRegionRenderer, nodeCanvasImageEncoder, { targetLongEdgePx: 256, onProgress: (done, total) => reports.push([done, total]) });
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.every(([done, total]) => done <= total)).toBe(true);
+    const [lastDone, lastTotal] = reports[reports.length - 1]!;
+    expect(lastDone).toBe(lastTotal);
+  }, 30000);
+
   it('an AbortSignal interrupts IN THE MIDDLE — after the first of three units, not only when already aborted at the start', async () => {
     // `extract-decorated-3pages` has 3 pages, EACH with its own extraction unit (a separate content
     // image per page) — enough to tell "aborted at the start" (test below) from "aborted DURING the

@@ -66,7 +66,7 @@ async function buildBlockBoxesByPage(
   data: ArrayBuffer,
   assetBaseUrl: string,
   inv: Awaited<ReturnType<typeof buildInventory>>,
-): Promise<{ body: Map<number, Rect[]>; text: Map<number, Rect[]> }> {
+): Promise<{ body: Map<number, Rect[]>; text: Map<number, Rect[]>; heading: Map<number, Rect[]> }> {
   const fontSizeByKey = new Map(inv.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
@@ -82,7 +82,7 @@ async function buildBlockBoxesByPage(
   // background often has a font with the `caption` role (smaller/different
   // from the main `body`), not because it's an image caption, but simply
   // because it's close to an image. `text` holds every kind of block.
-  return { body: groupBlockBoxesByPage(blocks, new Set(['body', 'caption'])), text: groupBlockBoxesByPage(blocks) };
+  return { body: groupBlockBoxesByPage(blocks, new Set(['body', 'caption'])), text: groupBlockBoxesByPage(blocks), heading: groupBlockBoxesByPage(blocks, new Set(['heading'])) };
 }
 
 export async function extractImagesFromDocument(
@@ -93,7 +93,7 @@ export async function extractImagesFromDocument(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inv = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any));
-  const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage } = await buildBlockBoxesByPage(data, assetBaseUrl, inv);
+  const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage, heading: headingBlockBoxesByPage } = await buildBlockBoxesByPage(data, assetBaseUrl, inv);
 
   return withPdf(data, assetBaseUrl, (extractDoc) =>
     buildImageExtraction(
@@ -102,7 +102,7 @@ export async function extractImagesFromDocument(
       { images: inv.images, vectors: inv.vectors, shapes: inv.shapes, perPage: inv.perPage },
       browserRegionRenderer,
       browserImageEncoder,
-      { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage },
+      { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage, headingBlockBoxesByPage },
     ),
   );
 }

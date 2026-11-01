@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rotateQuarterTurns } from '../../src/images/rotateQuarterTurns.js';
+import { mirrorImage, rotateQuarterTurns } from '../../src/images/rotateQuarterTurns.js';
 
 // A 3x2 image whose pixels are numbered 1..6 in the red channel, row by row:
 //   1 2 3
@@ -36,3 +36,15 @@ describe('rotateQuarterTurns', () => {
     expect(reds(input)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 });
+
+describe('mirrorImage', () => {
+  it('mirrors left to right, top to bottom, or both, and leaves the input alone', () => {
+    const image = sample();
+    expect(reds(mirrorImage(image, true, false))).toEqual([3, 2, 1, 6, 5, 4]);
+    expect(reds(mirrorImage(image, false, true))).toEqual([4, 5, 6, 1, 2, 3]);
+    expect(reds(mirrorImage(image, true, true))).toEqual([6, 5, 4, 3, 2, 1]);
+    expect(mirrorImage(image, false, false)).toBe(image);
+    expect(reds(image)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
+

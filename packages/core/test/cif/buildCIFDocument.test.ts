@@ -179,6 +179,24 @@ describe('buildCIFDocument', () => {
     expect(document.images.map((i) => i.id)).toEqual(['img-content']);
   });
 
+  it('a decoration that is a box of text enters as undecided with holdsText, and is not embedded in the journal text', () => {
+    const box = { ...finalizedImage('img-box', 1), classification: 'decoration' as const, holdsText: true };
+    const plain = { ...finalizedImage('img-decoration', 1), classification: 'decoration' as const };
+    const { document, imageBytesById } = buildCIFDocument({
+      fileName: 'plik.pdf',
+      fileHash: 'h',
+      pageCount: 1,
+      blocks: [block('b0', 'body', 'tresc', 1)],
+      outline: [],
+      images: [box, plain],
+      diagnostics: [],
+    });
+    expect(document.images.map((i) => i.id)).toEqual(['img-box']);
+    expect(document.images[0]).toMatchObject({ classification: 'undecided', holdsText: true });
+    expect(imageBytesById.has('img-box')).toBe(true);
+    expect(document.journals.flatMap((j) => j.pages.flatMap((p) => p.imageRefs))).toEqual([]);
+  });
+
   it('undecided images DO end up in CIFImage[] (the review screen must see them), with classification/confidence preserved', () => {
     const contentImg = { ...finalizedImage('img-content', 1), confidence: 0.9 };
     const undecidedImg = { ...finalizedImage('img-undecided', 1), classification: 'undecided' as const, confidence: 0.2 };

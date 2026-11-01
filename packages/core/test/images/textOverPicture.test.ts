@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isTextOverPicture, looksLikePlainTextCard, pickUnitRepresentative } from '../../src/images/buildImageExtraction.js';
+import { isSmallPieceBesideRepresentative, isTextOverPicture, textCrossingShare, topOccurrenceOnPage, looksLikePlainTextCard, pickUnitRepresentative } from '../../src/images/buildImageExtraction.js';
 import { isTranslucentEverywhere, type ClassifiedImage } from '../../src/images/classify.js';
 import type { ImageEntry } from '../../src/inventory/imageRegistry.js';
 import type { Rect } from '../../src/geometry.js';
@@ -102,3 +102,49 @@ describe('looksLikePlainTextCard', () => {
     expect(looksLikePlainTextCard({ luminanceStdDev: 20 }, null)).toBe(false);
   });
 });
+
+describe('isSmallPieceBesideRepresentative', () => {
+  const rep: Rect = { minX: 0, minY: 100, maxX: 500, maxY: 700 };
+  it('an ornament that mostly sticks out of the bottom of a large picture is decoration beside it', () => {
+    expect(isSmallPieceBesideRepresentative({ minX: 200, minY: 40, maxX: 400, maxY: 110 }, 0.026, rep, 0.46)).toBe(true);
+    expect(isSmallPieceBesideRepresentative({ minX: 200, minY: 300, maxX: 300, maxY: 400 }, 0.02, rep, 0.46)).toBe(false);
+  });
+
+  it('a piece with more than half of its box on the picture is a part of it (tape on a photo)', () => {
+    expect(isSmallPieceBesideRepresentative({ minX: 450, minY: 650, maxX: 550, maxY: 750 }, 0.02, rep, 0.46)).toBe(true);
+    expect(isSmallPieceBesideRepresentative({ minX: 420, minY: 600, maxX: 520, maxY: 720 }, 0.02, rep, 0.46)).toBe(false);
+  });
+
+  it('keeps pieces of consequence and small representatives out of the rule', () => {
+    expect(isSmallPieceBesideRepresentative({ minX: 200, minY: 0, maxX: 400, maxY: 50 }, 0.06, rep, 0.46)).toBe(false);
+    expect(isSmallPieceBesideRepresentative({ minX: 200, minY: 0, maxX: 400, maxY: 50 }, 0.02, rep, 0.1)).toBe(false);
+  });
+});
+
+describe('textCrossingShare', () => {
+  const region: Rect = { minX: 100, minY: 0, maxX: 200, maxY: 100 };
+  it('counts the part of a block that the region cuts, not a block that lies wholly inside it', () => {
+    expect(textCrossingShare(region, [{ minX: 50, minY: 0, maxX: 150, maxY: 50 }])).toBeCloseTo(0.25);
+    expect(textCrossingShare(region, [{ minX: 120, minY: 10, maxX: 180, maxY: 50 }])).toBe(0);
+    expect(textCrossingShare(region, [{ minX: 300, minY: 0, maxX: 400, maxY: 50 }])).toBe(0);
+    expect(textCrossingShare(region, undefined)).toBe(0);
+  });
+});
+
+describe('topOccurrenceOnPage', () => {
+  const painting = (page: number, index: number, quarterTurns?: 1 | 2 | 3): ImageEntry['occurrences'][number] => ({
+    page,
+    index,
+    bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
+    ...(quarterTurns === undefined ? {} : { placement: { rotated: true, quarterTurns } }),
+  });
+
+  it('is the painting that lies on top on that page: the last in the paint order', () => {
+    const e = { ...entry('a', 0.4), occurrences: [painting(3, 5, 2), painting(3, 9), painting(4, 1, 1)] };
+    expect(topOccurrenceOnPage(e, 3)?.index).toBe(9);
+    expect(topOccurrenceOnPage(e, 3)?.placement).toBeUndefined();
+    expect(topOccurrenceOnPage(e, 4)?.placement?.quarterTurns).toBe(1);
+    expect(topOccurrenceOnPage(e, 5)).toBeUndefined();
+  });
+});
+

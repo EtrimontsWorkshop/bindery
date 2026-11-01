@@ -36,6 +36,7 @@ The settings are in Foundry's **Settings → Configure Settings → Module Setti
 | **Sort images by page** | off | Off: the review lists the images Bindery is sure about by page first, then the undecided ones from the largest to the smallest. On: every image is listed in the order of the book, page by page and from the top of a page to the bottom. |
 | **Add a white background to images** | off | Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved. Images you changed by hand in the token panel or the editor are left as you made them. It also applies to tokens and statblock portraits, and makes sketches and line drawings easier to read. For a single image use **Fill background** in the image editor, which fills with any color. |
 | **Import vector drawings** | off | Also looks for drawings made of vector paths (cartoon figures beside the text, diagrams, logos) and lists them as undecided images, unchecked. Off: the PDF is analysed as before. See the limitations below. |
+| **Remove numbers from maps** | off | Paints over the numbered markers of a map (black discs with a white number in them, the key to the rooms of a floor plan) in every image that has at least three of them, with the color around them. The part of the drawing under a marker is lost, and a marker between thick walls or lines may remain. Off: maps are imported as drawn. |
 
 ## Known limitations
 

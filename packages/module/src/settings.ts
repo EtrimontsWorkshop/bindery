@@ -93,6 +93,17 @@ export function registerSettings(): void {
     default: false,
   });
 
+  // Global switch for the numbered markers of maps (black discs with a white number, the key to the rooms): on paints them over in every image
+  // that has at least three of them.
+  game.settings!.register(MODULE_ID, 'removeMapNumbers', {
+    name: 'BINDERY.settings.removeMapNumbersLabel',
+    hint: 'BINDERY.settings.removeMapNumbersHint',
+    scope: 'world',
+    config: true,
+    type: Boolean,
+    default: false,
+  });
+
   // The most recently used grid setting (GridPicker) —
   // remembered per world, not shown in the settings screen (the user
   // changes it ONLY through GridPicker itself).

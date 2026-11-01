@@ -122,6 +122,11 @@
                 <button type="button" role="tab" aria-selected="{{isImageDestUnassigned}}" data-action="switchImageDestTab" data-dest="unassigned" class="bindery-subtab {{#if isImageDestUnassigned}}active{{/if}}">
                   {{localize "BINDERY.review.destinationUnassigned"}} <span class="bindery-tab-count">{{imageDestUnassignedCount}}</span>
                 </button>
+                {{#if hasTextImages}}
+                  <button type="button" role="tab" aria-selected="{{isImageDestUnassignedText}}" data-action="switchImageDestTab" data-dest="unassignedText" class="bindery-subtab {{#if isImageDestUnassignedText}}active{{/if}}">
+                    {{localize "BINDERY.review.destinationUnassignedText"}} <span class="bindery-tab-count">{{imageDestUnassignedTextCount}}</span>
+                  </button>
+                {{/if}}
               </nav>
               <div class="bindery-image-table-header">
                 <span></span>

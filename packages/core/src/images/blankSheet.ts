@@ -16,6 +16,18 @@ export interface RawLook {
   meanSaturation: number;
 }
 
+/** Mean luminance from which, and spread up to which, the visible pixels of a raster are plain white. */
+const WHITE_WASH_MIN_LUMINANCE = 250;
+const WHITE_WASH_MAX_STDDEV = 3;
+
+/**
+ * Whether a raster is a white wash: a mist the page lays under its pictures, whose visible pixels are all white (a mean luminance of 254 and no
+ * spread, measured on nine pages of a real rulebook, against a spread of 22 or more for every illustration of the same book).
+ */
+export function looksLikeWhiteWash(look: RawLook | null): boolean {
+  return look !== null && look.meanLuminance >= WHITE_WASH_MIN_LUMINANCE && look.luminanceStdDev <= WHITE_WASH_MAX_STDDEV;
+}
+
 /** What is known about the picture beside its raster: whether the page text lies over it, and how much of the page it fills. */
 export interface SheetContext {
   textOverPicture: boolean;

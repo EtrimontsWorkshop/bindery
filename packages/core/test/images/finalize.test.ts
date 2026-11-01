@@ -10,6 +10,8 @@ import {
   computeSmoothnessMetrics,
   computeUniformColorFraction,
   finalizeImages,
+  isBookOfTextPanels,
+  repeatedPanelLooks,
   type PreparedEntryForFinalize,
 } from '../../src/images/finalize.js';
 import type { ImageEntry } from '../../src/inventory/imageRegistry.js';
@@ -371,6 +373,125 @@ describe('finalizeImages', () => {
     const tall = await prepared(entry({ objId: 'strip-tall' }), image(100, 900, 128), { classification: 'undecided', confidence: 0.4 });
     const result = finalizeImages([wide, tall], new Set());
     expect(result.images.map((i) => i.classification)).toEqual(['decoration', 'decoration']);
+  });
+
+  it('keeps a long, narrow drawn object (a spear: strong contrast, gaps in it) and a sparse one (a bow), hides the same shapes when they are pale or flat', async () => {
+    const spear = await prepared(entry({ objId: 'spear' }), image(550, 28, 128), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.52, visibleLuminanceStdDev: 69 });
+    const bow = await prepared(entry({ objId: 'bow', maxRelativeArea: 0.018 }), image(360, 101, 129), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.28, visibleLuminanceStdDev: 67 });
+    const divider = await prepared(entry({ objId: 'divider' }), image(956, 17, 130), { classification: 'undecided', confidence: 0.4, opaqueFraction: 1, visibleLuminanceStdDev: 31 });
+    const paperclip = await prepared(entry({ objId: 'paperclip', maxRelativeArea: 0.02 }), image(150, 200, 131), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.1, visibleLuminanceStdDev: 44 });
+    expect(finalizeImages([spear, bow, divider, paperclip], new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'undecided', 'decoration', 'decoration']);
+  });
+
+  it('on a page that holds two or more drawn objects, a staff and a bow painted in slightly weaker contrast are drawn objects too; on another page they are hidden', async () => {
+    const onPage = (page: number) => ({ occurrences: [{ page, bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, index: 0 }] });
+    const spearOf = (page: number, id: string, fill: number) => prepared(entry({ objId: id, ...onPage(page) }), image(19, 364, fill), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.38, visibleLuminanceStdDev: 77 });
+    const staffOf = (page: number, id: string) => prepared(entry({ objId: id, ...onPage(page) }), image(18, 376, 128), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.71, visibleLuminanceStdDev: 54 });
+    const bowOf = (page: number, id: string) => prepared(entry({ objId: id, maxRelativeArea: 0.029, ...onPage(page) }), image(63, 223, 128), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.29, visibleLuminanceStdDev: 63 });
+    const rack = [await spearOf(1, 'spear1', 120), await spearOf(1, 'spear2', 121), await staffOf(1, 'staff'), await bowOf(1, 'bow')];
+    expect(finalizeImages(rack, new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'undecided', 'undecided', 'undecided']);
+    const alone = [await spearOf(2, 'spear3', 122), await staffOf(3, 'staff2'), await bowOf(3, 'bow2')];
+    expect(finalizeImages(alone, new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'decoration', 'decoration']);
+  });
+
+  it('on a page with three or more cut-out pictures of some size (a page of items), the sparse ones beside them are offered too, a pistol of low contrast included; on a page with two they are hidden', async () => {
+    const onPage = (page: number) => ({ occurrences: [{ page, bbox: { minX: 0, minY: 0, maxX: 10, maxY: 10 }, index: 0 }] });
+    const cutOut = (page: number, id: string, fill: number, std: number, area = 0.04) => prepared(entry({ objId: id, maxRelativeArea: area, ...onPage(page) }), image(341, 211, fill), { classification: 'undecided', confidence: 0.4, opaqueFraction: 0.15, visibleLuminanceStdDev: std });
+    const items = [await cutOut(1, 'tape', 120, 52), await cutOut(1, 'rope', 121, 41), await cutOut(1, 'knife', 122, 36), await cutOut(1, 'pistol', 123, 28)];
+    expect(finalizeImages(items, new Set()).images.map((i) => i.classification)).toEqual(['undecided', 'undecided', 'undecided', 'undecided']);
+    const pair = [await cutOut(2, 'clip1', 124, 52), await cutOut(2, 'clip2', 125, 41), await cutOut(2, 'pistol2', 126, 28)];
+    expect(finalizeImages(pair, new Set()).images.map((i) => i.classification)).toEqual(['decoration', 'decoration', 'decoration']);
+  });
+
+  it('a book whose layout is panels of text (a quarter of the pictures offered, ten or more) has the panels hidden; a book with a few documents keeps them', async () => {
+    const panel = (id: string, fill: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'undecided', confidence: 0.4, textPanelCandidate: true });
+    const picture = (id: string, fill: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'content', confidence: 0.9, luminanceStdDev: 70 });
+    const book = [...(await Promise.all(Array.from({ length: 10 }, (_, i) => panel(`panel${i}`, 100 + i)))), ...(await Promise.all(Array.from({ length: 20 }, (_, i) => picture(`pic${i}`, 130 + i))))];
+    const result = finalizeImages(book, new Set()).images;
+    expect(result.filter((i) => i.classification === 'decoration')).toHaveLength(10);
+    expect(result.filter((i) => i.classification === 'content')).toHaveLength(20);
+    const documents = [...(await Promise.all(Array.from({ length: 3 }, (_, i) => panel(`doc${i}`, 100 + i)))), ...(await Promise.all(Array.from({ length: 20 }, (_, i) => picture(`pic${i}`, 130 + i))))];
+    expect(finalizeImages(documents, new Set()).images.filter((i) => i.classification === 'decoration')).toHaveLength(0);
+  });
+
+  it('a panel of text whose raster is found twice in a book of few panels is the layout: both are hidden, a single one (a handout) is kept', async () => {
+    const panel = (id: string, fill: number, key: string) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'undecided', confidence: 0.4, textPanelCandidate: true, textPanelKey: key });
+    const picture = (id: string, fill: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'content', confidence: 0.9, luminanceStdDev: 70 });
+    const pictures = await Promise.all(Array.from({ length: 20 }, (_, i) => picture(`pic${i}`, 130 + i)));
+    const book = [await panel('sidebarA', 100, '324x1711:13.1:0.2'), await panel('sidebarB', 101, '324x1711:13.1:0.2'), await panel('handout', 102, '600x800:20.0:3.0'), ...pictures];
+    const result = finalizeImages(book, new Set()).images;
+    const byId = new Map(result.map((i) => [i.entry.objId, i.classification]));
+    expect(byId.get('sidebarA')).toBe('decoration');
+    expect(byId.get('sidebarB')).toBe('decoration');
+    expect(byId.get('handout')).toBe('undecided');
+  });
+
+  it('a tinted panel of text whose look is shared by five or more other panels is the layout and is hidden; a lone one, or one with a look of its own, is kept', async () => {
+    const look = (stdDev: number, saturation: number, mean: number) => ({ stdDev, saturation, mean, coverage: 0.3, textOnCenter: false });
+    const panel = (id: string, fill: number, textPanelLook: ReturnType<typeof look>) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'undecided', confidence: 0.4, textPanelLook });
+    const picture = (id: string, fill: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'content', confidence: 0.9, luminanceStdDev: 70 });
+    const cards = await Promise.all(Array.from({ length: 6 }, (_, i) => panel(`card${i}`, 100 + i, look(24.5 + i * 0.2, 44 + i * 0.5, 210 + i))));
+    const lone = await panel('lone', 120, look(55, 20, 140));
+    const pictures = await Promise.all(Array.from({ length: 30 }, (_, i) => picture(`pic${i}`, 130 + i)));
+    const result = finalizeImages([...cards, lone, ...pictures], new Set()).images;
+    expect(result.filter((i) => i.entry.objId?.startsWith('card') && i.classification === 'decoration')).toHaveLength(6);
+    expect(result.find((i) => i.entry.objId === 'lone')!.classification).toBe('undecided');
+    expect(result.filter((i) => i.classification === 'content')).toHaveLength(30);
+  });
+
+  it('a smooth panel on which the text covers half of its box or more (a quarter on light paper) is a box of text and is hidden; one with less text, a darker one, and one with a look of its own, are kept', async () => {
+    const panel = (id: string, fill: number, coverage: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'undecided', confidence: 0.4, textPanelLook: { stdDev: 8.3, saturation: 86, mean: 197, coverage, textOnCenter: true } });
+    const picture = (id: string, fill: number) => prepared(entry({ objId: id }), image(500, 300, fill), { classification: 'content', confidence: 0.9, luminanceStdDev: 70 });
+    const wrapped = await prepared(entry({ objId: 'wrapped' }), image(500, 300, 102), { classification: 'undecided', confidence: 0.4, textPanelLook: { stdDev: 8.3, saturation: 86, mean: 197, coverage: 0.7, textOnCenter: false } });
+    const darkMap = await prepared(entry({ objId: 'map' }), image(500, 300, 104), { classification: 'undecided', confidence: 0.4, textPanelLook: { stdDev: 30, saturation: 60, mean: 139, coverage: 0.28, textOnCenter: true } });
+    const book = [await panel('note', 100, 0.59), await panel('letter', 103, 0.3), await panel('sidebar', 101, 0.2), darkMap, wrapped, ...(await Promise.all(Array.from({ length: 10 }, (_, i) => picture(`pic${i}`, 130 + i))))];
+    const byId = new Map(finalizeImages(book, new Set()).images.map((i) => [i.entry.objId, i.classification]));
+    expect(byId.get('note')).toBe('decoration');
+    expect(byId.get('letter')).toBe('decoration');
+    expect(byId.get('map')).toBe('undecided');
+    expect(byId.get('sidebar')).toBe('undecided');
+    expect(byId.get('wrapped')).toBe('undecided');
+  });
+
+  it('a render that the page\'s text fills is a box of text whatever its look', async () => {
+    const paper = await prepared(entry({ objId: 'paper' }), image(500, 300, 100), { classification: 'undecided', confidence: 0.4, textFillsBox: true });
+    const picture = await prepared(entry({ objId: 'picture' }), image(500, 300, 101), { classification: 'undecided', confidence: 0.4 });
+    const byId = new Map(finalizeImages([paper, picture], new Set()).images.map((i) => [i.entry.objId, i]));
+    expect(byId.get('paper')).toMatchObject({ classification: 'decoration', holdsText: true });
+    expect(byId.get('picture')!.classification).toBe('undecided');
+  });
+
+  it('a plain card of light paper that the page\'s text lies on is a box of text however little of it the text covers', async () => {
+    const strip = await prepared(entry({ objId: 'strip' }), image(500, 300, 100), { classification: 'content', confidence: 0.6, textOnPaperCard: true });
+    const picture = await prepared(entry({ objId: 'picture' }), image(500, 300, 101), { classification: 'content', confidence: 0.6 });
+    const byId = new Map(finalizeImages([strip, picture], new Set()).images.map((i) => [i.entry.objId, i]));
+    expect(byId.get('strip')).toMatchObject({ classification: 'decoration', holdsText: true });
+    expect(byId.get('picture')!.classification).toBe('content');
+  });
+
+  it('marks a hidden box of text so that the review can offer it, and nothing else that is hidden', async () => {
+    const note = await prepared(entry({ objId: 'note' }), image(500, 300, 100), { classification: 'undecided', confidence: 0.4, textPanelLook: { stdDev: 8.3, saturation: 86, mean: 197, coverage: 0.59, textOnCenter: true } });
+    const blank = await prepared(entry({ objId: 'blank' }), image(500, 300, 128), { classification: 'undecided', confidence: 0.4, uniformColorFraction: 1 });
+    const mask = await prepared(entry({ objId: 'mask' }), image(500, 300, 90), { classification: 'mask', confidence: 0.4, textPanelLook: { stdDev: 8.3, saturation: 86, mean: 197, coverage: 0.9, textOnCenter: true } });
+    const byId = new Map(finalizeImages([note, blank, mask], new Set()).images.map((i) => [i.entry.objId, i]));
+    expect(byId.get('note')).toMatchObject({ classification: 'decoration', holdsText: true });
+    expect(byId.get('blank')).toMatchObject({ classification: 'decoration' });
+    expect(byId.get('blank')!.holdsText).toBeUndefined();
+    expect(byId.get('mask')!.holdsText).toBeUndefined();
+  });
+
+  it('repeatedPanelLooks counts only the other panels of the same look', () => {
+    const at = (stdDev: number) => ({ textPanelLook: { stdDev, saturation: 40, mean: 200, coverage: 0.3, textOnCenter: false } });
+    const six = Array.from({ length: 6 }, () => at(20));
+    expect(repeatedPanelLooks([...six, at(40)]).size).toBe(6);
+    expect(repeatedPanelLooks(six.slice(0, 5)).size).toBe(0);
+  });
+
+  it('isBookOfTextPanels needs both the count and the share', () => {
+    expect(isBookOfTextPanels(192, 260)).toBe(true);
+    expect(isBookOfTextPanels(9, 20)).toBe(false);
+    expect(isBookOfTextPanels(20, 107)).toBe(false);
+    expect(isBookOfTextPanels(0, 0)).toBe(false);
   });
 
   it('[user request] keeps an image just below the long-and-narrow ratio', async () => {

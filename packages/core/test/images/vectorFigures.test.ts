@@ -40,4 +40,18 @@ describe('findVectorFigures', () => {
     expect(findVectorFigures([...grid(30, 6, 100, 200), shape(0, 0, 595, 842)], PAGE)).toHaveLength(1);
     expect(findVectorFigures(grid(2000, 50, 0, 0, 12), PAGE)).toEqual([]);
   });
+
+  it('leaves out the plate that a drawing lies on (a patch of paper that holds all its shapes and is several times their area)', () => {
+    const drawing = grid(30, 6, 100, 200);
+    const figures = findVectorFigures([shape(60, 160, 200, 200), ...drawing], PAGE);
+    expect(figures).toHaveLength(1);
+    expect(figures[0]!.shapeCount).toBe(30);
+    expect(figures[0]!.bbox).toEqual({ minX: 100, minY: 200, maxX: 220, maxY: 300 });
+  });
+
+  it('keeps a shape that is only a little larger than the others, and does not join one that lies apart from them', () => {
+    const drawing = grid(30, 6, 100, 200);
+    expect(findVectorFigures([shape(95, 195, 130, 110), ...drawing], PAGE)[0]!.shapeCount).toBe(31);
+    expect(findVectorFigures([shape(300, 160, 200, 200), ...drawing], PAGE)[0]!.shapeCount).toBe(30);
+  });
 });

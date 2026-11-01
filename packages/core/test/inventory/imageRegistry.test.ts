@@ -124,6 +124,19 @@ describe('placementOf', () => {
     expect(placementOf([200, 120, -120, 200, 100, 100])).toEqual({ rotated: true });
   });
 
+  it('a picture that is mirrored and tilted a little says which way it is mirrored; a mirrored diagonal or sideways one does not', () => {
+    const tilt = (deg: number, mirror: 'x' | 'y') => {
+      const t = (deg * Math.PI) / 180;
+      const [cos, sin] = [Math.cos(t), Math.sin(t)];
+      // The upright raster [w 0 0 h] turned by t after being mirrored: its rightwards (a, b), its upwards (c, d).
+      return mirror === 'y' ? [300 * cos, 300 * sin, 200 * sin, -200 * cos, 100, 100] : [-300 * cos, -300 * sin, 200 * sin, 200 * cos, 100, 100];
+    };
+    expect(placementOf(tilt(6, 'y'))).toEqual({ rotated: true, flipY: true });
+    expect(placementOf(tilt(6, 'x'))).toEqual({ rotated: true, flipX: true });
+    expect(placementOf([200, 200, 200, -200, 100, 100])).toEqual({ rotated: true, flipY: true });
+    expect(placementOf([0, -300, -200, 0, 100, 500])).toEqual({ rotated: true });
+  });
+
   it('a picture turned a quarter clockwise on the page says how to turn its pixels', () => {
     // The raster's rightwards edge points down on the page, its upwards edge points right.
     expect(placementOf([0, -300, 200, 0, 100, 500])).toEqual({ rotated: true, quarterTurns: 1 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { extractDirect, probeIntrinsicLongEdgePx, type PdfObjectsLike, type PdfPageForExtract } from '../../src/images/extract.js';
+import { extractDirect, probeInkMask, probeIntrinsicLongEdgePx, type PdfObjectsLike, type PdfPageForExtract } from '../../src/images/extract.js';
 import type { RegionRenderer } from '../../src/images/regionRenderer.js';
 import type { DecodedImage } from '../../src/images/normalizeDecodedImage.js';
 
@@ -227,5 +227,33 @@ describe('probeIntrinsicLongEdgePx', () => {
     const commonObjs: PdfObjectsLike = { has: () => false, get: getSpy };
     await probeIntrinsicLongEdgePx(makePage(objs, commonObjs), 'img1');
     expect(getSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('probeInkMask', () => {
+  const page = (data: unknown): PdfPageForExtract => makePage(objsResolvedWith(data), objsAlwaysUnresolved());
+
+  it('marks the cells where the picture differs from its paper, and not the paper', async () => {
+    const size = 20;
+    const rgba = new Uint8ClampedArray(size * size * 4).fill(255);
+    for (let y = 5; y < 15; y++) for (let x = 2; x < 8; x++) rgba.set([30, 20, 10, 255], (y * size + x) * 4);
+    const mask = await probeInkMask(page({ width: size, height: size, kind: 3, data: rgba }), 'img1', 20);
+    expect(mask).not.toBeNull();
+    const at = (x: number, y: number) => mask!.opaque[y * mask!.width + x];
+    expect(at(4, 10)).toBe(1);
+    expect(at(15, 10)).toBe(0);
+    expect(at(4, 1)).toBe(0);
+  });
+
+  it('takes the tint of the edge as the paper', async () => {
+    const size = 10;
+    const rgba = new Uint8ClampedArray(size * size * 4);
+    for (let i = 0; i < size * size; i++) rgba.set([230, 215, 180, 255], i * 4);
+    const mask = await probeInkMask(page({ width: size, height: size, kind: 3, data: rgba }), 'img1', 10);
+    expect([...mask!.opaque].every((v) => v === 0)).toBe(true);
+  });
+
+  it('is null when the resource is not available', async () => {
+    expect(await probeInkMask(makePage(objsAlwaysUnresolved(), objsAlwaysUnresolved()), 'img1')).toBeNull();
   });
 });

@@ -54,3 +54,26 @@ describe('halvesContinueAcrossSeam', () => {
     expect(halvesContinueAcrossSeam(left, image(60, 100, WHITE, () => flat(30)))).toBe(false);
   });
 });
+
+describe('halvesContinueAcrossSeam on one page (blank seam)', () => {
+  const BLUE: Pixel = [20, 40, 160, 255];
+  const band = (_x: number, y: number) => (y >= 40 && y < 60 ? BLUE : null);
+  const side = (y: number) => (x: number) => (x >= 20 && x < 80 && y >= 100 ? BLUE : null);
+
+  it('joins two pieces that meet where the drawing has faded out to paper, only when asked to', () => {
+    // Both pieces carry a drawing away from the seam; the seam itself is blank paper.
+    const left = image(100, 200, WHITE, (x, y) => (x < 60 ? side(y)(x, y) : null));
+    const right = image(100, 200, WHITE, (x, y) => (x >= 40 ? side(y)(x - 40, y) : null));
+    expect(halvesContinueAcrossSeam(left, right)).toBe(false);
+    expect(halvesContinueAcrossSeam(left, right, { blankSeamJoins: true })).toBe(true);
+  });
+
+  it('still refuses pieces that meet with drawings that do not match', () => {
+    const orange: Pixel = [220, 120, 20, 255];
+    const orangeBand = (_x: number, y: number) => (y >= 40 && y < 140 ? orange : null);
+    const wide = (_x: number, y: number) => (y >= 40 && y < 140 ? BLUE : null);
+    expect(halvesContinueAcrossSeam(image(100, 200, WHITE, wide), image(100, 200, WHITE, orangeBand), { blankSeamJoins: true })).toBe(false);
+    expect(halvesContinueAcrossSeam(image(100, 200, WHITE, band), image(100, 200, WHITE, band), { blankSeamJoins: true })).toBe(true);
+  });
+});
+

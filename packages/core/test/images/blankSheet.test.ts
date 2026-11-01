@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isBlankSheet } from '../../src/images/blankSheet.js';
+import { isBlankSheet, looksLikeWhiteWash } from '../../src/images/blankSheet.js';
 
 describe('isBlankSheet', () => {
   const tableOver = { textOverPicture: true, pageShare: 0.1 };
@@ -27,5 +27,15 @@ describe('isBlankSheet', () => {
     expect(isBlankSheet(form, { textOverPicture: false, pageShare: 0.69 })).toBe(true);
     expect(isBlankSheet(form, { textOverPicture: false, pageShare: 0.2 })).toBe(false);
     expect(isBlankSheet({ meanLuminance: 227, luminanceStdDev: 12.4, meanSaturation: 16 }, { textOverPicture: false, pageShare: 0.66 })).toBe(false);
+  });
+});
+
+describe('looksLikeWhiteWash', () => {
+  it('is a raster whose visible pixels are all white; an illustration, a pale one included, is not', () => {
+    expect(looksLikeWhiteWash({ meanLuminance: 254, luminanceStdDev: 0, meanSaturation: 0 })).toBe(true);
+    expect(looksLikeWhiteWash({ meanLuminance: 252, luminanceStdDev: 2.5, meanSaturation: 1 })).toBe(true);
+    expect(looksLikeWhiteWash({ meanLuminance: 225, luminanceStdDev: 60.7, meanSaturation: 17.5 })).toBe(false);
+    expect(looksLikeWhiteWash({ meanLuminance: 196, luminanceStdDev: 22.2, meanSaturation: 29.2 })).toBe(false);
+    expect(looksLikeWhiteWash(null)).toBe(false);
   });
 });

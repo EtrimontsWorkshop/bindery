@@ -1,5 +1,5 @@
 import type { Rect } from '../geometry.js';
-import type { ImageEntry } from '../inventory/imageRegistry.js';
+import type { ImageEntry, ImageOccurrence } from '../inventory/imageRegistry.js';
 import { computeMaskedObjIds } from './strategy.js';
 
 /**
@@ -46,6 +46,13 @@ export interface ClassifiedImage {
  * only `content` case BELOW the 0.6 default-selection threshold — deliberately, it's
  * the weakest positive signal in the whole file.
  */
+/** The reason of a blended picture that the page's text wraps around (see the Z9 rule). */
+export const TEXT_BESIDE_BLENDED_REASON = 'Z9-text-beside-blended-picture';
+/** The reason of a small picture under page text, offered for its pixels to be judged (see the Z9 rule). */
+export const TEXT_OVER_SMALL_REASON = 'Z9-text-over-small-picture';
+const TEXT_OVER_SMALL_MIN_AREA = 0.02;
+const TEXT_OVER_SMALL_MAX_AREA = 0.1;
+
 const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z1-mask-evidence-group': 0.95,
   'Z1-mask-evidence-opcode': 0.95,
@@ -56,6 +63,8 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z9-high-body-text-coverage': 0.8,
   'Z2-moderate-area-no-mask-evidence': 0.5,
   'Z10-high-center-text-coverage': 0.35,
+  [TEXT_BESIDE_BLENDED_REASON]: 0.35,
+  [TEXT_OVER_SMALL_REASON]: 0.35,
   // "Soft" versions of two former hard rules — ONE signal
   // (repetition or print bleed) without the other, independent
   // confirmation. Same confidence level as other single, conflicting
@@ -141,7 +150,7 @@ const BLEED_TOLERANCE_PT = 1;
  * on 35 such pictures of 9 books), a sheet of paper with text on it, 35% and more. Whatever lies in between is left to the pixels of the picture.
  */
 const FLUSH_PICTURE_MAX_OVERHANG_PT = 2;
-const FLUSH_PICTURE_MAX_AREA = 0.6;
+const FLUSH_PICTURE_MAX_AREA = 0.7;
 const FLUSH_PICTURE_TEXT_COVERAGE_DECORATION_THRESHOLD = 0.4;
 
 /**
@@ -234,6 +243,9 @@ export const EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD = 6;
  */
 const TEXT_COVERAGE_DECORATION_THRESHOLD = 0.15;
 
+/** Page-area share from which an opaque picture painted with a blend mode is offered although the page's text covers much of its box (the smallest such pictures are icons and bullets). */
+const BLENDED_PICTURE_MIN_AREA = 0.03;
+
 /**
  * Groups entries by CANONICAL objId (its own objId, unless `correlatedWith`
  * points to another — see `correlateImagesByBBox` in step 5/6) and returns,
@@ -300,6 +312,22 @@ function isFlushPicture(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Re
   return true;
 }
 
+/** Opacity from which a picture counts as painted opaque (the PDF stores 1 as a value just under it at times). */
+const OPAQUE_MIN_OPACITY = 0.95;
+
+/** Whether the picture is painted fully opaque wherever it appears. */
+function isPaintedOpaque(entry: ImageEntry): boolean {
+  return entry.maxOpacity === undefined || entry.maxOpacity >= OPAQUE_MIN_OPACITY;
+}
+
+/**
+ * A picture painted with a blend mode at less than full opacity (a sheet of aged paper multiplied over the page at 70%-90%) is a
+ * texture of the page's design, whatever shape its mask has: an illustration is painted opaque.
+ */
+function isBlendedOverlay(entry: ImageEntry): boolean {
+  return !isPaintedOpaque(entry) && entry.occurrences.some((o) => o.blended === true);
+}
+
 /** Whether ANY occurrence has a bbox longer edge >= the threshold — see `LARGE_ABSOLUTE_SIZE_PT`. */
 function hasLargeAbsoluteOccurrence(entry: ImageEntry): boolean {
   return entry.occurrences.some((occ) => Math.max(occ.bbox.maxX - occ.bbox.minX, occ.bbox.maxY - occ.bbox.minY) >= LARGE_ABSOLUTE_SIZE_PT);
@@ -350,7 +378,7 @@ function maxTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: ReadonlyMap<nu
  * Shrinks the bbox to the central ~50% of its area (linear
  * scale 1/sqrt(2) around the center) — see `maxCenterTextCoverageRatio`.
  */
-function shrinkToCenter(bbox: Rect): Rect {
+export function shrinkToCenter(bbox: Rect): Rect {
   const w = bbox.maxX - bbox.minX;
   const h = bbox.maxY - bbox.minY;
   const shrink = (1 - Math.SQRT1_2) / 2;
@@ -424,10 +452,16 @@ export const FLUSH_UNDECIDED_REASON = 'Z12-flush-no-center-text-evidence';
  * pictures and watermarks worth offering sit at 30%-60%.
  */
 const BACKDROP_SHAPE_MAX_OPACITY = 0.25;
+const BLENDED_BACKDROP_SHAPE_MAX_OPACITY = 0.35;
+/** ...but only for a large layer (a panel behind a figure): a small blended picture at 30% (a faded sketch, a stain) is a picture of its own. */
+const BLENDED_BACKDROP_MIN_AREA = 0.1;
 
 /** Whether the image is a faint backdrop everywhere it is painted (see `BACKDROP_SHAPE_MAX_OPACITY`). */
 export function isBackdropShape(entry: ImageEntry): boolean {
-  return entry.maxOpacity !== undefined && entry.maxOpacity <= BACKDROP_SHAPE_MAX_OPACITY;
+  if (entry.maxOpacity === undefined) return false;
+  // A layer multiplied over the page (blend mode) shows about as much at 30% as a normal layer does at 20%.
+  const limit = entry.maxRelativeArea >= BLENDED_BACKDROP_MIN_AREA && entry.occurrences.some((o) => o.blended === true) ? BLENDED_BACKDROP_SHAPE_MAX_OPACITY : BACKDROP_SHAPE_MAX_OPACITY;
+  return entry.maxOpacity <= limit;
 }
 
 /**
@@ -604,7 +638,7 @@ export function classifyImages(
       // and stains are small, and a picture of that size cut out by a mask (an illustration at the foot of a page
       // with rounded corners, a photo pinned on a handout) is an illustration; one that fills the page is its background.
       if (entry.objId !== null && maskedObjIds.has(entry.objId)) {
-        if (entry.maxRelativeArea >= LARGE_MASKED_CUTOUT_MIN_AREA && entry.maxRelativeArea < LARGE_MASKED_CUTOUT_MAX_AREA && !isTranslucentEverywhere(entry)) {
+        if (entry.maxRelativeArea >= LARGE_MASKED_CUTOUT_MIN_AREA && entry.maxRelativeArea < LARGE_MASKED_CUTOUT_MAX_AREA && !isTranslucentEverywhere(entry) && !isBlendedOverlay(entry)) {
           return { entry, classification: 'undecided', reason: LARGE_MASKED_CUTOUT_REASON, confidence: confidenceForReason(LARGE_MASKED_CUTOUT_REASON) };
         }
         return { entry, classification: 'decoration', reason: 'Z12-bleeding-masked-cutout', confidence: confidenceForReason('Z12-bleeding-masked-cutout') };
@@ -663,6 +697,15 @@ export function classifyImages(
     // meant to catch (see the comment on `TEXT_COVERAGE_DECORATION_THRESHOLD`).
     const textCoverage = maxTextCoverageRatio(entry, bodyBoxesByPage);
     if (textCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD && !hasLargeAbsoluteOccurrence(entry)) {
+      // A drawing painted with a blend mode on the paper of the page (an illustration with its white ground left out) that the text wraps around has
+      // the boxes of that text over its own box; whether it is a picture is for its pixels to say, so it is offered rather than hidden.
+      if (entry.maxRelativeArea >= BLENDED_PICTURE_MIN_AREA && isPaintedOpaque(entry) && entry.occurrences.some((o) => o.blended === true)) {
+        return { entry, classification: 'undecided', reason: TEXT_BESIDE_BLENDED_REASON, confidence: confidenceForReason(TEXT_BESIDE_BLENDED_REASON) };
+      }
+      // A small picture with text over its box may be a cut-out object on a card of text, or the card itself: its pixels tell which (a plain, opaque card is hidden once extracted).
+      if (entry.maxRelativeArea >= TEXT_OVER_SMALL_MIN_AREA && entry.maxRelativeArea <= TEXT_OVER_SMALL_MAX_AREA && isPaintedOpaque(entry)) {
+        return { entry, classification: 'undecided', reason: TEXT_OVER_SMALL_REASON, confidence: confidenceForReason(TEXT_OVER_SMALL_REASON) };
+      }
       return { entry, classification: 'decoration', reason: 'Z9-high-body-text-coverage', confidence: confidenceForReason('Z9-high-body-text-coverage') };
     }
 
@@ -795,6 +838,11 @@ const MASK_FOOTPRINT_MIN_SHARE = 0.5;
 /** Page-area share from which a picture counts as page-sized in `coversForSure`. */
 const COVERING_PAGE_SIZED_AREA = 0.9;
 
+/** A picture that is turned on the page and cut by a frame, painted as it is (not blended): a print pinned to the page. */
+function isPinnedPhoto(o: ImageOccurrence): boolean {
+  return o.clip !== undefined && o.placement?.rotated === true && !o.blended;
+}
+
 function bboxArea(b: Rect): number {
   return Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
 }
@@ -869,7 +917,8 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     const formPage =
       c.entry.occurrences[0] !== undefined &&
       ((tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES || (smallWithMasksPerPage.get(c.entry.occurrences[0].page) ?? 0) >= CROWDED_PAGE_MIN_SMALL_IMAGES);
-    if (hideTiny && formPage && c.classification === 'undecided' && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
+    // A note with text on it (a card pinned on a cork board) is not a part of a form, however crowded its page is with pins and masks.
+    if (hideTiny && formPage && c.classification === 'undecided' && c.reason !== TEXT_OVER_SMALL_REASON && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-element', confidence: confidenceForReason('Z18-form-page-element') };
     }
     // The picture that fills a page crowded with small images (a character sheet, whose boxes and banners are pictures) and that nobody could judge is the backdrop of the sheet.
@@ -910,9 +959,14 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     const area = bboxArea(ownBox);
     if (area <= 0) return c;
     const covered = (picturesByPage.get(occ.page) ?? []).some((other) => {
-      // A big masked picture offered only as a possibility (it may be a frame or a splatter) does not hide what lies under it.
-      if (other === c || other.reason === LARGE_MASKED_CUTOUT_REASON || !(coversForSure(other.entry, maskedObjIds) || other.entry.maxRelativeArea >= COVERING_MUCH_LARGER_FACTOR * c.entry.maxRelativeArea)) return false;
+      if (other === c) return false;
       const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined && !o.blended);
+      // A big masked picture offered only as a possibility (it may be a frame or a splatter) does not hide what lies under it, unless both are pinned photos: a print that lies
+      // tilted in its frame over another tilted print is the top of a stack, and the one under it shows a strip of its border at most.
+      if (other.reason === LARGE_MASKED_CUTOUT_REASON && !(over !== undefined && isPinnedPhoto(occ) && isPinnedPhoto(over))) return false;
+      // A masked layer that was only offered as a possibility (a misty margin of the layout) is hidden by a judged picture that is at least as large and painted over most of it: what is left of the layer is a strip beside that picture.
+      const hidesPossibleLayer = c.reason === LARGE_MASKED_CUTOUT_REASON && other.classification === 'content' && other.entry.maxRelativeArea >= c.entry.maxRelativeArea;
+      if (!(hidesPossibleLayer || coversForSure(other.entry, maskedObjIds) || other.entry.maxRelativeArea >= COVERING_MUCH_LARGER_FACTOR * c.entry.maxRelativeArea)) return false;
       return over !== undefined && intersectionArea(ownBox, footprint(other.entry, over.bbox)) / area >= COVERED_PICTURE_MIN_COVER;
     });
     if (covered) return { entry: c.entry, classification: 'decoration', reason: 'Z17-covered-by-later-picture', confidence: confidenceForReason('Z17-covered-by-later-picture') };

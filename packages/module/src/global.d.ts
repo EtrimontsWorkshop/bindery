@@ -19,6 +19,7 @@ declare module 'fvtt-types/configuration' {
     'bindery-pdf-importer.whiteBackground': boolean;
     'bindery-pdf-importer.sortByPage': boolean;
     'bindery-pdf-importer.vectorFigures': boolean;
+    'bindery-pdf-importer.removeMapNumbers': boolean;
     'bindery-pdf-importer.lastGridConfig': { size: number; offsetX: number; offsetY: number };
     'bindery-pdf-importer.importTargets': ImportTargets;
     'bindery-pdf-importer.tokenPrepDefaults': TokenPrepDefaults;

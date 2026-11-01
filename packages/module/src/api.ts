@@ -63,7 +63,7 @@ export function buildAPI(version: string): BinderyAPI {
  */
 export async function extractImagesForReview(data: ArrayBuffer, opts: { signal?: AbortSignal } = {}): Promise<ExtractedImagePreview[]> {
   const { extractImagesFromDocument } = await loadCore();
-  const result = await extractImagesFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, signal: opts.signal, includeVectorFigures: game.settings!.get(MODULE_ID, 'vectorFigures') === true });
+  const result = await extractImagesFromDocument(data, { assetBaseUrl: ASSET_BASE_URL, signal: opts.signal, includeVectorFigures: game.settings!.get(MODULE_ID, 'vectorFigures') === true, removeNumberMarkers: game.settings!.get(MODULE_ID, 'removeMapNumbers') === true });
 
   return result.images
     .filter((img) => img.classification === 'content')
@@ -118,6 +118,7 @@ export async function buildJournalsForReview(
     signal: opts.signal,
     onProgress: opts.onProgress,
     includeVectorFigures: game.settings!.get(MODULE_ID, 'vectorFigures') === true,
+    removeNumberMarkers: game.settings!.get(MODULE_ID, 'removeMapNumbers') === true,
   });
   return {
     preview: {

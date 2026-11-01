@@ -39,8 +39,11 @@ type ReviewTab = 'images' | 'scenes' | 'journals' | 'diagnostics' | 'statblocks'
 type ReviewStep = 'review' | 'target' | 'summary';
 /** [User request, "two tabs: automatic and manual"] Image source — PURELY a presentational split of the Images tab list, not a new `CIFImage` field: `manual` is recognized by the `id` prefix (`manual-crop-`, see `#createManualCrop`). */
 type ImageSourceTab = 'auto' | 'manual';
-/** [User request] Sub-tab WITHIN each `ImageSourceTab` — filters by the ALREADY existing `ReviewSelection.imageDestination` (the same choice as the per-row "Destination" dropdown), not new state. */
-type ImageDestTab = ImageDestination;
+/**
+ * [User request] Sub-tab WITHIN each `ImageSourceTab` — filters by the ALREADY existing `ReviewSelection.imageDestination` (the same choice as the per-row "Destination" dropdown), not new state.
+ * `unassignedText` is the unassigned images that are boxes of text (`CIFImage.holdsText`): core hides them by default, so they are kept apart from the other unassigned images.
+ */
+type ImageDestTab = ImageDestination | 'unassignedText';
 
 interface JournalRow {
   kind: 'journal' | 'page';
@@ -342,10 +345,16 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     return image.id.startsWith('manual-crop-');
   }
 
+  /** The sub-tab (destination level) an image is listed under. */
+  #destTabOf(image: CIFImage): ImageDestTab {
+    const destination = this.#selection.imageDestination(image.id);
+    return destination === 'unassigned' && image.holdsText === true ? 'unassignedText' : destination;
+  }
+
   /** The Images list AFTER both levels of filtering (source + destination), in the same order as `sortImagesForReview` — the only thing `#mountImageList`/`#mountOverlay` actually see. */
   #visibleImages(): CIFImage[] {
     return sortImagesForReview(this.#data.document.images, game.settings!.get(MODULE_ID, 'sortByPage') === true).filter(
-      (i) => (ReviewScreen.#isManualImage(i) ? 'manual' : 'auto') === this.#imageSourceTab && this.#selection.imageDestination(i.id) === this.#imageDestTab,
+      (i) => (ReviewScreen.#isManualImage(i) ? 'manual' : 'auto') === this.#imageSourceTab && this.#destTabOf(i) === this.#imageDestTab,
     );
   }
 
@@ -362,10 +371,10 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   /** Counters for the destination sub-tabs (Scene/Journal/Token/Unassigned) — SOLELY within the active source sub-tab. */
   #imageDestCounts(): Record<ImageDestTab, number> {
-    const counts: Record<ImageDestTab, number> = { scene: 0, journal: 0, token: 0, unassigned: 0 };
+    const counts: Record<ImageDestTab, number> = { scene: 0, journal: 0, token: 0, unassigned: 0, unassignedText: 0 };
     for (const image of this.#data.document.images) {
       if ((ReviewScreen.#isManualImage(image) ? 'manual' : 'auto') !== this.#imageSourceTab) continue;
-      counts[this.#selection.imageDestination(image.id)]++;
+      counts[this.#destTabOf(image)]++;
     }
     return counts;
   }
@@ -409,6 +418,9 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       isImageDestJournal: this.#imageDestTab === 'journal',
       isImageDestToken: this.#imageDestTab === 'token',
       isImageDestUnassigned: this.#imageDestTab === 'unassigned',
+      isImageDestUnassignedText: this.#imageDestTab === 'unassignedText',
+      imageDestUnassignedTextCount: destCounts.unassignedText,
+      hasTextImages: doc.images.some((i) => i.holdsText === true),
       imageDestSceneCount: destCounts.scene,
       imageDestJournalCount: destCounts.journal,
       imageDestTokenCount: destCounts.token,
@@ -2118,7 +2130,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!STATBLOCK_IMPORT_ENABLED || !fileBuffer) return Promise.resolve();
     this.#statblocksStarting ??= (async () => {
       const { StatblockReviewState } = await import('../statblock/ui/statblockReviewState.js');
-      this.#statblocks = new StatblockReviewState(fileBuffer, this.#data.document.images, () => void this.render());
+      this.#statblocks = new StatblockReviewState(fileBuffer, this.#data.document.images.filter((i) => i.holdsText !== true), () => void this.render());
       await this.render();
       await this.#statblocks.init();
     })();

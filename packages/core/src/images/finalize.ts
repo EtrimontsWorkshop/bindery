@@ -181,6 +181,27 @@ const LARGE_SMOOTH_LIGHT_MEAN_LUMINANCE = 200;
 const SPARSE_PROP_MAX_OPAQUE_FRACTION = 0.3;
 const SPARSE_PROP_MAX_AREA = 0.05;
 /**
+ * DRAWN OBJECTS — a sword, a spear, a bow cut out on a transparent ground: as long and narrow, or as sparse, as a divider or a paperclip, but painted in
+ * strong contrast (the luminance spread of the visible pixels is 64 or more: measured 65-88 on five weapons of two books, against 20-33 for the pale
+ * dividers of another and 38-61 for the paperclips and scraps of four more). A divider is opaque from edge to edge or pale; an object has gaps in it.
+ */
+const DRAWN_OBJECT_MIN_STDDEV = 64;
+const DRAWN_OBJECT_MAX_OPAQUE_FRACTION = 0.8;
+/**
+ * A page of drawn objects (a rack of weapons, a row of tools, a page of item cards): one with at least `DRAWN_OBJECT_RACK_MIN_COUNT` drawn objects painted in
+ * strong contrast, or with at least `OBJECT_PAGE_MIN_COUNT` cut-out pictures of at least `OBJECT_PAGE_MIN_AREA` of the page whose contrast is `OBJECT_PAGE_MIN_STDDEV`
+ * or more. The pictures beside them that are cut out the same way (a staff of wrapped wood, a bow strung with one thin line, a roll of tape, a pistol: measured 54, 63, 52 and 28,
+ * against 77 for the spears beside them) are drawn objects too, not dividers or paperclips. Measured on 31 PDFs, the pages with three such cut-outs are two
+ * pages of objects; the pages with one or two are paperclips and scraps.
+ */
+const DRAWN_OBJECT_RACK_MIN_COUNT = 2;
+const DRAWN_OBJECT_RACK_MIN_STDDEV = 50;
+/** On a page of cut-out objects (not merely of two drawn ones) the pictures beside them are objects at a lower contrast still. */
+const OBJECT_PAGE_SIBLING_MIN_STDDEV = 20;
+const OBJECT_PAGE_MIN_STDDEV = 30;
+const OBJECT_PAGE_MIN_COUNT = 3;
+const OBJECT_PAGE_MIN_AREA = 0.025;
+/**
  * A picture with next to no visible pixels, whatever its size: a glow, a spark or a wisp of smoke painted as a separate layer over
  * an illustration, in a raster of the illustration's size. Measured on 18 real books: the two such layers have 0.4% and 0.8% opaque
  * pixels; the sparsest picture of every other book has 3.1%.
@@ -562,6 +583,18 @@ export interface PreparedEntryForFinalize<TPayload> {
   height: number;
   /** See `computeLuminanceStdDev`/`FLAT_TEXTURE_STDDEV_THRESHOLD`. Optional — no value skips the "flat texture" reclassification (e.g. in unit tests with no real pixels). */
   luminanceStdDev?: number;
+  /** A render of the page's layout with at least 15% of its box covered by page text, on a plain raster (see `isTextPanelBook`). Optional — no value leaves the picture out of the rule. */
+  textPanelCandidate?: boolean;
+  /** The raw look of a render of a panel of text that may be tinted (see `repeatedPanelLooks`). */
+  textPanelLook?: { stdDev: number; saturation: number; mean: number; coverage: number; textOnCenter: boolean };
+  /** The raster of a panel candidate: its pixel size and look. Panels of the layout are the same raster on every page that has one (see `repeatedTextPanelKeys`). */
+  textPanelKey?: string;
+  /** The page's text covers most of the render and of its middle (see `TEXT_FILLS_BOX_MIN_COVERAGE`): a box of text whatever the raster under it looks like. */
+  textFillsBox?: boolean;
+  /** The picture is a plain card of light paper that the page's text lies on (see `buildImageExtraction.ts`): a box of text however little of it the text covers. */
+  textOnPaperCard?: boolean;
+  /** The picture is a card or box of text (it is a `decoration` for that reason only): the review can offer it on request, see `CIFImage.holdsText`. */
+  holdsText?: boolean;
   /** See `computeWhiteOpaqueShare`. Optional — no value skips the "white shape" rule. */
   whiteOpaqueShare?: number;
   /** See `computeDarkOpaqueShare`. Optional — no value skips the "black shape" rule. */
@@ -595,6 +628,8 @@ export interface FinalizedImage<TPayload> {
   uniformColorFraction?: number;
   smoothness?: SmoothnessMetrics;
   suggestedGrid?: GridDetectionResult;
+  /** See `PreparedEntryForFinalize.holdsText`. */
+  holdsText?: boolean;
   payload: TPayload;
 }
 
@@ -607,6 +642,71 @@ export interface FinalizeResult<TPayload> {
 
 
 /**
+ * PANELS OF TEXT — a book whose layout is made of boxes of text (sidebars, lists, boxes of rules) on plain panels has them rendered with their text, one picture
+ * for each. Measured on 30 PDFs: such books have panels in 34%-74% of the pictures offered, books of handouts (documents of the story, forms, notes) in at most
+ * 19%, and the books whose handouts were approved one by one in 0%-5%. In a book of the first kind the panels are the layout, not pictures.
+ */
+const TEXT_PANEL_BOOK_MIN_SHARE = 0.25;
+const TEXT_PANEL_BOOK_MIN_COUNT = 10;
+
+/** Whether `candidates` panels among `offered` pictures make a book whose layout is panels of text. */
+export function isBookOfTextPanels(candidates: number, offered: number): boolean {
+  return candidates >= TEXT_PANEL_BOOK_MIN_COUNT && offered > 0 && candidates / offered >= TEXT_PANEL_BOOK_MIN_SHARE;
+}
+
+/** The rasters (see `PreparedEntryForFinalize.textPanelKey`) that more than one panel of the book is made of: a sidebar of the layout is repeated, a handout is not. */
+export function repeatedTextPanelKeys(panels: readonly Pick<PreparedEntryForFinalize<unknown>, 'textPanelKey'>[]): Set<string> {
+  const counts = new Map<string, number>();
+  for (const d of panels) if (d.textPanelKey !== undefined) counts.set(d.textPanelKey, (counts.get(d.textPanelKey) ?? 0) + 1);
+  return new Set([...counts].filter(([, count]) => count >= 2).map(([key]) => key));
+}
+
+/** Two looks of panels are of one style when they differ by at most this much (luminance spread, saturation, mean luminance). */
+const PANEL_STYLE_MAX_STDDEV_DIFF = 5;
+const PANEL_STYLE_MAX_SATURATION_DIFF = 7;
+const PANEL_STYLE_MAX_MEAN_DIFF = 9;
+/** A look is the look of the layout when this many other panels of the book have it: the cards of a layout come in a few styles, each used again and again. */
+const PANEL_STYLE_MIN_OTHERS = 5;
+/** A smooth panel on which the page's text covers this share of its box, with text on its middle (a note, a letter, a sidebar), is a box of text whatever its look. A cut-out that the text wraps around is not: the text lies beside it. */
+const PANEL_DOMINANT_TEXT_COVERAGE = 0.5;
+/** The same with less text, but only on a light panel (paper): a map or a picture with its labels is darker. Measured: letters, notes and forms 190-232, a labelled map 139. */
+const PANEL_PAPER_TEXT_COVERAGE = 0.25;
+const PANEL_PAPER_MIN_MEAN = 170;
+
+/** The panels whose look is shared by at least `PANEL_STYLE_MIN_OTHERS` other panels of the book. */
+export function repeatedPanelLooks<T extends Pick<PreparedEntryForFinalize<unknown>, 'textPanelLook'>>(panels: readonly T[]): Set<T> {
+  const looks = panels.filter((d): d is T & { textPanelLook: NonNullable<T['textPanelLook']> } => d.textPanelLook !== undefined);
+  const repeated = new Set<T>();
+  for (const d of looks) {
+    const others = looks.filter((o) => o !== d && Math.abs(o.textPanelLook.stdDev - d.textPanelLook.stdDev) <= PANEL_STYLE_MAX_STDDEV_DIFF && Math.abs(o.textPanelLook.saturation - d.textPanelLook.saturation) <= PANEL_STYLE_MAX_SATURATION_DIFF && Math.abs(o.textPanelLook.mean - d.textPanelLook.mean) <= PANEL_STYLE_MAX_MEAN_DIFF).length;
+    if (others >= PANEL_STYLE_MIN_OTHERS) repeated.add(d);
+  }
+  return repeated;
+}
+
+/** Whether a picture is a drawn object by the strict measure (see `DRAWN_OBJECT_MIN_STDDEV`). */
+export function isDrawnObjectPicture(d: Pick<PreparedEntryForFinalize<unknown>, 'visibleLuminanceStdDev' | 'opaqueFraction'>): boolean {
+  return d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= DRAWN_OBJECT_MIN_STDDEV && d.opaqueFraction !== undefined && d.opaqueFraction < DRAWN_OBJECT_MAX_OPAQUE_FRACTION;
+}
+
+/** The pages of drawn objects (see `DRAWN_OBJECT_RACK_MIN_COUNT`), each with the contrast from which a picture beside the objects is one too, from the pictures that were extracted. */
+export function pagesOfDrawnObjects(pictures: readonly Pick<PreparedEntryForFinalize<unknown>, 'entry' | 'visibleLuminanceStdDev' | 'opaqueFraction'>[]): Map<number, number> {
+  const strict = new Map<number, number>();
+  const cutOuts = new Map<number, number>();
+  for (const d of pictures) {
+    const page = d.entry.occurrences[0]?.page;
+    if (page === undefined) continue;
+    if (isDrawnObjectPicture(d)) strict.set(page, (strict.get(page) ?? 0) + 1);
+    const isCutOut = d.opaqueFraction !== undefined && d.opaqueFraction < DRAWN_OBJECT_MAX_OPAQUE_FRACTION && d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= OBJECT_PAGE_MIN_STDDEV;
+    if (isCutOut && d.entry.maxRelativeArea >= OBJECT_PAGE_MIN_AREA) cutOuts.set(page, (cutOuts.get(page) ?? 0) + 1);
+  }
+  const pages = new Map<number, number>();
+  for (const [page, n] of strict) if (n >= DRAWN_OBJECT_RACK_MIN_COUNT) pages.set(page, DRAWN_OBJECT_RACK_MIN_STDDEV);
+  for (const [page, n] of cutOuts) if (n >= OBJECT_PAGE_MIN_COUNT) pages.set(page, OBJECT_PAGE_SIBLING_MIN_STDDEV);
+  return pages;
+}
+
+/**
  * Whether an extracted image is one that is hidden from the auto-detected list outright, whatever the earlier signals
  * said: a single color (blank), a smooth paper/page background, a sparse cut-out prop, or a long narrow strip
  * (typically a frame/border/divider). `EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD` is applied to the DECODED size
@@ -616,11 +716,14 @@ export interface FinalizeResult<TPayload> {
  */
 export function isNeverWorthReviewing(
   d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare' | 'whiteOpaqueShare'>,
+  /** On a page of drawn objects (see `DRAWN_OBJECT_RACK_MIN_COUNT`): the contrast from which a picture is a drawn object, which is lower there. */
+  rackMinStdDev?: number,
 ): boolean {
   if (d.classification !== 'content' && d.classification !== 'undecided') return false;
   const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
   const shortEdge = Math.min(d.width, d.height);
-  const isLongAndNarrow = shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
+  const isDrawnObject = d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= (rackMinStdDev ?? DRAWN_OBJECT_MIN_STDDEV) && d.opaqueFraction !== undefined && d.opaqueFraction < DRAWN_OBJECT_MAX_OPAQUE_FRACTION;
+  const isLongAndNarrow = !isDrawnObject && shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
   const isSmoothBackground =
     d.smoothness !== undefined &&
     d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX &&
@@ -635,7 +738,7 @@ export function isNeverWorthReviewing(
     d.smoothness.fineGradient < LARGE_SMOOTH_FINE_MAX &&
     (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < LARGE_SMOOTH_MAX_STDDEV || (d.meanLuminance !== undefined && d.meanLuminance >= LARGE_SMOOTH_LIGHT_MEAN_LUMINANCE));
   const isSparseProp =
-    d.classification === 'undecided' && d.opaqueFraction !== undefined && d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION && d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
+    !isDrawnObject && d.classification === 'undecided' && d.opaqueFraction !== undefined && d.opaqueFraction < SPARSE_PROP_MAX_OPAQUE_FRACTION && d.entry.maxRelativeArea < SPARSE_PROP_MAX_AREA;
   const isLightPaperSheet =
     d.classification === 'undecided' &&
     d.opaqueFraction !== undefined &&
@@ -693,6 +796,11 @@ export function finalizeImages<TPayload>(
   // from before the reclassification (already stale, since the
   // classification changed).
   const RECLASSIFIED_CONFIDENCE = 0.9;
+  const rackPages = pagesOfDrawnObjects(prepared);
+  const offeredCount = prepared.filter((d) => d.classification === 'content' || d.classification === 'undecided').length;
+  const bookOfTextPanels = isBookOfTextPanels(prepared.filter((d) => d.textPanelCandidate === true).length, offeredCount);
+  const repeatedPanels = repeatedTextPanelKeys(prepared);
+  const repeatedStyles = repeatedPanelLooks(prepared);
   const reclassified = prepared.map((d) => {
     // [User request] Images that are never worth reviewing — a single color
     // (blank), a smooth paper/page background, or a long narrow strip (typically a frame/border/divider) —
@@ -701,7 +809,12 @@ export function finalizeImages<TPayload>(
     // the DECODED size here, on top of the bbox-based rules in `classify.ts`
     // (which only ever made such strips `undecided`, so they still cluttered
     // the list). Recoverable via "Select & cut" on the page preview.
-    if (isNeverWorthReviewing(d)) {
+    // A box of text is hidden like any decoration, but marked: the review offers the marked pictures when asked.
+    const isBoxOfText = (d.classification === 'content' || d.classification === 'undecided') && (d.textFillsBox === true || d.textOnPaperCard === true || (d.textPanelCandidate === true && bookOfTextPanels) || (d.textPanelKey !== undefined && repeatedPanels.has(d.textPanelKey)) || repeatedStyles.has(d) || (d.textPanelLook !== undefined && d.textPanelLook.textOnCenter && (d.textPanelLook.coverage >= PANEL_DOMINANT_TEXT_COVERAGE || (d.textPanelLook.coverage >= PANEL_PAPER_TEXT_COVERAGE && d.textPanelLook.mean >= PANEL_PAPER_MIN_MEAN))));
+    if (isBoxOfText) {
+      return { ...d, classification: 'decoration' as ImageClassification, confidence: RECLASSIFIED_CONFIDENCE, holdsText: true };
+    }
+    if (isNeverWorthReviewing(d, rackPages.get(d.entry.occurrences[0]?.page ?? -1))) {
       return { ...d, classification: 'decoration' as ImageClassification, confidence: RECLASSIFIED_CONFIDENCE };
     }
     if (d.classification === 'content' && (d.width < MIN_ABSOLUTE_PX || d.height < MIN_ABSOLUTE_PX)) {
