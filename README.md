@@ -33,6 +33,7 @@ The settings are in Foundry's **Settings → Configure Settings → Module Setti
 | Setting | Default | What it does |
 | --- | --- | --- |
 | **Image upload folder** | `worlds/<world>/bindery-imports` | The folder in the world's data storage where the images you import are saved. |
+| **Image upload storage** | User data | Which of Foundry's storages that folder is in. Change it only if your images have to go to an Amazon S3 bucket (give its name in **S3 bucket**) or to the hosting service's assets library. |
 | **Sort images by page** | off | Off: the review lists the images Bindery is sure about by page first, then the undecided ones from the largest to the smallest. On: every image is listed in the order of the book, page by page and from the top of a page to the bottom. |
 | **Add a white background to images** | off | Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved. Images you changed by hand in the token panel or the editor are left as you made them. It also applies to tokens and statblock portraits, and makes sketches and line drawings easier to read. For a single image use **Fill background** in the image editor, which fills with any color. |
 | **Import vector drawings** | off | Also looks for drawings made of vector paths (cartoon figures beside the text, diagrams, logos) and lists them as undecided images, unchecked. Off: the PDF is analysed as before. See the limitations below. |
@@ -78,7 +79,8 @@ This is an npm workspaces monorepo:
 ```
 npm install
 npm run build           # builds core + module, syncs the result to repo root for local Foundry testing
-npm run test            # unit tests (packages/core)
+npm run build:dist      # the same build without the sync (what CI and releases run)
+npm run test            # unit tests (packages/core, then packages/module)
 npm run lint            # ESLint across the whole repo
 npm run check:boundary  # verifies packages/core never references Foundry globals
 npm run check:size      # verifies the world-startup bundle stays under 40 KB
@@ -94,7 +96,7 @@ npm run deploy:foundry  # copies the built module into a Foundry modules folder 
 
 Profile-based statblock import is compiled in only when you build with `BINDERY_STATBLOCKS=1` (for example `BINDERY_STATBLOCKS=1 npm run build`); a plain `npm run build` produces the release build, without it.
 
-Because this repository doubles as a live Foundry module folder during local development, `npm run build` also copies the built `packages/module/dist/**` output to the repo root (`module.json`, `scripts/`, `styles/`, `lang/`, `templates/`, `lib/`) via `tools/sync-local-module.mjs`. Those root-level files are generated, gitignored, and not part of the tracked source — the source of truth is `packages/module/`. `packages/module/README.md` is the copy that ships inside the module (see `vite.config.ts`); keep it identical to this file — `npm run build` checks that they match.
+Because this repository doubles as a live Foundry module folder during local development, `npm run build` also copies the built `packages/module/dist/**` output to the repo root (`module.json`, `scripts/`, `styles/`, `lang/`, `templates/`, `lib/`, `fonts/`) via `tools/sync-local-module.mjs`. Those root-level files are generated, gitignored, and not part of the tracked source — the source of truth is `packages/module/`. `packages/module/README.md` is the copy that ships inside the module (see `vite.config.ts`); keep it identical to this file — `npm run build` checks that they match.
 
 ## License
 

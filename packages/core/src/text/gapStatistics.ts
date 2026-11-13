@@ -133,7 +133,9 @@ function findPeaks(histogram: readonly number[]): number[] {
  * distribution: low separation = unimodal distribution).
  */
 function findValley(values: readonly number[]): ValleyResult {
-  const max = Math.max(...values);
+  // A loop, not `Math.max(...values)`: a long book has more gaps of one font than a call can take as arguments.
+  let max = -Infinity;
+  for (const v of values) if (v > max) max = v;
   if (max <= 0 || values.length === 0) return { threshold: 0, separation: 0 };
 
   const binWidth = max / HISTOGRAM_BINS || 1;

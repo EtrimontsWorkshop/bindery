@@ -118,10 +118,108 @@ export function isRegexRisky(source: string): boolean {
   return false;
 }
 
+/**
+ * How many nested "try every position" loops a search may have (see `hasOverlappingRepeats`). With the text cut at
+ * `MAX_TEXT_LENGTH` characters, two loops are a few million steps; three were measured at four seconds for one line.
+ */
+const MAX_BACKTRACK_DEGREE = 2;
+
+/** Characters an atom is tried on to learn what it can match: printable ASCII, the white space, and a few beyond ASCII. */
+const SAMPLE_CHARS: readonly string[] = [...'\t\n\r', ...Array.from({ length: 95 }, (_, k) => String.fromCharCode(32 + k)), ' ', 'é', 'ł', 'Ж', '中'];
+
+const sampleMatchesByAtom = new Map<string, readonly boolean[]>();
+
+/** For every sample character, whether the atom (`a`, `\d`, `.`, `[a-z]`) matches it. An atom that cannot be compiled alone counts as matching all. */
+function sampleMatches(atom: string): readonly boolean[] {
+  let matches = sampleMatchesByAtom.get(atom);
+  if (!matches) {
+    try {
+      const regex = new RegExp(`^(?:${atom})$`, 's');
+      matches = SAMPLE_CHARS.map((ch) => regex.test(ch));
+    } catch {
+      matches = SAMPLE_CHARS.map(() => true);
+    }
+    sampleMatchesByAtom.set(atom, matches);
+  }
+  return matches;
+}
+
+/**
+ * Whether the pattern can make the engine try every way of dividing a stretch of text among several unbounded repeats
+ * that match the same characters, such as `\w*\w*\w*!` or `.*\d+x`. Nothing is nested there, so `isRegexRisky`'s
+ * other rules pass it, yet when the part after the repeats does not match, the time grows with the length of the text
+ * to the power of the number of such repeats (plus one when the pattern does not start with `^`, because the search
+ * is then tried from every position too). Past `MAX_BACKTRACK_DEGREE` a single line of a statblock hangs the page.
+ *
+ * The repeats are counted where something after them can fail: an atom that must match a character, or `$`. A run of
+ * repeats that the pattern ends with always succeeds, so `(.+):\s*(.+)` is fine. A run ends at an alternative (`|`)
+ * and at an atom that must match a character none of its repeats can (the `\s+` in `\d+\s+\d+`). Optional atoms
+ * and group brackets do not end it: `(\w*)(\w*)(\w*)$` is one run.
+ */
+function hasOverlappingRepeats(source: string): boolean {
+  const anchored = source.startsWith('^') && !source.includes('|');
+  const allowed = MAX_BACKTRACK_DEGREE - (anchored ? 0 : 1);
+  /** Per sample character: how many repeats of the current run match it. */
+  let counts: number[] = SAMPLE_CHARS.map(() => 0);
+  /** Too many repeats share a character that the atom `failing` (`null`: the end of the text) does not match. */
+  const tooMany = (failing: readonly boolean[] | null): boolean => counts.some((count, k) => count > allowed && !(failing?.[k] ?? false));
+
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!;
+    let atom: string;
+    if (c === '\\') {
+      atom = source.slice(i, i + 2);
+      i++;
+      if (atom === '\\b' || atom === '\\B') continue;
+    } else if (c === '[') {
+      const start = i;
+      i++;
+      if (source[i] === '^') i++;
+      if (source[i] === ']') i++;
+      while (i < source.length && source[i] !== ']') i += source[i] === '\\' ? 2 : 1;
+      atom = source.slice(start, i + 1);
+    } else if (c === '(') {
+      if (source[i + 1] === '?') i += source[i + 2] === '<' && source[i + 3] !== '=' && source[i + 3] !== '!' ? Math.max(2, source.indexOf('>', i) - i) : 2;
+      continue;
+    } else if (c === ')') {
+      const quantifier = readQuantifier(source, i + 1);
+      if (quantifier) i += quantifier.length;
+      continue;
+    } else if (c === '|') {
+      counts = SAMPLE_CHARS.map(() => 0);
+      continue;
+    } else if (c === '^') {
+      continue;
+    } else if (c === '$') {
+      if (tooMany(null)) return true;
+      continue;
+    } else {
+      atom = c;
+    }
+
+    const quantifier = readQuantifier(source, i + 1);
+    let mandatory = true;
+    if (quantifier) {
+      const text = source.slice(i + 1, i + 1 + quantifier.length);
+      mandatory = !(text === '*' || text === '?' || /^\{0[,}]/.test(text));
+      i += quantifier.length;
+      if (source[i + 1] === '?') i++; // a lazy repeat backtracks just the same
+    }
+    const matches = sampleMatches(atom);
+    if (mandatory) {
+      if (tooMany(matches)) return true;
+      // It must match a character none of the run's repeats can match: where they end is fixed, a new run starts.
+      if (!counts.some((count, k) => count > 0 && matches[k])) counts = SAMPLE_CHARS.map(() => 0);
+    }
+    if (quantifier?.unbounded) matches.forEach((hit, k) => hit && counts[k]!++);
+  }
+  return false;
+}
+
 /** Compiles a pattern from a profile; never throws. */
 export function compileProfileRegex(pattern: string, flags?: string): CompiledRegex {
   if (pattern.length > MAX_PATTERN_LENGTH) return { ok: false, problem: 'tooLong' };
-  if (isRegexRisky(pattern)) return { ok: false, problem: 'tooComplex' };
+  if (isRegexRisky(pattern) || hasOverlappingRepeats(pattern)) return { ok: false, problem: 'tooComplex' };
   try {
     return { ok: true, regex: new RegExp(pattern, flags) };
   } catch {

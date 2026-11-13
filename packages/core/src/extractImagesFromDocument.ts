@@ -5,7 +5,8 @@ import { buildImageExtraction, type BuildImageExtractionOptions, type BuildImage
 import { groupBlockBoxesByPage } from './images/textBlockBoxes.js';
 import { buildInventory } from './inventory/inventory.js';
 import { withPdf } from './pdfDocument.js';
-import { buildTextLayout } from './text/buildTextLayout.js';
+import { stagedProgress } from './stagedProgress.js';
+import { createTextLayoutCollector, type BuildTextLayoutResult } from './text/buildTextLayout.js';
 import { buildPageLayouts } from './layout/buildPageLayout.js';
 
 /**
@@ -54,22 +55,11 @@ export interface ExtractImagesFromDocumentOptions extends BuildImageExtractionOp
 }
 
 /**
- * Bboxes of `body` blocks (text pipeline) grouped by page — the
- * only point where the text pipeline (`buildTextLayout`+`buildPageLayouts`)
- * and the image pipeline (`buildImageExtraction`) actually meet, EXPLICITLY
- * via the returned map, not via global state. A third
- * `getDocument()` call (separate from inventory/extraction) — see the
- * comment above the file: every use of pdf.js in the browser needs its OWN
- * independent copy of the bytes.
+ * Bboxes of the text blocks grouped by page — the only point where the text pipeline and the image pipeline
+ * (`buildImageExtraction`) meet, EXPLICITLY via the returned maps, not via global state. The text itself was
+ * gathered during the inventory's walk (see `buildCIFFromDocument.ts`), so this opens nothing.
  */
-async function buildBlockBoxesByPage(
-  data: ArrayBuffer,
-  assetBaseUrl: string,
-  inv: Awaited<ReturnType<typeof buildInventory>>,
-): Promise<{ body: Map<number, Rect[]>; text: Map<number, Rect[]>; heading: Map<number, Rect[]> }> {
-  const fontSizeByKey = new Map(inv.fonts.map((f) => [f.key, f.size]));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
+function buildBlockBoxesByPage(textLayout: BuildTextLayoutResult, inv: Awaited<ReturnType<typeof buildInventory>>): { body: Map<number, Rect[]>; text: Map<number, Rect[]>; heading: Map<number, Rect[]> } {
   const { blocks } = buildPageLayouts(textLayout, {
     fontRoles: inv.fontRoles,
     vectors: inv.vectors,
@@ -90,21 +80,26 @@ export async function extractImagesFromDocument(
   opts: ExtractImagesFromDocumentOptions,
 ): Promise<BuildImageExtractionResult> {
   const { assetBaseUrl, ...extractionOpts } = opts;
+  // Both stages stop on the caller's signal and report into one progress figure (see `stagedProgress`).
+  const { signal } = opts;
+  const progressOf = stagedProgress(opts.onProgress, 2);
+  const textCollector = createTextLayoutCollector();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inv = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any));
-  const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage, heading: headingBlockBoxesByPage } = await buildBlockBoxesByPage(data, assetBaseUrl, inv);
+  const inv = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any, { signal, onProgress: progressOf(0), onPageText: textCollector.addPage }));
+  const { body: bodyBlockBoxesByPage, text: textBlockBoxesByPage, heading: headingBlockBoxesByPage } = buildBlockBoxesByPage(textCollector.finish(new Map(inv.fonts.map((f) => [f.key, f.size])), signal), inv);
 
-  return withPdf(data, assetBaseUrl, (extractDoc) =>
+  const result = await withPdf(data, assetBaseUrl, (extractDoc) =>
     buildImageExtraction(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       extractDoc as any,
-      { images: inv.images, vectors: inv.vectors, shapes: inv.shapes, perPage: inv.perPage },
+      { images: inv.images, vectors: inv.vectors, shapes: inv.shapes, lines: inv.lines, perPage: inv.perPage },
       browserRegionRenderer,
       browserImageEncoder,
-      { ...extractionOpts, bodyBlockBoxesByPage, textBlockBoxesByPage, headingBlockBoxesByPage },
+      { ...extractionOpts, onProgress: progressOf(1), bodyBlockBoxesByPage, textBlockBoxesByPage, headingBlockBoxesByPage, wordBoxesByPage: inv.wordBoxesByPage },
     ),
   );
+  return { ...result, diagnostics: [...inv.diagnostics, ...result.diagnostics] };
 }
 
 export type { EncodedImage };

@@ -1,4 +1,4 @@
-import { uploadImage } from './uploadImages.js';
+import { uploadImage, type UploadSession } from './uploadImages.js';
 
 /**
  * Journals from CIF. The input is an
@@ -44,6 +44,8 @@ export interface CreateJournalsFromCIFInput {
   baseName: string;
   /** `JournalEntry` folder id (see `ensureFolder.ts`) — `undefined` = root. */
   folder?: string;
+  /** The import's upload session, so the upload folder is browsed once (see `UploadSession`). */
+  uploadSession?: UploadSession;
 }
 
 export interface CreatedJournalRef {
@@ -65,6 +67,7 @@ async function uploadAllImages(
   images: readonly CIFImageForUpload[],
   imageBytesById: ReadonlyMap<string, { bytes: Uint8Array; format: string }>,
   baseName: string,
+  session: UploadSession | undefined,
 ): Promise<{ pathById: Map<string, string>; missingImageIds: string[] }> {
   const pathById = new Map<string, string>();
   const missingImageIds: string[] = [];
@@ -75,7 +78,7 @@ async function uploadAllImages(
       continue;
     }
     const format = entry.format === 'png' ? 'png' : 'webp';
-    const upload = await uploadImage({ bytes: entry.bytes, baseName: `${baseName}-${img.id}`, format });
+    const upload = await uploadImage({ bytes: entry.bytes, baseName: `${baseName}-${img.id}`, format }, { session });
     pathById.set(img.id, upload.path);
   }
   return { pathById, missingImageIds };
@@ -91,7 +94,7 @@ function substituteImagePaths(html: string, pathById: ReadonlyMap<string, string
 }
 
 export async function createJournalsFromCIF(input: CreateJournalsFromCIFInput): Promise<CreateJournalsFromCIFResult> {
-  const { pathById, missingImageIds } = await uploadAllImages(input.images, input.imageBytesById, input.baseName);
+  const { pathById, missingImageIds } = await uploadAllImages(input.images, input.imageBytesById, input.baseName, input.uploadSession);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const JournalEntryCls = (foundry.documents as any).JournalEntry ?? (globalThis as any).JournalEntry;

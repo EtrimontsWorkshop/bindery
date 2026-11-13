@@ -19,9 +19,12 @@ jobs:
       - run: npm ci
 
       - name: Build (core + module)
-        run: npm run build
+        run: npm run build:dist
 
-      - name: Test (packages/core)
+      - name: Typecheck (packages/module)
+        run: npm run typecheck --workspace=packages/module
+
+      - name: Test (packages/core, packages/module)
         run: npm run test
 
       - name: Lint
@@ -35,3 +38,6 @@ jobs:
 
       - name: Startup bundle size gate (ryzyko I3, < 40 KB)
         run: npm run check:size
+
+      - name: Manifest gate (module.json matches the built files)
+        run: npm run check:manifest

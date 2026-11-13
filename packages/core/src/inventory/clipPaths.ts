@@ -112,6 +112,64 @@ export function clipPathBBox(path: ClipPath): Rect | null {
   return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
 }
 
+/** Points of a clip closer than this (pt) are one corner (a path closed again at its first point, a doubled vertex). */
+const SAME_CORNER_PT = 0.5;
+/** A corner of a clip is square when the cosine of its angle is at most this (about 3 degrees off). */
+const SQUARE_CORNER_MAX_COSINE = 0.05;
+
+/** A slice is cut by a polygon of at most this many corners: straight cuts. An outline traced round a subject (its curves flattened) has far more. */
+const SLICE_MAX_CORNERS = 20;
+/** Two slices of one picture meet where corners of their clips lie this close (pt): they are pieces of one cut. */
+const SHARED_CORNER_PT = 1.5;
+
+/** The corners of a polygon, without the points that repeat the one before (or the first, at its end). */
+function cornersOf(polygon: readonly number[]): [number, number][] {
+  const corners: [number, number][] = [];
+  for (let i = 0; i + 1 < polygon.length; i += 2) {
+    const point: [number, number] = [polygon[i]!, polygon[i + 1]!];
+    const last = corners[corners.length - 1];
+    if (last === undefined || Math.hypot(point[0] - last[0], point[1] - last[1]) > SAME_CORNER_PT) corners.push(point);
+  }
+  if (corners.length > 1 && Math.hypot(corners[0]![0] - corners[corners.length - 1]![0], corners[0]![1] - corners[corners.length - 1]![1]) <= SAME_CORNER_PT) corners.pop();
+  return corners;
+}
+
+/** Whether a polygon is a rectangle, upright or turned: four corners, each square. */
+function isRectangle(polygon: readonly number[]): boolean {
+  const corners = cornersOf(polygon);
+  if (corners.length !== 4) return false;
+  for (let i = 0; i < 4; i++) {
+    const [ax, ay] = corners[(i + 3) % 4]!;
+    const [bx, by] = corners[i]!;
+    const [cx, cy] = corners[(i + 1) % 4]!;
+    const ux = ax - bx;
+    const uy = ay - by;
+    const vx = cx - bx;
+    const vy = cy - by;
+    const lengths = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    if (lengths === 0 || Math.abs(ux * vx + uy * vy) / lengths > SQUARE_CORNER_MAX_COSINE) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether a clip cuts a slice out of a picture: one of its paths has several subpaths, or is a polygon that is not a
+ * rectangle, and all its polygons are cut straight (see `SLICE_MAX_CORNERS`). A picture in a frame (a panel of a comic,
+ * a photo in a box, a snapshot laid aslant) is clipped by a rectangle, a figure cut out of its ground by its outline.
+ */
+export function isShapedClip(clip: ClipInfo | undefined): boolean {
+  if (clip === undefined) return false;
+  if (clip.paths.some((path) => path.some((polygon) => cornersOf(polygon).length > SLICE_MAX_CORNERS))) return false;
+  return clip.paths.some((path) => path.length > 1 || (path.length === 1 && !isRectangle(path[0]!)));
+}
+
+/** Whether two clips share a corner (see `SHARED_CORNER_PT`): the slices they cut are pieces of one cut. */
+export function clipsShareCorner(a: ClipInfo, b: ClipInfo): boolean {
+  const cornersA = a.paths.flatMap((path) => path.flatMap(cornersOf));
+  const cornersB = b.paths.flatMap((path) => path.flatMap(cornersOf));
+  return cornersA.some(([ax, ay]) => cornersB.some(([bx, by]) => Math.abs(ax - bx) <= SHARED_CORNER_PT && Math.abs(ay - by) <= SHARED_CORNER_PT));
+}
+
 /** Even-odd point-in-polygon test over all subpaths of a clip path. */
 export function pointInClipPath(path: ClipPath, x: number, y: number): boolean {
   let inside = false;

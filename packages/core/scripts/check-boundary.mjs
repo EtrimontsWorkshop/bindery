@@ -43,7 +43,17 @@ try {
 // `new Map(...)`). The six Foundry globals have no `get` of their own either: their collections are
 // reached one level deeper (`game.actors.get`, `game.settings.get`), which this pattern still catches.
 // Likewise `has(` (measured: `ui.has(o)` on a `new Set(...)`): none of the six globals has a `has` of its own.
-const FALSE_POSITIVE_METHOD_CALL = /^(test|exec|get|has)\(/;
+// And `set(` (measured: `ui.set(t, l)` on a WeakMap inside the bundled zod): none of the six has a `set` of its own either
+// (settings are written through `game.settings.set`, one level deeper, which this pattern still catches).
+// And `value` (measured: `ui.value = t` on the property descriptor that the bundled zod passes to `Object.defineProperty`): none of the six
+// globals has a `value` property.
+// And `meanLuminance`/`luminanceStdDev` (measured: `ui.meanLuminance <= …` on the look of a raster that the image extraction measures):
+// none of the six globals has either.
+// And `push(`/`filter(`/`length` (measured: `ui.push(…)`, `ui.filter(…)`, `ui.length > 0` on an array of the image extraction): arrays'
+// own members, which none of the six globals has.
+// And `init(` (measured: `ui.init(e, t)` on a check class of the bundled zod, calling the constructor of its parent): none of the six globals
+// has an `init` of its own.
+const FALSE_POSITIVE_METHOD_CALL = /^((test|exec|get|has|set|push|init)\(|filter\b|value\b|length\b|meanLu|lumina)/;
 const violations = [];
 for (const word of RESTRICTED) {
   const re = new RegExp(`\\b${word}\\b\\s*\\.(.{0,6})`, 'g');

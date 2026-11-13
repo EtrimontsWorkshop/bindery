@@ -3,14 +3,14 @@
   <p class="bindery-wizard-privacy">{{localize "BINDERY.wizard.pickFileHint"}}</p>
 
   <div>
-    <label class="bindery-wizard-dropzone {{#if fileName}}bindery-has-file{{/if}}" data-role="dropzone">
+    <label class="bindery-wizard-dropzone {{#if fileName}}bindery-has-file{{/if}} {{#if isBusy}}bindery-is-busy{{/if}}" data-role="dropzone">
       <span class="bindery-btn bindery-btn--primary">{{localize "BINDERY.wizard.pickFileLabel"}}</span>
       {{#if fileName}}
         <span class="bindery-wizard-dropzone-filename">{{fileName}}</span>
       {{else}}
         <span class="bindery-wizard-dropzone-text">{{localize "BINDERY.wizard.dropHint"}}</span>
       {{/if}}
-      <input type="file" data-role="pdf" accept="application/pdf" />
+      <input type="file" data-role="pdf" accept="application/pdf" {{#if isBusy}}disabled{{/if}} />
     </label>
   </div>
 
@@ -55,12 +55,12 @@
     <p class="hint">{{localize "BINDERY.wizard.reviewHint"}}</p>
 
     <div>
-      <button type="button" class="bindery-btn bindery-btn--primary" data-action="openReview" {{#if isBuildingReview}}disabled{{/if}}>
+      <button type="button" class="bindery-btn bindery-btn--primary" data-action="openReview" {{#if isBuildingReview}}disabled{{/if}} {{#if isReviewOpen}}disabled{{/if}}>
         {{#if isBuildingReview}}{{localize "BINDERY.wizard.buildingReview"}}{{else}}{{localize "BINDERY.wizard.openReviewButton"}}{{/if}}
       </button>
       {{#if isBuildingReview}}
         {{#if reviewProgress}}
-          <span class="bindery-progress-text">{{reviewProgress.done}} / {{reviewProgress.total}}</span>
+          <span class="bindery-progress-text">{{reviewProgressPercent}}%</span>
         {{/if}}
       {{/if}}
     </div>
@@ -81,7 +81,7 @@
   {{#if isAnalyzing}}
     <div class="bindery-progress"><div class="bindery-progress-fill" style="width:60%"></div></div>
   {{/if}}
-  <button type="button" class="bindery-btn bindery-btn--primary" data-action="analyze" {{#unless fileName}}disabled{{/unless}} {{#if isAnalyzing}}disabled{{/if}}>
+  <button type="button" class="bindery-btn bindery-btn--primary" data-action="analyze" {{#unless fileName}}disabled{{/unless}} {{#if isBusy}}disabled{{/if}}>
     {{#if isAnalyzing}}{{localize "BINDERY.wizard.analyzing"}}{{else}}{{localize "BINDERY.wizard.analyzeButton"}}{{/if}}
   </button>
 </footer>

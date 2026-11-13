@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { renderPagePreview } from '../../src/images/buildPagePreview.js';
 import { nodeCanvasRegionRenderer } from '../../src/images/nodeCanvasRenderer.js';
@@ -15,7 +16,7 @@ import { build as buildVectorsRectangle } from '../synth/fixtures/vectors-rectan
 describe('renderPagePreview — an integration with a real pdf.js', () => {
   it('renders the WHOLE page (not a fragment) into an encoded bitmap with the expected proportions', async () => {
     const buf = buildVectorsRectangle();
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
 
     // The default MediaBox of the test fixtures (layoutHelpers/rawPdf) is [0,0,612,792] — Letter.
@@ -36,7 +37,7 @@ describe('renderPagePreview — an integration with a real pdf.js', () => {
 
   it('an AbortSignal already aborted before the call rejects immediately, without calling the encoder', async () => {
     const buf = buildVectorsRectangle();
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
     const controller = new AbortController();
     controller.abort();

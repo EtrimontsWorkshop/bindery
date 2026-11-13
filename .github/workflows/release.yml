@@ -18,10 +18,25 @@ jobs:
           node-version: 24
           cache: npm
 
+      - name: Tag matches the manifest version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('packages/module/module.json', 'utf8')).version")
+          if [ "$TAG" != "v$VERSION" ]; then
+            # The release's files carry the manifest's version (file names, download link): a tag that says
+            # something else would publish a release whose link points at a tag that does not exist.
+            echo "::error::Tag $TAG does not match packages/module/module.json version $VERSION (expected v$VERSION)."
+            exit 1
+          fi
+
       - run: npm ci
 
       - name: Build (core + module)
-        run: npm run build
+        run: npm run build:dist
+
+      - name: Typecheck (packages/module)
+        run: npm run typecheck --workspace=packages/module
 
       - name: Test
         run: npm run test

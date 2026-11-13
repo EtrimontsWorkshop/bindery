@@ -37,7 +37,12 @@ export class StatblockReviewState {
   issues: string[] = [];
   rows: Row[] | null = null;
 
-  #pages: Awaited<ReturnType<typeof buildPagesForDetection>> | null = null;
+  /** The PDF read for detection, shared by every profile choice — read once, even when the profile changes while it is being read. */
+  #pages: ReturnType<typeof buildPagesForDetection> | null = null;
+  /** Counts profile choices: a detection finishing after another choice was made must not overwrite that choice's rows. */
+  #selectionCount = 0;
+  /** Stops reading the PDF when the review screen closes (see `dispose`). */
+  readonly #abort = new AbortController();
   #profile: StatblockProfile | null = null;
   #candidates = new Map<string, DetectionCandidate>();
 
@@ -56,7 +61,13 @@ export class StatblockReviewState {
     return this.rows?.filter((r) => r.include).length ?? 0;
   }
 
+  /** Stops any detection in progress; called when the review screen closes. */
+  dispose(): void {
+    this.#abort.abort();
+  }
+
   async selectProfile(profileId: string): Promise<void> {
+    const selection = ++this.#selectionCount;
     this.selectedProfileId = profileId;
     this.rows = null;
     this.issues = [];
@@ -77,8 +88,16 @@ export class StatblockReviewState {
     this.busy = true;
     this.#onChange();
     try {
-      this.#pages ??= await buildPagesForDetection(this.#fileBuffer, { assetBaseUrl: ASSET_BASE_URL });
-      const candidates = detectStatblocks(this.#pages, validation.profile);
+      this.#pages ??= buildPagesForDetection(this.#fileBuffer, { assetBaseUrl: ASSET_BASE_URL, signal: this.#abort.signal });
+      let pages: Awaited<ReturnType<typeof buildPagesForDetection>>;
+      try {
+        pages = await this.#pages;
+      } catch (err) {
+        this.#pages = null; // a failed read is not kept: the next choice tries again
+        throw err;
+      }
+      if (selection !== this.#selectionCount || this.#abort.signal.aborted) return;
+      const candidates = detectStatblocks(pages, validation.profile);
       const imageCandidates: ImageCandidate[] = this.#images.map((i) => ({ id: i.id, pageNumber: i.provenance.pageNumber, bbox: i.provenance.bbox }));
       this.rows = candidates.map((c) => {
         this.#candidates.set(c.id, c);
@@ -95,11 +114,15 @@ export class StatblockReviewState {
         };
       });
     } catch (err) {
+      if (selection !== this.#selectionCount || this.#abort.signal.aborted) return;
       console.warn('Bindery | statblock detection failed:', err);
       this.issues = [String(err)];
     } finally {
-      this.busy = false;
-      this.#onChange();
+      // Only the latest choice ends the busy state; a closed screen is not rendered again.
+      if (selection === this.#selectionCount && !this.#abort.signal.aborted) {
+        this.busy = false;
+        this.#onChange();
+      }
     }
   }
 

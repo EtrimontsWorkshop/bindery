@@ -26,7 +26,9 @@
       "buildingReview": "Analyzing document…",
       "journalBuildErrorGeneric": "Could not build a preview from this document. See console for details.",
       "reviewImportDone": "Import complete — check the Scenes and Journal sidebars.",
-      "dropHint": "or drop it here — no file selected"
+      "dropHint": "or drop it here — no file selected",
+      "reviewImportPartial": "Import finished with problems: {created} created, {errors} failed. The summary lists what went wrong.",
+      "reviewImportFailed": "Import failed: nothing was created ({errors} problems). The summary lists what went wrong."
     },
     "review": {
       "title": "Bindery — Review",
@@ -101,7 +103,10 @@
       "journalGroupHintShort": "Journal images with the same group name land in a single multi-page journal.",
       "selectedPanelLabel": "to selected",
       "diagnosticsEmpty": "No issues",
-      "tabStatblocks": "Statblocks"
+      "tabStatblocks": "Statblocks",
+      "alreadyOpen": "A review is already open. Finish or close it first.",
+      "importInProgress": "The import is still running. Wait for it to finish before closing the window.",
+      "pageRef": "p. {page}"
     },
     "gridPicker": {
       "title": "Set the scene grid",
@@ -169,7 +174,8 @@
       "setDefaultHint": "Save the current shape, background removal, frame, size, and format as the starting point for every token you prepare next.",
       "setDefaultSaved": "Saved as the default token setup.",
       "confirm": "Save token",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "setDefaultFrameTooLarge": "Saved as the default token setup, but without the frame file: it is larger than 1 MB. Choose it again next time, or use a smaller file."
     },
     "settings": {
       "openWizardMenuLabel": "Import PDF…",
@@ -181,9 +187,16 @@
       "vectorFiguresLabel": "Import vector drawings",
       "vectorFiguresHint": "Off: the PDF is analysed as before (pictures and maps drawn as big rectangles). On: drawings made of vector paths (a cartoon figure beside the text, a diagram, a logo) are also found, rendered as the part of the page they cover and listed as undecided images, unchecked. The render may contain scraps of text that run past the drawing (the image editor can erase them), and a few tables, diagrams and logos come with them. Takes effect for the next PDF you analyse.",
       "removeMapNumbersLabel": "Remove numbers from maps",
-      "removeMapNumbersHint": "Off: maps are imported as drawn. On: the numbered markers of a map (black discs with a white number in them, the key to the rooms of a floor plan) are painted over with the color around them in every image that has at least three of them. The part of the drawing under a marker is lost, a marker between thick walls or lines may remain, and a map with only one or two markers is left as it is.",
+      "removeMapNumbersHint": "Off: maps are imported as drawn. On: the numbered markers of a map (black discs with a white number in them, or squares of one color with a light number, the key to the rooms of a floor plan) are painted over with the color around them in every image that has at least three of one kind. The part of the drawing under a marker is lost, a marker between thick walls or lines may remain, and a map with only one or two markers is left as it is.",
       "uploadPathLabel": "Image upload folder",
-      "uploadPathHint": "Path (in the world's data storage) where images extracted from PDFs are saved."
+      "uploadPathHint": "Path (in the world's data storage) where images extracted from PDFs are saved.",
+      "uploadSourceLabel": "Image upload storage",
+      "uploadSourceHint": "Which storage the upload folder is in. Leave it on user data unless your images have to go elsewhere: choose Amazon S3 (and give the bucket below) or the hosting service's assets library yourself.",
+      "uploadSourceData": "User data (default)",
+      "uploadSourceS3": "Amazon S3",
+      "uploadSourceForge": "The Forge assets library",
+      "uploadBucketLabel": "S3 bucket",
+      "uploadBucketHint": "Name of the bucket images are saved to. Used only when the upload storage is Amazon S3."
     },
     "legal": {
       "notice": "This tool processes files you own. It does not contain or distribute any publisher's content. Responsibility for holding the rights to imported material rests with you. Import results are not intended for further distribution."
@@ -203,7 +216,8 @@
       "importReplaced": "Profile \"{name}\" already existed and was replaced.",
       "importFailed": "Could not import the profile:",
       "confirmDeleteTitle": "Delete profile",
-      "confirmDeleteBody": "Delete this profile? Actors already imported with it are not affected."
+      "confirmDeleteBody": "Delete this profile? Actors already imported with it are not affected.",
+      "invalidJson": "This file is not valid JSON."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Text confidence {confidence} — likely corrupted ToUnicode mapping",
@@ -271,7 +285,9 @@
       "STATBLOCK_VALUE_MAP_INVALID_PARAMS": "Value map of kind \"{kind}\" is missing required parameters.",
       "STATBLOCK_VALUE_MAP_NORMALIZED_MATCH": "\"{input}\" matched \"{matchedKey}\" after normalizing.",
       "STATBLOCK_VALUE_MAP_NOT_FOUND": "Value map \"{valueMapId}\" was not found in this profile.",
-      "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" did not match any entry in the value map."
+      "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" did not match any entry in the value map.",
+      "REVIEW_SCENE_SKIPPED": "Scene \"{name}\" was left out: the grid window was cancelled. Press Import again to create it.",
+      "VECTOR_SHAPES_SKIPPED": "This page has {count} vector shapes (more than {limit}); drawings made of vector paths were not looked for on it"
     },
     "statblockImport": {
       "profileLabel": "Profile",

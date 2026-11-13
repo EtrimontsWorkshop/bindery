@@ -8,7 +8,7 @@ import { CLIP_IGNORE_COVERAGE, clipCoverage, flattenPath, restrictingClips, type
  * opcode arrays. Consumes the result of `page.getOperatorList()` already
  * extracted by the caller (`inventory.ts`), not the page object itself.
  *
- * Opcode numbers verified directly in pdfjs-dist 6.1.200 (`OPS` in pdf.mjs;
+ * Opcode numbers verified directly in pdfjs-dist 6.1.200 and again in 6.4.299 (`OPS` in pdf.mjs;
  * `DrawOPS` in pdf.worker.mjs for constructPath's internal format) — not
  * imported from pdfjs-dist, so this module stays fully dependency-free.
  *
@@ -109,6 +109,8 @@ export type WalkEvent =
   | { type: 'vector'; kind: 'fill' | 'stroke'; bbox: Rect; ctm: Matrix; inGroup: GroupContext | null; index: number }
   /** A filled path that is not an axis-aligned rectangle (a curve, a polygon): a part of a drawing. `bbox` is the box of the path's points, control points included. */
   | { type: 'shape'; bbox: Rect; index: number }
+  /** A stroked path that is not an axis-aligned rectangle (a wall of a floor plan, a line of a drawing). `bbox` as for `shape`. */
+  | { type: 'line'; bbox: Rect; index: number }
   | { type: 'group'; phase: 'begin' | 'end'; subtype: string | null; index: number };
 
 export interface OperatorListLike {
@@ -543,9 +545,10 @@ const HANDLERS = new Map<number, OpHandler>([
         if (STROKE_SUBOPS.has(fillOrStroke)) {
           ctx.events.push({ type: 'vector', kind: 'stroke', bbox, ctm: ctx.ctm, inGroup, index });
         }
-      } else if (FILL_SUBOPS.has(fillOrStroke)) {
+      } else if (FILL_SUBOPS.has(fillOrStroke) || STROKE_SUBOPS.has(fillOrStroke)) {
         const bbox = pathBounds(flat, ctx.ctm);
-        if (bbox !== null) ctx.events.push({ type: 'shape', bbox, index });
+        if (bbox !== null && FILL_SUBOPS.has(fillOrStroke)) ctx.events.push({ type: 'shape', bbox, index });
+        if (bbox !== null && STROKE_SUBOPS.has(fillOrStroke)) ctx.events.push({ type: 'line', bbox, index });
       }
     },
   ],

@@ -34,6 +34,8 @@ export interface BuildCIFDocumentInput {
   /** `content` and `undecided` are embedded into the CIF (the review screen decides; `decoration`/`mask` are rejected here, except a `decoration` that is a box of text: it enters as `undecided` with `holdsText`) — see `buildCIFImages`. */
   images: readonly FinalizedImage<EncodedImage>[];
   diagnostics: readonly Diagnostic[];
+  /** `false`: no journals are built (`journals` is empty). Default `true`. */
+  includeJournals?: boolean;
 }
 
 export interface BuildCIFDocumentResult {
@@ -114,7 +116,8 @@ export function buildCIFDocument(input: BuildCIFDocumentInput): BuildCIFDocument
   );
 
   const markers = input.outline.length > 0 ? outlineToMarkers(input.outline, blocksWithLevels) : headingsToMarkers(blocksWithLevels);
-  const journalDrafts = buildJournalDrafts(blocksWithLevels, markers, input.fileName);
+  // Without journals there is nothing to draft: the pages' HTML (the costly part, the whole book) is not built either.
+  const journalDrafts = input.includeJournals === false ? [] : buildJournalDrafts(blocksWithLevels, markers, input.fileName);
 
   const { cifImages, imageBytesById } = buildCIFImages(input.images);
   // The text of a box of text is in the journal's own text already, so the box is not embedded again.

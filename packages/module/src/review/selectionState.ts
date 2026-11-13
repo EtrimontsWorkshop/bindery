@@ -92,7 +92,7 @@ export class ReviewSelection {
    * empty string (default) = the existing behavior, each image gets its OWN,
    * single JournalEntry. Images sharing THE SAME non-empty group name go
    * together into ONE JournalEntry (multiple pages) — the user decides the
-   * sorting (e.g. by book chapter), `#runImport` in ReviewScreen only groups
+   * sorting (e.g. by book chapter), `runReviewImport` (`review/runImport.ts`) only groups
    * by this already-made decision.
    */
   #imageJournalGroups = new Map<string, string>();

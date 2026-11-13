@@ -37,9 +37,14 @@ function fixManifestAssetPaths(): Plugin {
     name: 'bindery-fix-manifest-asset-paths',
     closeBundle() {
       const manifestPath = join(import.meta.dirname, 'dist', 'module.json');
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { esmodules: string[]; styles: string[] };
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { esmodules: string[]; styles: string[]; url: string; download: string };
       manifest.esmodules = manifest.esmodules.map(() => esmoduleFileName);
       manifest.styles = manifest.styles.map(() => `styles/${stylesFileName}`);
+      // The built manifest names the zip of ITS OWN release. The source manifest says `releases/latest/download/...`,
+      // which is right for `manifest` (where Foundry looks for updates) but not for `download`: a manifest of an older
+      // version would then fetch the newest zip, and its contents would not match the version it was read for.
+      // Releases are tagged `v<version>`; `release.yml` refuses a tag that says otherwise.
+      manifest.download = `${manifest.url}/releases/download/v${manifestVersion}/module.zip`;
       writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     },
   };

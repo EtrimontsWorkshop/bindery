@@ -185,7 +185,8 @@ class GridPickerApp extends HandlebarsApplicationMixin(ApplicationV2) {
   override async close(options?: object): Promise<this> {
     this.#resolve?.(null);
     this.#resolve = null;
-    return super.close(options);
+    await super.close(options);
+    return this;
   }
 }
 

@@ -75,6 +75,23 @@ describe('buildCIFDocument', () => {
     expect(document.journals[0]!.pages[0]!.html).toContain('Jedyny akapit calego dokumentu');
   });
 
+  it('includeJournals: false builds no journals and keeps everything else', () => {
+    const blocks = [block('h0', 'heading', 'Rozdzial', 1, 18), block('b0', 'body', 'Akapit', 1)];
+    const { document } = buildCIFDocument({
+      fileName: 'plik.pdf',
+      fileHash: 'abc123',
+      pageCount: 1,
+      blocks,
+      outline: [],
+      images: [],
+      diagnostics: [{ severity: 'info', code: 'X', params: {} }],
+      includeJournals: false,
+    });
+    expect(document.journals).toEqual([]);
+    expect(document.source.pageCount).toBe(1);
+    expect(document.diagnostics).toHaveLength(1);
+  });
+
   it('EVERY CIFJournal, CIFJournalPage and CIFImage has a non-empty provenance and (where expected) rawText', () => {
     const blocks = [
       block('h0', 'heading', 'Rozdzial 1', 1, 20),

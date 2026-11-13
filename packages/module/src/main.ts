@@ -14,12 +14,14 @@ Hooks.once('ready', async () => {
   mod.api = buildAPI(mod.version ?? '0.0.0');
 
   if (game.user?.isGM && !game.settings!.get(MODULE_ID, 'legalNoticeAcknowledged')) {
-    await foundry.applications.api.DialogV2.prompt({
+    const confirmed = await foundry.applications.api.DialogV2.prompt({
       window: { title: 'BINDERY.wizard.title' },
       content: `<p>${game.i18n!.localize('BINDERY.legal.notice')}</p>`,
-      ok: { label: 'COMMON.Confirm' },
+      ok: { label: 'COMMON.Confirm', callback: () => true },
       rejectClose: false,
     });
-    await game.settings!.set(MODULE_ID, 'legalNoticeAcknowledged', true);
+    // Only the button counts: a notice closed with the window's X (the prompt then gives `null`) was not acknowledged
+    // and is shown again the next time the world loads.
+    if (confirmed === true) await game.settings!.set(MODULE_ID, 'legalNoticeAcknowledged', true);
   }
 });

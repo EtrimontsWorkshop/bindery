@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { buildInventory } from '../../src/inventory/inventory.js';
 import { rectsOverlap } from '../../src/geometry.js';
@@ -26,7 +27,7 @@ describe('the bbox of an image/vector intersects the MediaBox of its own page', 
   for (const fixture of imageAndVectorFixtures) {
     it(`${fixture.id}: every occurrence of an image and a vector region intersects the MediaBox`, async () => {
       const buf = fixture.build();
-      const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+      const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
       const inv = await buildInventory(doc as never);
       const pageBoxByPage = new Map(inv.perPage.map((p) => [p.pageNumber, p.box]));
 

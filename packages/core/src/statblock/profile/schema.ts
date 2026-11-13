@@ -316,6 +316,6 @@ export function validateProfile(input: unknown): ProfileValidationResult {
     const regexIssues = collectRegexIssues(result.data);
     return regexIssues.length === 0 ? { ok: true, profile: result.data } : { ok: false, issues: regexIssues };
   }
-  const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`);
+  const issues = result.error.issues.map((i) => `${i.path.map(String).join('.') || '(root)'}: ${i.message}`);
   return { ok: false, issues };
 }

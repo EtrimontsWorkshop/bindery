@@ -21,7 +21,7 @@ import { MODULE_ID, type TokenPrepDefaults } from '../settings.js';
  * confirming encodes EXACTLY what's visible. The mechanism that assigns a
  * token to an actor (step 35, `uploadedTokenImagePathById` in
  * `ReviewScreen.ts`) stays UNTOUCHED — this panel ONLY REPLACES the image's
- * bytes/dimensions/format BEFORE `#runImport` uploads them, exactly the way
+ * bytes/dimensions/format BEFORE `runReviewImport` uploads them, exactly the way
  * `#resizeImage`/`#rotateImage` do today.
  *
  * Pipeline (the same one used in `redraw()` for the preview and on confirm,
@@ -76,6 +76,9 @@ async function decodeToBitmap(bytes: Uint8Array, format: string): Promise<ImageB
   const blob = new Blob([new Uint8Array(bytes)], { type: mimeFor(format) });
   return createImageBitmap(blob);
 }
+
+/** Largest custom frame file remembered with "Set as default" (see `#onSetDefault`). A 1024 px frame with transparency is well under it. */
+const MAX_DEFAULT_FRAME_BYTES = 1024 * 1024;
 
 /** [Set as default] `game.settings` only stores JSON-able values — the custom frame's bytes travel as base64. */
 function base64ToBytes(base64: string): Uint8Array {
@@ -457,6 +460,10 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
    */
   static #onSetDefault(this: TokenPrepApp): void {
     void (async () => {
+      // The defaults live in a world setting, which every client downloads when it joins the world: a large frame file
+      // stored there (as base64, a third larger still) would slow every player's loading. A frame over the limit is
+      // still used for THIS token; the defaults are saved without it and the user is told to choose it again next time.
+      const frameTooLarge = this.#frame === 'custom' && this.#customFrameBytes !== null && this.#customFrameBytes.length > MAX_DEFAULT_FRAME_BYTES;
       const payload: TokenPrepDefaults = {
         enabled: true,
         shape: this.#shape,
@@ -464,12 +471,13 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
         removeBackgroundTolerance: this.#tolerance,
         frame: this.#frame,
         frameColor: this.#frameColor,
-        frameCustomImage: this.#frame === 'custom' && this.#customFrameBytes ? bytesToBase64(this.#customFrameBytes) : null,
+        frameCustomImage: this.#frame === 'custom' && this.#customFrameBytes && !frameTooLarge ? bytesToBase64(this.#customFrameBytes) : null,
         outputSize: this.#outputSize,
         format: this.#format,
       };
       await game.settings!.set(MODULE_ID, 'tokenPrepDefaults', payload);
-      ui.notifications?.info(game.i18n!.localize('BINDERY.tokenPrep.setDefaultSaved' as never));
+      if (frameTooLarge) ui.notifications?.warn(game.i18n!.localize('BINDERY.tokenPrep.setDefaultFrameTooLarge' as never));
+      else ui.notifications?.info(game.i18n!.localize('BINDERY.tokenPrep.setDefaultSaved' as never));
     })();
   }
 
@@ -482,7 +490,8 @@ class TokenPrepApp extends HandlebarsApplicationMixin(ApplicationV2) {
   override async close(options?: object): Promise<this> {
     this.#resolve?.(null);
     this.#resolve = null;
-    return super.close(options);
+    await super.close(options);
+    return this;
   }
 }
 

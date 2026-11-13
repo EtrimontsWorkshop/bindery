@@ -69,6 +69,64 @@ interface CachedPage {
   wordBoundaries: WordBoundary[];
 }
 
+/**
+ * Gathers the text of a document page by page and lays it out at the end (the spacing statistics need every page).
+ * It only takes what `getTextContent()` returned and the page's font registry, so whoever already walks the pages can
+ * feed it: the inventory does (`onPageText` of `buildInventory`), which spares a whole second pass over the PDF.
+ * `buildTextLayout` below is the same thing with its own walk.
+ */
+export interface TextLayoutCollector {
+  /** One page's text items, as `getTextContent()` gave them, read on a page whose operator list was fetched first. */
+  addPage(pageNumber: number, items: readonly unknown[], commonObjs: { has(id: string): boolean; get(id: string): unknown }): void;
+  /** The layout of everything added. `fontSizeByKey` comes from the inventory's font registry. */
+  finish(fontSizeByKey: ReadonlyMap<string, number>, signal?: AbortSignal): BuildTextLayoutResult;
+}
+
+export function createTextLayoutCollector(): TextLayoutCollector {
+  const diagnostics: Diagnostic[] = [];
+  const cachedPages: CachedPage[] = [];
+  const allGapSamples: GapSample[] = [];
+
+  return {
+    addPage(pageNumber, items, commonObjs) {
+      const rawItems = (items as PdfTextItemLike[]).filter((i) => 'str' in i);
+
+      const hygiene = runHygiene(rawItems);
+      for (const d of hygiene.diagnostics) diagnostics.push({ ...d, pageNumber });
+
+      const enriched: MergeCandidateItem[] = hygiene.items.map((item) => {
+        const size = fontSizeFromTransform(item.transform);
+        const fontKey = resolveFontKey(item.fontName, commonObjs, size) ?? `unresolved:${item.fontName}`;
+        return { ...item, fontKey };
+      });
+
+      cachedPages.push({ pageNumber, items: enriched, wordBoundaries: hygiene.wordBoundaries });
+      for (const sample of collectGapSamples(enriched, pageNumber)) allGapSamples.push(sample);
+    },
+
+    finish(fontSizeByKey, signal) {
+      const fontGapProfiles = buildHierarchicalGapProfiles(allGapSamples, fontSizeByKey);
+
+      const pages: PageTextResult[] = cachedPages.map(({ pageNumber, items, wordBoundaries }) => {
+        checkAborted(signal);
+        const { streams: angleBuckets, diagnostics: angleDiagnostics } = groupByAngle(items, pageNumber);
+        diagnostics.push(...angleDiagnostics);
+
+        const streams: TextStream[] = angleBuckets.map((bucket) => {
+          const tokens = mergeWords(bucket.items, bucket.angle, wordBoundaries, fontGapProfiles, pageNumber);
+          const lines = clusterIntoLines(tokens, bucket.angle, wordBoundaries, pageNumber);
+          return { angle: bucket.angle, isPrimary: bucket.isPrimary, lines };
+        });
+
+        return { pageNumber, streams };
+      });
+
+      return { pages, fontGapProfiles, diagnostics };
+    },
+  };
+}
+
+/** The text layout of a document, from a walk of its own over the pages (see `createTextLayoutCollector` for the shared one). */
 export async function buildTextLayout(
   doc: PdfDocumentLike,
   fontSizeByKey: ReadonlyMap<string, number>,
@@ -76,58 +134,23 @@ export async function buildTextLayout(
 ): Promise<BuildTextLayoutResult> {
   const { signal, onProgress } = opts;
   const pageCount = doc.numPages;
-  const diagnostics: Diagnostic[] = [];
-  const cachedPages: CachedPage[] = [];
-  const allGapSamples: GapSample[] = [];
+  const collector = createTextLayoutCollector();
 
-  // Phase 1: hygiene + per-item fontKey + gap samples, across the whole document.
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
     checkAborted(signal);
     const page = await doc.getPage(pageNumber);
     try {
-      // Populates commonObjs (fonts) WITHOUT a render — see the comment on PdfPageLike.getOperatorList.
+      // The operator list first: `getTextContent()` on a page that has not been through it gives fonts no registry entry.
       await page.getOperatorList();
       checkAborted(signal);
       const textContent = await page.getTextContent();
       checkAborted(signal);
-      const rawItems = (textContent.items as PdfTextItemLike[]).filter((i) => 'str' in i);
-
-      const hygiene = runHygiene(rawItems);
-      for (const d of hygiene.diagnostics) diagnostics.push({ ...d, pageNumber });
-
-      const enriched: MergeCandidateItem[] = hygiene.items.map((item) => {
-        const size = fontSizeFromTransform(item.transform);
-        const fontKey = resolveFontKey(item.fontName, page.commonObjs, size) ?? `unresolved:${item.fontName}`;
-        return { ...item, fontKey };
-      });
-
-      cachedPages.push({ pageNumber, items: enriched, wordBoundaries: hygiene.wordBoundaries });
-      allGapSamples.push(...collectGapSamples(enriched, pageNumber));
+      collector.addPage(pageNumber, textContent.items, page.commonObjs);
     } finally {
       page.cleanup();
     }
     onProgress?.(pageNumber, pageCount);
   }
 
-  // Hierarchical profile (document + per-page) — mergeWords uses
-  // the more conservative of the two thresholds, fixing merges on pages with
-  // a dense, atypical layout (tables of contents) without any semantic knowledge.
-  const fontGapProfiles = buildHierarchicalGapProfiles(allGapSamples, fontSizeByKey);
-
-  // Phase 2: merging + line clustering per angular stream, per page. Pure, no I/O.
-  const pages: PageTextResult[] = cachedPages.map(({ pageNumber, items, wordBoundaries }) => {
-    checkAborted(signal);
-    const { streams: angleBuckets, diagnostics: angleDiagnostics } = groupByAngle(items, pageNumber);
-    diagnostics.push(...angleDiagnostics);
-
-    const streams: TextStream[] = angleBuckets.map((bucket) => {
-      const tokens = mergeWords(bucket.items, bucket.angle, wordBoundaries, fontGapProfiles, pageNumber);
-      const lines = clusterIntoLines(tokens, bucket.angle, wordBoundaries, pageNumber);
-      return { angle: bucket.angle, isPrimary: bucket.isPrimary, lines };
-    });
-
-    return { pageNumber, streams };
-  });
-
-  return { pages, fontGapProfiles, diagnostics };
+  return collector.finish(fontSizeByKey, signal);
 }

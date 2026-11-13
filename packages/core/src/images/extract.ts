@@ -177,6 +177,46 @@ export async function extractDirect(
 }
 
 /**
+ * The few resources most recently normalized for a probe. One unit asks several questions about the same resource
+ * (how bright, how opaque, where its visible part ends), and every answer used to read the whole bitmap back from a
+ * canvas again — tens of megabytes each time for a large picture. Probes only read the pixels, so they can share one
+ * normalized copy; `extractDirect` never takes its image from here, because its result is edited afterwards.
+ *
+ * Kept short (pixels are large) and emptied by `clearProbeCache()` when an extraction ends, so nothing outlives it.
+ */
+const PROBE_CACHE_SIZE = 3;
+const probeCache: { raw: object; image: DecodedImage }[] = [];
+
+function normalizedForProbe(raw: unknown): DecodedImage {
+  if (raw !== null && typeof raw === 'object') {
+    const at = probeCache.findIndex((entry) => entry.raw === raw);
+    if (at >= 0) {
+      const [hit] = probeCache.splice(at, 1);
+      probeCache.unshift(hit!);
+      return hit!.image;
+    }
+  }
+  const image = normalizeDecodedImage(raw);
+  probeCache.unshift({ raw: raw as object, image });
+  probeCache.length = Math.min(probeCache.length, PROBE_CACHE_SIZE);
+  return image;
+}
+
+/** Drops the pixels kept for probes (see `normalizedForProbe`). Called when an image extraction ends. */
+export function clearProbeCache(): void {
+  probeCache.length = 0;
+}
+
+/** Width and height of a decoded resource in a shape `normalizeDecodedImage` accepts, or `null` for any other value. */
+function intrinsicSizeOf(raw: unknown): { width: number; height: number } | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const img = raw as Record<string, unknown>;
+  if (typeof img['width'] !== 'number' || typeof img['height'] !== 'number') return null;
+  const hasPixels = typeof img['kind'] === 'number' && img['data'] != null ? img['kind'] >= 1 && img['kind'] <= 3 : img['bitmap'] != null;
+  return hasPixels ? { width: img['width'], height: img['height'] } : null;
+}
+
+/**
  * Probes the NATIVE (source) length of image `objId`'s longer
  * edge in pixels, without deciding on an extraction strategy — used by the
  * orchestrator to determine the target resolution of a region render (see
@@ -198,8 +238,10 @@ export async function probeIntrinsicSizePx(page: PdfPageForExtract, objId: strin
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
-      return { width: image.width, height: image.height };
+      // The size is on the resource itself: no need to read its pixels back for two numbers.
+      const size = intrinsicSizeOf(raw);
+      if (size === null) continue;
+      return size;
     } catch {
       continue; // probing is "best-effort" — failed decoding here is not an error, see the function comment.
     }
@@ -227,7 +269,7 @@ export async function probeMeanBrightnessFraction(page: PdfPageForExtract, objId
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
+      const image = normalizedForProbe(raw);
       const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
       let sum = 0;
       let count = 0;
@@ -259,7 +301,7 @@ export async function probeMaskRectangularity(page: PdfPageForExtract, objId: st
     try {
       const raw = await pending;
       if (raw == null) continue;
-      return maskRectangularity(normalizeDecodedImage(raw));
+      return maskRectangularity(normalizedForProbe(raw));
     } catch {
       continue;
     }
@@ -300,6 +342,46 @@ export function currentObjIdAt(operatorList: unknown, index: number | undefined,
   return typeof id === 'string' && id.length > 0 ? id : fallback;
 }
 
+const OP_DEPENDENCY = 1;
+
+/**
+ * Waits until every resource the operator list depends on is registered, the way pdf.js's own canvas
+ * renderer does before it paints (a `dependency` operator names it; a `g_` id lives in `commonObjs`, any
+ * other in `objs`). The worker decodes images after it has sent the operator list, so right after
+ * `getOperatorList()` some are still missing, and how many depends on how busy the machine is: reading
+ * them then, or after a wait measured on the clock, gave a different picture for the same PDF from one run
+ * to the next (the resource itself on one run, a render of its region on the next). pdf.js sends every
+ * dependency, a failed decode included (as `null`), so this ends once the worker is done; `timeoutMs`
+ * only guards against a worker that never answers. Returns `true` when everything arrived.
+ */
+export async function waitForDependencies(page: PdfPageForExtract, operatorList: unknown, timeoutMs: number): Promise<boolean> {
+  const list = operatorList as OperatorListLike | null | undefined;
+  const fnArray = list?.fnArray;
+  const argsArray = list?.argsArray;
+  if (!fnArray || !argsArray) return true;
+  const pending: Promise<void>[] = [];
+  for (let i = 0; i < fnArray.length; i++) {
+    if (fnArray[i] !== OP_DEPENDENCY) continue;
+    const ids = argsArray[i];
+    if (!Array.isArray(ids)) continue;
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      const pool = id.startsWith('g_') ? page.commonObjs : page.objs;
+      if (!pool.has(id)) pending.push(new Promise((resolve) => pool.get(id, () => resolve())));
+    }
+  }
+  if (pending.length === 0) return true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.all(pending).then(() => true), timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Waits until every id in `objIds` is present in `page.objs` or `page.commonObjs`, or until `timeoutMs` has
  * passed; returns the time spent. In a browser the worker hands decoded resources over asynchronously:
@@ -338,7 +420,7 @@ export async function probeOpaquePixelStats(page: PdfPageForExtract, objId: stri
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
+      const image = normalizedForProbe(raw);
       const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
       let opaque = 0;
       let count = 0;
@@ -373,7 +455,7 @@ export async function probeOpaqueMask(page: PdfPageForExtract, objId: string, ma
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
+      const image = normalizedForProbe(raw);
       if (image.width <= 0 || image.height <= 0) continue;
       const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
       const width = Math.max(1, Math.round(image.width * scale));
@@ -411,7 +493,7 @@ export async function probeInkMask(page: PdfPageForExtract, objId: string, maxEd
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
+      const image = normalizedForProbe(raw);
       if (image.width <= 0 || image.height <= 0) continue;
       const { width: w, height: h, rgba } = image;
       const edge: number[][] = [[], [], []];
@@ -446,7 +528,7 @@ export async function probeInkMask(page: PdfPageForExtract, objId: string, maxEd
       }
       const opaque = new Uint8Array(width * height);
       for (let i = 0; i < opaque.length; i++) if (total[i]! > 0 && inked[i]! >= INK_MIN_CELL_SHARE * total[i]!) opaque[i] = 1;
-      return { width, height, opaque };
+      return { width, height, opaque, paperLuminance: 0.299 * paper[0]! + 0.587 * paper[1]! + 0.114 * paper[2]! };
     } catch {
       continue;
     }
@@ -468,7 +550,7 @@ export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string, 
     try {
       const raw = await pending;
       if (raw == null) continue;
-      return opaqueBounds(normalizeDecodedImage(raw), options);
+      return opaqueBounds(normalizedForProbe(raw), options);
     } catch {
       continue;
     }
@@ -478,9 +560,10 @@ export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string, 
 
 /**
  * Luminance, its spread and saturation over the visible pixels of resource `objId` (sampled on a grid of at most
- * ~250k points), or `null` when the resource is not available or nothing is visible.
+ * ~250k points), or `null` when the resource is not available or nothing is visible. With `inset`, only the middle of
+ * the raster is looked at: this share of its width and height is left out at each edge.
  */
-export async function probeRawLook(page: PdfPageForExtract, objId: string): Promise<RawLook | null> {
+export async function probeRawLook(page: PdfPageForExtract, objId: string, inset = 0): Promise<RawLook | null> {
   const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
   for (const objs of sources) {
     const pending = resolveIfReady(objs, objId);
@@ -488,14 +571,16 @@ export async function probeRawLook(page: PdfPageForExtract, objId: string): Prom
     try {
       const raw = await pending;
       if (raw == null) continue;
-      const image = normalizeDecodedImage(raw);
+      const image = normalizedForProbe(raw);
       const stride = Math.max(1, Math.ceil(Math.sqrt((image.width * image.height) / 250_000)));
       let n = 0;
       let sum = 0;
       let sumSq = 0;
       let sat = 0;
-      for (let y = 0; y < image.height; y += stride) {
-        for (let x = 0; x < image.width; x += stride) {
+      const x0 = Math.floor(image.width * inset);
+      const y0 = Math.floor(image.height * inset);
+      for (let y = y0; y < image.height - y0; y += stride) {
+        for (let x = x0; x < image.width - x0; x += stride) {
           const i = (y * image.width + x) * 4;
           if (image.rgba[i + 3]! <= 16) continue;
           const r = image.rgba[i]!;

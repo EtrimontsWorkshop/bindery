@@ -5,6 +5,8 @@ export interface OpaqueMask {
   width: number;
   height: number;
   opaque: Uint8Array;
+  /** For a mask of ink (see `probeInkMask`): the luminance (0-255) of the paper the ink was told from, the median color of the raster's edge. */
+  paperLuminance?: number;
 }
 
 /** A raster as the page paints it: the box it fills, whether it is mirrored there, and where it is not transparent. */

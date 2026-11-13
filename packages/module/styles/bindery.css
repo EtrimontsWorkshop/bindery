@@ -593,6 +593,11 @@
 .bindery-wizard-dropzone.bindery-dragover {
   background: rgba(214, 127, 72, 0.16);
 }
+/* While a file is analysed, built or reviewed, another file cannot be picked (see `ImportWizard#isBusy`). */
+.bindery-wizard-dropzone.bindery-is-busy {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 /* The input stays in the DOM and Tab-focusable (label click forwarding works regardless of
    visibility) — only VISUALLY hidden, so the whole label area is clickable through native
    <label> semantics, without a decorative <button> that has no action of its own in the Tab

@@ -26,7 +26,9 @@
       "buildingReview": "Analizowanie dokumentu…",
       "journalBuildErrorGeneric": "Nie udało się zbudować podglądu z tego dokumentu. Szczegóły w konsoli.",
       "reviewImportDone": "Import zakończony — sprawdź panele boczne Sceny i Dziennik.",
-      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku"
+      "dropHint": "albo przeciągnij tutaj — nie wybrano pliku",
+      "reviewImportPartial": "Import zakończony z problemami: utworzono {created}, nie udało się {errors}. Podsumowanie pokazuje, co poszło źle.",
+      "reviewImportFailed": "Import nie powiódł się: nic nie utworzono (problemów: {errors}). Podsumowanie pokazuje, co poszło źle."
     },
     "review": {
       "title": "Bindery — przegląd",
@@ -101,7 +103,10 @@
       "journalGroupHintShort": "Obrazy „Journal” o tej samej nazwie grupy trafiają do jednego journala z wieloma stronami.",
       "selectedPanelLabel": "zaznaczonym",
       "diagnosticsEmpty": "Brak uwag",
-      "tabStatblocks": "Statblocki"
+      "tabStatblocks": "Statblocki",
+      "alreadyOpen": "Przegląd jest już otwarty. Najpierw go zakończ lub zamknij.",
+      "importInProgress": "Import wciąż trwa. Zaczekaj na jego zakończenie, zanim zamkniesz okno.",
+      "pageRef": "s. {page}"
     },
     "gridPicker": {
       "title": "Ustaw siatkę sceny",
@@ -169,7 +174,8 @@
       "setDefaultHint": "Zapisuje bieżący kształt, usuwanie tła, ramkę, rozmiar i format jako punkt startowy dla każdego kolejnego przygotowywanego tokenu.",
       "setDefaultSaved": "Zapisano jako domyślne ustawienia tokenu.",
       "confirm": "Zapisz token",
-      "cancel": "Anuluj"
+      "cancel": "Anuluj",
+      "setDefaultFrameTooLarge": "Zapisano jako domyślne ustawienia tokenu, ale bez pliku ramki: jest większy niż 1 MB. Wybierz go ponownie następnym razem albo użyj mniejszego pliku."
     },
     "settings": {
       "openWizardMenuLabel": "Importuj PDF…",
@@ -181,9 +187,16 @@
       "vectorFiguresLabel": "Importuj rysunki wektorowe",
       "vectorFiguresHint": "Wyłączone: PDF jest analizowany jak dotąd (obrazy i mapy rysowane wielkimi prostokątami). Włączone: Bindery szuka też rysunków złożonych ze ścieżek wektorowych (postać rysowana obok tekstu, diagram, logo), renderuje fragment strony, który zajmują, i pokazuje je jako niepewne obrazy, odznaczone. W obrazie mogą być strzępy tekstu omijającego rysunek (edytor obrazu pozwala je wymazać), a razem z rysunkami trafi się też kilka tabel, diagramów i logo. Działa od następnego analizowanego PDF.",
       "removeMapNumbersLabel": "Usuwaj numery z map",
-      "removeMapNumbersHint": "Wyłączone: mapy są importowane tak, jak narysowano. Włączone: numerowane znaczniki map (czarne kółka z białą cyfrą, klucz do pomieszczeń planu) są zamalowywane kolorem tła wokół nich we wszystkich obrazach, które mają ich co najmniej trzy. Fragment rysunku pod znacznikiem przepada, znacznik między grubymi ścianami lub liniami może zostać, a mapa z jednym lub dwoma znacznikami zostaje bez zmian.",
+      "removeMapNumbersHint": "Wyłączone: mapy są importowane tak, jak narysowano. Włączone: numerowane znaczniki map (czarne kółka z białą cyfrą albo kwadraty w jednym kolorze z jasną cyfrą, klucz do pomieszczeń planu) są zamalowywane kolorem tła wokół nich we wszystkich obrazach, które mają co najmniej trzy znaczniki jednego rodzaju. Fragment rysunku pod znacznikiem przepada, znacznik między grubymi ścianami lub liniami może zostać, a mapa z jednym lub dwoma znacznikami zostaje bez zmian.",
       "uploadPathLabel": "Folder wgrywania obrazów",
-      "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów."
+      "uploadPathHint": "Ścieżka (w magazynie danych świata), do której trafiają obrazy wyodrębnione z PDF-ów.",
+      "uploadSourceLabel": "Magazyn wgrywania obrazów",
+      "uploadSourceHint": "W którym magazynie znajduje się folder wgrywania. Zostaw dane użytkownika, chyba że obrazy mają trafiać gdzie indziej: wtedy wybierz Amazon S3 (i podaj bucket poniżej) albo bibliotekę zasobów serwisu hostingowego.",
+      "uploadSourceData": "Dane użytkownika (domyślnie)",
+      "uploadSourceS3": "Amazon S3",
+      "uploadSourceForge": "Biblioteka zasobów The Forge",
+      "uploadBucketLabel": "Bucket S3",
+      "uploadBucketHint": "Nazwa bucketu, do którego zapisywane są obrazy. Używana tylko wtedy, gdy magazynem wgrywania jest Amazon S3."
     },
     "legal": {
       "notice": "Narzędzie przetwarza pliki, które posiadasz. Nie zawiera i nie dystrybuuje treści żadnego wydawcy. Odpowiedzialność za posiadanie praw do importowanych materiałów spoczywa na Tobie. Wyniki importu nie są przeznaczone do dalszej dystrybucji."
@@ -203,7 +216,8 @@
       "importReplaced": "Profil „{name}” już istniał i został zastąpiony.",
       "importFailed": "Nie udało się zaimportować profilu:",
       "confirmDeleteTitle": "Usuń profil",
-      "confirmDeleteBody": "Usunąć ten profil? Aktorzy zaimportowani wcześniej według niego pozostaną bez zmian."
+      "confirmDeleteBody": "Usunąć ten profil? Aktorzy zaimportowani wcześniej według niego pozostaną bez zmian.",
+      "invalidJson": "Ten plik nie jest poprawnym plikiem JSON."
     },
     "diagnostic": {
       "UNICODE_LOW_CONFIDENCE": "Pewność tekstu {confidence} — prawdopodobnie uszkodzone mapowanie ToUnicode",
@@ -271,7 +285,9 @@
       "STATBLOCK_VALUE_MAP_INVALID_PARAMS": "Mapowaniu wartości typu \"{kind}\" brakuje wymaganych parametrów.",
       "STATBLOCK_VALUE_MAP_NORMALIZED_MATCH": "\"{input}\" dopasowano do \"{matchedKey}\" po normalizacji.",
       "STATBLOCK_VALUE_MAP_NOT_FOUND": "Nie znaleziono mapowania wartości \"{valueMapId}\" w tym profilu.",
-      "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" nie pasuje do żadnego wpisu w mapowaniu wartości."
+      "STATBLOCK_VALUE_MAP_NO_MATCH": "\"{input}\" nie pasuje do żadnego wpisu w mapowaniu wartości.",
+      "REVIEW_SCENE_SKIPPED": "Scena „{name}” została pominięta: anulowano okno siatki. Kliknij Importuj ponownie, aby ją utworzyć.",
+      "VECTOR_SHAPES_SKIPPED": "Ta strona ma {count} kształtów wektorowych (więcej niż {limit}); nie szukano na niej rysunków złożonych ze ścieżek wektorowych"
     },
     "statblockImport": {
       "profileLabel": "Profil",

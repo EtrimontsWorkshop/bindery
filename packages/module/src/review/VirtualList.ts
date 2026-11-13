@@ -17,8 +17,8 @@ export interface VirtualListOptions<T> {
   items: readonly T[];
   /** Fixed row height in px — a requirement of this simplified virtualization (no variable-height rows). */
   rowHeightPx: number;
-  /** Builds/updates the DOM of ONE row. `recycled` is an element from the pool to reuse (may be null on the first fill) — the implementation MUST return an element ready to insert (either new or the updated `recycled` one). */
-  renderRow: (item: T, index: number, recycled: HTMLElement | null) => HTMLElement;
+  /** Builds the DOM of ONE row, ready to insert. Called each time the row comes into the rendered window; the element is dropped when it leaves it (rows are not reused, so whatever is costly to build should be cached by the caller). */
+  renderRow: (item: T, index: number) => HTMLElement;
   /** Number of extra rows rendered OUTSIDE the visible area (top+bottom) — protects against a white flash during fast scrolling. */
   overscan?: number;
   /**
@@ -135,7 +135,7 @@ export class VirtualList<T> {
       if (this.#pool.has(index)) continue;
       const item = this.#items[index];
       if (item === undefined) continue;
-      const el = this.#renderRow(item, index, null);
+      const el = this.#renderRow(item, index);
       el.style.position = 'absolute';
       el.style.top = '0';
       el.style.left = '0';

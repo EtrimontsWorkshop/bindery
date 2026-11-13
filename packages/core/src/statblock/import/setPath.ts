@@ -1,3 +1,6 @@
+/** Segments that name an object's prototype chain instead of a field of its own. */
+const UNSAFE_SEGMENTS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
 /**
  * A pure, Foundry-free equivalent of `foundry.utils.setProperty` —
  * core cannot import that (`check:boundary`), and `buildActorData` needs
@@ -9,6 +12,9 @@
  */
 export function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const segments = path.split('.');
+  // A path comes from a profile, which may be a file someone else wrote: it must never reach the prototype of every
+  // object. Such a path is not a field of any actor, so it is simply not written.
+  if (segments.some((segment) => UNSAFE_SEGMENTS.has(segment))) return;
   let cursor: Record<string, unknown> = target;
   for (let i = 0; i < segments.length - 1; i++) {
     const segment = segments[i]!;
@@ -25,7 +31,7 @@ export function setPath(target: Record<string, unknown>, path: string, value: un
 export function getPath(source: Record<string, unknown>, path: string): unknown {
   let cursor: unknown = source;
   for (const segment of path.split('.')) {
-    if (typeof cursor !== 'object' || cursor === null) return undefined;
+    if (typeof cursor !== 'object' || cursor === null || UNSAFE_SEGMENTS.has(segment)) return undefined;
     cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;

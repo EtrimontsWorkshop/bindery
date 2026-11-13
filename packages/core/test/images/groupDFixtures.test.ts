@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { buildImageExtraction, type PdfDocumentLikeForImages } from '../../src/images/buildImageExtraction.js';
 import { buildInventory } from '../../src/inventory/inventory.js';
@@ -28,7 +29,7 @@ import { build as buildExtractBleedingNeighbor } from '../synth/fixtures/extract
  */
 
 async function openDoc(buf: Buffer): Promise<PdfDocumentLikeForImages> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
   return doc as unknown as PdfDocumentLikeForImages;
 }
 

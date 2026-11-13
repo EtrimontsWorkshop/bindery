@@ -108,12 +108,12 @@ export async function buildPagesForDetection(data: ArrayBuffer, options: BuildPa
 
   // Each document is opened for one stage and released as soon as the stage is done (see `pdfDocument.ts`).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inventory = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any));
+  const inventory = await withPdf(data, assetBaseUrl, (invDoc) => buildInventory(invDoc as any, { signal }));
   checkAborted(signal);
 
   const fontSizeByKey = new Map(inventory.fonts.map((f) => [f.key, f.size]));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey));
+  const textLayout = await withPdf(data, assetBaseUrl, (layoutDoc) => buildTextLayout(layoutDoc as any, fontSizeByKey, { signal }));
   checkAborted(signal);
 
   const { pages: pageLayouts, blocks } = buildPageLayouts(textLayout, {

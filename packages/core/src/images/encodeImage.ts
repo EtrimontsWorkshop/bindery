@@ -79,7 +79,10 @@ export const browserImageEncoder: ImageEncoder = {
     const canvas = new OffscreenCanvasCtor(image.width, image.height);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('browserImageEncoder: failed to create a 2D context for OffscreenCanvas');
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(image.rgba), image.width, image.height), 0, 0);
+    // `putImageData` only reads the pixels: no copy of a buffer that can be tens of megabytes. (A view over shared memory
+    // is not accepted by `ImageData`, hence the one case that still copies.)
+    const pixels = image.rgba.buffer instanceof ArrayBuffer ? image.rgba : new Uint8ClampedArray(image.rgba);
+    ctx.putImageData(new ImageData(pixels as never, image.width, image.height), 0, 0);
     const blob = await canvas.convertToBlob({ type: `image/${format}`, quality: opts.quality ?? DEFAULT_WEBP_QUALITY });
     const bytes = new Uint8Array(await blob.arrayBuffer());
     return { format, bytes };

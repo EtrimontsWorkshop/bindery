@@ -1,39 +1,20 @@
 import type { CIFDocument, CIFImage, CIFScene, CIFJournal, Diagnostic, PreviewDocument, Rect, RotatedRect, RegionCrop } from '@bindery/core';
-import { classifyTargetKind, pdfRectToScreen, screenRotatedRectToPdf, rotatedRectBounds, inscribedRotatedRectScale, DEFAULT_WEBP_QUALITY } from '@bindery/core';
+import { classifyTargetKind, screenRotatedRectToPdf, rotatedRectBounds, inscribedRotatedRectScale, DEFAULT_WEBP_QUALITY } from '@bindery/core';
 import { MODULE_ID, type ImportTargets } from '../settings.js';
 import { ReviewSelection, defaultImageDestination, sortImagesForReview, type ImageDestination } from '../review/selectionState.js';
 import { VirtualList } from '../review/VirtualList.js';
-import { uploadImage } from '../documents/uploadImages.js';
-import { createSceneFromImage } from '../documents/createSceneFromImage.js';
-import { createJournalsFromCIF, type CIFJournalForCreation } from '../documents/createJournalFromCIF.js';
-import { createJournalHandoutFromImage } from '../documents/createJournalHandoutFromImage.js';
-import { createJournalHandoutFromImages } from '../documents/createJournalHandoutFromImages.js';
-import { ensureFolder } from '../documents/ensureFolder.js';
-import { pickGrid, type GridConfig } from './GridPicker.js';
 import { prepareToken } from './TokenPrepApp.js';
 import { STATBLOCK_IMPORT_ENABLED } from '../statblock/enabled.js';
+import { pageRef } from '../i18n.js';
+import { PagePreviews } from '../review/pagePreviews.js';
+import { ImageThumbnails } from '../review/imageThumbnails.js';
+import { PageOverlay } from '../review/pageOverlay.js';
+import { ImageRows } from '../review/imageRows.js';
+import { runReviewImport, type ImportProgress } from '../review/runImport.js';
 import type { StatblockReviewState } from '../statblock/ui/statblockReviewState.js';
 import { eraseImage } from './ImageEraseApp.js';
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
-
-/** Below this threshold, the grid auto-detection suggestion (`detectGrid.ts`) is too weak to guess anything from — see `#pickGridForImage`. */
-const MIN_GRID_SUGGESTION_CONFIDENCE = 0.4;
-
-/**
- * Core's auto-detection of "this is a whole
- * scene/map" (`doc.scenes`, CIFScene) and "this is the full book text as a
- * journal" (`doc.journals`, CIFJournal from the PDF bookmark hierarchy) is
- * disabled "for now" — a flag instead of removing the code, so it can be
- * restored easily later. The "Scenes"/"Journals" tabs are hidden in
- * `review-screen.hbs`; the same flag skips their creation in `#runImport`
- * (without this, images used by `doc.scenes` would be "used" — see
- * `usedImageIds` — despite the hidden tab, and would NOT reach the Images
- * tab as a normal Destination choice). The same images are still available
- * in the Images tab with a Scene/Journal Destination, handled per-image
- * instead of through this pipeline.
- */
-const SCENES_JOURNALS_FROM_CIF_ENABLED = false;
 
 type ReviewTab = 'images' | 'scenes' | 'journals' | 'diagnostics' | 'statblocks';
 type ReviewStep = 'review' | 'target' | 'summary';
@@ -71,6 +52,10 @@ export interface ReviewScreenData {
 
 export interface ReviewScreenResult {
   confirmed: boolean;
+  /** Documents and files the import made (0 when not confirmed). */
+  createdCount?: number;
+  /** Things the import could not do: its diagnostics of severity `error` (0 when not confirmed). */
+  errorCount?: number;
 }
 
 /**
@@ -147,11 +132,31 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     },
   };
 
+  /** The review screen currently open, if any — there is at most one (see `open`). */
+  static #current: ReviewScreen | null = null;
+
+  /**
+   * Opens the review screen, which takes ownership of `data.previewDocument` (released in `close`). Only one review
+   * screen can be open: the window has a fixed id, and Foundry swaps an open window's element out for a second
+   * instance's, so the first one would never close — its pdf.js worker, its document-level key listeners and its
+   * promise would stay behind. A second call while one is open brings the open one to front and resolves unconfirmed.
+   */
   static open(data: ReviewScreenData): Promise<ReviewScreenResult> {
+    const current = ReviewScreen.#current;
+    if (current) {
+      ui.notifications?.warn(game.i18n!.localize('BINDERY.review.alreadyOpen' as never));
+      current.bringToFront();
+      void data.previewDocument.destroy().catch((err: unknown) => console.warn('Bindery | releasing the preview document failed:', err));
+      return Promise.resolve({ confirmed: false });
+    }
     return new Promise((resolve) => {
       const app = new ReviewScreen(data);
       app.#resolve = resolve;
-      void app.render(true);
+      ReviewScreen.#current = app;
+      app.render(true).catch((err: unknown) => {
+        console.warn('Bindery | rendering the review screen failed:', err);
+        void app.close();
+      });
     });
   }
 
@@ -176,17 +181,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   #imageDestTab: ImageDestTab = 'unassigned';
 
   #currentPageNumber = 1;
-  #pageImageCache = new Map<number, string>();
-  #pageImageOrder: number[] = [];
-  static readonly #PAGE_CACHE_SIZE = 5;
-  #pageRenderToken = 0;
+  #pagePreviews: PagePreviews;
 
   /** Id of the image highlighted by a click ON THE LIST OR on the bbox overlay — works both ways. */
   #highlightedImageId: string | null = null;
   #arrowKeyHandlers: { onPointerDown: (ev: PointerEvent) => void; onKeyDown: (ev: KeyboardEvent) => void; onKeyUp: (ev: KeyboardEvent) => void } | null = null;
   /** Whether the last click was inside this window — only then the arrow keys move the highlight. */
   #keysBelongToWindow = true;
-  #overlayImages: readonly CIFImage[] = [];
 
   // ---- [User request, "zooming the PDF in the importer"] --------
   /**
@@ -231,8 +232,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   #pendingCrop: RotatedRect | null = null;
   /** Page number ON WHICH `#pendingCrop` was created — the pixel coordinates only make sense for that specific page/preview. Every place that changes `#currentPageNumber` (◄/► navigation, clicking an image/actor row on another page, typing a page number) must reset `#pendingCrop` — `draw()` in `#mountOverlay` checks this as an extra safety net, see below. */
   #pendingCropPageNumber: number | null = null;
-  /** Confirm/cancel bar element added DYNAMICALLY to `.bindery-page-canvas-wrap` (like `rectEl` in `#dragState` — it's not in the Handlebars markup) — kept here so it can be removed on confirm/cancel/page change. */
-  #pendingCropToolbar: HTMLElement | null = null;
   /**
    * [User request, "the ability to rotate an automatically selected image"]
    * LIVE rotation adjusted via the handle in `#renderResizeHandles` for the
@@ -263,7 +262,11 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   #journalList: VirtualList<JournalRow> | null = null;
   #diagnosticGroups: DiagnosticGroup[] = [];
   #diagnosticList: VirtualList<DiagnosticGroup> | null = null;
-  #thumbnailUrls = new Map<string, string>();
+  #thumbnails: ImageThumbnails;
+  /** The layer over the page preview: image boxes, resize handles, the crop rectangle (see `review/pageOverlay.ts`). */
+  #overlay: PageOverlay;
+  /** Builds the rows of the image list (see `review/imageRows.ts`). */
+  #imageRows: ImageRows;
   /** The enlarged thumbnail shown while hovering an image row's thumbnail (appended to `document.body`, so the virtualized list can't clip it). */
   #thumbPreviewEl: HTMLElement | null = null;
   /**
@@ -303,6 +306,13 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #targets: ImportTargets;
   #isImporting = false;
+  /**
+   * What earlier import attempts of this screen already did. An attempt that fails part-way (a folder that cannot be
+   * created, a journal that cannot be saved) leaves the documents it made behind, and clicking "Import" again would
+   * make them a second time. A retry skips what is recorded here and keeps its summary entries; an upload is reused
+   * while the picture's bytes are the same array (an edit replaces them, so an edited picture is uploaded again).
+   */
+  #importProgress: ImportProgress = { doneKeys: new Set(), entries: [], uploads: new Map() };
   #importError: string | null = null;
   #summaryEntries: { label: string; uuid?: string }[] = [];
   #summaryDiagnostics: Diagnostic[] = [];
@@ -310,11 +320,123 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   constructor(data: ReviewScreenData) {
     super();
     this.#data = data;
+    this.#pagePreviews = new PagePreviews(
+      async (pageNumber) => (await data.previewDocument.renderPage(pageNumber, { targetLongEdgePx: 1400, format: 'webp' })).bytes,
+      () => this.#currentPageNumber,
+    );
+    this.#thumbnails = new ImageThumbnails(data.imageBytesById);
     this.#selection = ReviewSelection.fromDocument(data.document);
     this.#rebuildJournalRows();
     this.#rebuildDiagnosticGroups();
     const stored = game.settings!.get(MODULE_ID, 'importTargets') as ImportTargets;
     this.#targets = { sceneFolder: stored.sceneFolder, journalFolder: stored.journalFolder, namePrefix: stored.namePrefix };
+    // The collaborators below read and change this screen's state through accessors, which need the screen itself
+    // (inside an object literal `this` is the literal).
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this;
+    this.#overlay = new PageOverlay({
+      get element() {
+        return self.element;
+      },
+      get currentPageNumber() {
+        return self.#currentPageNumber;
+      },
+      set currentPageNumber(value) {
+        self.#currentPageNumber = value;
+      },
+      data: this.#data,
+      get highlightedImageId() {
+        return self.#highlightedImageId;
+      },
+      set highlightedImageId(value) {
+        self.#highlightedImageId = value;
+      },
+      selection: this.#selection,
+      get imageList() {
+        return self.#imageList;
+      },
+      set imageList(value) {
+        self.#imageList = value;
+      },
+      refreshImageRowHighlights: () => this.#refreshImageRowHighlights(),
+      get pendingCrop() {
+        return self.#pendingCrop;
+      },
+      set pendingCrop(value) {
+        self.#pendingCrop = value;
+      },
+      get pendingCropPageNumber() {
+        return self.#pendingCropPageNumber;
+      },
+      set pendingCropPageNumber(value) {
+        self.#pendingCropPageNumber = value;
+      },
+      get overlayDraw() {
+        return self.#overlayDraw;
+      },
+      set overlayDraw(value) {
+        self.#overlayDraw = value;
+      },
+      get overlayResizeObserver() {
+        return self.#overlayResizeObserver;
+      },
+      set overlayResizeObserver(value) {
+        self.#overlayResizeObserver = value;
+      },
+      get isSelectMode() {
+        return self.#isSelectMode;
+      },
+      set isSelectMode(value) {
+        self.#isSelectMode = value;
+      },
+      get isCropping() {
+        return self.#isCropping;
+      },
+      set isCropping(value) {
+        self.#isCropping = value;
+      },
+      get dragState() {
+        return self.#dragState;
+      },
+      set dragState(value) {
+        self.#dragState = value;
+      },
+      createManualCropRotated: (screenRect) => this.#createManualCropRotated(screenRect),
+      get imageAdjustRotation() {
+        return self.#imageAdjustRotation;
+      },
+      set imageAdjustRotation(value) {
+        self.#imageAdjustRotation = value;
+      },
+      resizeImage: (image, screenRect) => this.#resizeImage(image, screenRect),
+    });
+    this.#imageRows = new ImageRows({
+      get highlightedImageId() {
+        return self.#highlightedImageId;
+      },
+      set highlightedImageId(value) {
+        self.#highlightedImageId = value;
+      },
+      selection: this.#selection,
+      refreshHeaderCounts: () => this.#refreshHeaderCounts(),
+      data: this.#data,
+      thumbnails: this.#thumbnails,
+      showThumbPreview: (url, anchor, imageWidth, imageHeight) => this.#showThumbPreview(url, anchor, imageWidth, imageHeight),
+      hideThumbPreview: () => this.#hideThumbPreview(),
+      openImageEditor: (image) => this.#openImageEditor(image),
+      prepareToken: (image) => this.#prepareToken(image),
+      render: () => this.render(),
+      rotateImage: (image, direction) => this.#rotateImage(image, direction),
+      get currentPageNumber() {
+        return self.#currentPageNumber;
+      },
+      set currentPageNumber(value) {
+        self.#currentPageNumber = value;
+      },
+      refreshImageRowHighlights: () => this.#refreshImageRowHighlights(),
+      overlay: this.#overlay,
+      IMAGE_ROTATE_STEP_DEG: ReviewScreen.#IMAGE_ROTATE_STEP_DEG,
+    });
   }
 
   #rebuildJournalRows(): void {
@@ -405,7 +527,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       hasStatblockTab: STATBLOCK_IMPORT_ENABLED && this.#data.fileBuffer !== undefined,
       statblockCount: this.#statblocks?.includedCount ?? 0,
       statblockCountLabel: this.#statblockCountLabel(),
-      statblocks: this.#statblocks?.describe((imageId) => this.#thumbnailFor(imageId)) ?? null,
+      statblocks: this.#statblocks?.describe((imageId) => this.#thumbnails.full(imageId)) ?? null,
       // [User request, "two tabs: automatic and manual" + Scene/Journal/Token
       // sub-tabs] See `#visibleImages`/`ImageSourceTab`/`ImageDestTab` — PURE
       // presentation over already existing state (`ReviewSelection.imageDestination`,
@@ -439,7 +561,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       pageCount: this.#data.previewDocument.pageCount,
       canGoPrevPage: this.#currentPageNumber > 1,
       canGoNextPage: this.#currentPageNumber < this.#data.previewDocument.pageCount,
-      currentPageImageUrl: this.#pageImageCache.get(this.#currentPageNumber) ?? null,
+      currentPageImageUrl: this.#pagePreviews.get(this.#currentPageNumber),
       isSelectMode: this.#isSelectMode,
       zoomPercent: this.#zoomPercent,
       isZoomed: this.#zoomPercent > ReviewScreen.#MIN_ZOOM,
@@ -510,7 +632,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       if (this.#tab === 'images') {
         void this.#ensurePageImage(this.#currentPageNumber);
         this.#mountImageList(context._sortedImages as CIFImage[]);
-        void this.#mountOverlay(context._sortedImages as CIFImage[]);
+        void this.#overlay.mountOverlay(context._sortedImages as CIFImage[]);
         this.#wireBulkImageControls();
       } else if (this.#tab === 'scenes') {
         this.#mountSceneList();
@@ -528,14 +650,24 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   override async close(options?: object): Promise<this> {
+    // Closing mid-import would leave the import running with no window to show its result or its errors.
+    if (this.#isImporting) {
+      ui.notifications?.warn(game.i18n!.localize('BINDERY.review.importInProgress' as never));
+      return this;
+    }
+    if (ReviewScreen.#current === this) ReviewScreen.#current = null;
+    this.#overlayResizeObserver?.disconnect();
+    this.#overlayResizeObserver = null;
+    this.#overlayDraw = null;
+    this.#statblocks?.dispose();
     this.#removeArrowKeys();
     this.#hideThumbPreview();
     this.#imageList?.destroy();
     this.#sceneList?.destroy();
     this.#journalList?.destroy();
     this.#diagnosticList?.destroy();
-    for (const url of this.#pageImageCache.values()) URL.revokeObjectURL(url);
-    for (const url of this.#thumbnailUrls.values()) URL.revokeObjectURL(url);
+    this.#pagePreviews.dispose();
+    this.#thumbnails.dispose();
     try {
       await this.#data.previewDocument.destroy();
     } catch (err) {
@@ -546,116 +678,20 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#settled = true;
       this.#resolve?.({ confirmed: false });
     }
-    return super.close(options);
+    await super.close(options);
+    return this;
   }
 
   // ---- Page preview ----------------------------------------------
 
   async #ensurePageImage(pageNumber: number): Promise<void> {
-    if (this.#pageImageCache.has(pageNumber)) return;
-    const token = ++this.#pageRenderToken;
-    try {
-      const encoded = await this.#data.previewDocument.renderPage(pageNumber, { targetLongEdgePx: 1400, format: 'webp' });
-      if (token !== this.#pageRenderToken) return; // user has already moved on — discard the stale result
-      const url = URL.createObjectURL(new Blob([new Uint8Array(encoded.bytes)], { type: 'image/webp' }));
-      this.#pageImageCache.set(pageNumber, url);
-      this.#pageImageOrder.push(pageNumber);
-      while (this.#pageImageOrder.length > ReviewScreen.#PAGE_CACHE_SIZE) {
-        const evict = this.#pageImageOrder.shift()!;
-        const evictUrl = this.#pageImageCache.get(evict);
-        if (evictUrl) URL.revokeObjectURL(evictUrl);
-        this.#pageImageCache.delete(evict);
-      }
-      if (this.#tab === 'images' && this.#step === 'review') await this.render();
-    } catch (err) {
-      console.warn('Bindery | renderPage failed:', err);
-    }
+    const rendered = await this.#pagePreviews.ensure(pageNumber);
+    // A page the user has already left stays in the cache for when they come back; only the one on screen is shown.
+    if (rendered && pageNumber === this.#currentPageNumber && this.#tab === 'images' && this.#step === 'review') await this.render();
   }
 
-  /** Redraws the overlay on the SAME (already loaded) page — without a full `render()`, so it doesn't lose the list's scroll position. `getPageBox` is cached in `PreviewDocument`, so this is cheap. */
-  async #redrawOverlay(): Promise<void> {
-    await this.#mountOverlay(this.#overlayImages);
-  }
-
-  async #mountOverlay(images: readonly CIFImage[]): Promise<void> {
-    this.#overlayImages = images;
-    const svg = this.element.querySelector<SVGSVGElement>('[data-overlay]');
-    const img = this.element.querySelector<HTMLImageElement>('.bindery-page-image');
-    if (!svg || !img) return;
-
-    // [Bug fix — whole-design review] `_onRender` calls `#mountOverlay`
-    // without `await` (deliberately — we don't want to block the render's
-    // completion on loading the page geometry), so ANOTHER full render (e.g.
-    // a second "next page" click before `getPageBox` below resolves) can
-    // change `#currentPageNumber` BEFORE this `await` returns. Without this
-    // guard flag, the overlay would draw rectangles computed for a page that
-    // is NO LONGER current on top of the image of the CURRENT page — the
-    // other (already in-flight) `#mountOverlay` will draw the correct
-    // overlay right after anyway, so it's safe to simply skip drawing here.
-    const requestedPageNumber = this.#currentPageNumber;
-    const box = await this.#data.previewDocument.getPageBox(requestedPageNumber);
-    if (this.#currentPageNumber !== requestedPageNumber) return;
-    const draw = () => {
-      const width = img.naturalWidth || img.clientWidth;
-      const height = img.naturalHeight || img.clientHeight;
-      if (!width || !height) return;
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      // The overlay's CSS box MUST have exactly the same proportions
-      // as the viewBox, otherwise SVG's default `preserveAspectRatio`
-      // ("xMidYMid meet") adds invisible bars and centers/scales the SVG
-      // content within its own box — `width:100%;height:100%` from CSS is
-      // computed relative to `.bindery-page-canvas-wrap` (whose height is
-      // constrained by layout), NOT relative to the actually rendered
-      // `<img>` (which for a tall page is taller and scrollable), so the
-      // proportions didn't match and the naive calculation in
-      // `toOverlayPoint` (a simple `viewBox/rect`) gave a wrong result.
-      svg.style.width = `${img.clientWidth}px`;
-      svg.style.height = `${img.clientHeight}px`;
-      svg.innerHTML = '';
-      for (const image of images) {
-        if (image.provenance.pageNumber !== this.#currentPageNumber) continue;
-        const screen = pdfRectToScreen(image.provenance.bbox, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', String(screen.minX));
-        rect.setAttribute('y', String(screen.minY));
-        rect.setAttribute('width', String(Math.max(0, screen.maxX - screen.minX)));
-        rect.setAttribute('height', String(Math.max(0, screen.maxY - screen.minY)));
-        const isHighlighted = image.id === this.#highlightedImageId;
-        const classes = [this.#selection.isImageSelected(image.id) ? 'bindery-overlay-selected' : 'bindery-overlay-unselected'];
-        if (isHighlighted) classes.push('bindery-overlay-highlighted');
-        rect.setAttribute('class', classes.join(' '));
-        rect.dataset['imageId'] = image.id;
-        rect.addEventListener('click', () => {
-          this.#highlightedImageId = image.id;
-          this.#imageList?.scrollToIndex(images.findIndex((i) => i.id === image.id));
-          this.#refreshImageRowHighlights();
-          draw();
-        });
-        svg.appendChild(rect);
-        // [User request, "the ability to resize an automatically found
-        // image"] Handles appear SOLELY on the currently highlighted image
-        // (the same mechanism as clicking a list row/rectangle — nothing new
-        // to turn on) — reusing `#highlightedImageId` instead of a separate
-        // mode.
-        if (isHighlighted && !this.#pendingCrop) this.#renderResizeHandles(svg, image, rect, screen);
-      }
-      if (this.#pendingCrop && this.#pendingCropPageNumber !== this.#currentPageNumber) {
-        // Safety net: switching to another page (◄/► navigation, clicking an
-        // image/actor row on another page) should already have reset
-        // `#pendingCrop` at the source — this is an extra safety net so we
-        // don't ACCIDENTALLY crop a fragment of one page based on
-        // coordinates drawn on a completely different one.
-        this.#pendingCrop = null;
-        this.#pendingCropPageNumber = null;
-        this.#teardownPendingCropUi();
-      }
-      this.#renderPendingCropOverlay(svg);
-    };
-    if (img.complete) draw();
-    else img.addEventListener('load', draw, { once: true });
-
-    this.#wireSelectDrag(svg, img, draw);
-  }
+  #overlayResizeObserver: ResizeObserver | null = null;
+  #overlayDraw: (() => void) | null = null;
 
   // ---- "Select and crop" ---------------------------------------
 
@@ -664,504 +700,8 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#dragState = null;
     this.#pendingCrop = null;
     this.#pendingCropPageNumber = null;
-    this.#teardownPendingCropUi();
+    this.#overlay.teardownPendingCropUi();
     await this.render();
-  }
-
-  /**
-   * Wires up mouse dragging ON `svg` (not on the overlay's individual
-   * rectangles) — a `pointerdown` on a child bubbles up to the parent
-   * anyway, so one set of listeners on the whole overlay is enough. The
-   * `dataset['dragWired']` flag guards against re-wiring on EVERY call to
-   * `#mountOverlay`/`#redrawOverlay` (clicking an existing rectangle
-   * refreshes the overlay without a full `render()`, so the same `<svg>`
-   * element can pass through `#mountOverlay` multiple times) — the `<svg>`
-   * element SURVIVES `svg.innerHTML = ''` in `draw()` (which only clears its
-   * children), so a flag on the element itself is a safe, persistent marker.
-   */
-  #wireSelectDrag(svg: SVGSVGElement, img: HTMLImageElement, redraw: () => void): void {
-    if (svg.dataset['dragWired']) return;
-    svg.dataset['dragWired'] = '1';
-
-    // The Foundry window's size (and hence the rendered <img>'s) can change
-    // AFTER the first `draw()` (dragging/resizing the ApplicationV2 window)
-    // — without this, the overlay would stay at the old size and
-    // letterboxing/misalignment would return on every window resize.
-    new ResizeObserver(() => redraw()).observe(img);
-
-    svg.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (!this.#isSelectMode || this.#isCropping || this.#pendingCrop || e.button !== 0) return;
-      e.preventDefault();
-      const start = this.#toOverlayPoint(svg, e.clientX, e.clientY);
-      const rectEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rectEl.setAttribute('class', 'bindery-select-drag-rect');
-      rectEl.setAttribute('x', String(start.x));
-      rectEl.setAttribute('y', String(start.y));
-      rectEl.setAttribute('width', '0');
-      rectEl.setAttribute('height', '0');
-      svg.appendChild(rectEl);
-      this.#dragState = { startScreen: start, rectEl };
-      svg.setPointerCapture(e.pointerId);
-    });
-
-    svg.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!this.#dragState) return;
-      const { startScreen, rectEl } = this.#dragState;
-      const cur = this.#toOverlayPoint(svg, e.clientX, e.clientY);
-      rectEl.setAttribute('x', String(Math.min(startScreen.x, cur.x)));
-      rectEl.setAttribute('y', String(Math.min(startScreen.y, cur.y)));
-      rectEl.setAttribute('width', String(Math.abs(cur.x - startScreen.x)));
-      rectEl.setAttribute('height', String(Math.abs(cur.y - startScreen.y)));
-    });
-
-    const MIN_DRAG_PX = 8; // below this we treat it as an accidental click, not a deliberate selection
-    const finishDrag = (e: PointerEvent): void => {
-      if (!this.#dragState) return;
-      const { startScreen, rectEl } = this.#dragState;
-      this.#dragState = null;
-      rectEl.remove();
-      const cur = this.#toOverlayPoint(svg, e.clientX, e.clientY);
-      const screenRect: Rect = {
-        minX: Math.min(startScreen.x, cur.x),
-        maxX: Math.max(startScreen.x, cur.x),
-        minY: Math.min(startScreen.y, cur.y),
-        maxY: Math.max(startScreen.y, cur.y),
-      };
-      if (screenRect.maxX - screenRect.minX < MIN_DRAG_PX || screenRect.maxY - screenRect.minY < MIN_DRAG_PX) return;
-      // [User request, "rotate the selected area before cropping"]
-      // We no longer crop right away — we move into a "rotation adjustment"
-      // state (handle + confirm/cancel bar), see `#pendingCrop`.
-      this.#pendingCrop = {
-        centerX: (screenRect.minX + screenRect.maxX) / 2,
-        centerY: (screenRect.minY + screenRect.maxY) / 2,
-        width: screenRect.maxX - screenRect.minX,
-        height: screenRect.maxY - screenRect.minY,
-        rotationRad: 0,
-      };
-      this.#pendingCropPageNumber = this.#currentPageNumber;
-      this.#renderPendingCropOverlay(svg);
-      const wrap = svg.closest<HTMLElement>('.bindery-page-canvas-wrap');
-      if (wrap) this.#showPendingCropToolbar(wrap);
-    };
-    svg.addEventListener('pointerup', finishDrag);
-    svg.addEventListener('pointercancel', finishDrag);
-  }
-
-  /**
-   * [User request, "the area is shifted to the right relative to the
-   * cursor"] `rect` is the WHOLE `<svg>` box — the FRAME's size
-   * (`img.clientWidth/Height`, see the comment next to
-   * `.bindery-page-canvas-wrap`), NOT the size of the actually visible
-   * (letterboxed) content. The `viewBox`'s default
-   * `preserveAspectRatio="xMidYMid meet"` scales ITS OWN CONTENT (the
-   * overlay rectangles) to the LARGEST fragment of `rect` with the
-   * `viewBox`'s proportions, CENTERED — exactly what `object-fit: contain`
-   * does to the `<img>` itself (hence the empty bars visible on screen
-   * whenever the PDF page's proportions aren't EXACTLY 3:4). The overlay
-   * rectangles (drawn in `viewBox` units) therefore land correctly — the
-   * same SVG mechanism positions them. A naive `vb.width/rect.width`
-   * division (without this same correction) assumed the content fills the
-   * WHOLE `rect`, so EVERY click/drag was offset by half the width of the
-   * letterboxing bar — a small but real shift to the right (or downward) on
-   * every page whose proportions aren't exactly 3:4 (i.e. almost every
-   * page). When zoomed (`bindery-zoomed`, `object-fit:none`, `<img>` scaled
-   * by width only) `rect` and `viewBox` have the same proportions by
-   * definition — the formula below then degenerates to the old (correct in
-   * that case) behavior.
-   */
-  #toOverlayPoint(svg: SVGSVGElement, clientX: number, clientY: number): { x: number; y: number } {
-    const rect = svg.getBoundingClientRect();
-    const vb = svg.viewBox.baseVal;
-    if (rect.width <= 0 || rect.height <= 0 || vb.width <= 0 || vb.height <= 0) {
-      return { x: clientX - rect.left, y: clientY - rect.top };
-    }
-    const rectAspect = rect.width / rect.height;
-    const vbAspect = vb.width / vb.height;
-    let contentWidth = rect.width;
-    let contentHeight = rect.height;
-    let offsetX = 0;
-    let offsetY = 0;
-    if (vbAspect > rectAspect) {
-      contentHeight = rect.width / vbAspect;
-      offsetY = (rect.height - contentHeight) / 2;
-    } else if (vbAspect < rectAspect) {
-      contentWidth = rect.height * vbAspect;
-      offsetX = (rect.width - contentWidth) / 2;
-    }
-    const scaleX = vb.width / contentWidth;
-    const scaleY = vb.height / contentHeight;
-    return { x: (clientX - rect.left - offsetX) * scaleX, y: (clientY - rect.top - offsetY) * scaleY };
-  }
-
-  /**
-   * [User request, "rotate the selected area before cropping", drag handle]
-   * Draws `#pendingCrop` as a `<g>` with `transform="rotate(deg cx cy)"`
-   * (SVG's `rotate` uses EXACTLY the same matrix `[cos,-sin; sin,cos]` as
-   * `screenRotatedRectToPdf` on the core side — so what's seen on screen is,
-   * by definition, consistent with what actually gets cropped afterward).
-   * The handle is a simple circle ABOVE the center of the top edge, in the
-   * `<g>`'s LOCAL (unrotated) coordinate space — it rotates together with
-   * the rectangle purely via the parent's transform, no separate algebra.
-   * The handle's radius/offset are converted to `viewBox` units so that on
-   * SCREEN it has a constant size regardless of the page's resolution/zoom
-   * level (otherwise on a high-resolution page the handle would be
-   * invisibly small).
-   *
-   * [rotation direction] `rotationRad = atan2(dy, dx) + PI/2` (where `dx,dy`
-   * is the cursor vector relative to the center) — derived so that after
-   * applying EXACTLY the same rotation matrix as SVG's `rotate()`, the
-   * handle (locally straight ABOVE the center) lands EXACTLY under the
-   * cursor: dragging the handle is therefore WYSIWYG on screen by
-   * definition. Whether the final, PIXEL-cropped image rotates in the same
-   * direction as the on-screen preview could NOT be verified without a live
-   * test in Foundry (see `renderRotatedRegion.test.ts`) — if the live test
-   * shows it's reversed, the only fix is to negate the angle HERE (in
-   * `rotationRad = ...` below), not in the `core` layer.
-   */
-  #renderPendingCropOverlay(svg: SVGSVGElement): void {
-    svg.querySelector('.bindery-pending-crop')?.remove();
-    const pending = this.#pendingCrop;
-    if (!pending) return;
-
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const vb = svg.viewBox.baseVal;
-    const svgRect = svg.getBoundingClientRect();
-    const scale = vb.width > 0 && svgRect.width > 0 ? vb.width / svgRect.width : 1;
-    const HANDLE_OFFSET_SCREEN_PX = 32;
-    const HANDLE_RADIUS_SCREEN_PX = 8;
-    const handleOffset = HANDLE_OFFSET_SCREEN_PX * scale;
-    const handleRadius = HANDLE_RADIUS_SCREEN_PX * scale;
-
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', 'bindery-pending-crop');
-    const deg = (pending.rotationRad * 180) / Math.PI;
-    g.setAttribute('transform', `rotate(${deg} ${pending.centerX} ${pending.centerY})`);
-
-    const rectEl = document.createElementNS(SVG_NS, 'rect');
-    rectEl.setAttribute('x', String(pending.centerX - pending.width / 2));
-    rectEl.setAttribute('y', String(pending.centerY - pending.height / 2));
-    rectEl.setAttribute('width', String(pending.width));
-    rectEl.setAttribute('height', String(pending.height));
-    rectEl.setAttribute('class', 'bindery-pending-crop-rect');
-    g.appendChild(rectEl);
-
-    const topY = pending.centerY - pending.height / 2;
-    const handleY = topY - handleOffset;
-
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', String(pending.centerX));
-    line.setAttribute('y1', String(topY));
-    line.setAttribute('x2', String(pending.centerX));
-    line.setAttribute('y2', String(handleY));
-    line.setAttribute('class', 'bindery-pending-crop-handle-line');
-    g.appendChild(line);
-
-    const handle = document.createElementNS(SVG_NS, 'circle');
-    handle.setAttribute('cx', String(pending.centerX));
-    handle.setAttribute('cy', String(handleY));
-    handle.setAttribute('r', String(handleRadius));
-    handle.setAttribute('class', 'bindery-pending-crop-handle');
-    g.appendChild(handle);
-
-    handle.addEventListener('pointerdown', (e: PointerEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handle.setPointerCapture(e.pointerId);
-    });
-    handle.addEventListener('pointermove', (e: PointerEvent) => {
-      if (!this.#pendingCrop || !handle.hasPointerCapture(e.pointerId)) return;
-      e.stopPropagation();
-      const pt = this.#toOverlayPoint(svg, e.clientX, e.clientY);
-      const angle = Math.atan2(pt.y - this.#pendingCrop.centerY, pt.x - this.#pendingCrop.centerX);
-      this.#pendingCrop = { ...this.#pendingCrop, rotationRad: angle + Math.PI / 2 };
-      // [User request, "it's very sluggish, only a few degrees at a time"]
-      // The full `#renderPendingCropOverlay` must NOT be called here — it
-      // REMOVES and RECREATES the `handle` (via `svg.querySelector(...)
-      // .remove()` at the start), and removing an element from the DOM that
-      // holds `setPointerCapture` silently releases that capture (the
-      // browser automatically fires `lostpointercapture`). The newly
-      // created `handle` does NOT have capture, so SUBSEQUENT `pointermove`
-      // events (the cursor already far from its position) missed it
-      // entirely — hence "only works a few degrees at a time" (one move =
-      // one event before the handle got replaced). During dragging, ONLY
-      // the rotation angle changes — the local geometry (rect/line/handle)
-      // is constant — so it's enough to swap the `transform` on the
-      // EXISTING `g`, without rebuilding the whole group/losing capture.
-      const deg = (this.#pendingCrop.rotationRad * 180) / Math.PI;
-      g.setAttribute('transform', `rotate(${deg} ${this.#pendingCrop.centerX} ${this.#pendingCrop.centerY})`);
-    });
-    const releaseHandle = (e: PointerEvent): void => {
-      if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
-    };
-    handle.addEventListener('pointerup', releaseHandle);
-    handle.addEventListener('pointercancel', releaseHandle);
-
-    svg.appendChild(g);
-  }
-
-  /** Confirm/cancel bar added DYNAMICALLY to `.bindery-page-canvas-wrap` (like `rectEl`/`#pendingCrop` — it's not in the Handlebars markup, see `#pendingCropToolbar`). */
-  #showPendingCropToolbar(wrap: HTMLElement): void {
-    this.#pendingCropToolbar?.remove();
-    const toolbar = document.createElement('div');
-    toolbar.className = 'bindery-pending-crop-toolbar';
-    const confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'bindery-btn bindery-btn--primary';
-    confirmBtn.textContent = game.i18n!.localize('BINDERY.review.selectModeConfirmCrop' as never);
-    confirmBtn.addEventListener('click', () => void this.#confirmPendingCrop());
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'bindery-btn';
-    cancelBtn.textContent = game.i18n!.localize('BINDERY.review.selectModeCancelCrop' as never);
-    cancelBtn.addEventListener('click', () => this.#cancelPendingCrop());
-    toolbar.append(confirmBtn, cancelBtn);
-    wrap.appendChild(toolbar);
-    this.#pendingCropToolbar = toolbar;
-  }
-
-  #teardownPendingCropUi(): void {
-    this.#pendingCropToolbar?.remove();
-    this.#pendingCropToolbar = null;
-  }
-
-  async #confirmPendingCrop(): Promise<void> {
-    const pending = this.#pendingCrop;
-    if (!pending || this.#isCropping) return;
-    this.#pendingCrop = null;
-    this.#pendingCropPageNumber = null;
-    this.#teardownPendingCropUi();
-    await this.#createManualCropRotated(pending);
-  }
-
-  #cancelPendingCrop(): void {
-    if (!this.#pendingCrop) return;
-    this.#pendingCrop = null;
-    this.#pendingCropPageNumber = null;
-    this.#teardownPendingCropUi();
-    void this.#redrawOverlay();
-  }
-
-  /**
-   * [User request, "the ability to resize an automatically found image — it's
-   * too big/too small to manually enlarge or shrink"] Eight handles (4
-   * corners + 4 edge midpoints) on the rectangle of the HIGHLIGHTED image —
-   * works the same way for an automatically detected image and a manually
-   * cropped one, because the fitting mechanism doesn't depend on the
-   * image's source. Corners change both axes at once, edge midpoints only
-   * one (`dx`/`dy` = -1 minX/minY, 0 = no change, +1 = maxX/maxY).
-   *
-   * [Lesson from an earlier bug in the same session, "the rotation handle
-   * only works a few degrees at a time"] WHILE dragging, a full overlay
-   * redraw must NOT be called (it destroys and recreates the handles from
-   * scratch, silently losing `setPointerCapture`) — `updateAll` only
-   * REPLACES the attributes of already existing elements (`rectEl` +
-   * handles), so the same `<circle>` element holds capture throughout the
-   * whole gesture.
-   */
-  #renderResizeHandles(svg: SVGSVGElement, image: CIFImage, rectEl: SVGRectElement, initialScreen: Rect): void {
-    const SVG_NS = 'http://www.w3.org/2000/svg';
-    const vb = svg.viewBox.baseVal;
-    const svgRect = svg.getBoundingClientRect();
-    const scale = vb.width > 0 && svgRect.width > 0 ? vb.width / svgRect.width : 1;
-    const handleRadius = 6 * scale;
-    const minSize = 12 * scale; // minimum size in viewBox px — guards against shrinking the rectangle to zero/flipping an axis
-    const rotateHandleOffset = 32 * scale;
-    const initialRotation = this.#imageAdjustRotation?.imageId === image.id ? this.#imageAdjustRotation.rotationRad : 0;
-
-    const HANDLE_DEFS: Array<{ dx: -1 | 0 | 1; dy: -1 | 0 | 1; cursor: string }> = [
-      { dx: -1, dy: -1, cursor: 'nwse-resize' },
-      { dx: 0, dy: -1, cursor: 'ns-resize' },
-      { dx: 1, dy: -1, cursor: 'nesw-resize' },
-      { dx: 1, dy: 0, cursor: 'ew-resize' },
-      { dx: 1, dy: 1, cursor: 'nwse-resize' },
-      { dx: 0, dy: 1, cursor: 'ns-resize' },
-      { dx: -1, dy: 1, cursor: 'nesw-resize' },
-      { dx: -1, dy: 0, cursor: 'ew-resize' },
-    ];
-
-    // [User request, "the ability to rotate an automatically selected
-    // image"] The group carries the rotation — EXACTLY the same pattern as
-    // `#renderPendingCropOverlay` (SVG's `rotate()` is the same matrix as
-    // `screenRotatedRectToPdf`, so screen = what actually gets cropped).
-    // `rectEl` is already attached to `svg` (by the caller in `draw()`) —
-    // `appendChild` MOVES it into this group, it doesn't clone it.
-    const g = document.createElementNS(SVG_NS, 'g');
-    svg.appendChild(g);
-    g.appendChild(rectEl);
-
-    const resizeHandleEls = HANDLE_DEFS.map(({ cursor }) => {
-      const el = document.createElementNS(SVG_NS, 'circle');
-      el.setAttribute('r', String(handleRadius));
-      el.setAttribute('class', 'bindery-resize-handle');
-      el.style.cursor = cursor;
-      g.appendChild(el);
-      return el;
-    });
-    const rotateLine = document.createElementNS(SVG_NS, 'line');
-    rotateLine.setAttribute('class', 'bindery-pending-crop-handle-line');
-    g.appendChild(rotateLine);
-    const rotateHandle = document.createElementNS(SVG_NS, 'circle');
-    rotateHandle.setAttribute('r', String(handleRadius));
-    rotateHandle.setAttribute('class', 'bindery-pending-crop-handle');
-    g.appendChild(rotateHandle);
-
-    // [Lesson from an earlier bug in the same session, "the rotation handle
-    // only works a few degrees at a time"] `currentRect`/`currentRotation`
-    // are SHARED (closure) across ALL handles (8 for resizing + 1 for
-    // rotation) — WHILE dragging, a full overlay redraw must NOT be called
-    // (it destroys and recreates the handles from scratch, silently losing
-    // `setPointerCapture`) — `updateAll` only REPLACES the attributes of
-    // already existing elements, so the same `<circle>` element holds
-    // capture throughout the whole gesture, no matter how many times it
-    // fires.
-    let currentRect = initialScreen;
-    let currentRotation = initialRotation;
-
-    // [User request, "can't resize from the left side of an automatically
-    // selected image"] When the selection reaches almost to the page edge
-    // (typical for automatically detected images covering all/almost all of
-    // the page), a handle drawn EXACTLY on the rectangle's edge has HALF of
-    // its circle outside the `viewBox` — SVG clips by default (`overflow:
-    // hidden` by definition on the root `<svg>`) everything outside its own
-    // box, so that half is invisible AND unclickable; when the edge is
-    // CLOSE ENOUGH to the border, the WHOLE handle can disappear. `clampX`/
-    // `clampY` only push the drawn/clickable position (never the
-    // `currentRect` data, which still reflects the TRUE edge) away from the
-    // `viewBox` borders by the handle's radius, so every handle always fits
-    // entirely within the visible/clickable area.
-    const clampX = (x: number): number => Math.min(Math.max(x, handleRadius), Math.max(handleRadius, vb.width - handleRadius));
-    const clampY = (y: number): number => Math.min(Math.max(y, handleRadius), Math.max(handleRadius, vb.height - handleRadius));
-
-    const updateAll = (): void => {
-      rectEl.setAttribute('x', String(currentRect.minX));
-      rectEl.setAttribute('y', String(currentRect.minY));
-      rectEl.setAttribute('width', String(Math.max(0, currentRect.maxX - currentRect.minX)));
-      rectEl.setAttribute('height', String(Math.max(0, currentRect.maxY - currentRect.minY)));
-      const cx = (currentRect.minX + currentRect.maxX) / 2;
-      const cy = (currentRect.minY + currentRect.maxY) / 2;
-      HANDLE_DEFS.forEach(({ dx, dy }, i) => {
-        resizeHandleEls[i]!.setAttribute('cx', String(clampX(dx === -1 ? currentRect.minX : dx === 1 ? currentRect.maxX : cx)));
-        resizeHandleEls[i]!.setAttribute('cy', String(clampY(dy === -1 ? currentRect.minY : dy === 1 ? currentRect.maxY : cy)));
-      });
-      // Same problem/fix as the resize handles above — for a selection
-      // reaching close to the TOP edge of the page, the rotation handle
-      // (always above the center of the top edge) could fall outside the
-      // `viewBox`. The connecting line MUST end at the SAME (clamped) point
-      // as the handle, otherwise it will visually "detach" from it.
-      const rotateHandleX = clampX(cx);
-      const rotateHandleY = clampY(currentRect.minY - rotateHandleOffset);
-      rotateLine.setAttribute('x1', String(cx));
-      rotateLine.setAttribute('y1', String(currentRect.minY));
-      rotateLine.setAttribute('x2', String(rotateHandleX));
-      rotateLine.setAttribute('y2', String(rotateHandleY));
-      rotateHandle.setAttribute('cx', String(rotateHandleX));
-      rotateHandle.setAttribute('cy', String(rotateHandleY));
-      const deg = (currentRotation * 180) / Math.PI;
-      g.setAttribute('transform', `rotate(${deg} ${cx} ${cy})`);
-    };
-    updateAll();
-
-    /** Screen point (unrotated overlay coordinate space) -> LOCAL rectangle coordinate space (the inverse of the current `currentRotation` around `cx,cy`) — needed so that dragging the resize handles works correctly even when the image is ALREADY rotated. */
-    const toLocalPoint = (screenPt: { x: number; y: number }, cx: number, cy: number): { x: number; y: number } => {
-      const dx0 = screenPt.x - cx;
-      const dy0 = screenPt.y - cy;
-      const cos = Math.cos(-currentRotation);
-      const sin = Math.sin(-currentRotation);
-      return { x: cx + dx0 * cos - dy0 * sin, y: cy + dx0 * sin + dy0 * cos };
-    };
-
-    const commitOrRevert = (changed: boolean): void => {
-      if (!changed) return;
-      const centerX = (currentRect.minX + currentRect.maxX) / 2;
-      const centerY = (currentRect.minY + currentRect.maxY) / 2;
-      void this.#resizeImage(image, { centerX, centerY, width: currentRect.maxX - currentRect.minX, height: currentRect.maxY - currentRect.minY, rotationRad: currentRotation });
-    };
-
-    HANDLE_DEFS.forEach(({ dx, dy }, i) => {
-      const handle = resizeHandleEls[i]!;
-      handle.addEventListener('pointerdown', (e: PointerEvent) => {
-        if (this.#isCropping) return;
-        e.preventDefault();
-        e.stopPropagation();
-        handle.setPointerCapture(e.pointerId);
-        const startRect = currentRect;
-        const startCx = (startRect.minX + startRect.maxX) / 2;
-        const startCy = (startRect.minY + startRect.maxY) / 2;
-        let changed = false;
-
-        const onMove = (ev: PointerEvent): void => {
-          if (!handle.hasPointerCapture(ev.pointerId)) return;
-          const pt = this.#toOverlayPoint(svg, ev.clientX, ev.clientY);
-          const local = toLocalPoint(pt, startCx, startCy);
-          const next: Rect = { ...startRect };
-          if (dx === -1) next.minX = Math.min(local.x, startRect.maxX - minSize);
-          if (dx === 1) next.maxX = Math.max(local.x, startRect.minX + minSize);
-          if (dy === -1) next.minY = Math.min(local.y, startRect.maxY - minSize);
-          if (dy === 1) next.maxY = Math.max(local.y, startRect.minY + minSize);
-          currentRect = next;
-          changed = true;
-          updateAll();
-        };
-        const cleanup = (): void => {
-          handle.removeEventListener('pointermove', onMove);
-          handle.removeEventListener('pointerup', onUp);
-          handle.removeEventListener('pointercancel', onCancel);
-          if (handle.hasPointerCapture(e.pointerId)) handle.releasePointerCapture(e.pointerId);
-        };
-        const onUp = (): void => {
-          cleanup();
-          commitOrRevert(changed);
-        };
-        const onCancel = (): void => {
-          cleanup();
-          currentRect = startRect;
-          updateAll();
-        };
-        handle.addEventListener('pointermove', onMove);
-        handle.addEventListener('pointerup', onUp);
-        handle.addEventListener('pointercancel', onCancel);
-      });
-    });
-
-    rotateHandle.addEventListener('pointerdown', (e: PointerEvent) => {
-      if (this.#isCropping) return;
-      e.preventDefault();
-      e.stopPropagation();
-      rotateHandle.setPointerCapture(e.pointerId);
-      const startRotation = currentRotation;
-      let changed = false;
-
-      const onMove = (ev: PointerEvent): void => {
-        if (!rotateHandle.hasPointerCapture(ev.pointerId)) return;
-        const pt = this.#toOverlayPoint(svg, ev.clientX, ev.clientY);
-        const cx = (currentRect.minX + currentRect.maxX) / 2;
-        const cy = (currentRect.minY + currentRect.maxY) / 2;
-        const angle = Math.atan2(pt.y - cy, pt.x - cx);
-        currentRotation = angle + Math.PI / 2;
-        this.#imageAdjustRotation = { imageId: image.id, rotationRad: currentRotation };
-        changed = true;
-        updateAll();
-      };
-      const cleanup = (): void => {
-        rotateHandle.removeEventListener('pointermove', onMove);
-        rotateHandle.removeEventListener('pointerup', onUp);
-        rotateHandle.removeEventListener('pointercancel', onCancel);
-        if (rotateHandle.hasPointerCapture(e.pointerId)) rotateHandle.releasePointerCapture(e.pointerId);
-      };
-      const onUp = (): void => {
-        cleanup();
-        commitOrRevert(changed);
-      };
-      const onCancel = (): void => {
-        cleanup();
-        currentRotation = startRotation;
-        this.#imageAdjustRotation = startRotation !== 0 ? { imageId: image.id, rotationRad: startRotation } : null;
-        updateAll();
-      };
-      rotateHandle.addEventListener('pointermove', onMove);
-      rotateHandle.addEventListener('pointerup', onUp);
-      rotateHandle.addEventListener('pointercancel', onCancel);
-    });
   }
 
   /**
@@ -1184,24 +724,26 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const width = img?.naturalWidth ?? 0;
       const height = img?.naturalHeight ?? 0;
       if (!width || !height) return;
-      const box = await this.#data.previewDocument.getPageBox(this.#currentPageNumber);
+      // Read once: the page can be turned (arrow keys, the page field) while the lines below wait, and the region
+      // belongs to the page it was drawn on.
+      const pageNumber = this.#currentPageNumber;
+      const box = await this.#data.previewDocument.getPageBox(pageNumber);
       const pdfRegion = screenRotatedRectToPdf(screenRect, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
-      const crop = await this.#data.previewDocument.renderRotatedRegion(this.#currentPageNumber, pdfRegion, { targetLongEdgePx: 2048, format: 'webp' });
+      const crop = await this.#data.previewDocument.renderRotatedRegion(pageNumber, pdfRegion, { targetLongEdgePx: 2048, format: 'webp' });
       image.width = crop.width;
       image.height = crop.height;
       image.format = crop.format;
       image.provenance = { ...image.provenance, bbox: rotatedRectBounds(pdfRegion) };
       this.#imageAdjustRotation = null;
+      // The picture is rendered from the page again, so whatever was done to it by hand (eraser, token panel) is gone:
+      // it is an ordinary picture once more, and the "white background" setting applies to it.
+      this.#handEditedImageIds.delete(image.id);
       // [Bug fix, cumulative shrinking on content rotation] A fresh crop
       // from the PDF is a NEW "0°" reference point for `#rotateImage` — the
       // old `originalBytes` (if any) no longer represents the image's
       // current content.
       this.#imageRotationState.delete(image.id);
-      const oldThumbUrl = this.#thumbnailUrls.get(image.id);
-      if (oldThumbUrl) {
-        URL.revokeObjectURL(oldThumbUrl);
-        this.#thumbnailUrls.delete(image.id);
-      }
+      this.#thumbnails.drop(image.id);
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: crop.bytes, format: crop.format });
       await this.render();
     } catch (err) {
@@ -1275,11 +817,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       image.height = result.height;
       image.format = result.format;
       this.#imageRotationState.delete(image.id);
-      const oldThumbUrl = this.#thumbnailUrls.get(image.id);
-      if (oldThumbUrl) {
-        URL.revokeObjectURL(oldThumbUrl);
-        this.#thumbnailUrls.delete(image.id);
-      }
+      this.#thumbnails.drop(image.id);
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
       this.#handEditedImageIds.add(image.id);
       await this.render();
@@ -1317,11 +855,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       image.height = result.height;
       image.format = result.format;
       this.#imageRotationState.delete(image.id);
-      const oldThumbUrl = this.#thumbnailUrls.get(image.id);
-      if (oldThumbUrl) {
-        URL.revokeObjectURL(oldThumbUrl);
-        this.#thumbnailUrls.delete(image.id);
-      }
+      this.#thumbnails.drop(image.id);
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: result.bytes, format: result.format });
       this.#handEditedImageIds.add(image.id);
       await this.render();
@@ -1381,11 +915,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       state.totalDeg = totalDeg;
       image.width = outWidth;
       image.height = outHeight;
-      const oldThumbUrl = this.#thumbnailUrls.get(image.id);
-      if (oldThumbUrl) {
-        URL.revokeObjectURL(oldThumbUrl);
-        this.#thumbnailUrls.delete(image.id);
-      }
+      this.#thumbnails.drop(image.id);
       (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(image.id, { bytes: newBytes, format: state.originalFormat });
       await this.render();
     } catch (err) {
@@ -1405,7 +935,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    * `screenRotatedRectToPdf` -> `previewDocument.renderRotatedRegion` -> a
    * new `CIFImage` inserted into `doc.images` — THE SAME data shape as an
    * image from core's automatic extraction, so the rest of the screen
-   * (list, destination choice, `#runImport`) handles it without any special
+   * (list, destination choice, `runReviewImport`) handles it without any special
    * cases (see `#finalizeManualCrop`). `provenance.bbox` (ALWAYS axis-aligned
    * throughout the project) is the bounding box of the rotated PDF region
    * (`rotatedRectBounds`) — for a rotated crop, the preview in the
@@ -1422,10 +952,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       const width = img?.naturalWidth ?? 0;
       const height = img?.naturalHeight ?? 0;
       if (!width || !height) return;
-      const box = await this.#data.previewDocument.getPageBox(this.#currentPageNumber);
+      // Read once, as in `#resizeImage`: the crop belongs to the page it was drawn on.
+      const pageNumber = this.#currentPageNumber;
+      const box = await this.#data.previewDocument.getPageBox(pageNumber);
       const pdfRegion = screenRotatedRectToPdf(screenRect, { pageBox: box.box, imageWidthPx: width, imageHeightPx: height, rotation: box.rotation as never });
-      const crop = await this.#data.previewDocument.renderRotatedRegion(this.#currentPageNumber, pdfRegion, { targetLongEdgePx: 2048, format: 'webp' });
-      await this.#finalizeManualCrop(rotatedRectBounds(pdfRegion), crop);
+      const crop = await this.#data.previewDocument.renderRotatedRegion(pageNumber, pdfRegion, { targetLongEdgePx: 2048, format: 'webp' });
+      await this.#finalizeManualCrop(pageNumber, rotatedRectBounds(pdfRegion), crop);
     } catch (err) {
       console.warn('Bindery | manual crop of rotated fragment failed:', err);
       ui.notifications?.error(game.i18n!.localize('BINDERY.review.selectModeCropFailed' as never));
@@ -1438,12 +970,12 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
    * PDF bbox + render result -> a new `CIFImage` inserted into
    * `doc.images` — THE SAME data shape as an image from core's automatic
    * extraction, so the rest of the screen (list, destination choice,
-   * `#runImport`) handles it without any special cases. Shared between
+   * `runReviewImport`) handles it without any special cases. Shared between
    * `#createManualCrop` (axis-aligned) and `#createManualCropRotated`
    * (rotated) — the only difference between them is HOW `pdfBbox`/the
    * render is computed, not what happens with the result.
    */
-  async #finalizeManualCrop(pdfBbox: Rect, crop: RegionCrop): Promise<void> {
+  async #finalizeManualCrop(pageNumber: number, pdfBbox: Rect, crop: RegionCrop): Promise<void> {
     const id = `manual-crop-${++this.#manualCropSeq}`;
     const targetKind = classifyTargetKind({ width: crop.width, height: crop.height, classification: 'content', nearStatblockOrHeading: false });
     const newImage: CIFImage = {
@@ -1456,7 +988,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
       classification: 'content',
       confidence: 1,
       rawText: '',
-      provenance: { pageNumber: this.#currentPageNumber, bbox: pdfBbox, blockIds: [] },
+      provenance: { pageNumber, bbox: pdfBbox, blockIds: [] },
     };
     this.#data.document.images.push(newImage);
     (this.#data.imageBytesById as Map<string, { bytes: Uint8Array; format: string }>).set(id, { bytes: crop.bytes, format: crop.format });
@@ -1479,7 +1011,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#currentPageNumber--;
     this.#pendingCrop = null;
     this.#pendingCropPageNumber = null;
-    this.#teardownPendingCropUi();
+    this.#overlay.teardownPendingCropUi();
     await this.render();
   }
   static async #onNextPage(this: ReviewScreen): Promise<void> {
@@ -1487,7 +1019,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#currentPageNumber++;
     this.#pendingCrop = null;
     this.#pendingCropPageNumber = null;
-    this.#teardownPendingCropUi();
+    this.#overlay.teardownPendingCropUi();
     await this.render();
   }
 
@@ -1513,7 +1045,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     for (const el of this.element.querySelectorAll<HTMLElement>('[data-zoom-readout]')) el.textContent = `${percent}%`;
     for (const btn of this.element.querySelectorAll<HTMLButtonElement>('[data-action="zoomOut"]')) btn.disabled = percent <= ReviewScreen.#MIN_ZOOM;
     for (const btn of this.element.querySelectorAll<HTMLButtonElement>('[data-action="zoomIn"]')) btn.disabled = percent >= ReviewScreen.#MAX_ZOOM;
-    if (this.#tab === 'images') void this.#redrawOverlay();
+    if (this.#tab === 'images') void this.#overlay.redrawOverlay();
   }
 
   /**
@@ -1575,231 +1107,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     // (name + meta + journal group) next to a 48px-tall thumbnail — the
     // height was chosen empirically for this layout (see `bindery.css`,
     // "Image table" section).
-    this.#imageList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="images"]'), 'images', images, 80, (image) => this.#buildImageRow(image));
-  }
-
-  #thumbnailFor(imageId: string): string | null {
-    const cached = this.#thumbnailUrls.get(imageId);
-    if (cached) return cached;
-    const entry = this.#data.imageBytesById.get(imageId);
-    if (!entry) return null;
-    const mime = entry.format === 'png' ? 'image/png' : 'image/webp';
-    const url = URL.createObjectURL(new Blob([new Uint8Array(entry.bytes)], { type: mime }));
-    this.#thumbnailUrls.set(imageId, url);
-    return url;
-  }
-
-  #buildImageRow(image: CIFImage): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'bindery-review-row bindery-image-row';
-    row.dataset['imageId'] = image.id;
-    if (image.id === this.#highlightedImageId) row.classList.add('bindery-row-highlighted');
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'bindery-check';
-    checkbox.checked = this.#selection.isImageSelected(image.id);
-    checkbox.addEventListener('change', () => {
-      this.#selection.setImage(image.id, checkbox.checked);
-      void this.#refreshHeaderCounts();
-    });
-    row.appendChild(checkbox);
-
-    // [Redesign 2a] The 36x48 slot is ALWAYS present (even without a
-    // thumbnail), so the grid columns (`22px 36px 74px minmax(0,1fr) 148px`)
-    // stay identical in every row — VirtualList requires a fixed row
-    // height, so a missing element must not change the number of columns.
-    const thumbSlot = document.createElement('div');
-    thumbSlot.className = 'bindery-row-thumb-slot';
-    const thumbUrl = this.#thumbnailFor(image.id);
-    if (thumbUrl) {
-      const thumb = document.createElement('img');
-      thumb.className = 'bindery-row-thumb';
-      thumb.src = thumbUrl;
-      thumb.alt = '';
-      thumb.title = game.i18n!.localize('BINDERY.review.thumbnailOpenTitle' as never);
-      // Hovering enlarges the thumbnail for a quick look; clicking opens the
-      // full preview window, which also offers the erase tools.
-      thumb.addEventListener('mouseenter', () => this.#showThumbPreview(thumbUrl, thumb, image.width, image.height));
-      thumb.addEventListener('mouseleave', () => this.#hideThumbPreview());
-      thumb.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        this.#hideThumbPreview();
-        void this.#openImageEditor(image);
-      });
-      thumbSlot.appendChild(thumb);
-    }
-    row.appendChild(thumbSlot);
-
-    const pageLabel = document.createElement('span');
-    pageLabel.className = 'bindery-row-page';
-    pageLabel.textContent = `p.${image.provenance.pageNumber}`;
-    row.appendChild(pageLabel);
-
-    const nameWrap = document.createElement('div');
-    nameWrap.className = 'bindery-row-name-wrap';
-
-    // Image name directly editable IN the row — mirrors the
-    // pattern from `#buildJournalRow` (there `nameInput` mutates
-    // `row.journal.name` directly on the core object). `image.caption` is
-    // an ALREADY existing, optional `CIFImage` field (see
-    // `packages/core/src/cif/types.ts`) read by `#runImport` as an override
-    // for the default name (`image.caption?.trim() || "Image p.N"`) — ALL
-    // three paths (Scene/Journal/Token) and journal grouping get this name
-    // for free, with no extra logic here.
-    const defaultImageName = game.i18n!.localize('BINDERY.review.defaultImageName' as never);
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.className = 'bindery-row-name-input';
-    nameInput.placeholder = `${defaultImageName} p.${image.provenance.pageNumber}`;
-    nameInput.value = image.caption ?? '';
-    nameInput.addEventListener('click', (ev) => ev.stopPropagation());
-    nameInput.addEventListener('change', () => {
-      image.caption = nameInput.value.trim() || undefined;
-    });
-    nameWrap.appendChild(nameInput);
-
-    // [User request, "'unknown - 65x115 - undecided (40%)' is completely
-    // unnecessary, only the size can stay"] Previously a full description
-    // (`targetKind — WxH — classification (confidence%)`) — everything
-    // besides the size itself was the classifier's internal jargon,
-    // unreadable to the user and useless for deciding on a destination.
-    const meta = document.createElement('span');
-    meta.className = 'bindery-row-meta';
-    meta.textContent = `${image.width}×${image.height}`;
-    nameWrap.appendChild(meta);
-
-    // Journal group name — only makes sense for the `journal`
-    // destination (see `ReviewSelection.imageJournalGroup`), hence hidden
-    // for other destinations instead of removed from the DOM (a simpler
-    // visibility toggle below, in the `destSelect` change handler). A third
-    // line in `nameWrap` (doc: "keep full per-row editability, don't remove
-    // without asking" — see README, so it stays, just visually
-    // de-emphasized via `.bindery-row-journal-group` like `meta` above).
-    const groupInput = document.createElement('input');
-    groupInput.type = 'text';
-    groupInput.className = 'bindery-row-journal-group';
-    groupInput.placeholder = game.i18n!.localize('BINDERY.review.journalGroupPlaceholder' as never);
-    groupInput.value = this.#selection.imageJournalGroup(image.id);
-    groupInput.addEventListener('click', (ev) => ev.stopPropagation());
-    groupInput.addEventListener('change', () => {
-      this.#selection.setImageJournalGroup(image.id, groupInput.value);
-    });
-    nameWrap.appendChild(groupInput);
-
-    // The same pattern as `groupInput`
-    // above — a third line in `nameWrap`, visible SOLELY for the `token`
-    // destination (the `.bindery-image-row` grid has a FIXED number of
-    // columns, see `bindery.css`, so a new button must go into the ALREADY
-    // existing, flexible `nameWrap` column, not as a new child of `row`).
-    // Opens `TokenPrepApp` (background removal/mask/frame); on confirmation
-    // it REPLACES the image's bytes/dimensions/format — mirrors
-    // `#resizeImage`/`#rotateImage`, see `#prepareToken`. The mechanism for
-    // assigning a token to an actor (step 35) doesn't know and doesn't need
-    // to know that the bytes come from this panel.
-    const prepareTokenBtn = document.createElement('button');
-    prepareTokenBtn.type = 'button';
-    prepareTokenBtn.className = 'bindery-row-prepare-token-btn';
-    prepareTokenBtn.textContent = game.i18n!.localize('BINDERY.review.prepareToken' as never);
-    prepareTokenBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      void this.#prepareToken(image);
-    });
-    nameWrap.appendChild(prepareTokenBtn);
-
-    row.appendChild(nameWrap);
-
-    // Per-image destination — suggested from `CIFImage.targetKind`
-    // [User request, "all images end up in Unassigned, the user assigns
-    // manually"] Always `unassigned` by default (see
-    // `defaultImageDestination`) — overridable here.
-    const destSelect = document.createElement('select');
-    destSelect.className = 'bindery-select bindery-row-destination';
-    for (const [value, labelKey] of [
-      ['scene', 'BINDERY.review.destinationScene'],
-      ['journal', 'BINDERY.review.destinationJournal'],
-      ['token', 'BINDERY.review.destinationToken'],
-      ['unassigned', 'BINDERY.review.destinationUnassigned'],
-    ] as const) {
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = game.i18n!.localize(labelKey as never);
-      destSelect.appendChild(opt);
-    }
-    destSelect.value = this.#selection.imageDestination(image.id);
-    destSelect.addEventListener('click', (ev) => ev.stopPropagation());
-    groupInput.style.display = destSelect.value === 'journal' ? '' : 'none';
-    prepareTokenBtn.style.display = destSelect.value === 'token' ? '' : 'none';
-
-    destSelect.addEventListener('change', () => {
-      const destination = destSelect.value as ImageDestination;
-      this.#selection.setImageDestination(image.id, destination);
-      // `#runImport` processes SOLELY
-      // selected images (checkbox) — without this, choosing a destination
-      // for an image that starts UNCHECKED (EVERY image, see
-      // `ReviewSelection.fromDocument` — user request, all images start
-      // unchecked) did NOTHING, with no error or warning ("the scene isn't
-      // created"). Changing the destination to anything other than
-      // "Unassigned" is an unambiguous declaration of intent — select the
-      // image right away, so the dropdown and the checkbox don't drift
-      // apart into two independent, silent sources of truth.
-      const shouldBeSelected = destination !== 'unassigned';
-      if (this.#selection.isImageSelected(image.id) !== shouldBeSelected) this.#selection.setImage(image.id, shouldBeSelected);
-      // [User request, Scene/Journal/Token/Unassigned sub-tabs] The image
-      // moves to a DIFFERENT destination sub-tab — a full render (instead of
-      // the previous surgical update of this one row), so it disappears
-      // from the current list and appears in the correct one. `scrollable`
-      // (see `PARTS.main` above) protects the list's scroll position despite
-      // the full render.
-      void this.render();
-    });
-    row.appendChild(destSelect);
-
-    // [User request, "rotate an already-cropped image — the map covers the
-    // whole page, selecting an area would crop it wrong, it's about
-    // rotating an ALREADY cropped image"] Rotates the CONTENT ITSELF (the
-    // pixels of the already-saved bytes) by 90° — INDEPENDENT of the
-    // rotation/resize handles on the page preview
-    // (`#renderResizeHandles`/`#resizeImage`), which concern SELECTING the
-    // area BEFORE re-cropping from the PDF. Here the PDF is not queried
-    // again at all — a pure canvas operation.
-    const rotateWrap = document.createElement('div');
-    rotateWrap.className = 'bindery-row-rotate';
-    const rotateLeftBtn = document.createElement('button');
-    rotateLeftBtn.type = 'button';
-    rotateLeftBtn.className = 'bindery-row-rotate-btn';
-    rotateLeftBtn.textContent = '↺';
-    rotateLeftBtn.title = game.i18n!.format('BINDERY.review.rotateImageLeft' as never, { n: String(ReviewScreen.#IMAGE_ROTATE_STEP_DEG) });
-    rotateLeftBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      void this.#rotateImage(image, -1);
-    });
-    rotateWrap.appendChild(rotateLeftBtn);
-    const rotateRightBtn = document.createElement('button');
-    rotateRightBtn.type = 'button';
-    rotateRightBtn.className = 'bindery-row-rotate-btn';
-    rotateRightBtn.textContent = '↻';
-    rotateRightBtn.title = game.i18n!.format('BINDERY.review.rotateImageRight' as never, { n: String(ReviewScreen.#IMAGE_ROTATE_STEP_DEG) });
-    rotateRightBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      void this.#rotateImage(image, 1);
-    });
-    rotateWrap.appendChild(rotateRightBtn);
-    row.appendChild(rotateWrap);
-
-    row.addEventListener('click', (ev) => {
-      if (ev.target === checkbox || ev.target === destSelect || ev.target === groupInput || ev.target === nameInput) return;
-      this.#highlightedImageId = image.id;
-      if (this.#currentPageNumber === image.provenance.pageNumber) {
-        this.#refreshImageRowHighlights();
-        void this.#redrawOverlay();
-      } else {
-        this.#currentPageNumber = image.provenance.pageNumber;
-        void this.render();
-      }
-    });
-
-    return row;
+    this.#imageList = this.#mountList(this.element.querySelector<HTMLElement>('[data-list="images"]'), 'images', images, 80, (image) => this.#imageRows.buildImageRow(image));
   }
 
   /** Ids of the images in the ACTIVE tab (source + destination sub-tab) — what the bulk buttons above the list are allowed to touch. Images sitting in other tabs are not visible, so they must not be changed silently. */
@@ -1983,7 +1291,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#highlightedImageId = image.id;
     if (this.#currentPageNumber === image.provenance.pageNumber) {
       this.#refreshImageRowHighlights();
-      void this.#redrawOverlay();
+      void this.#overlay.redrawOverlay();
     } else {
       this.#currentPageNumber = image.provenance.pageNumber;
       await this.render();
@@ -2016,7 +1324,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     row.appendChild(checkbox);
     const label = document.createElement('span');
     label.className = 'bindery-row-label';
-    label.textContent = `${scene.name} — p. ${scene.provenance.pageNumber}`;
+    label.textContent = `${scene.name} — ${pageRef(scene.provenance.pageNumber)}`;
     row.appendChild(label);
     return row;
   }
@@ -2096,7 +1404,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     if (firstPage !== undefined && this.#step === 'review') {
       const jump = document.createElement('button');
       jump.type = 'button';
-      jump.textContent = `p. ${firstPage}`;
+      jump.textContent = pageRef(firstPage);
       jump.addEventListener('click', () => {
         this.#currentPageNumber = firstPage;
         this.#tab = 'images';
@@ -2207,17 +1515,28 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
   // ---- Import --------------------------------------------------------
 
   static async #onConfirmImport(this: ReviewScreen): Promise<void> {
+    // The button is disabled only after the next render: a second click before that must not start a second import.
+    if (this.#isImporting) return;
     this.#isImporting = true;
     this.#importError = null;
     await this.render();
 
     try {
       await game.settings!.set(MODULE_ID, 'importTargets', { ...this.#targets });
-      const summary = await this.#runImport();
+      const summary = await runReviewImport({
+        document: this.#data.document,
+        imageBytesById: this.#data.imageBytesById,
+        fileName: this.#data.fileName,
+        targets: this.#targets,
+        selection: this.#selection,
+        progress: this.#importProgress,
+        handEditedImageIds: this.#handEditedImageIds,
+        statblocks: this.#statblocks,
+      });
       this.#summaryEntries = summary.entries;
       this.#summaryDiagnostics = summary.diagnostics;
       this.#settled = true;
-      this.#resolve?.({ confirmed: true });
+      this.#resolve?.({ confirmed: true, createdCount: summary.entries.length, errorCount: summary.diagnostics.filter((d) => d.severity === 'error').length });
       this.#step = 'summary';
     } catch (err) {
       this.#importError = game.i18n!.localize('BINDERY.review.importErrorGeneric');
@@ -2225,261 +1544,6 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
     } finally {
       this.#isImporting = false;
       await this.render();
-    }
-  }
-
-  async #runImport(): Promise<{ entries: { label: string; uuid?: string }[]; diagnostics: Diagnostic[] }> {
-    const doc = this.#data.document;
-    const baseName = this.#data.fileName.replace(/\.pdf$/i, '') || 'bindery-import';
-    const prefix = this.#targets.namePrefix.trim();
-    const withPrefix = (name: string): string => (prefix ? `${prefix} ${name}` : name);
-    // The uploaded FILE's name mirrors the document name the user actually
-    // typed in the Images tab (`image.caption`), sanitized by `uploadImage`
-    // itself — an empty caption keeps the previous, PDF-filename+id scheme
-    // unchanged.
-    const uploadBaseNameFor = (image: CIFImage): string => (image.caption?.trim() ? `${baseName}-${image.caption.trim()}` : `${baseName}-${image.id}`);
-
-    const entries: { label: string; uuid?: string }[] = [];
-    const runDiagnostics: Diagnostic[] = [];
-    /** Every image uploaded during this import, by CIF image id — a picture used both as an image destination and as a statblock's portrait is uploaded once. */
-    const uploadedPathByImageId = new Map<string, string>();
-
-    // Scenes — SOLELY the selected ones.
-    const sceneFolderId = await ensureFolder(this.#targets.sceneFolder, 'Scene');
-    // Images already handled via CIFScene
-    // (below) or embedded in a journal (further down) do NOT pass through
-    // the per-image destination loop again — the same image shouldn't get
-    // TWO documents. SOLELY for scenes/journals/pages that are ACTUALLY
-    // selected — the original version added `scene.imageRef`
-    // unconditionally, so an image belonging to an UNSELECTED (and thus
-    // never created) CIFScene was nonetheless excluded from the per-image
-    // destination loop in the Images tab ("the scene isn't created" — the
-    // image got NO document at all, contrary to the user's intent set in
-    // the dropdown).
-    const usedImageIds = new Set<string>();
-    // See the comment next to `SCENES_JOURNALS_FROM_CIF_ENABLED`
-    // at the top of the file — CIFScene/CIFJournal auto-detection is
-    // disabled "for now", the same images are still available in the Images
-    // tab with a Scene/Journal Destination.
-    if (SCENES_JOURNALS_FROM_CIF_ENABLED) {
-      for (const scene of doc.scenes) {
-        if (this.#selection.isSceneSelected(scene.id)) usedImageIds.add(scene.imageRef);
-      }
-
-      for (const scene of doc.scenes) {
-        if (!this.#selection.isSceneSelected(scene.id)) continue;
-        const image = doc.images.find((i) => i.id === scene.imageRef);
-        const bytes = this.#data.imageBytesById.get(scene.imageRef);
-        if (!image || !bytes) {
-          runDiagnostics.push({ severity: 'error', code: 'REVIEW_SCENE_IMAGE_MISSING', params: { name: scene.name, imageRef: scene.imageRef }, pageNumber: scene.provenance.pageNumber });
-          continue;
-        }
-        try {
-          const upload = await uploadImage({ bytes: bytes.bytes, baseName: `${baseName}-${scene.imageRef}`, format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(scene.imageRef) });
-          const name = withPrefix(scene.name);
-          const grid = await this.#pickGridForImage(bytes, image);
-          const created = await createSceneFromImage({ name, imagePath: upload.path, width: image.width, height: image.height, grid, folder: sceneFolderId });
-          entries.push({ label: name, uuid: created.uuid });
-        } catch (err) {
-          runDiagnostics.push({ severity: 'error', code: 'REVIEW_SCENE_CREATE_FAILED', params: { name: scene.name, error: err instanceof Error ? err.message : String(err) }, pageNumber: scene.provenance.pageNumber });
-        }
-      }
-    }
-
-    // Journals — SOLELY selected journals, SOLELY selected pages within them.
-    const journalFolderId = await ensureFolder(this.#targets.journalFolder, 'JournalEntry');
-    if (SCENES_JOURNALS_FROM_CIF_ENABLED) {
-      const filteredJournals: CIFJournalForCreation[] = [];
-      for (const journal of doc.journals) {
-        if (!this.#selection.isJournalSelected(journal.id)) continue;
-        const pages = journal.pages.filter((p) => this.#selection.isJournalPageSelected(p.id));
-        if (pages.length === 0) continue;
-        for (const p of pages) for (const id of p.imageRefs) usedImageIds.add(id);
-        filteredJournals.push({ name: withPrefix(journal.name), pages: pages.map((p) => ({ name: p.name, headingLevel: p.headingLevel, html: p.html })) });
-      }
-      if (filteredJournals.length > 0) {
-        const imagesForUpload = doc.images.filter((i) => usedImageIds.has(i.id)).map((i) => ({ id: i.id, format: i.format }));
-        const result = await createJournalsFromCIF({
-          journals: filteredJournals,
-          images: imagesForUpload,
-          imageBytesById: this.#data.imageBytesById,
-          baseName,
-          folder: journalFolderId,
-        });
-        for (const j of result.createdJournals) entries.push({ label: j.name, uuid: j.uuid });
-        for (const missing of result.missingImageIds) {
-          runDiagnostics.push({ severity: 'warning', code: 'REVIEW_JOURNAL_IMAGE_MISSING', params: { imageId: missing } });
-        }
-      }
-    }
-
-    const defaultImageName = game.i18n!.localize('BINDERY.review.defaultImageName' as never);
-
-    // Images with the `journal` destination AND a non-empty
-    // group name (set in the Images tab — per-image or in bulk) go
-    // TOGETHER into ONE JournalEntry (multiple image-type pages), instead of
-    // each getting its own separate journal as before. Images with an EMPTY
-    // group (the default) keep the old behavior — handled by the per-image
-    // loop below, which skips images already in `usedImageIds`.
-    const journalGroups = new Map<string, CIFImage[]>();
-    for (const image of doc.images) {
-      if (usedImageIds.has(image.id)) continue;
-      if (!this.#selection.isImageSelected(image.id)) continue;
-      if (this.#selection.imageDestination(image.id) !== 'journal') continue;
-      const group = this.#selection.imageJournalGroup(image.id);
-      if (!group) continue;
-      // Claimed right away (not only after successful processing below) —
-      // this image BELONGS to the group regardless of whether its
-      // processing succeeds; the per-image loop below shouldn't touch it
-      // even on error (avoids duplicate diagnostics for the same image).
-      usedImageIds.add(image.id);
-      const list = journalGroups.get(group) ?? [];
-      list.push(image);
-      journalGroups.set(group, list);
-    }
-    for (const [groupName, groupImages] of journalGroups) {
-      const pages: { name: string; imagePath: string }[] = [];
-      for (const image of groupImages) {
-        const bytes = this.#data.imageBytesById.get(image.id);
-        if (!bytes) {
-          runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_BYTES_MISSING', params: { imageId: image.id }, pageNumber: image.provenance.pageNumber });
-          continue;
-        }
-        try {
-          const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
-          uploadedPathByImageId.set(image.id, upload.path);
-          pages.push({ name: withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`), imagePath: upload.path });
-        } catch (err) {
-          // A code distinct from `REVIEW_IMAGE_DESTINATION_FAILED` below —
-          // a different parameter shape (imageId+groupName, not name+destination), so
-          // a shared code would give an inconsistent localization template.
-          runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_JOURNAL_GROUP_FAILED', params: { imageId: image.id, groupName, error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
-        }
-      }
-      if (pages.length === 0) continue;
-      try {
-        const created = await createJournalHandoutFromImages({ name: withPrefix(groupName), pages, folder: journalFolderId });
-        entries.push({ label: created.name, uuid: created.uuid });
-      } catch (err) {
-        runDiagnostics.push({ severity: 'error', code: 'REVIEW_JOURNAL_GROUP_CREATE_FAILED', params: { groupName, error: err instanceof Error ? err.message : String(err) } });
-      }
-    }
-
-    // The UPLOADED `token` image path per `CIFImage.id` — records what was ACTUALLY uploaded for
-    // images whose destination is `token`. An image that for some reason didn't end up HERE
-    // (deselected in the Images tab, destination changed, upload error — see the `catch` below)
-    // simply has no entry, instead of a path to a nonexistent file.
-    const uploadedTokenImagePathById = new Map<string, string>();
-
-    // Per-image destination (Images tab) — SOLELY selected
-    // images that have NOT already been handled as a CIFScene, embedded in
-    // a journal, or gathered into a journal group above. `scene`/`journal`/
-    // `token` are created directly from a SINGLE image;
-    // `unassigned` (formerly `skip`, see
-    // `defaultImageDestination`) is skipped.
-    for (const image of doc.images) {
-      if (usedImageIds.has(image.id)) continue;
-      if (!this.#selection.isImageSelected(image.id)) continue;
-      const destination = this.#selection.imageDestination(image.id);
-      if (destination === 'unassigned') continue;
-
-      const bytes = this.#data.imageBytesById.get(image.id);
-      if (!bytes) {
-        runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_BYTES_MISSING', params: { imageId: image.id }, pageNumber: image.provenance.pageNumber });
-        continue;
-      }
-      const name = withPrefix(image.caption?.trim() || `${defaultImageName} p.${image.provenance.pageNumber}`);
-      try {
-        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
-        uploadedPathByImageId.set(image.id, upload.path);
-        if (destination === 'scene') {
-          const grid = await this.#pickGridForImage(bytes, image);
-          const created = await createSceneFromImage({ name, imagePath: upload.path, width: image.width, height: image.height, grid, folder: sceneFolderId });
-          entries.push({ label: name, uuid: created.uuid });
-        } else if (destination === 'journal') {
-          const created = await createJournalHandoutFromImage({ name, imagePath: upload.path, folder: journalFolderId });
-          entries.push({ label: name, uuid: created.uuid });
-        } else {
-          // 'token' — saved to disk,
-          // without creating a document. Originally, a label
-          // without a path was INDISTINGUISHABLE from "nothing happened"
-          // ("I can't see where the tokens are being saved") — we append
-          // the real path returned by `FilePicker.upload()`, the only trace
-          // of this save visible to the user (no document, hence no
-          // `uuid`/link to open).
-          entries.push({ label: `${name} — ${upload.path}` });
-          // Recorded AFTER a successful upload — see the
-          // comment next to `uploadedTokenImagePathById` above.
-          uploadedTokenImagePathById.set(image.id, upload.path);
-        }
-      } catch (err) {
-        runDiagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_DESTINATION_FAILED', params: { name, destination, error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
-      }
-    }
-
-    await this.#importStatblocks(entries, runDiagnostics, uploadedPathByImageId, uploadBaseNameFor);
-
-    return { entries, diagnostics: runDiagnostics };
-  }
-
-  /** Creates the Actors for the statblocks ticked in the Statblocks tab, with the pictures chosen there (uploaded here if the image import didn't already do it). */
-  async #importStatblocks(entries: { label: string; uuid?: string }[], diagnostics: Diagnostic[], uploadedPathByImageId: Map<string, string>, uploadBaseNameFor: (image: CIFImage) => string): Promise<void> {
-    const state = this.#statblocks;
-    if (!state || state.includedCount === 0) return;
-    const i18n = game.i18n!;
-    const resolveImagePath = async (imageId: string): Promise<string | undefined> => {
-      const known = uploadedPathByImageId.get(imageId);
-      if (known) return known;
-      const image = this.#data.document.images.find((i) => i.id === imageId);
-      const bytes = this.#data.imageBytesById.get(imageId);
-      if (!image || !bytes) return undefined;
-      try {
-        const upload = await uploadImage({ bytes: bytes.bytes, baseName: uploadBaseNameFor(image), format: bytes.format === 'png' ? 'png' : 'webp', keepTransparency: this.#handEditedImageIds.has(image.id) });
-        uploadedPathByImageId.set(imageId, upload.path);
-        return upload.path;
-      } catch (err) {
-        diagnostics.push({ severity: 'error', code: 'REVIEW_IMAGE_DESTINATION_FAILED', params: { name: image.caption?.trim() || image.id, destination: 'statblock', error: err instanceof Error ? err.message : String(err) }, pageNumber: image.provenance.pageNumber });
-        return undefined;
-      }
-    };
-    const report = await state.run(resolveImagePath);
-    if (!report) return;
-    const statusKey = { created: 'statusCreated', updated: 'statusUpdated', skipped: 'statusSkipped', error: 'statusError' } as const;
-    for (const instance of report.instances) {
-      entries.push({ label: `${i18n.localize(`BINDERY.statblockImport.${statusKey[instance.status]}`)}: ${instance.actorName}`, uuid: instance.actorUuid });
-      diagnostics.push(...instance.diagnostics);
-    }
-  }
-
-  /**
-   * Opens `GridPicker` (built in step 8,
-   * never called from anywhere until now — dead code) with a LIVE preview of
-   * the SPECIFIC image, instead of giving every scene the same, ill-fitting
-   * starting point. The user can confirm (the calibration is saved as
-   * `lastGridConfig` — the starting slider position for the NEXT scene, so
-   * as not to start from scratch on similar maps) or cancel — in which case
-   * we use the LAST CONFIRMED calibration as a reasonable approximation (an
-   * explicit user choice to "skip", not a silent imposition of someone
-   * else's settings like in the original bug — see this file's history).
-   */
-  async #pickGridForImage(bytes: { bytes: Uint8Array; format: string }, image: { width: number; height: number; suggestedGrid?: CIFImage['suggestedGrid'] }): Promise<GridConfig> {
-    const mime = bytes.format === 'png' ? 'image/png' : 'image/webp';
-    const url = URL.createObjectURL(new Blob([new Uint8Array(bytes.bytes)], { type: mime }));
-    try {
-      // The auto-detection suggestion is passed SOLELY when
-      // confidence exceeds the "worth showing" threshold — below it, the
-      // last manual calibration (`lastGridConfig`, see `GridPickerApp.pick`)
-      // is a better starting point than guessing on a weak signal.
-      const suggested = image.suggestedGrid;
-      const suggestedGrid =
-        suggested && suggested.confidence >= MIN_GRID_SUGGESTION_CONFIDENCE
-          ? { size: suggested.size, offsetX: suggested.offsetX, offsetY: suggested.offsetY }
-          : undefined;
-      const picked = await pickGrid({ imageDataUrl: url, imageWidth: image.width, imageHeight: image.height, suggestedGrid });
-      if (picked) return picked;
-      return game.settings!.get(MODULE_ID, 'lastGridConfig') as GridConfig;
-    } finally {
-      URL.revokeObjectURL(url);
     }
   }
 

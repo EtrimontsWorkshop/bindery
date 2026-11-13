@@ -60,3 +60,63 @@ describe('eraseNumberMarkers', () => {
     expect(eraseNumberMarkers(img)).toBeNull();
   });
 });
+
+describe('eraseNumberMarkers — squares of one colour', () => {
+  /** A red square with a white "1" in it, on a grey-green ground. */
+  const RED = [200, 40, 40, 255];
+  const GROUND = [150, 160, 140, 255];
+  function ground(width: number, height: number) {
+    const rgba = new Uint8ClampedArray(width * height * 4);
+    for (let p = 0; p < width * height; p++) rgba.set(GROUND, p * 4);
+    return { width, height, rgba };
+  }
+  function square(img: ReturnType<typeof ground>, x0: number, y0: number, side: number, glyph: boolean): void {
+    for (let y = y0; y < y0 + side; y++) for (let x = x0; x < x0 + side; x++) img.rgba.set(RED, (y * img.width + x) * 4);
+    if (!glyph) return;
+    for (let y = y0 + 4; y < y0 + side - 4; y++) for (const x of [x0 + side / 2 - 1, x0 + side / 2]) img.rgba.set([255, 255, 255, 255], (y * img.width + x) * 4);
+  }
+  const red = (img: { width: number; rgba: Uint8ClampedArray }, x: number, y: number) => img.rgba[(y * img.width + x) * 4]! > 180 && img.rgba[(y * img.width + x) * 4 + 1]! < 80;
+
+  it('paints three or more red squares with a light number over with the ground around them', () => {
+    const img = ground(500, 400);
+    const at = [[40, 40], [200, 100], [380, 300], [120, 260]] as const;
+    for (const [x, y] of at) square(img, x, y, 20, true);
+    const out = eraseNumberMarkers(img);
+    expect(out).not.toBeNull();
+    for (const [x, y] of at) {
+      expect(red(out!, x + 3, y + 3)).toBe(false);
+      expect(out!.rgba[((y + 3) * out!.width + x + 3) * 4 + 1]).toBeGreaterThan(140);
+    }
+  });
+
+  it('leaves a bold red letter with a counter (an O of a headline) alone: its corners are not red', () => {
+    const img = ground(500, 400);
+    for (const [cx, cy] of [[60, 60], [200, 110], [390, 310], [130, 270]] as const) {
+      for (let y = cy - 10; y <= cy + 10; y++) for (let x = cx - 10; x <= cx + 10; x++) {
+        const d = Math.hypot(x - cx, y - cy);
+        if (d <= 10) img.rgba.set(d <= 4 ? [255, 255, 255, 255] : RED, (y * img.width + x) * 4);
+      }
+    }
+    expect(eraseNumberMarkers(img)).toBeNull();
+  });
+
+  it('leaves a bold red E of a headline alone: its gaps open to its edge', () => {
+    const img = ground(500, 400);
+    for (const [x0, y0] of [[40, 40], [200, 100], [380, 300], [120, 260]] as const) {
+      for (let y = y0; y < y0 + 20; y++) for (let x = x0; x < x0 + 20; x++) {
+        const gap = x >= x0 + 6 && ((y >= y0 + 4 && y < y0 + 8) || (y >= y0 + 12 && y < y0 + 16));
+        img.rgba.set(gap ? [255, 255, 255, 255] : RED, (y * img.width + x) * 4);
+      }
+    }
+    expect(eraseNumberMarkers(img)).toBeNull();
+  });
+
+  it('leaves red squares without a number (a roof, a flag) and a red square or two alone', () => {
+    const plain = ground(500, 400);
+    for (const [x, y] of [[40, 40], [200, 100], [380, 300]] as const) square(plain, x, y, 20, false);
+    expect(eraseNumberMarkers(plain)).toBeNull();
+    const two = ground(500, 400);
+    for (const [x, y] of [[40, 40], [200, 100]] as const) square(two, x, y, 20, true);
+    expect(eraseNumberMarkers(two)).toBeNull();
+  });
+});

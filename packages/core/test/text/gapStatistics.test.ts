@@ -234,3 +234,12 @@ describe('computeReliableGlyphCoverage — a glyph-weighted metric', () => {
     expect(computeReliableGlyphCoverage(fonts, profiles)).toBe(0);
   });
 });
+
+describe('buildHierarchicalGapProfiles — a long document', () => {
+  it('profiles a font with more gaps than a function call can take as arguments', () => {
+    const samples = bimodalSamples('F|10', 300_000, 7);
+    const profile = buildHierarchicalGapProfiles(samples, new Map([['F|10', 10]])).get('F|10');
+    expect(profile?.document.sampleCount).toBe(300_000);
+    expect(profile?.document.reliable).toBe(true);
+  });
+});

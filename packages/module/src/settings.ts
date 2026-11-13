@@ -60,6 +60,32 @@ export function registerSettings(): void {
     default: `worlds/${game.world?.id ?? 'world'}/bindery-imports`,
   });
 
+  // Which of Foundry's storages the upload folder is in. The default (`data`) is what worked everywhere it was tried;
+  // the other values are for a setup where the images have to go elsewhere (an S3 bucket).
+  game.settings!.register(MODULE_ID, 'uploadSource', {
+    name: 'BINDERY.settings.uploadSourceLabel',
+    hint: 'BINDERY.settings.uploadSourceHint',
+    scope: 'world',
+    config: true,
+    type: String,
+    choices: {
+      data: 'BINDERY.settings.uploadSourceData',
+      s3: 'BINDERY.settings.uploadSourceS3',
+      forgevtt: 'BINDERY.settings.uploadSourceForge',
+    },
+    default: 'data',
+  });
+
+  // The S3 bucket, used only with the S3 storage above.
+  game.settings!.register(MODULE_ID, 'uploadBucket', {
+    name: 'BINDERY.settings.uploadBucketLabel',
+    hint: 'BINDERY.settings.uploadBucketHint',
+    scope: 'world',
+    config: true,
+    type: String,
+    default: '',
+  });
+
   // Global switch: images that have transparent pixels get a white background when they are saved at import
   // (sketches exported without a background are hard to read). Applies to every saved image, tokens and portraits too.
   game.settings!.register(MODULE_ID, 'whiteBackground', {

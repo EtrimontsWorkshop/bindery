@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { setPath } from '../../../src/statblock/import/setPath.js';
+import { getPath, setPath } from '../../../src/statblock/import/setPath.js';
 
 describe('setPath', () => {
   it('sets a shallow key', () => {
@@ -36,5 +36,19 @@ describe('setPath', () => {
     const target: Record<string, unknown> = { attributes: { hp: { value: 1 } } };
     setPath(target, 'attributes.hp.value', 99);
     expect(target).toEqual({ attributes: { hp: { value: 99 } } });
+  });
+});
+
+describe('setPath / getPath — paths into the prototype chain', () => {
+  it.each(['__proto__.polluted', 'a.__proto__.polluted', 'constructor.prototype.polluted', 'a.prototype.x'])('does not write %s', (path) => {
+    const target: Record<string, unknown> = {};
+    setPath(target, path, 1);
+    expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+    expect(Object.keys(target)).toEqual([]);
+  });
+
+  it('does not read through the prototype chain', () => {
+    expect(getPath({}, '__proto__')).toBeUndefined();
+    expect(getPath({}, 'constructor.name')).toBeUndefined();
   });
 });

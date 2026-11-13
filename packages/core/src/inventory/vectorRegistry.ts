@@ -57,3 +57,12 @@ export function buildVectorShapes(events: readonly WalkEvent[], page: number, pa
   }
   return shapes;
 }
+
+/** The stroked paths of one page that are not rectangles, from `walkOperators` events of type 'line'. */
+export function buildVectorLines(events: readonly WalkEvent[], page: number, pageBox: Rect): VectorShape[] {
+  const lines: VectorShape[] = [];
+  for (const e of events) {
+    if (e.type === 'line') lines.push({ page, bbox: e.bbox, relativeArea: computeRelativeArea(e.bbox, pageBox) });
+  }
+  return lines;
+}

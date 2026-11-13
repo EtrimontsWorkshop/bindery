@@ -625,7 +625,8 @@ class ImageEraseApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#resolve = null;
     this.#source?.close();
     this.#source = null;
-    return super.close(options);
+    await super.close(options);
+    return this;
   }
 }
 

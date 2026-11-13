@@ -296,9 +296,192 @@ function colorAround(image: DecodedImage, disc: Disc): [number, number, number, 
 }
 
 /**
- * `image` with the numbered markers painted over, or null when it has none (fewer than three discs with a number in them, of one size).
+ * Numbered markers drawn as squares of one saturated colour (a red square with a white number), the key of a map painted in many colours: a
+ * solid square of that colour with a light number in it. Measured on one book: 14 px squares at 600 px (colour 47% of the box, number 44%) and 41 px
+ * at 2048 px (91% and 6%), solid either way (90% and more); the red labels and arcs of the same map are letters and lines, no squares, and the
+ * patches of colour of other pictures (a roof, a banner, a flag) let the drawing show through.
+ */
+const SQUARE_MIN_SATURATION_SPREAD = 120;
+const SQUARE_MIN_MAX_CHANNEL = 120;
+/** The side of a square, as a share of the picture's shorter side. */
+const SQUARE_MIN_SIDE_SHARE = 0.008;
+const SQUARE_MAX_SIDE_SHARE = 0.06;
+const SQUARE_MIN_ASPECT = 0.75;
+/** Its colour fills between these shares of its box (the number takes the rest). */
+const SQUARE_MIN_FILL = 0.45;
+const SQUARE_MAX_FILL = 0.95;
+/** The light number inside takes between these shares of its box. */
+const SQUARE_MIN_GLYPH_SHARE = 0.03;
+const SQUARE_MAX_GLYPH_SHARE = 0.4;
+/** A marker is solid: its colour and its number fill this share of its box together (a patch of colour with the drawing showing through does not). */
+const SQUARE_MIN_SOLID_SHARE = 0.85;
+/** Squares of one colour: their hues lie within this many degrees of the median. */
+const SQUARE_HUE_SPREAD_DEG = 20;
+const SQUARE_ERASE_MARGIN_PX = 2;
+/** The border of a square is looked at this share of its side inside its box, and this share of it is in the square's colour. */
+const SQUARE_BORDER_INSET_SHARE = 0.08;
+const SQUARE_MIN_BORDER_SHARE = 0.9;
+
+interface Square {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  hue: number;
+}
+
+function hueOf(r: number, g: number, b: number): number {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return 0;
+  const h6 = max === r ? ((g - b) / (max - min) + 6) % 6 : max === g ? (b - r) / (max - min) + 2 : (r - g) / (max - min) + 4;
+  return h6 * 60;
+}
+
+/** The coloured square markers of a picture (see `SQUARE_MIN_SATURATION_SPREAD`): three at least, of one size and one colour, or none. */
+export function findSquareMarkers(image: DecodedImage): Square[] {
+  const { width, height, rgba } = image;
+  const shorter = Math.min(width, height);
+  const minSide = Math.max(6, SQUARE_MIN_SIDE_SHARE * shorter);
+  const maxSide = SQUARE_MAX_SIDE_SHARE * shorter;
+  const coloured = new Uint8Array(width * height);
+  for (let p = 0; p < coloured.length; p++) {
+    const i = p * 4;
+    const r = rgba[i]!;
+    const g = rgba[i + 1]!;
+    const b = rgba[i + 2]!;
+    if (rgba[i + 3]! >= DARK_MIN_ALPHA && Math.max(r, g, b) >= SQUARE_MIN_MAX_CHANNEL && Math.max(r, g, b) - Math.min(r, g, b) >= SQUARE_MIN_SATURATION_SPREAD) coloured[p] = 1;
+  }
+  const seen = new Uint8Array(width * height);
+  const stack = new Int32Array(width * height);
+  const squares: Square[] = [];
+  for (let start = 0; start < coloured.length; start++) {
+    if (!coloured[start] || seen[start]) continue;
+    let top = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    let count = 0;
+    let sumHue = 0;
+    while (top > 0) {
+      const p = stack[--top]!;
+      const x = p % width;
+      const y = (p - x) / width;
+      count++;
+      sumHue += hueOf(rgba[p * 4]!, rgba[p * 4 + 1]!, rgba[p * 4 + 2]!);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      if (maxX - minX > maxSide || maxY - minY > maxSide) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const q = ny * width + nx;
+          if (coloured[q] && !seen[q]) {
+            seen[q] = 1;
+            stack[top++] = q;
+          }
+        }
+      }
+    }
+    const w = maxX - minX + 1;
+    const h = maxY - minY + 1;
+    if (w < minSide || h < minSide || w > maxSide || h > maxSide || Math.min(w, h) / Math.max(w, h) < SQUARE_MIN_ASPECT) continue;
+    const fill = count / (w * h);
+    if (fill < SQUARE_MIN_FILL || fill > SQUARE_MAX_FILL) continue;
+    // A light number inside it, and light ground around it.
+    let glyph = 0;
+    for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) if (!coloured[y * width + x] && luminance(rgba, (y * width + x) * 4) >= MIN_GLYPH_LUMINANCE) glyph++;
+    const glyphShare = glyph / (w * h);
+    if (glyphShare < SQUARE_MIN_GLYPH_SHARE || glyphShare > SQUARE_MAX_GLYPH_SHARE || fill + glyphShare < SQUARE_MIN_SOLID_SHARE) continue;
+    // A square is closed all round in its colour, its number inside; a bold letter of a red headline (an O, a D, an E) has round corners or
+    // gaps that open to its edge.
+    const inset = Math.max(1, Math.round(SQUARE_BORDER_INSET_SHARE * Math.min(w, h)));
+    let border = 0;
+    let borderColoured = 0;
+    for (let x = minX + inset; x <= maxX - inset; x++) {
+      for (const y of [minY + inset, maxY - inset]) {
+        border++;
+        if (coloured[y * width + x]) borderColoured++;
+      }
+    }
+    for (let y = minY + inset + 1; y < maxY - inset; y++) {
+      for (const x of [minX + inset, maxX - inset]) {
+        border++;
+        if (coloured[y * width + x]) borderColoured++;
+      }
+    }
+    if (border === 0 || borderColoured / border < SQUARE_MIN_BORDER_SHARE) continue;
+    squares.push({ minX, minY, maxX, maxY, hue: sumHue / count });
+  }
+  if (squares.length < MIN_MARKERS) return [];
+  const sides = squares.map((q) => Math.max(q.maxX - q.minX, q.maxY - q.minY)).sort((p, q) => p - q);
+  const medianSide = sides[Math.floor(sides.length / 2)]!;
+  const hues = squares.map((q) => q.hue).sort((p, q) => p - q);
+  const medianHue = hues[Math.floor(hues.length / 2)]!;
+  const hueDistance = (a: number, b: number): number => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+  const markers = squares.filter((q) => Math.abs(Math.max(q.maxX - q.minX, q.maxY - q.minY) - medianSide) <= RADIUS_SPREAD * medianSide && hueDistance(q.hue, medianHue) <= SQUARE_HUE_SPREAD_DEG);
+  return markers.length >= MIN_MARKERS ? markers : [];
+}
+
+/** `image` with its coloured square markers painted over with the colour around each, or null when it has none. */
+function eraseSquareMarkers(image: DecodedImage): DecodedImage | null {
+  const squares = findSquareMarkers(image);
+  if (squares.length === 0) return null;
+  const { width, height, rgba } = image;
+  const out = new Uint8ClampedArray(rgba);
+  for (const q of squares) {
+    const x0 = Math.max(0, q.minX - SQUARE_ERASE_MARGIN_PX);
+    const x1 = Math.min(width - 1, q.maxX + SQUARE_ERASE_MARGIN_PX);
+    const y0 = Math.max(0, q.minY - SQUARE_ERASE_MARGIN_PX);
+    const y1 = Math.min(height - 1, q.maxY + SQUARE_ERASE_MARGIN_PX);
+    // Filled from its four edges (the pixels just outside the square on its row and its column, weighted by how near they are): the ground of the
+    // map goes on under it, shaded as around it, instead of a flat patch of one colour.
+    const ox0 = Math.max(0, x0 - 1);
+    const ox1 = Math.min(width - 1, x1 + 1);
+    const oy0 = Math.max(0, y0 - 1);
+    const oy1 = Math.min(height - 1, y1 + 1);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const edges: [number, number][] = [
+          [y * width + ox0, x - ox0],
+          [y * width + ox1, ox1 - x],
+          [oy0 * width + x, y - oy0],
+          [oy1 * width + x, oy1 - y],
+        ];
+        const value = [0, 0, 0, 0];
+        let weight = 0;
+        for (const [q, distance] of edges) {
+          if (distance <= 0) continue;
+          const w = 1 / distance;
+          for (let c = 0; c < 4; c++) value[c]! += rgba[q * 4 + c]! * w;
+          weight += w;
+        }
+        if (weight > 0) out.set(value.map((v) => v / weight), (y * width + x) * 4);
+      }
+    }
+  }
+  return { width, height, rgba: out };
+}
+
+/**
+ * `image` with the numbered markers painted over (black discs with a white number, and squares of one colour with a light number), or null when it
+ * has none (fewer than three markers of one kind and one size).
  */
 export function eraseNumberMarkers(image: DecodedImage): DecodedImage | null {
+  const withoutDiscs = eraseDiscMarkers(image);
+  const withoutSquares = eraseSquareMarkers(withoutDiscs ?? image);
+  return withoutSquares ?? withoutDiscs;
+}
+
+/** `image` with its black disc markers painted over, or null when it has none (fewer than three discs with a number in them, of one size). */
+function eraseDiscMarkers(image: DecodedImage): DecodedImage | null {
   const { width, height, rgba } = image;
   if (width < 32 || height < 32) return null;
   const dark = new Uint8Array(width * height);

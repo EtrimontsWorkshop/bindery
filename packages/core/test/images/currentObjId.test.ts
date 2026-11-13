@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { currentObjIdAt, waitForObjects, type PdfPageForExtract } from '../../src/images/extract.js';
+import { currentObjIdAt, waitForDependencies, waitForObjects, type PdfPageForExtract } from '../../src/images/extract.js';
 
 describe('currentObjIdAt', () => {
   const list = {
@@ -50,5 +50,51 @@ describe('waitForObjects', () => {
 
   it('does not wait with a zero timeout', async () => {
     expect(await waitForObjects(pageWith(new Set()), ['never'], 0)).toBe(0);
+  });
+});
+
+describe('waitForDependencies', () => {
+  // A registry like pdf.js's `PDFObjects`: `get` with a callback calls it once the object is resolved.
+  function registry(): { has(id: string): boolean; get(id: string, cb: () => void): void; resolve(id: string): void } {
+    const ready = new Set<string>();
+    const waiting = new Map<string, (() => void)[]>();
+    return {
+      has: (id) => ready.has(id),
+      get: (id, cb) => (ready.has(id) ? cb() : waiting.set(id, [...(waiting.get(id) ?? []), cb])),
+      resolve: (id) => {
+        ready.add(id);
+        for (const cb of waiting.get(id) ?? []) cb();
+        waiting.delete(id);
+      },
+    };
+  }
+  const list = { fnArray: [1, 85, 1, 1, 83], argsArray: [['img_p0_1'], ['img_p0_1', 10, 10], ['g_d0_img_p0_2'], ['mask_p0_3'], [{ data: 'mask_p0_3' }]] };
+
+  it('waits for every dependency, however late it arrives, each in the registry pdf.js puts it in', async () => {
+    const objs = registry();
+    const commonObjs = registry();
+    const page = { objs, commonObjs } as unknown as PdfPageForExtract;
+    // Later than the default settle budget of the old clock-measured wait would have allowed under load.
+    setTimeout(() => objs.resolve('img_p0_1'), 5);
+    setTimeout(() => commonObjs.resolve('g_d0_img_p0_2'), 30);
+    setTimeout(() => objs.resolve('mask_p0_3'), 60);
+    expect(await waitForDependencies(page, list, 10_000)).toBe(true);
+    expect(['img_p0_1', 'mask_p0_3'].every((id) => objs.has(id)) && commonObjs.has('g_d0_img_p0_2')).toBe(true);
+  });
+
+  it('returns at once when nothing is missing or there is no operator list', async () => {
+    const objs = registry();
+    const commonObjs = registry();
+    for (const id of ['img_p0_1', 'mask_p0_3']) objs.resolve(id);
+    commonObjs.resolve('g_d0_img_p0_2');
+    const page = { objs, commonObjs } as unknown as PdfPageForExtract;
+    expect(await waitForDependencies(page, list, 0)).toBe(true);
+    expect(await waitForDependencies(page, null, 0)).toBe(true);
+    expect(await waitForDependencies(page, {}, 0)).toBe(true);
+  });
+
+  it('gives up after the timeout when the worker never sends a dependency', async () => {
+    const page = { objs: registry(), commonObjs: registry() } as unknown as PdfPageForExtract;
+    expect(await waitForDependencies(page, list, 20)).toBe(false);
   });
 });

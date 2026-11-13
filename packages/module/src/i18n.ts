@@ -26,6 +26,11 @@ import type { Diagnostic } from '@bindery/core';
  * call site that doesn't have it. Keeping the suffix separate means one
  * template works correctly everywhere the code can be emitted from.
  */
+/** "p. 12" in the user's language ("s. 12" in Polish): how a page of the PDF is named in lists, diagnostics and default names. */
+export function pageRef(pageNumber: number): string {
+  return game.i18n!.format('BINDERY.review.pageRef', { page: String(pageNumber) });
+}
+
 export function formatDiagnostic(diagnostic: Diagnostic): string {
   const key = `BINDERY.diagnostic.${diagnostic.code}`;
   const hasTemplate = game.i18n!.has(key, false);
@@ -34,7 +39,7 @@ export function formatDiagnostic(diagnostic: Diagnostic): string {
   const message = hasTemplate ? game.i18n!.format(key, stringParams) : diagnostic.code;
 
   const context: string[] = [];
-  if (diagnostic.pageNumber !== undefined) context.push(`p. ${diagnostic.pageNumber}`);
+  if (diagnostic.pageNumber !== undefined) context.push(pageRef(diagnostic.pageNumber));
   const field = diagnostic.params?.['field'];
   if (field !== undefined) context.push(String(field));
   const raw = diagnostic.params?.['raw'];

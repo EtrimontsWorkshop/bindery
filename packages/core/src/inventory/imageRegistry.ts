@@ -1,8 +1,9 @@
 import { clusterByOverlap } from '../clustering.js';
 import { groupByQuantizedPosition } from '../collections.js';
-import type { Rect } from '../geometry.js';
+import type { Matrix, Rect } from '../geometry.js';
 import { overlapRatio, relativeArea as computeRelativeArea } from '../geometry.js';
 import type { ClipInfo } from './clipPaths.js';
+import { fingerprintDistance, type ContentFingerprint } from './contentFingerprint.js';
 import type { WalkEvent } from './walkOperators.js';
 
 /**
@@ -32,6 +33,8 @@ export interface ImageOccurrence {
   clip?: ClipInfo;
   /** Present only when the picture is mirrored or turned on the page — see `placementOf`. */
   placement?: Placement;
+  /** The matrix the raster is painted with (the unit square to the page), present only when it is turned and no clip records it (`clip.ctm`). */
+  ctm?: Matrix;
 }
 
 /** How the raster lies in its box when that is not the plain upright, unmirrored way. */
@@ -116,6 +119,12 @@ export interface ImageEntry {
    * classifying what to do about it belongs to phase 3.
    */
   correlatedWith?: string;
+  /**
+   * A tiny picture of the resource's content (see `contentFingerprint.ts`), present when the inventory could read
+   * the decoded image. `correlateImagesByBBox` links two entries in the same place only when their fingerprints are
+   * alike (or one of them is missing).
+   */
+  contentFingerprint?: ContentFingerprint;
 }
 
 const OPCODE_PAINT_IMAGE_MASK_XOBJECT = 83;
@@ -157,6 +166,7 @@ function collectRawOccurrences(pages: readonly PageImageEvents[]): { page: numbe
           ...(e.blended ? { blended: true as const } : {}),
           ...(e.clip !== undefined ? { clip: e.clip } : {}),
           ...(placementOf(e.ctm) !== undefined ? { placement: placementOf(e.ctm)! } : {}),
+          ...(e.clip === undefined && placementOf(e.ctm)?.rotated === true ? { ctm: e.ctm } : {}),
         },
       });
     }
@@ -254,7 +264,7 @@ function detectMaskEvidence(
  * Builds the image registry from `walkOperators` events collected from ALL
  * pages of the document. Zero image decoding — purely geometric/structural facts.
  */
-export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry[] {
+export function buildImageEntries(pages: readonly PageImageEvents[], fingerprintByObjId: ReadonlyMap<string, ContentFingerprint> = new Map()): ImageEntry[] {
   const rawList = collectRawOccurrences(pages);
   const occurrences = rawList.map((r) => r.occ);
   const clusterIdByOccurrence = clusterByOverlap(
@@ -287,7 +297,7 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
       entriesByKey.set(key, entry);
     }
 
-    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.blended ? { blended: true as const } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}), ...(occ.placement !== undefined ? { placement: occ.placement } : {}) });
+    entry.occurrences.push({ page: occ.page, bbox: occ.bbox, index: occ.index, ...(occ.opacity !== undefined ? { opacity: occ.opacity } : {}), ...(occ.blended ? { blended: true as const } : {}), ...(occ.clip !== undefined ? { clip: occ.clip } : {}), ...(occ.placement !== undefined ? { placement: occ.placement } : {}), ...(occ.ctm !== undefined ? { ctm: occ.ctm } : {}) });
 
     // The first occurrence carrying the intrinsic resolution is enough — the
     // same objId always refers to the same resource, so later occurrences
@@ -317,6 +327,8 @@ export function buildImageEntries(pages: readonly PageImageEvents[]): ImageEntry
   });
 
   for (const entry of entriesByKey.values()) {
+    const fingerprint = entry.objId !== null ? fingerprintByObjId.get(entry.objId) : undefined;
+    if (fingerprint) entry.contentFingerprint = fingerprint;
     entry.pageRefs = [...new Set(entry.occurrences.map((o) => o.page))].sort((a, b) => a - b);
     if (entry.occurrences.length > 0 && entry.occurrences.every((o) => o.opacity !== undefined)) {
       entry.maxOpacity = Math.max(...entry.occurrences.map((o) => o.opacity!));
@@ -384,14 +396,52 @@ function intrinsicSizeKey(entry: ImageEntry): string {
 const FULL_PAGE_AREA_THRESHOLD = 0.97;
 
 /**
- * Links entries whose FIRST occurrence has an identical (after quantization)
- * bbox AND identical intrinsic resolution — without decoding pixels. Zero-decode, so this is still an
- * APPROXIMATION: two different, small icons repeating at the same position
- * AND with the same resolution (e.g. bullet markers) produce a false link —
- * acceptable for headers/footers/frames (this task's purpose), but
- * classifying "is this really the same resource" still belongs to phase 3
- * (cf. `masksImageObjId`, likewise only a suggestion).
+ * Mean difference of two content fingerprints (0-255) up to which two pictures in the same place are taken for the
+ * same resource. Measured on a book whose chapter openings put a different illustration in one template slot: the
+ * same picture embedded again stays within a few units (re-compression moves the cell means very little), while two
+ * different illustrations differ by tens.
  */
+export const SAME_CONTENT_MAX_DISTANCE = 12;
+
+/**
+ * Links entries whose FIRST occurrence has an identical (after quantization)
+ * bbox AND identical intrinsic resolution AND alike content. The content check
+ * uses the fingerprints taken during the inventory (`contentFingerprint.ts`): a
+ * layout template can put a DIFFERENT picture in the same slot on every chapter's
+ * first page, and without it five chapter illustrations were linked into one
+ * "picture repeated on five pages" and hidden as a running ornament. An entry
+ * without a fingerprint (the decoded image could not be read) is linked on
+ * position and resolution alone, as before. Still an approximation (two small,
+ * alike icons in one place are linked); classifying "is this really the same
+ * resource" belongs to phase 3 (cf. `masksImageObjId`, likewise only a suggestion).
+ */
+/**
+ * Splits each same-place group into groups of alike content: an entry joins the first group whose first fingerprinted
+ * member is within `SAME_CONTENT_MAX_DISTANCE` of it, otherwise it starts a new one. Entries without a fingerprint
+ * join the first group (the behaviour before fingerprints). Input order is kept, so the result is deterministic.
+ */
+function splitByContent(groups: Iterable<readonly ImageEntry[]>): ImageEntry[][] {
+  const result: ImageEntry[][] = [];
+  for (const group of groups) {
+    const parts: ImageEntry[][] = [];
+    const unprinted: ImageEntry[] = [];
+    for (const entry of group) {
+      const fingerprint = entry.contentFingerprint;
+      if (!fingerprint) {
+        unprinted.push(entry);
+        continue;
+      }
+      const part = parts.find((p) => fingerprintDistance(p[0]!.contentFingerprint!, fingerprint) <= SAME_CONTENT_MAX_DISTANCE);
+      if (part) part.push(entry);
+      else parts.push([entry]);
+    }
+    if (parts.length === 0) parts.push([]);
+    parts[0]!.push(...unprinted);
+    result.push(...parts);
+  }
+  return result;
+}
+
 export function correlateImagesByBBox(entries: readonly ImageEntry[]): ImageEntry[] {
   const correlatable = entries.filter((entry) => entry.objId !== null && entry.occurrences.length > 0 && entry.maxRelativeArea < FULL_PAGE_AREA_THRESHOLD);
   const groups = groupByQuantizedPosition(
@@ -400,7 +450,7 @@ export function correlateImagesByBBox(entries: readonly ImageEntry[]): ImageEntr
   );
 
   const canonicalObjIdByObjId = new Map<string, string>();
-  for (const group of groups.values()) {
+  for (const group of splitByContent(groups.values())) {
     if (group.length < 2) continue;
     // Canonical = the most occurrences; ties broken by objId (determinism, no dependence on input order).
     const canonical = [...group].sort(

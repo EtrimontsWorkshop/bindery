@@ -1,6 +1,8 @@
+import { clipsShareCorner, isShapedClip, type ClipInfo } from '../inventory/clipPaths.js';
 import type { Rect } from '../geometry.js';
 import type { ImageEntry, ImageOccurrence } from '../inventory/imageRegistry.js';
 import { computeMaskedObjIds } from './strategy.js';
+import { fingerprintDistance } from '../inventory/contentFingerprint.js';
 
 /**
  * Content/decoration/mask classification. Input: `ImageEntry[]` from the inventory pass (zero
@@ -50,6 +52,41 @@ export interface ClassifiedImage {
 export const TEXT_BESIDE_BLENDED_REASON = 'Z9-text-beside-blended-picture';
 /** The reason of a small picture under page text, offered for its pixels to be judged (see the Z9 rule). */
 export const TEXT_OVER_SMALL_REASON = 'Z9-text-over-small-picture';
+/**
+ * The reason of a page-sized raster with the page's text on it that is the page's own, in a book whose other pages
+ * share one background: a page of a diary, a letter, a report — a document the page shows, not the book's paper.
+ * The extraction keeps it as a box of text, rendered with its text (see `FULL_PAGE_DOCUMENT_MIN_SHARED_PAGES`).
+ */
+export const FULL_PAGE_DOCUMENT_REASON = 'Z1-full-page-document';
+/**
+ * Share of a book's pages that one background raster, repeated across pages, must fill for the book to have a common
+ * page background. In such a book, a page that has its own page-sized raster under its text is a document set apart
+ * from the book's paper. Measured on one book: its background on 119 of 121 pages, and its own raster on the pages of
+ * a diary and of letters (5), the credits and the cover. A book that gives every page its own background has no common
+ * one, and none of its pages is taken for a document.
+ */
+const FULL_PAGE_DOCUMENT_MIN_SHARED_PAGES = 0.5;
+/** Share of the page that a raster must fill to be a page's background (for `FULL_PAGE_DOCUMENT_MIN_SHARED_PAGES`). */
+const PAGE_BACKGROUND_MIN_PAGE_SHARE = 0.9;
+/**
+ * Share of a page-sized raster that the page's words must cover for it to be a document written over (measured on the
+ * pages of words, so a handwritten letter counts whatever role the layout gives its font): the diary and letter pages
+ * of one book 0.3 and more; a cover or a chapter opening with its title over art far less.
+ */
+const FULL_PAGE_DOCUMENT_MIN_WORD_COVERAGE = 0.15;
+/** The reason of a picture that the page's text wraps around without lying on it (see the Z9 rule). */
+export const TEXT_WRAPS_AROUND_REASON = 'Z9-text-wraps-around-picture';
+/**
+ * Share of the middle of a picture that the page's WORDS may cover for the text over its box to be text that wraps
+ * around it. The boxes of the layout blocks are rectangles: a column whose lines are cut short beside a portrait (set
+ * between two columns, the text following its oval) has a box over the portrait, though no word lies on it. The words
+ * are pdf.js's own text items (`InventoryResult.wordBoxesByPage`), not the layout's lines: on such a page the layout
+ * glues the pieces of text on both sides of the picture into lines that run across it. Measured on 18 books: the 14
+ * portraits of one book set into its text (block boxes over 0.15-1 of their middle, words over none of it), and three
+ * pictures that text wraps around in three other books, came back; no picture of the 18 books was lost. The words of
+ * a card or a note cover a good part of its middle.
+ */
+const TEXT_WRAPS_AROUND_MAX_WORD_COVERAGE = 0.03;
 const TEXT_OVER_SMALL_MIN_AREA = 0.02;
 const TEXT_OVER_SMALL_MAX_AREA = 0.1;
 
@@ -57,6 +94,7 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z1-mask-evidence-group': 0.95,
   'Z1-mask-evidence-opcode': 0.95,
   'Z1-full-bleed-background': 0.9,
+  [FULL_PAGE_DOCUMENT_REASON]: 0.4,
   'Z1-large-relative-area': 0.9,
   'Z1-multi-page-correlated': 0.85,
   'Z2-strong-content-overrides-weak-geometry-evidence': 0.85,
@@ -65,6 +103,7 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z10-high-center-text-coverage': 0.35,
   [TEXT_BESIDE_BLENDED_REASON]: 0.35,
   [TEXT_OVER_SMALL_REASON]: 0.35,
+  [TEXT_WRAPS_AROUND_REASON]: 0.4,
   // "Soft" versions of two former hard rules — ONE signal
   // (repetition or print bleed) without the other, independent
   // confirmation. Same confidence level as other single, conflicting
@@ -76,6 +115,11 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z12-bleeding-masked-cutout': 0.7,
   'Z12-bleeding-masked-large-picture': 0.4,
   'Z21-masked-silhouette-at-page-edge': 0.4,
+  'Z21-masked-document-at-page-edge': 0.4,
+  'Z25-repeated-on-page': 0.8,
+  'Z27-picture-in-grid-tiles': 0.5,
+  'Z28-aslant-half-across-spread': 0.5,
+  'Z29-spread-companion': 0.5,
   'Z12-bleeding-translucent-overlay': 0.8,
   'Z12-bleeding-translucent-panel': 0.2,
   'Z15-small-masked-raster': 0.7,
@@ -364,6 +408,56 @@ function computeTextCoverageRatio(bbox: Rect, page: number, bodyBoxesByPage: Rea
   return Math.min(1, covered / area);
 }
 
+/** Page share from which a picture painted over a page's raster makes that page one of illustrations, not a document (see `hasPicturePaintedOver`). */
+const PICTURE_ON_DOCUMENT_MIN_AREA = 0.05;
+/**
+ * ... and from which a picture blended into the page counts too (a sword multiplied into the parchment of a page of the book, a third of it); a
+ * stain or a strip of tape blended over a letter is smaller.
+ */
+const BLENDED_PICTURE_ON_DOCUMENT_MIN_AREA = 0.15;
+
+/**
+ * Whether the page paints a picture of its own over this page-sized raster: an image painted after it, of at least
+ * `PICTURE_ON_DOCUMENT_MIN_AREA` of the page (`BLENDED_PICTURE_ON_DOCUMENT_MIN_AREA` when it is blended into it), opaque, and without the page's text over its middle. Such a page is a page
+ * of the book with its illustrations (offered by themselves), not a document; a stain or a corner ornament under the
+ * text of a letter does not count.
+ */
+function hasPicturePaintedOver(entry: ImageEntry, entries: readonly ImageEntry[], bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]>): boolean {
+  return entry.occurrences.some((occ) =>
+    entries.some((other) => {
+      if (other === entry || other.objId === null || !isPaintedOpaque(other) || other.isMaskLayer) return false;
+      return other.occurrences.some((o) => {
+        if (o.page !== occ.page || o.index <= occ.index) return false;
+        const pageArea = Math.max(0, occ.bbox.maxX - occ.bbox.minX) * Math.max(0, occ.bbox.maxY - occ.bbox.minY);
+        const area = Math.max(0, o.bbox.maxX - o.bbox.minX) * Math.max(0, o.bbox.maxY - o.bbox.minY);
+        if (pageArea <= 0 || area / pageArea < (o.blended === true ? BLENDED_PICTURE_ON_DOCUMENT_MIN_AREA : PICTURE_ON_DOCUMENT_MIN_AREA)) return false;
+        return computeTextCoverageRatio(shrinkToCenter(o.bbox), o.page, bodyBoxesByPage) < TEXT_COVERAGE_DECORATION_THRESHOLD;
+      });
+    }),
+  );
+}
+
+/**
+ * Whether the book has a common page background: one raster, repeated on at least `MULTI_PAGE_DECORATION_THRESHOLD`
+ * pages, that fills `PAGE_BACKGROUND_MIN_PAGE_SHARE` of at least `FULL_PAGE_DOCUMENT_MIN_SHARED_PAGES` of the pages.
+ */
+function computeHasCommonPageBackground(entries: readonly ImageEntry[], pageBoxByPage: ReadonlyMap<number, Rect>, correlatedPageCounts: ReadonlyMap<ImageEntry, number>): boolean {
+  if (pageBoxByPage.size === 0) return false;
+  const pages = new Set<number>();
+  for (const entry of entries) {
+    if ((correlatedPageCounts.get(entry) ?? entry.pageRefs.length) < MULTI_PAGE_DECORATION_THRESHOLD) continue;
+    for (const occ of entry.occurrences) {
+      const box = pageBoxByPage.get(occ.page);
+      if (!box) continue;
+      const pageArea = (box.maxX - box.minX) * (box.maxY - box.minY);
+      const ix = Math.max(0, Math.min(occ.bbox.maxX, box.maxX) - Math.max(occ.bbox.minX, box.minX));
+      const iy = Math.max(0, Math.min(occ.bbox.maxY, box.maxY) - Math.max(occ.bbox.minY, box.minY));
+      if (pageArea > 0 && (ix * iy) / pageArea >= PAGE_BACKGROUND_MIN_PAGE_SHARE) pages.add(occ.page);
+    }
+  }
+  return pages.size >= FULL_PAGE_DOCUMENT_MIN_SHARED_PAGES * pageBoxByPage.size;
+}
+
 /** Maximum text coverage ACROSS ALL occurrences — the same "any occurrence" pattern as `hasBleedingOccurrence`/`hasLargeAbsoluteOccurrence`. */
 function maxTextCoverageRatio(entry: ImageEntry, bodyBoxesByPage: ReadonlyMap<number, readonly Rect[]>): number {
   let max = 0;
@@ -435,10 +529,27 @@ export function isTranslucentEverywhere(entry: ImageEntry): boolean {
  * crests and washes of the same book far less.
  */
 const LARGE_TRANSLUCENT_PANEL_MIN_AREA = 0.3;
+/**
+ * A picture painted on one page both as it is and mirrored, below this share of the page, is an ornament of its layout
+ * (the corners of a panel's frame, a strand of barbed wire along both edges). A picture repeated in one orientation (a
+ * sheet of tokens to cut out) is not. Measured on two books: the corners of a frame 0.025, the strands 0.01-0.03.
+ */
+const REPEATED_ON_PAGE_MAX_AREA = 0.05;
+const REPEATED_ON_PAGE_REASON = 'Z25-repeated-on-page';
+
+/** Whether some page paints `entry` in two orientations (mirrored or turned against each other). */
+function isMirroredOnOnePage(entry: ImageEntry): boolean {
+  const orientations = new Map<number, Set<string>>();
+  for (const o of entry.occurrences) {
+    const key = `${o.placement?.flipX === true}${o.placement?.flipY === true}${o.placement?.rotated === true}`;
+    orientations.set(o.page, (orientations.get(o.page) ?? new Set()).add(key));
+  }
+  return [...orientations.values()].some((keys) => keys.size >= 2);
+}
 /** Page-area share from which a bleeding picture that a mask cuts out is an illustration and not a scrap of the page's design. */
 const LARGE_MASKED_CUTOUT_MIN_AREA = 0.3;
-/** ...and below this: a masked picture that fills the page is the page's own background, as before. */
-const LARGE_MASKED_CUTOUT_MAX_AREA = 0.7;
+/** ...and below this: a masked picture that fills the page is the page's own background, as before. Measured on two books: a plan of a ship cut out by its frame 0.72; a sheet under a page of tables 0.77, the backgrounds more. */
+const LARGE_MASKED_CUTOUT_MAX_AREA = 0.75;
 export const LARGE_MASKED_CUTOUT_REASON = 'Z12-bleeding-masked-large-picture';
 /** Share of each of two boxes that their overlap must cover for the two to be the same place on the page. */
 const SAME_PLACE_MIN_SHARE = 0.9;
@@ -554,16 +665,22 @@ export function classifyImages(
   // Lets a full-bleed background image be treated as content instead of
   // decoration. Defaults to `{}` (off) — behavior identical to before this
   // flag was added.
-  options: { treatFullBleedAsContent?: boolean; hideTinyImages?: boolean } = {},
+  options: { treatFullBleedAsContent?: boolean; hideTinyImages?: boolean; wordBoxesByPage?: ReadonlyMap<number, readonly Rect[]> } = {},
 ): ClassifiedImage[] {
   const treatFullBleedAsContent = options.treatFullBleedAsContent ?? false;
   const correlatedPageCounts = computeCorrelatedPageCounts(entries);
+  const hasCommonPageBackground = computeHasCommonPageBackground(entries, pageBoxByPage, correlatedPageCounts);
   const maskedObjIds = computeMaskedObjIds(entries);
 
   const first = entries.map((entry): ClassifiedImage => {
     // 1. Hard mask evidence — decision final, regardless of anything else.
     if (entry.maskEvidence === 'group' || entry.maskEvidence === 'opcode') {
       return { entry, classification: 'mask', reason: `Z1-mask-evidence-${entry.maskEvidence}`, confidence: confidenceForReason(`Z1-mask-evidence-${entry.maskEvidence}`) };
+    }
+
+    // A small picture painted on one page both as it is and mirrored (the corners of a panel's frame) is a piece of the page's design.
+    if (entry.maxRelativeArea < REPEATED_ON_PAGE_MAX_AREA && isMirroredOnOnePage(entry)) {
+      return { entry, classification: 'decoration', reason: REPEATED_ON_PAGE_REASON, confidence: confidenceForReason(REPEATED_ON_PAGE_REASON) };
     }
 
     // Computed EARLY, because it's now used by TWO
@@ -621,6 +738,11 @@ export function classifyImages(
     // has a paragraph on it, a deliberate full-bleed illustration usually
     // doesn't.
     if (hasBleedingOccurrence(entry, pageBoxByPage)) {
+      // The page's own paper, written over, in a book whose pages share one background: a document (a letter, a page of a diary).
+      const textOnIt = options.wordBoxesByPage !== undefined ? maxTextCoverageRatio(entry, options.wordBoxesByPage) >= FULL_PAGE_DOCUMENT_MIN_WORD_COVERAGE : centerTextCoverage >= TEXT_COVERAGE_DECORATION_THRESHOLD;
+      if (!treatFullBleedAsContent && hasCommonPageBackground && correlatedPages === 1 && entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_PAGE_SHARE && isPaintedOpaque(entry) && !entry.occurrences.some((o) => o.blended === true) && textOnIt && !hasPicturePaintedOver(entry, entries, bodyBoxesByPage)) {
+        return { entry, classification: 'undecided', reason: FULL_PAGE_DOCUMENT_REASON, confidence: confidenceForReason(FULL_PAGE_DOCUMENT_REASON) };
+      }
       if (centerTextCoverage >= (isFlushPicture(entry, pageBoxByPage) ? FLUSH_PICTURE_TEXT_COVERAGE_DECORATION_THRESHOLD : TEXT_COVERAGE_DECORATION_THRESHOLD)) {
         // [at the user's request] `treatFullBleedAsContent` bypasses the
         // assumption "full bleed + text on top = repeating background"
@@ -706,6 +828,10 @@ export function classifyImages(
       if (entry.maxRelativeArea >= TEXT_OVER_SMALL_MIN_AREA && entry.maxRelativeArea <= TEXT_OVER_SMALL_MAX_AREA && isPaintedOpaque(entry)) {
         return { entry, classification: 'undecided', reason: TEXT_OVER_SMALL_REASON, confidence: confidenceForReason(TEXT_OVER_SMALL_REASON) };
       }
+      // The text's blocks cover the picture, but its words do not: the text wraps around it (see `TEXT_WRAPS_AROUND_MAX_WORD_COVERAGE`).
+      if (options.wordBoxesByPage !== undefined && entry.maxRelativeArea >= TEXT_OVER_SMALL_MIN_AREA && isPaintedOpaque(entry) && maxCenterTextCoverageRatio(entry, options.wordBoxesByPage) <= TEXT_WRAPS_AROUND_MAX_WORD_COVERAGE) {
+        return { entry, classification: 'undecided', reason: TEXT_WRAPS_AROUND_REASON, confidence: confidenceForReason(TEXT_WRAPS_AROUND_REASON) };
+      }
       return { entry, classification: 'decoration', reason: 'Z9-high-body-text-coverage', confidence: confidenceForReason('Z9-high-body-text-coverage') };
     }
 
@@ -768,7 +894,7 @@ export function classifyImages(
     // No strong signal in either direction — don't guess.
     return { entry, classification: 'undecided', reason: 'Z1-no-strong-signal', confidence: confidenceForReason('Z1-no-strong-signal') };
   });
-  return hideTinyAndCoveredPictures(first, options.hideTinyImages ?? false, maskedObjIds);
+  return hideTinyAndCoveredPictures(first, options.hideTinyImages ?? false, maskedObjIds, pageBoxByPage);
 }
 
 /**
@@ -788,6 +914,17 @@ const FORM_PAGE_MIN_TINY_IMAGES = 15;
 const CROWDED_PAGE_MIN_SMALL_IMAGES = 20;
 /** On a form page, undecided images below this page-area share are parts of the form (its banners and boxes). */
 const FORM_PAGE_ELEMENT_MAX_AREA = 0.06;
+/** A picture painted in slices has two pieces of this page-area share at least (a weapon cut in slices: its three pieces of the blade, 0.06 each). */
+const SLICED_PICTURE_MIN_PIECE_AREA = 0.05;
+
+/**
+ * Whether a slice is a large piece of a picture painted in slices: of `SLICED_PICTURE_MIN_PIECE_AREA` at least, and on the page. The page's
+ * frame is painted in pieces cut by straight clips too, its art running off the page. Measured on two books: the pieces of a blade lie 12 pt
+ * and more inside the page; the art of a frame's head runs 2 pt past its edge.
+ */
+export function isLargeSlice(entry: ImageEntry, pageBoxByPage: ReadonlyMap<number, Rect>): boolean {
+  return entry.maxRelativeArea >= SLICED_PICTURE_MIN_PIECE_AREA && maxBleedOverhangPt(entry, pageBoxByPage) <= 0;
+}
 
 /**
  * Share of a picture that a later-painted opaque picture must cover for it to count as hidden under it.
@@ -810,6 +947,18 @@ const TRANSLUCENT_COPY_MIN_BASE_COVER = 0.6;
  * section-opener backgrounds fill 100.5% of the page with a photo of 20% painted on them.
  */
 const PAGE_BACKGROUND_MIN_AREA = 0.95;
+/**
+ * A page-filling raster whose content fingerprint differs from that of the paper the book repeats on its pages by this much at most is that
+ * paper embedded once more. Measured on one book: the paper embedded again 0-2, the same paper shaded at its other edge 19, different pictures tens.
+ */
+const BOOK_PAPER_MAX_DISTANCE = 4;
+/**
+ * A page set on the book's paper with more than this many pieces of pictures (each at least tiny and below `PAPER_PAGE_PIECE_MAX_AREA` of the
+ * page) is a sheet built of them (a character sheet whose boxes are rasters: 16-22 on one book), not a page of text on the paper (a title page
+ * with its logo in two halves).
+ */
+const PAPER_PAGE_MAX_PIECES = 5;
+const PAPER_PAGE_PIECE_MAX_AREA = 0.15;
 const PAGE_BACKGROUND_MIN_CONTENT_AREA = 0.05;
 /** Only pictures of at least this page-area share are checked for being covered. */
 const COVERED_PICTURE_MIN_AREA = 0.03;
@@ -868,7 +1017,7 @@ function intersectionArea(a: Rect, b: Rect): number {
  *   page — it is the bottom of a stack of pinned photos — and is decoration. Paint order is the
  *   operator index of the occurrence.
  */
-function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTiny: boolean, maskedObjIds: ReadonlySet<string>): ClassifiedImage[] {
+function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTiny: boolean, maskedObjIds: ReadonlySet<string>, pageBoxByPage: ReadonlyMap<number, Rect>): ClassifiedImage[] {
   const isPicture = (c: ClassifiedImage): boolean => c.classification === 'content' || c.classification === 'undecided';
   const picturesByPage = new Map<number, ClassifiedImage[]>();
   for (const c of results) {
@@ -913,12 +1062,46 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     }
   }
 
+  // The slices of a picture painted in pieces: cut out by straight clips that share corners from one slice to the next, two of them
+  // large pieces of the picture at least (see `isLargeSlice`: the pieces of a page's frame are small, or run off the page).
+  const slicesByPage = new Map<number, { entry: ImageEntry; clip: ClipInfo }[]>();
+  for (const c of results) {
+    const occ = c.entry.occurrences[0];
+    if (occ?.clip === undefined || !isShapedClip(occ.clip)) continue;
+    slicesByPage.set(occ.page, [...(slicesByPage.get(occ.page) ?? []), { entry: c.entry, clip: occ.clip }]);
+  }
+  const slices = new Set<ImageEntry>();
+  for (const onPage of slicesByPage.values()) {
+    const parent = onPage.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+    for (let i = 0; i < onPage.length; i++) for (let j = i + 1; j < onPage.length; j++) if (clipsShareCorner(onPage[i]!.clip, onPage[j]!.clip)) parent[find(i)] = find(j);
+    const large = new Map<number, number>();
+    onPage.forEach((s, i) => {
+      if (isLargeSlice(s.entry, pageBoxByPage)) large.set(find(i), (large.get(find(i)) ?? 0) + 1);
+    });
+    onPage.forEach((s, i) => {
+      if ((large.get(find(i)) ?? 0) >= 2) slices.add(s.entry);
+    });
+  }
+
+  // The page-filling rasters the book repeats on two pages or more (its paper): a page-filling raster of the same content is that paper too.
+  const piecesPerPage = new Map<number, number>();
+  for (const c of results) {
+    const page = c.entry.occurrences[0]?.page;
+    if (page !== undefined && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < PAPER_PAGE_PIECE_MAX_AREA) piecesPerPage.set(page, (piecesPerPage.get(page) ?? 0) + 1);
+  }
+  const repeatedPapers = results.filter((c) => c.entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_AREA && c.entry.contentFingerprint !== undefined && new Set(c.entry.occurrences.map((o) => o.page)).size >= 2);
+  const isBookPaper = (entry: ImageEntry): boolean =>
+    entry.contentFingerprint !== undefined &&
+    repeatedPapers.some((paper) => paper.entry !== entry && paper.entry.intrinsicWidth === entry.intrinsicWidth && paper.entry.intrinsicHeight === entry.intrinsicHeight && fingerprintDistance(paper.entry.contentFingerprint!, entry.contentFingerprint!) <= BOOK_PAPER_MAX_DISTANCE);
+
   return results.map((c): ClassifiedImage => {
     const formPage =
       c.entry.occurrences[0] !== undefined &&
       ((tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES || (smallWithMasksPerPage.get(c.entry.occurrences[0].page) ?? 0) >= CROWDED_PAGE_MIN_SMALL_IMAGES);
     // A note with text on it (a card pinned on a cork board) is not a part of a form, however crowded its page is with pins and masks.
-    if (hideTiny && formPage && c.classification === 'undecided' && c.reason !== TEXT_OVER_SMALL_REASON && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
+    // A slice of a picture, cut out by a shaped clip (see `isShapedClip`), is a piece of that picture, however small, not a part of a form.
+    if (hideTiny && formPage && c.classification === 'undecided' && c.reason !== TEXT_OVER_SMALL_REASON && !slices.has(c.entry) && c.entry.maxRelativeArea >= TINY_IMAGE_MAX_AREA && c.entry.maxRelativeArea < FORM_PAGE_ELEMENT_MAX_AREA) {
       return { entry: c.entry, classification: 'decoration', reason: 'Z18-form-page-element', confidence: confidenceForReason('Z18-form-page-element') };
     }
     // The picture that fills a page crowded with small images (a character sheet, whose boxes and banners are pictures) and that nobody could judge is the backdrop of the sheet.
@@ -930,6 +1113,18 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     }
     const occ = c.entry.occurrences[0];
     if (!occ || !isPicture(c) || c.entry.maxRelativeArea < COVERED_PICTURE_MIN_AREA) return c;
+    // A picture that fills the page and that is the book's paper embedded once more (its content that of a page-filling raster the book
+    // repeats on other pages) is the page's background, whatever is painted on it: a title page set on the paper, its logo laid over it.
+    // Not on a page set with pieces of pictures: a character sheet whose boxes are rasters laid on the paper is offered as the sheet.
+    if (
+      hideTiny &&
+      c.classification !== 'decoration' &&
+      c.entry.maxRelativeArea >= PAGE_BACKGROUND_MIN_AREA &&
+      (piecesPerPage.get(occ.page) ?? 0) <= PAPER_PAGE_MAX_PIECES &&
+      isBookPaper(c.entry)
+    ) {
+      return { entry: c.entry, classification: 'decoration', reason: 'Z22-page-background-under-content', confidence: confidenceForReason('Z22-page-background-under-content') };
+    }
     // A picture that fills the page and that nobody could judge, with a picture that was judged content painted on it
     // later, is the page's background (a textured sheet under a photo), not another picture. Not on the first page: the
     // cover is a picture of its own.
@@ -942,13 +1137,16 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
       return { entry: c.entry, classification: 'decoration', reason: 'Z22-page-background-under-content', confidence: confidenceForReason('Z22-page-background-under-content') };
     }
     // A big masked picture painted exactly where another picture of the page is painted is that picture again (an illustration
-    // drawn once raw and once cut out by its mask): the raw one is offered, the copy would only be a second entry for it.
+    // drawn once raw and once cut out by its mask): the raw one is offered, the copy would only be a second entry for it. Of two
+    // masked layers of one picture, the one painted first is offered.
     if (
       c.reason === LARGE_MASKED_CUTOUT_REASON &&
       (picturesByPage.get(occ.page) ?? []).some((other) => {
-        if (other === c || other.reason === LARGE_MASKED_CUTOUT_REASON) return false;
+        if (other === c) return false;
         const there = other.entry.occurrences.find((o) => o.page === occ.page);
         if (there === undefined) return false;
+        // Two masked layers of one picture (painted twice, the second to blend it): the one painted first is offered.
+        if (other.reason === LARGE_MASKED_CUTOUT_REASON && there.index > occ.index) return false;
         const shared = intersectionArea(occ.bbox, there.bbox);
         return shared >= SAME_PLACE_MIN_SHARE * bboxArea(occ.bbox) && shared >= SAME_PLACE_MIN_SHARE * bboxArea(there.bbox);
       })

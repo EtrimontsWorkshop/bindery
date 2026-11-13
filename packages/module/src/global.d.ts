@@ -16,6 +16,8 @@ declare module 'fvtt-types/configuration' {
   interface SettingConfig {
     'bindery-pdf-importer.legalNoticeAcknowledged': boolean;
     'bindery-pdf-importer.uploadPath': string;
+    'bindery-pdf-importer.uploadSource': string;
+    'bindery-pdf-importer.uploadBucket': string;
     'bindery-pdf-importer.whiteBackground': boolean;
     'bindery-pdf-importer.sortByPage': boolean;
     'bindery-pdf-importer.vectorFigures': boolean;

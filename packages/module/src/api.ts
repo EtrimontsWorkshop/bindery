@@ -2,6 +2,7 @@ import { ASSET_BASE_URL, MODULE_ID } from './settings.js';
 import { loadCore } from './loadCore.js';
 import { buildStatblockAPI, type StatblockAPI } from './statblock/api.js';
 import { STATBLOCK_IMPORT_ENABLED } from './statblock/enabled.js';
+import { SCENES_JOURNALS_FROM_CIF_ENABLED } from './featureFlags.js';
 
 export interface BinderyAPI {
   readonly version: string;
@@ -90,6 +91,8 @@ export interface CIFBuildResult {
   preview: { journals: JournalPreview[]; imageCount: number };
   document: import('@bindery/core').CIFDocument;
   imageBytesById: Map<string, { bytes: Uint8Array; format: string }>;
+  /** The analysis put a white background on every image that had transparent pixels (the "white background" setting was on). */
+  whiteBackgroundApplied: boolean;
 }
 
 /** SHA-256 in hex — the standard Web Crypto API (not Foundry's), for `CIFDocument.source.fileHash`. */
@@ -111,7 +114,10 @@ export async function buildJournalsForReview(
 ): Promise<CIFBuildResult> {
   const { buildCIFFromDocument } = await loadCore();
   const fileHash = await hashArrayBuffer(data);
+  const whiteBackground = game.settings!.get(MODULE_ID, 'whiteBackground') === true;
   const result = await buildCIFFromDocument(data, {
+    whiteBackground,
+    includeJournals: SCENES_JOURNALS_FROM_CIF_ENABLED,
     assetBaseUrl: ASSET_BASE_URL,
     fileName,
     fileHash,
@@ -127,6 +133,7 @@ export async function buildJournalsForReview(
     },
     document: result.document,
     imageBytesById: result.imageBytesById,
+    whiteBackgroundApplied: whiteBackground,
   };
 }
 

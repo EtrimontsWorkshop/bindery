@@ -1,4 +1,4 @@
-import { ASSET_BASE_URL, MODULE_ID } from '../settings.js';
+import { ASSET_BASE_URL } from '../settings.js';
 import { loadCore } from '../loadCore.js';
 import { buildJournalsForReview, openPreviewForReview, type CIFBuildResult } from '../api.js';
 
@@ -10,6 +10,8 @@ interface WizardState {
   errorMessage: string | null;
   summary: import('@bindery/core').DocumentSummary | null;
   isBuildingReview: boolean;
+  /** A review screen opened from this wizard is still open. */
+  isReviewOpen: boolean;
   reviewProgress: { done: number; total: number } | null;
   reviewBuildError: string | null;
   lastImportSummary: string | null;
@@ -85,6 +87,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     errorMessage: null,
     summary: null,
     isBuildingReview: false,
+    isReviewOpen: false,
     reviewProgress: null,
     reviewBuildError: null,
     lastImportSummary: null,
@@ -115,7 +118,11 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       hasResult: this.#state.status === 'done' && this.#state.summary !== null,
       hasError: this.#state.status === 'error',
       isBuildingReview: this.#state.isBuildingReview,
+      isReviewOpen: this.#state.isReviewOpen,
+      isBusy: this.#isBusy(),
       reviewProgress: this.#state.reviewProgress,
+      // The build reports whole percent of all its stages together (`stagedProgress` in core).
+      reviewProgressPercent: this.#state.reviewProgress && this.#state.reviewProgress.total > 0 ? Math.floor((this.#state.reviewProgress.done / this.#state.reviewProgress.total) * 100) : 0,
       reviewBuildError: this.#state.reviewBuildError,
       lastImportSummary: this.#state.lastImportSummary,
     };
@@ -141,6 +148,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     const dropzone = this.element.querySelector<HTMLElement>('[data-role="dropzone"]');
     dropzone?.addEventListener('dragover', (ev) => {
       ev.preventDefault();
+      if (this.#isBusy()) return;
       dropzone.classList.add('bindery-dragover');
     });
     dropzone?.addEventListener('dragleave', () => {
@@ -154,7 +162,17 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     });
   }
 
+  /**
+   * Analysing, building the review, or a review screen still open. Picking another file meanwhile would mix two
+   * PDFs: the work in flight reads `#state.fileName` after its `await`s, so the new name would label the old file's
+   * journals and images. The template disables the file input and the drop zone, and the handlers check it too.
+   */
+  #isBusy(): boolean {
+    return this.#state.status === 'analyzing' || this.#state.isBuildingReview || this.#state.isReviewOpen;
+  }
+
   #onPdfFileSelected(file: File | null): void {
+    if (this.#isBusy()) return;
     this.#selectedFile = file;
     this.#fileBuffer = null;
     this.#state.fileName = file?.name ?? null;
@@ -166,14 +184,35 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     void this.render();
   }
 
+  /** The wizard that is open now. The settings menu creates a NEW instance on every click (`registerMenu`), and all of them share one element id. */
+  static #current: ImportWizard | null = null;
+
+  /**
+   * One wizard at a time. A second instance rendered while the first is open would take over the first one's element
+   * (same id, Foundry swaps it), leaving the first to run unseen: its analysis could not be closed or aborted, and
+   * each instance guards against a second review screen only for itself (`#isBusy`). The open wizard is brought to the
+   * front instead, and the new instance is never rendered.
+   */
+  override async render(options?: object | boolean, _options?: object): Promise<this> {
+    const current = ImportWizard.#current;
+    if (current !== null && current !== this) {
+      current.bringToFront();
+      return this;
+    }
+    ImportWizard.#current = this;
+    return super.render(options as never, _options as never);
+  }
+
   override async close(options?: object): Promise<this> {
     this.#closed = true;
     this.#buildController?.abort();
-    return super.close(options);
+    if (ImportWizard.#current === this) ImportWizard.#current = null;
+    await super.close(options);
+    return this;
   }
 
   static async #onAnalyze(this: ImportWizard): Promise<void> {
-    if (!this.#selectedFile) return;
+    if (!this.#selectedFile || this.#isBusy()) return;
     this.#state.status = 'analyzing';
     this.#state.errorMessage = null;
     await this.render();
@@ -209,7 +248,13 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
    * Foundry documents are created in THIS function.
    */
   static async #onOpenReview(this: ImportWizard): Promise<void> {
-    if (!this.#fileBuffer || !this.#state.fileName) return;
+    // A second review over the first one is refused: `ReviewScreen` has a fixed id, and Foundry swaps the first
+    // window's element out for the second's, so the first instance would never close — its pdf.js worker (the whole
+    // file), its document-level key listeners and its `open()` promise would stay behind until the page reloads.
+    if (!this.#fileBuffer || !this.#state.fileName || this.#isBusy()) return;
+    // Read once: everything below runs after `await`s.
+    const fileBuffer = this.#fileBuffer;
+    const fileName = this.#state.fileName;
     this.#state.isBuildingReview = true;
     this.#state.reviewBuildError = null;
     this.#state.reviewProgress = null;
@@ -218,7 +263,7 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#buildController = new AbortController();
     let result: CIFBuildResult;
     try {
-      result = await buildJournalsForReview(this.#fileBuffer, this.#state.fileName, {
+      result = await buildJournalsForReview(fileBuffer, fileName, {
         signal: this.#buildController.signal,
         onProgress: (done, total) => {
           this.#state.reviewProgress = { done, total };
@@ -239,44 +284,64 @@ export class ImportWizard extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#buildController = null;
     }
 
+    // Owned here until `ReviewScreen.open()` takes it (the screen releases it when it closes); released here on any
+    // way out before that, or its pdf.js worker keeps the whole file in memory until the page reloads.
+    let previewDocument: Awaited<ReturnType<typeof openPreviewForReview>> | null = null;
     try {
-      const previewDocument = await openPreviewForReview(this.#fileBuffer);
+      previewDocument = await openPreviewForReview(fileBuffer);
       // [bug fix — full design review] `#buildController` is already `null`
       // at this point (see the comment near the `#closed` field) — without
       // this checked flag, closing the window EXACTLY within this time
       // window (between the end of the CIF build and opening the preview)
       // had no way to stop the `ReviewScreen.open()` call below.
-      if (this.#closed) {
-        await previewDocument.destroy();
-        return;
+      if (this.#closed) return;
+      // "Add a white background to images": the analysis has done it (on the pixels, before encoding), so the review
+      // shows, edits and rotates the pictures with it. Noted here so that saving does not check every picture again.
+      if (result.whiteBackgroundApplied) {
+        const { markAllOpaque } = await import('../documents/whiteBackground.js');
+        markAllOpaque(result.imageBytesById);
       }
-      // "Add a white background to images": done now, so that the review shows (and edits, rotates) the pictures with it.
-      if (game.settings!.get(MODULE_ID, 'whiteBackground') === true) {
-        const { addWhiteBackgroundToAll } = await import('../documents/whiteBackground.js');
-        await addWhiteBackgroundToAll(result.imageBytesById);
-      }
+      const { ReviewScreen } = await import('./ReviewScreen.js');
+      if (this.#closed) return;
       this.#state.isBuildingReview = false;
+      this.#state.isReviewOpen = true;
       await this.render();
 
-      const { ReviewScreen } = await import('./ReviewScreen.js');
-      const reviewResult = await ReviewScreen.open({
+      const reviewPromise = ReviewScreen.open({
         document: result.document,
         imageBytesById: result.imageBytesById,
         previewDocument,
-        fileName: this.#state.fileName,
-        fileBuffer: this.#fileBuffer,
+        fileName,
+        fileBuffer,
       });
+      previewDocument = null; // the review screen owns it from now on
+      const reviewResult = await reviewPromise;
+      this.#state.isReviewOpen = false;
 
       if (reviewResult.confirmed) {
-        this.#state.lastImportSummary = game.i18n!.localize('BINDERY.wizard.reviewImportDone' as never);
-        ui.notifications?.info(game.i18n!.localize('BINDERY.wizard.reviewImportDone' as never));
+        // "Import complete" only when it is: an import that made nothing, or only a part, says so.
+        const errors = reviewResult.errorCount ?? 0;
+        const created = reviewResult.createdCount ?? 0;
+        if (errors === 0) {
+          this.#state.lastImportSummary = game.i18n!.localize('BINDERY.wizard.reviewImportDone' as never);
+          ui.notifications?.info(this.#state.lastImportSummary);
+        } else if (created > 0) {
+          this.#state.lastImportSummary = game.i18n!.format('BINDERY.wizard.reviewImportPartial' as never, { created: String(created), errors: String(errors) } as never);
+          ui.notifications?.warn(this.#state.lastImportSummary);
+        } else {
+          this.#state.lastImportSummary = game.i18n!.format('BINDERY.wizard.reviewImportFailed' as never, { errors: String(errors) } as never);
+          ui.notifications?.error(this.#state.lastImportSummary);
+        }
       }
       await this.render();
     } catch (err) {
       this.#state.isBuildingReview = false;
+      this.#state.isReviewOpen = false;
       this.#state.reviewBuildError = game.i18n!.localize('BINDERY.wizard.journalBuildErrorGeneric');
       console.warn('Bindery | opening the review screen failed:', err);
       await this.render();
+    } finally {
+      await previewDocument?.destroy();
     }
   }
 }

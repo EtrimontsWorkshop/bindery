@@ -279,6 +279,23 @@ describe('classifyImages', () => {
       expect(background1.reason).not.toBe('Z22-page-background-under-content');
     });
 
+    it("a page-filling raster that is the book's paper embedded once more is the page background, except on a sheet built of pieces", () => {
+      const FULL: Rect = { minX: 0, minY: 0, maxX: 612, maxY: 792 };
+      const paperPrint = Array.from({ length: 64 }, (_, i) => 200 + (i % 8));
+      const paper = entry({ objId: 'paper', intrinsicWidth: 1750, intrinsicHeight: 2481, maxRelativeArea: 1, contentFingerprint: paperPrint, pageRefs: [4, 16], occurrences: [4, 16].map((page) => ({ page, bbox: FULL, index: 1 })) });
+      const fullAt = (objId: string, page: number, fingerprint: number[]): ImageEntry => entry({ objId, intrinsicWidth: 1750, intrinsicHeight: 2481, maxRelativeArea: 1, contentFingerprint: fingerprint, pageRefs: [page], occurrences: [{ page, bbox: FULL, index: 1 }] });
+      const piece = (objId: string, page: number, i: number): ImageEntry => entry({ objId, maxRelativeArea: 0.07, pageRefs: [page], occurrences: [{ page, bbox: { minX: 40 * i, minY: 100, maxX: 40 * i + 30, maxY: 300 }, index: 10 + i }] });
+      const titlePage = fullAt('title', 2, paperPrint.map((v) => v + 1));
+      const logo = piece('logo', 2, 1);
+      const painting = fullAt('painting', 3, paperPrint.map((v, i) => (i % 2 === 0 ? v - 120 : v)));
+      const sheet = fullAt('sheet', 34, paperPrint);
+      const sheetPieces = Array.from({ length: 8 }, (_, i) => piece(`box${i}`, 34, i));
+      const results = classifyImages([paper, titlePage, logo, painting, sheet, ...sheetPieces], pageBoxMap([2, 3, 4, 16, 34]), new Map(), { hideTinyImages: true });
+      expect(reasonOf(results, titlePage).reason).toBe('Z22-page-background-under-content');
+      expect(reasonOf(results, painting).classification).not.toBe('decoration');
+      expect(reasonOf(results, sheet).classification).not.toBe('decoration');
+    });
+
     it('a picture painted over another that is neither masked nor page-sized (a vignette, a cut-out) does not hide it', () => {
       const illustration = at('illustration', { minX: 309, minY: 55, maxX: 533, maxY: 403 }, 3, 0.16);
       const vignette = at('vignette', { minX: 309, minY: 55, maxX: 533, maxY: 431 }, 8, 0.174);
@@ -593,6 +610,34 @@ describe('classifyImages', () => {
   });
 });
 
+describe('classifyImages — a page that is a document (its own paper in a book of one background)', () => {
+  const PAGES = [1, 2, 3, 4, 5, 6];
+  const FULL = { minX: -2, minY: -2, maxX: 614, maxY: 794 };
+  // The book's paper: one raster under every page.
+  const background = entry({ objId: 'bg', occurrences: PAGES.map((page) => ({ page, bbox: FULL, index: 0 })), pageRefs: PAGES, maxRelativeArea: 1.02 });
+  // Page 6 has its own page-sized paper, written over (a letter).
+  const letter = entry({ objId: 'letter', occurrences: [{ page: 6, bbox: FULL, index: 1 }], pageRefs: [6], maxRelativeArea: 1.02 });
+  const body = new Map([[6, [{ minX: 40, minY: 40, maxX: 570, maxY: 750 }]]]);
+  const words = new Map([[6, Array.from({ length: 40 }, (_, i) => ({ minX: 40, minY: 60 + i * 17, maxX: 570, maxY: 70 + i * 17 }))]]);
+
+  it('the page\'s own written-over paper -> undecided as a document', () => {
+    const results = classifyImages([background, letter], pageBoxMap(PAGES), body, { wordBoxesByPage: words });
+    expect(results.find((r) => r.entry.objId === 'letter')!.reason).toBe('Z1-full-page-document');
+    expect(results.find((r) => r.entry.objId === 'bg')!.classification).toBe('decoration');
+  });
+
+  it('without a common background (every page its own), a written-over page raster stays the page\'s background', () => {
+    const [result] = classifyImages([letter], pageBoxMap(PAGES), body, { wordBoxesByPage: words });
+    expect(result!.reason).toBe('Z1-full-bleed-background');
+  });
+
+  it('the page\'s own paper with little text on it (a title over art) is not a document', () => {
+    const fewWords = new Map([[6, [{ minX: 200, minY: 700, maxX: 400, maxY: 730 }]]]);
+    const results = classifyImages([background, letter], pageBoxMap(PAGES), body, { wordBoxesByPage: fewWords });
+    expect(results.find((r) => r.entry.objId === 'letter')!.reason).not.toBe('Z1-full-page-document');
+  });
+});
+
 describe('classifyImages — body text coverage', () => {
   it('an image entirely covered by a body block (a textured background with paragraphs) -> decoration, despite a moderate area', () => {
     // A case left undecided by pixel statistics (stddev/chroma/gradient don't tell a textured
@@ -611,6 +656,24 @@ describe('classifyImages — body text coverage', () => {
     const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes);
     expect(result!.reason).not.toBe('Z9-high-body-text-coverage');
     expect(result!.classification).toBe('content'); // falls back to Z2-moderate-area-no-mask-evidence
+  });
+
+  it('[text wrapping around a portrait] the blocks cover the picture but no word lies on its middle -> undecided, not a backdrop', () => {
+    const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
+    const bodyBoxes = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
+    // The words of the column stop short beside the picture, on both sides.
+    const words = new Map([[1, [{ minX: 90, minY: 150, maxX: 99, maxY: 160 }, { minX: 201, minY: 150, maxX: 210, maxY: 160 }]]]);
+    const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes, { wordBoxesByPage: words });
+    expect(result!.classification).toBe('undecided');
+    expect(result!.reason).toBe('Z9-text-wraps-around-picture');
+  });
+
+  it('[text wrapping around a portrait] words over the middle of the picture keep it a backdrop under text', () => {
+    const e = entry({ maxRelativeArea: 0.15, maskEvidence: null });
+    const bodyBoxes = new Map([[1, [{ minX: 90, minY: 90, maxX: 210, maxY: 210 }]]]);
+    const words = new Map([[1, [{ minX: 110, minY: 140, maxX: 190, maxY: 150 }, { minX: 110, minY: 155, maxX: 190, maxY: 165 }]]]);
+    const [result] = classifyImages([e], pageBoxMap([1]), bodyBoxes, { wordBoxesByPage: words });
+    expect(result!.reason).toBe('Z9-high-body-text-coverage');
   });
 
   it('no body blocks on this page -> the signal is inactive (0 coverage)', () => {
@@ -816,5 +879,27 @@ describe('classifyImages — a note with text on it on a page crowded with small
     const results = classifyImages([...small, note('note', noteBox), note('bare', bare)], pageBoxMap([1]), covered, { hideTinyImages: true });
     expect(results.find((c) => c.entry.objId === 'note')!.reason).toBe('Z9-text-over-small-picture');
     expect(results.find((c) => c.entry.objId === 'bare')!.reason).toBe('Z18-form-page-element');
+  });
+});
+
+describe('a small picture painted on one page as it is and mirrored', () => {
+  it('is an ornament of the layout (the corners of a frame), not a picture', () => {
+    const corner = entry({
+      maxRelativeArea: 0.025,
+      occurrences: [
+        { page: 1, bbox: { minX: 445, minY: 653, maxX: 541, maxY: 781 }, index: 0 },
+        { page: 1, bbox: { minX: 63, minY: 653, maxX: 160, maxY: 781 }, index: 1, placement: { flipX: true } },
+      ],
+    });
+    const [result] = classifyImages([corner], pageBoxMap([1]));
+    expect(result!.classification).toBe('decoration');
+    expect(result!.reason).toBe('Z25-repeated-on-page');
+  });
+
+  it('is judged as any other picture when it is big, repeated in one orientation (a sheet of tokens), or mirrored on another page', () => {
+    const big = entry({ maxRelativeArea: 0.2, occurrences: [{ page: 1, bbox: { minX: 50, minY: 400, maxX: 300, maxY: 700 }, index: 0 }, { page: 1, bbox: { minX: 320, minY: 400, maxX: 570, maxY: 700 }, index: 1, placement: { flipX: true } }] });
+    const tokens = entry({ occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0 }, { page: 1, bbox: { minX: 300, minY: 100, maxX: 400, maxY: 200 }, index: 1 }] });
+    const twoPages = entry({ pageRefs: [1, 2], occurrences: [{ page: 1, bbox: { minX: 100, minY: 100, maxX: 200, maxY: 200 }, index: 0 }, { page: 2, bbox: { minX: 300, minY: 100, maxX: 400, maxY: 200 }, index: 0, placement: { flipX: true } }] });
+    for (const e of [big, tokens, twoPages]) expect(classifyImages([e], pageBoxMap([1, 2]))[0]!.reason).not.toBe('Z25-repeated-on-page');
   });
 });

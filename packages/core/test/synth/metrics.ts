@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { tallySignals, mergeSignals, computeUnicodeConfidence, type QualitySignals } from '../../src/quality.js';
 
 export interface Rect {
@@ -90,7 +91,7 @@ function rectsOverlap(a: Rect, b: Rect): boolean {
 export async function computeMetrics(pdfData: Buffer | Uint8Array): Promise<ComputedMetrics> {
   initImageOps(pdfjs);
 
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(pdfData) }).promise;
+  const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(pdfData) }).promise;
   const pageCount = doc.numPages;
 
   let totalItems = 0;

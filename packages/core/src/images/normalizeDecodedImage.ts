@@ -47,7 +47,8 @@ function normalizeFromKindData(img: KindDataShape): DecodedImage {
   const { width, height, kind, data } = img;
 
   if (kind === IMAGE_KIND_RGBA_32BPP) {
-    return { width, height, rgba: Uint8ClampedArray.from(data) };
+    // A copy (the caller may edit it; pdf.js keeps `data`), made in one block rather than element by element.
+    return { width, height, rgba: new Uint8ClampedArray(data) };
   }
 
   if (kind === IMAGE_KIND_RGB_24BPP) {

@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { HANDLED_OPCODES } from '../../src/inventory/walkOperators.js';
 import { fixtures } from '../synth/index.js';
@@ -52,7 +53,7 @@ function argsShape(args: unknown[]): string {
 
 async function collectShapesForBuffer(buf: Buffer, nameByNumber: ReadonlyMap<number, string>): Promise<Map<string, Set<string>>> {
   const shapesByOpcode = new Map<string, Set<string>>();
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
 
   for (let p = 1; p <= doc.numPages; p++) {
     const page = await doc.getPage(p);

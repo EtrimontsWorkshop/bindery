@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { buildInventory } from '../../src/inventory/inventory.js';
 import { buildTextLayout, type PdfDocumentLike } from '../../src/text/buildTextLayout.js';
@@ -8,7 +9,7 @@ import { build as buildTextRotatedMarginalia } from '../synth/fixtures/text-rota
 import { build as buildTextFragmented75 } from '../synth/fixtures/text-fragmented-75.js';
 
 async function openFixture(buf: Buffer): Promise<PdfDocumentLike> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
   return doc as unknown as PdfDocumentLike;
 }
 

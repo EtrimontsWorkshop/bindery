@@ -13,6 +13,14 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
  * this module keeps hold of it, including when loading itself fails (a password-protected or corrupt file).
  */
 
+/**
+ * Options every analysis passes to `getDocument()` besides the data and asset URLs (tests use them too, so they read
+ * the PDF the way the module does). `fontExtraProperties`: since pdf.js 6.2 a font object in `page.commonObjs` carries
+ * the PDF's BaseFont name (`name`) only with this option — without it every font is anonymous, and the font registry
+ * (`fontRegistry.ts`), which keys fonts and their roles by that name, finds none.
+ */
+export const PDF_OPEN_OPTIONS = { fontExtraProperties: true } as const;
+
 export interface OpenedPdf {
   doc: pdfjs.PDFDocumentProxy;
   /** Releases the document and its worker. Safe to call more than once; never throws. */
@@ -30,6 +38,7 @@ export interface OpenedPdf {
 export async function openPdf(data: ArrayBuffer, assetBaseUrl: string): Promise<OpenedPdf> {
   pdfjs.GlobalWorkerOptions.workerSrc = `${assetBaseUrl}pdf.worker.mjs`;
   const loadingTask = pdfjs.getDocument({
+    ...PDF_OPEN_OPTIONS,
     data: new Uint8Array(data.slice(0)),
     wasmUrl: `${assetBaseUrl}wasm/`,
     standardFontDataUrl: `${assetBaseUrl}standard_fonts/`,

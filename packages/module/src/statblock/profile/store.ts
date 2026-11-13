@@ -78,7 +78,7 @@ export async function importProfileFromFile(file: File): Promise<ImportProfileRe
     const text = await foundry.utils.readTextFromFile(file);
     raw = JSON.parse(text);
   } catch {
-    return { ok: false, issues: ['This file is not valid JSON.'] };
+    return { ok: false, issues: [game.i18n!.localize('BINDERY.statblockProfiles.invalidJson')] };
   }
   const migrated = migrateProfileData(raw);
   if (!migrated.ok) return { ok: false, issues: [migrated.issue] };

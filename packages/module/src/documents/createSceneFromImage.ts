@@ -85,13 +85,24 @@ export async function createSceneFromImage(input: CreateSceneFromImageInput): Pr
   // `initialLevel` already points to it) — do NOT create a second one.
   // `updateEmbeddedDocuments` with a matching `_id` modifies the existing
   // embedded collection entry.
-  await scene.updateEmbeddedDocuments('Level', [
-    {
-      _id: DEFAULT_LEVEL_ID,
-      name: input.name,
-      background: { src: input.imagePath },
-    },
-  ]);
+  try {
+    await scene.updateEmbeddedDocuments('Level', [
+      {
+        _id: DEFAULT_LEVEL_ID,
+        name: input.name,
+        background: { src: input.imagePath },
+      },
+    ]);
+  } catch (err) {
+    // The scene exists but has no background. Left behind it would stay in the world as an empty scene, and importing
+    // the image again would add another one beside it: remove it, so that a failed import leaves nothing.
+    try {
+      await scene.delete();
+    } catch (deleteErr) {
+      console.warn(`Bindery | could not remove the scene "${input.name}" left without a background:`, deleteErr);
+    }
+    throw err;
+  }
 
   return scene;
 }

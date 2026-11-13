@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { nodeCanvasRegionRenderer } from '../../src/images/nodeCanvasRenderer.js';
 import { build as buildLuminosityMask } from '../synth/fixtures/images-luminosity-mask.js';
@@ -14,7 +15,7 @@ import { build as buildVectorsRectangle } from '../synth/fixtures/vectors-rectan
 describe('nodeCanvasRegionRenderer — an integration with a real pdf.js', () => {
   it('renders a region around an image, the result has the expected dimensions and is not completely transparent/empty', async () => {
     const buf = buildLuminosityMask();
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
 
     // The fixture draws a 100x100 image (page space) at cm(100,0,0,100,50,600) — see images-luminosity-mask.ts.
@@ -41,7 +42,7 @@ describe('nodeCanvasRegionRenderer — an integration with a real pdf.js', () =>
 
   it('renders a region of pure vector graphics (no image) without an error — the fallback path for drawn maps', async () => {
     const buf = buildVectorsRectangle();
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
     const bbox = { minX: 0, minY: 0, maxX: 200, maxY: 200 };
     const result = await nodeCanvasRegionRenderer.renderRegion(page as never, bbox, { targetLongEdgePx: 100 });
@@ -52,7 +53,7 @@ describe('nodeCanvasRegionRenderer — an integration with a real pdf.js', () =>
 
   it('an AbortSignal already aborted before the call rejects immediately', async () => {
     const buf = buildLuminosityMask();
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
     const page = await doc.getPage(1);
     const controller = new AbortController();
     controller.abort();

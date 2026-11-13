@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { PDF_OPEN_OPTIONS } from '../../src/pdfDocument.js';
 import { describe, expect, it } from 'vitest';
 import { runHygiene } from '../../src/text/hygiene.js';
 import type { PdfTextItemLike } from '../../src/text/types.js';
@@ -10,7 +11,7 @@ import { build as buildTextCombiningDiacritics } from '../synth/fixtures/text-co
 import { build as buildTextBrokenToUnicode } from '../synth/fixtures/text-broken-tounicode.js';
 
 async function textItemsOf(buf: Buffer): Promise<PdfTextItemLike[]> {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buf) }).promise;
   const page = await doc.getPage(1);
   const tc = await page.getTextContent({ disableNormalization: true } as never);
   return (tc.items as PdfTextItemLike[]).filter((i) => 'str' in i);
