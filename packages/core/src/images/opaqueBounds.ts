@@ -95,3 +95,55 @@ export function tightenToVisible(placed: Rect, bounds: FractionalBounds, placeme
     maxY: placed.minY + (1 - y0) * h,
   };
 }
+
+/** A pixel of a mask shows what it masks when it is opaque and light (a soft mask in luminance: white shows, black hides). */
+const MASK_SHOWS_MIN_LUMINANCE = 128;
+/** The rows of the shape that count for its sides: those at least this share as wide as its widest row (the corners of a tilted sheet are not). */
+const INNER_ROW_MIN_SHARE = 0.9;
+
+/**
+ * The largest upright box within the part of `mask` that shows what it masks (see `MASK_SHOWS_MIN_LUMINANCE`), as fractions of the mask (x from
+ * the left, y from the top): for a sheet laid slightly askew, the box within its edges, without the wedges of the page between its tilted sides
+ * and its upright box. `null` when nothing shows.
+ */
+export function innerVisibleBounds(mask: DecodedImage): FractionalBounds | null {
+  const { width, height, rgba } = mask;
+  if (width <= 0 || height <= 0) return null;
+  const shows = (x: number, y: number): boolean => {
+    const i = (y * width + x) * 4;
+    return rgba[i + 3]! > VISIBLE_ALPHA && 0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]! >= MASK_SHOWS_MIN_LUMINANCE;
+  };
+  const left: number[] = [];
+  const right: number[] = [];
+  let widest = 0;
+  for (let y = 0; y < height; y++) {
+    let l = -1;
+    let r = -1;
+    for (let x = 0; x < width; x++) {
+      if (!shows(x, y)) continue;
+      if (l < 0) l = x;
+      r = x;
+    }
+    left.push(l);
+    right.push(r);
+    if (l >= 0) widest = Math.max(widest, r - l + 1);
+  }
+  if (widest === 0) return null;
+  const sides = left.map((l, y) => (l >= 0 && right[y]! - l + 1 >= INNER_ROW_MIN_SHARE * widest ? y : -1)).filter((y) => y >= 0);
+  const x0 = Math.max(...sides.map((y) => left[y]!));
+  const x1 = Math.min(...sides.map((y) => right[y]!)) + 1;
+  if (x1 <= x0) return null;
+  // The rows that span the whole box, the longest run of them: its top and bottom.
+  let best: [number, number] | null = null;
+  let start = -1;
+  for (let y = 0; y <= height; y++) {
+    const spans = y < height && left[y]! >= 0 && left[y]! <= x0 && right[y]! + 1 >= x1;
+    if (spans && start < 0) start = y;
+    if (!spans && start >= 0) {
+      if (best === null || y - start > best[1] - best[0]) best = [start, y];
+      start = -1;
+    }
+  }
+  if (best === null) return null;
+  return { x0: x0 / width, y0: best[0] / height, x1: x1 / width, y1: best[1] / height };
+}

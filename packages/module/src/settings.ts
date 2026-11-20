@@ -97,17 +97,6 @@ export function registerSettings(): void {
     default: false,
   });
 
-  // Global switch for the order of the review's image list: off keeps the classification groups (content first, then
-  // the undecided ones by size), on lists every image in the order of the pages.
-  game.settings!.register(MODULE_ID, 'sortByPage', {
-    name: 'BINDERY.settings.sortByPageLabel',
-    hint: 'BINDERY.settings.sortByPageHint',
-    scope: 'world',
-    config: true,
-    type: Boolean,
-    default: false,
-  });
-
   // Global switch for drawings made of vector paths (a cartoon figure, a diagram, a logo): off analyses the PDF as before (rasters and the
   // big rectangular fills of maps only), on also offers such drawings, rendered, as undecided images.
   game.settings!.register(MODULE_ID, 'vectorFigures', {

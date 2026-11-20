@@ -121,6 +121,23 @@ describe('isNeverWorthReviewing', () => {
     });
   });
 
+  describe('night scenes (a picture over the whole page, painted almost black)', () => {
+    const page = { ...base, entry: entry('page', 0.98), opaqueFraction: 1, darkOpaqueShare: 0.998, meanLuminance: 7.3, centreDetail: 5.9, smoothness: { coarseGradient: 0.49, fineGradient: 0.17 } };
+
+    it('a dark page with a faint subject is offered', () => {
+      expect(isNeverWorthReviewing({ ...page, visibleLuminanceStdDev: 7.2 })).toBe(false);
+    });
+
+    it('a flat black page is hidden, as is a dark smooth raster that does not fill the page', () => {
+      expect(isNeverWorthReviewing({ ...page, visibleLuminanceStdDev: 0.7, meanLuminance: 2.2 })).toBe(true);
+      expect(isNeverWorthReviewing({ ...page, entry: entry('part', 0.5), visibleLuminanceStdDev: 7.2 })).toBe(true);
+    });
+
+    it('a dark page background with an even middle (a vignette, a frame round a blank middle) is hidden', () => {
+      expect(isNeverWorthReviewing({ ...page, visibleLuminanceStdDev: 9, centreDetail: 2.1 })).toBe(true);
+    });
+  });
+
   describe('white shapes (a white strip cut from a larger sheet)', () => {
     const strip = { ...base, opaqueFraction: 0.5, whiteOpaqueShare: 1 };
 

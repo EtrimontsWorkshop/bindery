@@ -53,6 +53,16 @@ describe('halvesContinueAcrossSeam', () => {
     expect(halvesContinueAcrossSeam(left, image(60, 100, WHITE, (x) => rightGradient(x)))).toBe(true);
     expect(halvesContinueAcrossSeam(left, image(60, 100, WHITE, () => flat(30)))).toBe(false);
   });
+
+  it('can be asked to accept no more change across the seam than within each half (halves cut to the gutter)', () => {
+    const left = image(100, 100, WHITE, (x) => [60 + x, 60 + x, 60 + x, 255]);
+    // A step of four at the seam where the halves change by one a column: within the usual allowance, not within the strict one.
+    const stepped = image(60, 100, WHITE, (x) => [163 + x, 163 + x, 163 + x, 255]);
+    const goingOn = image(60, 100, WHITE, (x) => [160 + x, 160 + x, 160 + x, 255]);
+    expect(halvesContinueAcrossSeam(left, stepped)).toBe(true);
+    expect(halvesContinueAcrossSeam(left, stepped, { maxJumpFactor: 1.2, jumpAllowance: 0 })).toBe(false);
+    expect(halvesContinueAcrossSeam(left, goingOn, { maxJumpFactor: 1.2, jumpAllowance: 0 })).toBe(true);
+  });
 });
 
 describe('halvesContinueAcrossSeam on one page (blank seam)', () => {

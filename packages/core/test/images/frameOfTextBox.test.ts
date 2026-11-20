@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isEmptyWithin, isFlatFill, isFrameOfTextBox } from '../../src/images/buildImageExtraction.js';
+import { transparentShare } from '../../src/images/extractionJoins.js';
 
 const image = (width: number, height: number, visible: (x: number, y: number) => boolean) => {
   const rgba = new Uint8ClampedArray(width * height * 4);
@@ -53,5 +54,12 @@ describe('isEmptyWithin', () => {
     }
     expect(isEmptyWithin({ width: size, height: size, rgba: frame })).toBe(true);
     expect(isEmptyWithin({ width: size, height: size, rgba: picture })).toBe(false);
+  });
+});
+
+describe('transparentShare', () => {
+  it('measures the transparent part of a layer: a band of a picture laid over it again is mostly transparent, a picture is not', () => {
+    expect(transparentShare(image(100, 140, (_x, y) => y >= 30 && y < 60))).toBeGreaterThan(0.75);
+    expect(transparentShare(image(100, 140, () => true))).toBe(0);
   });
 });

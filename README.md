@@ -22,7 +22,7 @@ After the analysis, every image Bindery found is listed with a thumbnail, its pa
 
 - **Preview and editing.** Click a thumbnail to open the image editor. It has four tools: *View* (only look at the image), *Brush* and *Rectangle* (erase unwanted parts, for example text captured with an illustration) and *Pick color* (take a color from the picture). *Erase to* decides what an erased area becomes: *Transparent* or a *Solid color* (the color picker next to it). **Fill background** puts the chosen color behind the whole picture, so every transparent area gets that color (useful for sketches that are hard to read on a transparent background). The brush size and the zoom have sliders, and the picture can be rotated a quarter turn left or right. Every step, turns included, can be undone and redone (Ctrl+Z), *Restore original* goes back to the image as Bindery found it, and *Apply changes* keeps the result.
 - **Moving through the images.** With an image highlighted, the ↑ and ↓ keys move to the previous and the next image of the list shown (the page preview follows).
-- **Order of the list.** By default the images Bindery is sure about come first, by page, then the undecided ones from the largest to the smallest. The module setting **Sort images by page** lists everything in the order of the book instead (see [Module settings](#module-settings)).
+- **Order of the list.** The images are listed in the order of the book, page by page and from the top of a page to the bottom.
 - **What you may find in the list.** Floor plans, maps and diagrams that the PDF paints as vector lines over a panel are offered as the picture the page shows. A picture that runs across two facing pages (a map, a double-page illustration, a figure split by the gutter) is joined into one image, listed on the first of the two pages, when the pixels of the two halves go on across the seam. An illustration drawn in several pieces (a few objects on one page) comes out as one picture, and a card of text laid over a portrait is imported apart from the portrait. A picture painted twice in the same place comes out once, from its own pixels, without the ring or frame the page draws around it. Pictures stored sideways in the PDF are turned the way the page shows them.
 - **Vector drawings.** Some books draw their art as vector paths, not as pictures (the cartoon figures beside the text of a rulebook, diagrams, a publisher's logo), and there is nothing in such a PDF to extract. The module setting **Import vector drawings** (off by default) makes Bindery look for them too: clusters of filled paths that make a figure are rendered as the part of the page they cover and listed as undecided images, unchecked. With the setting off the PDF is analysed as before. See the limitations below; the setting applies to the next PDF you analyse.
 
@@ -34,7 +34,6 @@ The settings are in Foundry's **Settings → Configure Settings → Module Setti
 | --- | --- | --- |
 | **Image upload folder** | `worlds/<world>/bindery-imports` | The folder in the world's data storage where the images you import are saved. |
 | **Image upload storage** | User data | Which of Foundry's storages that folder is in. Change it only if your images have to go to an Amazon S3 bucket (give its name in **S3 bucket**) or to the hosting service's assets library. |
-| **Sort images by page** | off | Off: the review lists the images Bindery is sure about by page first, then the undecided ones from the largest to the smallest. On: every image is listed in the order of the book, page by page and from the top of a page to the bottom. |
 | **Add a white background to images** | off | Images that have transparent areas get a white background behind them right after the PDF is analysed (so you review them with it) and again when they are saved. Images you changed by hand in the token panel or the editor are left as you made them. It also applies to tokens and statblock portraits, and makes sketches and line drawings easier to read. For a single image use **Fill background** in the image editor, which fills with any color. |
 | **Import vector drawings** | off | Also looks for drawings made of vector paths (cartoon figures beside the text, diagrams, logos) and lists them as undecided images, unchecked. Off: the PDF is analysed as before. See the limitations below. |
 | **Remove numbers from maps** | off | Paints over the numbered markers of a map (black discs with a white number in them, the key to the rooms of a floor plan) in every image that has at least three of them, with the color around them. The part of the drawing under a marker is lost, and a marker between thick walls or lines may remain. Off: maps are imported as drawn. |
@@ -93,6 +92,18 @@ npm run package         # produces module.zip from the built module
 npm run check:manifest  # module.json matches the files and the zip
 npm run deploy:foundry  # copies the built module into a Foundry modules folder (BINDERY_FOUNDRY_MODULE_DIR)
 ```
+
+### Measuring the image analysis
+
+`npm run measure:images` runs the image analysis on PDFs of your own and tells how well it did, so that a change to its rules can be judged by numbers:
+
+```
+npm run measure:images -- run <folder or PDFs...>   # analyse; records what was offered and what was hidden
+npm run measure:images -- label                     # writes label.html: mark each picture as wanted, wanted but taken wrongly, or not wanted
+npm run measure:images -- report                    # recall and precision against your labels, and what changed since the previous run
+```
+
+Everything it writes (results, thumbnails, labels) goes to `test/reference/measure`, which git ignores, or to the folder given with `--out`. That folder holds crops of the PDFs' pictures and must never be committed. Label once, then after every change to the analysis: `run`, `report`.
 
 Profile-based statblock import is compiled in only when you build with `BINDERY_STATBLOCKS=1` (for example `BINDERY_STATBLOCKS=1 npm run build`); a plain `npm run build` produces the release build, without it.
 

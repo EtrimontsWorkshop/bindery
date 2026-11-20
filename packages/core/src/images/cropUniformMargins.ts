@@ -266,3 +266,134 @@ export function cropDecodedImage(image: DecodedImage, bounds: PixelBounds): Deco
   }
   return { width: bounds.width, height: bounds.height, rgba: out };
 }
+
+/** A pixel this opaque at most is transparent (the empty margin of a cut-out, not its soft edge). */
+const TRANSPARENT_MAX_ALPHA = 8;
+/** Transparent margins are cut off when they take this share of the picture at least (a pixel's fringe is left alone). */
+const TRANSPARENT_MARGIN_MIN_SHARE = 0.02;
+
+/**
+ * `image` without the rows and columns along its edges that are wholly transparent (a cut-out stored on a canvas larger
+ * than itself: offered, it shows as a frame of nothing round the picture); `null` when they take less than
+ * `TRANSPARENT_MARGIN_MIN_SHARE` of it, or when nothing of it is opaque.
+ */
+export function trimTransparentMargins(image: DecodedImage): DecodedImage | null {
+  const { width, height, rgba } = image;
+  const opaqueRow = (y: number): boolean => {
+    for (let x = 0; x < width; x++) if (rgba[(y * width + x) * 4 + 3]! > TRANSPARENT_MAX_ALPHA) return true;
+    return false;
+  };
+  let top = 0;
+  while (top < height && !opaqueRow(top)) top++;
+  if (top === height) return null;
+  let bottom = height - 1;
+  while (bottom > top && !opaqueRow(bottom)) bottom--;
+  const opaqueColumn = (x: number): boolean => {
+    for (let y = top; y <= bottom; y++) if (rgba[(y * width + x) * 4 + 3]! > TRANSPARENT_MAX_ALPHA) return true;
+    return false;
+  };
+  let left = 0;
+  while (left < width && !opaqueColumn(left)) left++;
+  let right = width - 1;
+  while (right > left && !opaqueColumn(right)) right--;
+  const kept = (right - left + 1) * (bottom - top + 1);
+  if (kept > (1 - TRANSPARENT_MARGIN_MIN_SHARE) * width * height) return null;
+  return cropDecodedImage(image, { x: left, y: top, width: right - left + 1, height: bottom - top + 1 });
+}
+
+/** A pixel this dark at most (luminance) belongs to a dark surround. */
+const SURROUND_MAX_LUMINANCE = 90;
+/** A line along an edge is part of the surround when this share of it is dark at least (a mark printed on the ground takes some). */
+const SURROUND_LINE_DARK_SHARE = 0.75;
+/** The lines past the surround are the paper when this share of them is dark at most. */
+const PAPER_LINE_MAX_DARK_SHARE = 0.2;
+/** ...and their mean luminance this at least: light paper, not a picture merely past the dark threshold. */
+const PAPER_MIN_LUMINANCE = 115;
+/** The wholly dark lines along an edge take this share of the picture's depth there at least (a hairline is not a surround)... */
+const SURROUND_MIN_DEPTH_SHARE = 0.008;
+/** ...and the surround, to the paper, this share at most (a dark sky at the top of a picture goes deeper). */
+const SURROUND_MAX_DEPTH_SHARE = 0.06;
+/** From the last wholly dark line to the paper is this share of the depth at most: the edge of a sheet, not a picture growing lighter. */
+const SURROUND_EDGE_MAX_SPAN_SHARE = 0.02;
+/**
+ * A render of the page's region may show a hairline of white past the page's edge (a raster placed a little past the page), its last
+ * line blended into the ground: lines along the edge lighter than the surround, this share of the depth at most, are passed over first.
+ */
+const PAST_PAGE_MAX_DEPTH_SHARE = 0.01;
+/** A surround runs along this many sides at least (one dark band is a part of the picture, not what it lies on). */
+const SURROUND_MIN_SIDES = 2;
+
+/**
+ * `image` without the dark surround round the sheet it shows: a page painted as a sheet of paper lying on a dark ground (a leather
+ * folder, a desk), the ground showing as a dark band along two sides or more that ends at the sheet's edge. `null` when there is none.
+ */
+export function trimDarkSurround(image: DecodedImage): DecodedImage | null {
+  const sheet = darkSurroundBounds(image);
+  return sheet === null ? null : cropDecodedImage(image, sheet);
+}
+
+/** The bounds of the sheet within the dark surround round it (see `trimDarkSurround`); `null` when there is none. */
+export function darkSurroundBounds(image: DecodedImage): PixelBounds | null {
+  const { width, height, rgba } = image;
+  const luminance = (x: number, y: number): number => {
+    const at = (y * width + x) * 4;
+    return 0.3 * rgba[at]! + 0.59 * rgba[at + 1]! + 0.11 * rgba[at + 2]!;
+  };
+  const dark = (x: number, y: number): boolean => luminance(x, y) <= SURROUND_MAX_LUMINANCE && rgba[(y * width + x) * 4 + 3]! > TRANSPARENT_MAX_ALPHA;
+  const rowLightness = (y: number): number => {
+    let sum = 0;
+    for (let x = 0; x < width; x++) sum += luminance(x, y);
+    return sum / width;
+  };
+  const columnLightness = (x: number): number => {
+    let sum = 0;
+    for (let y = 0; y < height; y++) sum += luminance(x, y);
+    return sum / height;
+  };
+  const rowShare = (y: number): number => {
+    let n = 0;
+    for (let x = 0; x < width; x++) if (dark(x, y)) n++;
+    return n / width;
+  };
+  const columnShare = (x: number): number => {
+    let n = 0;
+    for (let y = 0; y < height; y++) if (dark(x, y)) n++;
+    return n / height;
+  };
+  /**
+   * How deep the surround goes along one side: `paper` where the sheet's light paper starts, `edge` where the dark band gives way
+   * to the least dark line after it (the sheet's edge where the picture on it runs dark to it); 0 for both when there is no band.
+   */
+  const depthOf = (depth: number, shareAt: (i: number) => number, lightnessAt: (i: number) => number): { paper: number; edge: number } => {
+    const none = { paper: 0, edge: 0 };
+    const maxDepth = Math.floor(depth * SURROUND_MAX_DEPTH_SHARE);
+    let i = 0;
+    while (i < depth * PAST_PAGE_MAX_DEPTH_SHARE && lightnessAt(i) > SURROUND_MAX_LUMINANCE) i++;
+    const start = i;
+    while (i < maxDepth && shareAt(i) >= SURROUND_LINE_DARK_SHARE) i++;
+    if (i - start < depth * SURROUND_MIN_DEPTH_SHARE || i >= maxDepth) return none;
+    const lastDark = i;
+    const spanEnd = Math.min(maxDepth, lastDark + Math.ceil(depth * SURROUND_EDGE_MAX_SPAN_SHARE));
+    let edge = lastDark;
+    let least = Infinity;
+    for (let at = lastDark; at < spanEnd; at++) {
+      const share = shareAt(at);
+      if (share < least) {
+        least = share;
+        edge = at;
+      }
+      if (share <= PAPER_LINE_MAX_DARK_SHARE) return { paper: lightnessAt(at) >= PAPER_MIN_LUMINANCE ? at : 0, edge: at };
+    }
+    return { paper: 0, edge };
+  };
+  const sides = [
+    depthOf(height, rowShare, rowLightness),
+    depthOf(height, (i) => rowShare(height - 1 - i), (i) => rowLightness(height - 1 - i)),
+    depthOf(width, columnShare, columnLightness),
+    depthOf(width, (i) => columnShare(width - 1 - i), (i) => columnLightness(width - 1 - i)),
+  ];
+  // The surround is told by the paper past it along two sides; along the others, a dark band of the same kind is cut at its edge.
+  if (sides.filter((side) => side.paper > 0).length < SURROUND_MIN_SIDES) return null;
+  const [top, bottom, left, right] = sides.map((side) => side.edge) as [number, number, number, number];
+  return { x: left, y: top, width: width - left - right, height: height - top - bottom };
+}

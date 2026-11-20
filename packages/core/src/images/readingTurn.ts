@@ -85,3 +85,31 @@ export function turnUpright(image: DecodedImage, angle: number): DecodedImage | 
     rotationRad: rad,
   });
 }
+
+/**
+ * A document the book prints on its side (a newspaper cutting or an open notebook turned a quarter to fit the page),
+ * whose text is part of its picture: stood up again. The page gives no direction for text drawn into a raster, so the
+ * rule above cannot turn it; what tells is the placement and the pixels together. The PDF stores such a scan upright
+ * and paints it turned by a quarter, so the stored orientation is the one it reads in — but only when it does read:
+ * most pictures painted with a quarter turn are stored sideways and stand upright on the page (130 of the 139 such
+ * pictures in twenty labelled books were right as the page shows them; the nine that were not were all documents
+ * lying on their side).
+ *
+ * `image` is the picture as the page shows it, `placedTurns` the quarter turns (clockwise) the page applied to the
+ * stored raster, `readsAsDocument` the judge of rows of text in pixels. Returns the picture turned back, or `null`
+ * when it reads as it is or does not read either way.
+ */
+export function standUpSidewaysDocument(
+  image: DecodedImage,
+  placedTurns: 1 | 3,
+  readsAsDocument: (image: DecodedImage) => boolean,
+  /** Whether lettering drawn into the picture runs up and down it (see `sidewaysText.ts`). */
+  liesSideways: (image: DecodedImage) => boolean = () => false,
+): DecodedImage | null {
+  const stoodUp = rotateQuarterTurns(image, placedTurns === 1 ? 3 : 1);
+  if (!readsAsDocument(image)) return readsAsDocument(stoodUp) ? stoodUp : null;
+  // A document that reads either way by its rows (a cutting, a notebook full of writing): its lettering tells. Running up and
+  // down as the page shows it, the picture is turned back to the way the PDF stores it. Measured: a newspaper cutting and an
+  // open notebook in one book, both read only so.
+  return readsAsDocument(stoodUp) && liesSideways(image) ? stoodUp : null;
+}

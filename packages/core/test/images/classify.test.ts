@@ -249,6 +249,85 @@ describe('classifyImages', () => {
       expect(reasonOf(classifyAll([...tinyOnes, art]), art).classification).not.toBe('decoration');
     });
 
+    it('the title set by itself on an opening page is lettering; tokens there, a page of logos and a later page are not', () => {
+      const onPage = (e: ImageEntry, page: number): ImageEntry => ({ ...e, occurrences: e.occurrences.map((o) => ({ ...o, page })) });
+      const title = { ...at('title', { minX: 158, minY: 515, maxX: 446, maxY: 650 }, 9, 0.08), intrinsicWidth: 385, intrinsicHeight: 181 };
+      const token = { ...at('token', { minX: 100, minY: 100, maxX: 160, maxY: 160 }, 10, 0.008), intrinsicWidth: 148, intrinsicHeight: 148 };
+      const classify = (entries: ImageEntry[]) => classifyImages(entries, pageBoxMap([2, 9]), new Map(), { hideTinyImages: false });
+      const opening = classify([onPage(title, 2), onPage(token, 2)]);
+      expect(opening.find((c) => c.entry.objId === 'title')!.reason).toBe('Z33-lettering-over-cover');
+      expect(opening.find((c) => c.entry.objId === 'token')!.reason).not.toBe('Z33-lettering-over-cover');
+      const logos = [1, 2, 3].map((i) => ({ ...onPage(token, 2), objId: `logo${i}` }));
+      expect(classify([onPage(title, 2), ...logos]).some((c) => c.reason === 'Z33-lettering-over-cover')).toBe(false);
+      expect(classify([onPage(title, 9)]).some((c) => c.reason === 'Z33-lettering-over-cover')).toBe(false);
+    });
+
+    it("the title laid over the book's cover is its lettering, not a picture; on another page it is a picture", () => {
+      const cover = at('cover', { minX: -1, minY: -1, maxX: 613, maxY: 793 }, 2, 1.0);
+      // Laid at a slant: its box is nearly square, its raster runs across.
+      const title = { ...at('title', { minX: 72, minY: 475, maxX: 319, maxY: 685 }, 9, 0.11), intrinsicWidth: 260, intrinsicHeight: 124 };
+      const figure = { ...at('figure', { minX: 300, minY: 100, maxX: 500, maxY: 600 }, 12, 0.2), intrinsicWidth: 578, intrinsicHeight: 1345 };
+      const results = classifyImages([cover, title, figure], pageBoxMap([1]), new Map(), { hideTinyImages: false });
+      expect(reasonOf(results, title).reason).toBe('Z33-lettering-over-cover');
+      // A figure set standing over the cover is a picture.
+      expect(reasonOf(results, figure).reason).not.toBe('Z33-lettering-over-cover');
+      expect(reasonOf(results, cover).classification).not.toBe('decoration');
+      const onPage = (e: ImageEntry): ImageEntry => ({ ...e, occurrences: e.occurrences.map((o) => ({ ...o, page: 5 })) });
+      const inside = classifyImages([onPage(cover), onPage(title)], pageBoxMap([5]), new Map(), { hideTinyImages: false });
+      expect(inside.some((c) => c.reason === 'Z33-lettering-over-cover')).toBe(false);
+    });
+
+    it('a window of an intricate shape that the book sets on page after page is an ornament of its design', () => {
+      const outline = Array.from({ length: 584 }, (_, i) => [300 + 80 * Math.cos(i / 93), 400 + 140 * Math.sin(i / 93)]).flat();
+      const windowOn = (page: number, height: number): ImageEntry => {
+        const e = at(`w${page}`, { minX: 209, minY: 258, maxX: 375, maxY: 258 + height }, 10, 0.1);
+        return { ...e, occurrences: [{ ...e.occurrences[0]!, page, clip: { paths: [[outline]], ctm: [1, 0, 0, 1, 0, 0], coverage: 0.8 } }] };
+      };
+      const pages = [1, 2, 3, 4, 5, 6, 7, 8];
+      const book = pages.map((page) => windowOn(page, page % 2 === 0 ? 291 : 289.8));
+      const results = classifyImages(book, pageBoxMap(pages), new Map(), { hideTinyImages: false });
+      for (const e of book) expect(reasonOf(results, e).reason).toBe('Z32-window-of-book-design');
+      // On fewer pages it is a picture.
+      const few = classifyImages(book.slice(0, 7), pageBoxMap(pages), new Map(), { hideTinyImages: false });
+      expect(few.some((c) => c.reason === 'Z32-window-of-book-design')).toBe(false);
+    });
+
+    it('paper clips laid over the edges of photos on several pages are fasteners, not parts of the photos', () => {
+      const onPage = (e: ImageEntry, page: number): ImageEntry => ({ ...e, objId: `${e.objId}-${page}`, occurrences: e.occurrences.map((o) => ({ ...o, page })) });
+      const photo = at('photo', { minX: 63, minY: 29, maxX: 307, maxY: 252 }, 8, 0.11);
+      const clip = at('clip', { minX: 29, minY: 213, maxX: 118, maxY: 253 }, 12, 0.0073);
+      const book = [1, 2, 3].flatMap((page) => [onPage(photo, page), onPage(clip, page)]);
+      const results = classifyImages(book, pageBoxMap([1, 2, 3]), new Map(), { hideTinyImages: false });
+      for (const e of book.filter((e) => e.objId!.startsWith('clip'))) expect(reasonOf(results, e).reason).toBe('Z31-fastener-over-picture-edge');
+      for (const e of book.filter((e) => e.objId!.startsWith('photo'))) expect(reasonOf(results, e).classification).toBe('content');
+      // Once or twice in a book (a crest over the title of a map), such a picture is a picture of the page.
+      const twice = classifyImages(book.slice(0, 4), pageBoxMap([1, 2, 3]), new Map(), { hideTinyImages: false });
+      expect(twice.some((c) => c.reason === 'Z31-fastener-over-picture-edge')).toBe(false);
+    });
+
+    it('a translucent splash under a picture painted on it is its ground, not a picture joining it to the next one', () => {
+      // Three weapons, each on a yellow splash at 20%; the middle splash, too large for the halftone rule, reaches the third weapon.
+      const splash = { ...at('splash', { minX: 237, minY: 287, maxX: 409, maxY: 470 }, 866, 0.065, 0.2), maxOpacity: 0.2, intrinsicWidth: 247, intrinsicHeight: 183 };
+      const holder = entry({ objId: 'splash-mask', maskEvidence: 'group', masksImageObjId: 'splash' });
+      const weapon = { ...at('weapon', { minX: 219, minY: 325, maxX: 374, maxY: 421 }, 891, 0.031), intrinsicWidth: 259, intrinsicHeight: 161 };
+      const next = { ...at('next', { minX: 381, minY: 332, maxX: 537, maxY: 418 }, 995, 0.028), intrinsicWidth: 260, intrinsicHeight: 144 };
+      const results = classifyAll([splash, holder, weapon, next], false);
+      expect(reasonOf(results, splash).reason).toBe('Z34-translucent-ground-under-picture');
+      expect(reasonOf(results, weapon).classification).not.toBe('decoration');
+      // Without a picture painted over it, a translucent crest is judged as before.
+      expect(reasonOf(classifyAll([splash, holder], false), splash).reason).not.toBe('Z34-translucent-ground-under-picture');
+    });
+
+    it('a small picture wholly on a larger one (an inset), one painted under it, or a large one over its edge is no fastener', () => {
+      const photo = at('photo', { minX: 63, minY: 29, maxX: 307, maxY: 252 }, 8, 0.11);
+      const inset = at('inset', { minX: 100, minY: 100, maxX: 180, maxY: 140 }, 12, 0.0066);
+      expect(reasonOf(classifyAll([photo, inset], false), inset).reason).not.toBe('Z31-fastener-over-picture-edge');
+      const under = at('under', { minX: 29, minY: 213, maxX: 118, maxY: 253 }, 2, 0.0073);
+      expect(reasonOf(classifyAll([photo, under], false), under).reason).not.toBe('Z31-fastener-over-picture-edge');
+      const large = at('large', { minX: 200, minY: 150, maxX: 400, maxY: 300 }, 12, 0.062);
+      expect(reasonOf(classifyAll([photo, large], false), large).reason).not.toBe('Z31-fastener-over-picture-edge');
+    });
+
     it('the bottom of a stack (covered 75% or more by a later opaque masked picture) is decoration', () => {
       const bottom = at('bottom', { minX: 54, minY: 25, maxX: 558, maxY: 347 }, 3, 0.33);
       const top = at('top', { minX: 61, minY: 35, maxX: 578, maxY: 354 }, 8, 0.34);
@@ -498,11 +577,11 @@ describe('classifyImages', () => {
     });
 
     it('a masked raster longer than the size limit is not hit', () => {
-      expect(classifyStrip(strip({ intrinsicWidth: 472, intrinsicHeight: 105 })).reason).toBe('Z1-no-strong-signal');
+      expect(classifyStrip(strip({ intrinsicWidth: 472, intrinsicHeight: 105 })).reason).not.toBe('Z15-small-masked-raster');
     });
 
     it('an unmasked strip is not hit', () => {
-      expect(classifyStrip(strip({}), false).reason).toBe('Z1-no-strong-signal');
+      expect(classifyStrip(strip({}), false).reason).not.toBe('Z15-small-masked-raster');
     });
 
     it('a strip covering 4% of the page is not hit', () => {

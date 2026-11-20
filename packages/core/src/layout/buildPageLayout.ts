@@ -193,7 +193,7 @@ export function buildPageLayouts(textLayout: BuildTextLayoutResult, inventory: I
       runningElementKindByLineId: runningKindByPage.get(p.pageNumber) ?? new Map(),
       columns: p.columns,
     });
-    allBlocks.push(...blocks);
+    for (const block of blocks) allBlocks.push(block);
   }
 
   return { pages, blocks: allBlocks, diagnostics };

@@ -563,6 +563,22 @@ export async function probeOpaqueBounds(page: PdfPageForExtract, objId: string, 
  * ~250k points), or `null` when the resource is not available or nothing is visible. With `inset`, only the middle of
  * the raster is looked at: this share of its width and height is left out at each edge.
  */
+/** The raw pixels of an image object of the page (as probes see them, see `normalizedForProbe`), or `null` when it has not arrived. */
+export async function probeRawImage(page: PdfPageForExtract, objId: string): Promise<DecodedImage | null> {
+  for (const objs of [page.objs, page.commonObjs] as readonly PdfObjectsLike[]) {
+    const pending = resolveIfReady(objs, objId);
+    if (!pending) continue;
+    try {
+      const raw = await pending;
+      if (raw == null) continue;
+      return normalizedForProbe(raw);
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 export async function probeRawLook(page: PdfPageForExtract, objId: string, inset = 0): Promise<RawLook | null> {
   const sources: readonly PdfObjectsLike[] = [page.objs, page.commonObjs];
   for (const objs of sources) {

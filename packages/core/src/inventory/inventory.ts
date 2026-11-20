@@ -169,6 +169,9 @@ async function decodedImage(store: ObjStore, objId: string, deadline: number): P
   });
 }
 
+/** pdf.js's opcode for painting a stencil mask (`paintImageMaskXObject`). */
+const OP_PAINT_IMAGE_MASK = 83;
+
 /**
  * Fingerprints the content of this page's images (see `contentFingerprint.ts`) while pdf.js still holds them decoded
  * — `page.cleanup()` drops them. Once per `objId`; an image that does not arrive decoded (see `FINGERPRINT_WAIT_MS`),
@@ -179,6 +182,9 @@ async function collectFingerprints(page: PdfPageLike, events: readonly ReturnTyp
   const deadline = Date.now() + FINGERPRINT_WAIT_MS;
   for (const event of events) {
     if (event.type !== 'image' || event.objId === null || into.has(event.objId)) continue;
+    // A stencil mask (a one-bit shape painted in the fill colour) has no picture to fingerprint, and pdf.js may not hand it over decoded:
+    // waiting for it would cost the whole wait on every page that paints one.
+    if (event.opcode === OP_PAINT_IMAGE_MASK) continue;
     const area = Math.max(0, event.bbox.maxX - event.bbox.minX) * Math.max(0, event.bbox.maxY - event.bbox.minY);
     if (pageArea > 0 && area / pageArea >= FINGERPRINT_MAX_PAGE_AREA) continue;
     const store = event.objId.startsWith('g_') ? page.commonObjs : page.objs;
@@ -197,7 +203,8 @@ async function collectFingerprints(page: PdfPageLike, events: readonly ReturnTyp
  */
 async function fingerprintPagePapers(doc: PdfDocumentLike, images: ImageEntry[], signal: AbortSignal | undefined): Promise<void> {
   const sizeKey = (e: ImageEntry): string => `${e.intrinsicWidth}x${e.intrinsicHeight}`;
-  const fullPage = images.filter((e) => e.objId !== null && e.maxRelativeArea >= FINGERPRINT_MAX_PAGE_AREA && e.intrinsicWidth !== null && e.intrinsicHeight !== null && e.occurrences.length > 0);
+  // Not a stencil mask the size of the page (see `collectFingerprints`): no paper to fingerprint.
+  const fullPage = images.filter((e) => e.objId !== null && e.maskEvidence !== 'opcode' && e.maxRelativeArea >= FINGERPRINT_MAX_PAGE_AREA && e.intrinsicWidth !== null && e.intrinsicHeight !== null && e.occurrences.length > 0);
   const repeatedSizes = new Set(fullPage.filter((e) => new Set(e.occurrences.map((o) => o.page)).size >= 2).map(sizeKey));
   const wanted = fullPage.filter((e) => e.contentFingerprint === undefined && repeatedSizes.has(sizeKey(e)));
   if (wanted.length < 2) return;
@@ -263,11 +270,12 @@ export async function buildInventory(
       pageFingerprints = collectFingerprints(page, events, pageBox, fingerprintByObjId);
 
       perPageImageEvents.push({ page: pageNumber, pageBox, events });
-      allVectors.push(...buildVectorRegions(events, pageNumber, pageBox));
+      // Pushed one by one: a page drawn in tens of thousands of vector pieces (a large map) would overflow the stack as spread arguments.
+      for (const region of buildVectorRegions(events, pageNumber, pageBox)) allVectors.push(region);
       const pageShapes = buildVectorShapes(events, pageNumber, pageBox);
-      if (pageShapes.length <= MAX_SHAPES_PER_PAGE) allShapes.push(...pageShapes);
+      if (pageShapes.length <= MAX_SHAPES_PER_PAGE) for (const shape of pageShapes) allShapes.push(shape);
       const pageLines = buildVectorLines(events, pageNumber, pageBox);
-      if (pageLines.length <= MAX_SHAPES_PER_PAGE) allLines.push(...pageLines);
+      if (pageLines.length <= MAX_SHAPES_PER_PAGE) for (const line of pageLines) allLines.push(line);
       // Said, not done in silence: drawings made of vector paths on this page (a diagram, a line drawing) are not looked for.
       const skipped = (pageShapes.length > MAX_SHAPES_PER_PAGE ? pageShapes.length : 0) + (pageLines.length > MAX_SHAPES_PER_PAGE ? pageLines.length : 0);
       if (skipped > 0) diagnostics.push({ severity: 'info', code: 'VECTOR_SHAPES_SKIPPED', params: { count: skipped, limit: MAX_SHAPES_PER_PAGE }, pageNumber });

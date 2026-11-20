@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clipCoverage, clipPathBBox, flattenPath, pointInClipPath, restrictingClips } from '../../src/inventory/clipPaths.js';
+import { clipCoverage, clipPathBBox, flattenPath, isQuadrilateralClip, pointInClipPath, restrictingClips } from '../../src/inventory/clipPaths.js';
 
 const M = 0;
 const L = 1;
@@ -65,5 +65,21 @@ describe('clip path geometry', () => {
     expect(clipCoverage([half], [100, 0, 0, 100, 0, 0])).toBeCloseTo(0.5, 1);
     expect(clipCoverage([square], [100, 0, 0, 100, 0, 0])).toBeCloseTo(1, 1);
     expect(clipCoverage([half, flattenPath(rect(0, 0, 100, 25), IDENTITY)], [100, 0, 0, 100, 0, 0])).toBeCloseTo(0.125, 1);
+  });
+});
+
+describe('isQuadrilateralClip', () => {
+  it('takes a tilted four-cornered cut for a quadrilateral, an outline shrunk to a point aside', () => {
+    const tilted = [10, 0, 100, 8, 92, 100, 2, 92];
+    const point = [50, 50, 50, 50, 50, 50, 50, 50];
+    expect(isQuadrilateralClip([[tilted]])).toBe(true);
+    expect(isQuadrilateralClip([[point, tilted]])).toBe(true);
+  });
+
+  it('does not take a window with a slanted side and a rounded top for one', () => {
+    // A slanted left side, then a top bending in steps (a curve flattened).
+    const window = [40, 60, 0, 0, 100, 0, 100, 80, 95, 82, 85, 85, 70, 88, 55, 90, 45, 91];
+    expect(isQuadrilateralClip([[window]])).toBe(false);
+    expect(isQuadrilateralClip([])).toBe(false);
   });
 });

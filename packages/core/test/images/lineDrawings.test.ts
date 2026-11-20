@@ -33,6 +33,22 @@ describe('findLineDrawings', () => {
     expect(drawings[0]!.bbox).toEqual(box(100, 100, 301, 401));
   });
 
+  it('takes in the straight walls along the axes, whose boxes have no height or no width', () => {
+    // A grid of walls, every one a stroke of no thickness: horizontal ones of no height, vertical ones of no width.
+    const walls: VectorShape[] = [];
+    for (let i = 0; i < 25; i++) {
+      walls.push({ page: 1, bbox: box(100 + (i % 5) * 40, 100 + Math.floor(i / 5) * 40, 140 + (i % 5) * 40, 100 + Math.floor(i / 5) * 40), relativeArea: 0 });
+      walls.push({ page: 1, bbox: box(100 + (i % 5) * 40, 100 + Math.floor(i / 5) * 40, 100 + (i % 5) * 40, 140 + Math.floor(i / 5) * 40), relativeArea: 0 });
+    }
+    // Its doors and stairs: lines that are not straight along the axes.
+    const doors: VectorShape[] = Array.from({ length: 20 }, (_, i) => ({ page: 1, bbox: box(100 + (i % 5) * 40, 110 + Math.floor(i / 5) * 40, 115 + (i % 5) * 40, 125 + Math.floor(i / 5) * 40), relativeArea: 0 }));
+    const drawings = findLineDrawings([...walls, ...doors], PAGE);
+    expect(drawings).toHaveLength(1);
+    expect(drawings[0]!.lines).toHaveLength(70);
+    // The same grid with nothing but straight rules is a table or a form: no drawing.
+    expect(findLineDrawings(walls, PAGE)).toEqual([]);
+  });
+
   it('does not take a few lines, or the rules of the layout, for a drawing', () => {
     expect(findLineDrawings(plan(box(100, 100, 300, 400), 20), PAGE)).toEqual([]);
     // Two plans joined only by a long straight rule of the page's frame stay two drawings.
@@ -65,6 +81,35 @@ describe('withLineDrawings', () => {
     const bottom = unit('bottom', box(198, 31, 538, 194));
     const out = withLineDrawings([top, bottom], [...plan(box(80, 200, 540, 650)), ...plan(box(210, 40, 330, 205))], new Map([[1, PAGE]]));
     expect(out.filter((u) => u.reason === 'Z23-line-drawing-on-pictures')).toHaveLength(2);
+  });
+
+  it('takes the whole sheet a plan is drawn on when the rest of it carries lines too (an upper floor too small to be a drawing by itself)', () => {
+    const sheet = unit('sheet', box(70, 43, 556, 447));
+    // The ground floor (a drawing) over half the sheet, and beside it a separate cluster of 30 strokes, apart from it, too few to be a drawing.
+    const lines = [...plan(box(94, 57, 372, 401)), ...plan(box(400, 150, 540, 400), 30), ...plan(box(400, 60, 540, 120), 30)];
+    const out = withLineDrawings([sheet], lines, new Map([[1, PAGE]]));
+    const drawings = out.filter((u) => u.reason === 'Z23-line-drawing-on-pictures');
+    expect(drawings).toHaveLength(1);
+    expect(drawings[0]!.bbox).toEqual(box(70, 43, 556, 447));
+    expect(out.filter((u) => u.reason === 'Z23-tile-beside-line-drawing')).toEqual([]);
+  });
+
+  it('takes a map drawn in filled shapes over a sheet as a drawing, with the sheet as its ground; a few shapes leave the sheet as it is', () => {
+    const sheet = unit('sheet', box(70, 43, 556, 447));
+    const out = withLineDrawings([sheet], [], new Map([[1, PAGE]]), undefined, plan(box(94, 57, 540, 430), 60));
+    const drawings = out.filter((u) => u.reason === 'Z23-line-drawing-on-pictures');
+    expect(drawings).toHaveLength(1);
+    expect(drawings[0]!.bbox).toEqual(box(70, 43, 556, 447));
+    expect(withLineDrawings([sheet], [], new Map([[1, PAGE]]), undefined, plan(box(94, 57, 540, 430), 30))).toEqual([sheet]);
+  });
+
+  it('takes the whole sheet a plan lies on, though the plan covers less than half of it', () => {
+    const sheet = unit('sheet', box(68, 491, 554, 782));
+    const out = withLineDrawings([sheet], plan(box(158, 505, 465, 721)), new Map([[1, PAGE]]));
+    const drawings = out.filter((u) => u.reason === 'Z23-line-drawing-on-pictures');
+    expect(drawings).toHaveLength(1);
+    expect(drawings[0]!.bbox).toEqual(box(68, 491, 554, 782));
+    expect(out.filter((u) => u.reason === 'Z23-tile-beside-line-drawing')).toEqual([]);
   });
 
   it('leaves the units without lines on them as they are', () => {

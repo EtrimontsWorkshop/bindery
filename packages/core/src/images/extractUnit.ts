@@ -1,7 +1,8 @@
+import { clipPathBBox, isQuadrilateralClip, type ClipInfo } from '../inventory/clipPaths.js';
 import { rectArea, rectIntersection, unionRect, type Matrix, type Rect } from '../geometry.js';
 import type { ImageEntry } from '../inventory/imageRegistry.js';
 import type { Diagnostic } from '../text/types.js';
-import { confidenceForReason, FLUSH_UNDECIDED_REASON, FULL_PAGE_DOCUMENT_REASON, LARGE_MASKED_CUTOUT_REASON, TEXT_OVER_SMALL_REASON, LARGE_TRANSLUCENT_PANEL_REASON, isBackdropShape, isTranslucentEverywhere } from './classify.js';
+import { confidenceForReason, FASTENER_REASON, EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD, FLUSH_UNDECIDED_REASON, FULL_PAGE_DOCUMENT_REASON, LARGE_MASKED_CUTOUT_REASON, TEXT_OVER_SMALL_REASON, LARGE_TRANSLUCENT_PANEL_REASON, isBackdropShape, isTranslucentEverywhere } from './classify.js';
 import { AUTOCROP_BRIGHTEN, brightenCroppedImage } from './brightenImage.js';
 import { cardOfPiece, cardWithoutPictures } from './cardBesidePictures.js';
 import { looksLikeTrackOfBoxes } from './boxGrid.js';
@@ -9,11 +10,20 @@ import { looksLikeInkSplatter } from './inkSplatter.js';
 import { isPartOfSheet, looksLikeCoveredDocument, measureRasterText } from './rasterText.js';
 import { shrinkToCenter, type ClassifiedImage } from './classify.js';
 import { applyClipToImage, clipShowsWholePicture, renderThroughRectangularClip } from './clipMask.js';
-import { cropDecodedImage, detectContentBounds } from './cropUniformMargins.js';
+import { cropDecodedImage, detectContentBounds, trimDarkSurround, trimTransparentMargins } from './cropUniformMargins.js';
 import { coverWithRaster } from './coverWithRaster.js';
 import { straightenTiltedPicture } from './tiltedRectangle.js';
+import { askewRectangleOfPainting, envelopeOf, nearlyRectangleOf } from './askewCard.js';
+import { renderRotatedRegion, type RotatedPdfRegion } from './renderRotatedRegion.js';
 import { findPhotoInDocument } from './photoInDocument.js';
-import { dominantTextAngle, turnUpright } from './readingTurn.js';
+import { areNamedItems, findItemsOnBlank, withoutBoxes } from './itemsOnBlank.js';
+import { ruleTrace } from './ruleTrace.js';
+import { isSolidCutOut } from './solidCutOut.js';
+import { findDrawingsOnGround, findPicturesOnGround, PAGE_RASTER_MIN_PAGE_SHARE, type PixelRect } from './picturesOnGround.js';
+import { findSingleCardOnGround } from './singleCardOnGround.js';
+import { envelopeOfCard, findCardsOnGround, takeCard, type CardQuad } from './cardsOnGround.js';
+import { dominantTextAngle, standUpSidewaysDocument, turnUpright } from './readingTurn.js';
+import { sidewaysLettering, standUpLettering } from './sidewaysText.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder } from './encodeImage.js';
 import { isBlankSheet } from './blankSheet.js';
@@ -22,17 +32,169 @@ import { mirrorImage, rotateQuarterTurns } from './rotateQuarterTurns.js';
 import { eraseNumberMarkers } from './numberMarkers.js';
 import { eraseTextAroundFigure } from './eraseFigureText.js';
 import { drawnShare, isBareDarkTexture, isColorfulPicture, isDrawingOnPanel, isPanelBackdrop, PANEL_MIN_TEXT_COVERAGE, PANEL_PREVIEW_LONG_EDGE_PX, PANEL_FRAMES_PICTURE_MIN_SHARE, PANEL_OVERLAY_MIN_OPAQUE_FRACTION } from './panelBackdrop.js';
-import { FULL_EXTENT_BOUNDS, tightenToVisible } from './opaqueBounds.js';
+import { FULL_EXTENT_BOUNDS, innerVisibleBounds, tightenToVisible } from './opaqueBounds.js';
 import { measureInkStyle, type InkStyle } from './bookOrnaments.js';
-import { extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeOpaqueBounds, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, waitForObjects, type PdfPageForExtract } from './extract.js';
-import { computeContentHash, computeDarkOpaqueShare, computeWhiteOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, type PreparedEntryForFinalize } from './finalize.js';
+import { extractDirect, probeIntrinsicLongEdgePx, probeIntrinsicSizePx, probeOpaqueBounds, probeOpaquePixelStats, probeRawLook, probeOpaqueFraction, probeRawImage, waitForObjects, type PdfPageForExtract } from './extract.js';
+import { computeContentHash, computeDarkOpaqueShare, computeCentreDetail, NIGHT_SCENE_MIN_AREA, computeWhiteOpaqueShare, computeLuminanceStdDev, computeVisibleLuminanceStdDev, computeVisibleMeanLuminance, computeOpaqueFraction, computeUniformColorFraction, computeSmoothnessMetrics, type PreparedEntryForFinalize } from './finalize.js';
 import type { RegionRenderer } from './regionRenderer.js';
 import { computeTargetLongEdgePx } from './renderResolution.js';
 import { CO_MEMBER_SIGNIFICANT_AREA, decideExtractionStrategy } from './strategy.js';
 import type { BuildImageExtractionOptions, ExtractionUnit, InventoryForImages } from './extractionTypes.js';
 import { CARD_REASON, COVERED_MEMBER_MIN_COVER, COVER_MIN_OPAQUE_FRACTION, CUTOUT_TEXT_MIN_COVERAGE, FIGURE_MAX_WHITE_SHARE, PANEL_BEHIND_PICTURE_MIN_AREA_SHARE, PAPER_OVERLAY_MIN_COVER_OF_PICTURE, TEXT_OVER_PICTURE_MIN_OPAQUE_FRACTION, VECTOR_FIGURE_REASON, alternativeRepresentatives, compositionMembers, isPaperOverlay, syntheticVectorOnlyEntry, topOccurrenceOnPage, withSolidRepresentativeOfBackdrop } from './extractionUnits.js';
-import { BANNER_MAX_RAW_STDDEV, CLIP_CUT_MIN_REMAINING_SHARE, COVER_MIN_PAGE_SHARE, CUT_OUT_MAX_OPAQUE_FRACTION, CUT_OUT_OUTLINE_MIN_POINTS, DARK_CUTOUT_MAX_MEAN_LUMINANCE, DARK_CUTOUT_MAX_STDDEV, DOCUMENT_UNDER_PICTURE_MIN_COVER, EDGE_DOCUMENT_REASON, EDGE_FIGURE_REASON, EDGE_STRIP_MIN_REPRESENTATIVE_AREA, FLUSH_CARD_MIN_TEXT_COVERAGE, HIGH_TEXT_COVERAGE_REASON, LARGE_CUTOUT_MIN_OPAQUE_FRACTION, MAP_UNDER_LABELS_MIN_MEAN_LUMINANCE, MASK_TILTED_RECTANGLE_MAX_TEXT_COVERAGE, NEIGHBOUR_CARD_MAX_AREA, NEIGHBOUR_CARD_MIN_OVERLAP, NOTE_MAX_AREA, NOTE_PIECE_MIN_TEXT_CROSSING, PAPER_CARD_MIN_MEAN_LUMINANCE, PAPER_NOTE_MIN_CENTER_COVERAGE, PAPER_UNDER_PICTURE_EDGE_INSET, PAPER_UNDER_PICTURE_MAX_STDDEV, PAPER_UNDER_PICTURE_MIN_COVER, PICTURE_OVER_CARD_MAX_WORD_COVERAGE, PICTURE_OVER_CARD_MIN_AREA, SAME_FOOTPRINT_MIN_SHARE, TEXT_COVERED_BACKDROP_REASON, TEXT_FILLS_BOX_MIN_COVERAGE, TEXT_PANEL_CENTER_MIN_COVERAGE, TEXT_PANEL_MAX_AREA, TEXT_PANEL_MAX_RAW_SATURATION, TEXT_PANEL_MAX_RAW_STDDEV, TEXT_PANEL_MIN_TEXT_COVERAGE, TEXT_PANEL_STYLE_MIN_COVERAGE, TEXT_PANEL_TINTED_MAX_RAW_SATURATION, TEXT_PANEL_TINTED_MAX_RAW_STDDEV, TEXT_RUNS_PAST_PICTURE_MIN_SHARE, TIGHTEN_MIN_OPAQUE_FRACTION, TIGHTEN_MIN_TEXT_BESIDE_SHARE, TIGHTEN_MIN_TEXT_COVERAGE, TURN_MIN_WORD_COVERAGE, WRITTEN_PAPER_MAX_CROSSING_SHARE, WRITTEN_PAPER_MAX_RASTER_LINES, WRITTEN_PAPER_MAX_VECTOR_COVER, WRITTEN_PAPER_MIN_OPAQUE_FRACTION, WRITTEN_PAPER_MIN_PAGE_SHARE, WRITTEN_PAPER_MIN_SIDE_PT, WRITTEN_PAPER_MIN_WORD_COVERAGE, WRITTEN_PAPER_VECTOR_MAX_PAGE_SHARE, isBackdropOfCardsAbove, isBackdropOfTextBesideRepresentative, isCoverText, isDocumentPaper, isFlushCardOfText, isHeadingBannerText, isLongStrip, isPhotoUnderNotes, isSmallPieceBesideRepresentative, isTextOverPicture, isTextPanel, isWrittenPaper, looksLikePlainTextCard, maskResourceLetsMostThrough, rawResourceFitsPlacement, textCoverage, textCrossesRegionEdge, textCrossingShare } from './extractionLooks.js';
-import { ASLANT_HALF_REASON, BOOK_PROP_MAX_DRAWN_SHARE, BOOK_PROP_MAX_TEXT_COVERAGE, BOOK_PROP_MIN_BLANK_GROUND_SHARE, BOOK_PROP_MIN_PAPER_STAIN_SHARE, DRAWING_UNDER_PAGE_TEXT_MAX_CHROMA, DRAWING_UNDER_PAGE_TEXT_MIN_STDDEV, DRAWING_UNDER_PAGE_TEXT_MIN_WHITE, FRAME_MIN_TEXT_COVERAGE, GRID_PICTURE_REASON, LINE_DRAWING_REASON, PROP_MAX_ASPECT, PROP_MAX_PAGE_SHARE, PROP_MIN_BLANK_GROUND_SHARE, PROP_MIN_OFF_PAGE_SHARE, blankGroundShare, isFlatFill, isFrameOfTextBox, looksLikeDocumentImage, meanUnderBoxes, offPageShare, paperGroundShare, readsAsDocument } from './extractionJoins.js';
+import { BANNER_MAX_RAW_STDDEV, CLIP_CUT_MIN_REMAINING_SHARE, COVER_MIN_PAGE_SHARE, CUT_OUT_MAX_OPAQUE_FRACTION, CUT_OUT_OUTLINE_MIN_POINTS, DARK_CUTOUT_MAX_MEAN_LUMINANCE, DARK_CUTOUT_MAX_STDDEV, DOCUMENT_UNDER_PICTURE_MIN_COVER, EDGE_DOCUMENT_REASON, EDGE_FIGURE_MIN_PIXELS, EDGE_FIGURE_REASON, EDGE_STRIP_MIN_REPRESENTATIVE_AREA, FLUSH_CARD_MIN_TEXT_COVERAGE, HIGH_TEXT_COVERAGE_REASON, LARGE_CUTOUT_MIN_OPAQUE_FRACTION, MAP_UNDER_LABELS_MIN_MEAN_LUMINANCE, MASK_TILTED_RECTANGLE_MAX_TEXT_COVERAGE, NEIGHBOUR_CARD_MAX_AREA, NEIGHBOUR_CARD_MIN_OVERLAP, NOTE_MAX_AREA, NOTE_PIECE_MIN_TEXT_CROSSING, PAPER_CARD_MIN_MEAN_LUMINANCE, PAPER_NOTE_MIN_CENTER_COVERAGE, PAPER_UNDER_PICTURE_EDGE_INSET, PAPER_UNDER_PICTURE_MAX_STDDEV, PAPER_UNDER_PICTURE_MIN_COVER, PICTURE_OVER_CARD_MAX_WORD_COVERAGE, PICTURE_OVER_CARD_MIN_AREA, SAME_FOOTPRINT_MIN_SHARE, TEXT_COVERED_BACKDROP_REASON, TEXT_FILLS_BOX_MIN_COVERAGE, TEXT_PANEL_CENTER_MIN_COVERAGE, TEXT_PANEL_MAX_AREA, TEXT_PANEL_MAX_RAW_SATURATION, TEXT_PANEL_MAX_RAW_STDDEV, TEXT_PANEL_MIN_TEXT_COVERAGE, TEXT_PANEL_STYLE_MIN_COVERAGE, TEXT_PANEL_TINTED_MAX_RAW_SATURATION, TEXT_PANEL_TINTED_MAX_RAW_STDDEV, TEXT_RUNS_PAST_PICTURE_MIN_SHARE, TIGHTEN_MIN_OPAQUE_FRACTION, TIGHTEN_MIN_TEXT_BESIDE_SHARE, TIGHTEN_MIN_TEXT_COVERAGE, TURN_MIN_WORD_COVERAGE, WRITTEN_PAPER_MAX_CROSSING_SHARE, WRITTEN_PAPER_MAX_RASTER_LINES, WRITTEN_PAPER_MAX_VECTOR_COVER, WRITTEN_PAPER_MIN_OPAQUE_FRACTION, WRITTEN_PAPER_MIN_PAGE_SHARE, WRITTEN_PAPER_MIN_SIDE_PT, WRITTEN_PAPER_MIN_WORD_COVERAGE, WRITTEN_PAPER_VECTOR_MAX_PAGE_SHARE, isBackdropOfCardsAbove, isBackdropOfTextBesideRepresentative, isCoverText, isDocumentPaper, isFadedPaperOverlay, isFadedPaperVignette, isFlushCardOfText, isHeadingBannerText, isLabelledPicture, isLongStrip, labelsOfPicture, labelsOnBlankCount, LABELLED_PICTURE_MIN_LABELS_ON_PICTURE, LABELS_ON_PICTURE_MIN_SHARE, isPhotoUnderNotes, isSmallPieceBesideRepresentative, isTextOverPicture, isTextPanel, isWrittenPaper, looksLikePlainTextCard, maskResourceLetsMostThrough, rawResourceFitsPlacement, textCoverage, textCrossesRegionEdge, textCrossingShare } from './extractionLooks.js';
+import { ASLANT_HALF_REASON, BOOK_PROP_MAX_DRAWN_SHARE, BOOK_PROP_MAX_TEXT_COVERAGE, BOOK_PROP_MIN_BLANK_GROUND_SHARE, BOOK_PROP_MIN_PAPER_STAIN_SHARE, DRAWING_UNDER_PAGE_TEXT_MAX_CHROMA, DRAWING_UNDER_PAGE_TEXT_MIN_STDDEV, DRAWING_UNDER_PAGE_TEXT_MIN_WHITE, FRAME_MIN_TEXT_COVERAGE, GRID_PICTURE_REASON, LINE_DRAWING_REASON, PROP_MAX_ASPECT, PROP_MAX_PAGE_SHARE, PROP_MIN_BLANK_GROUND_SHARE, PROP_MIN_OFF_PAGE_SHARE, blankGroundShare, isFlatFill, isFrameOfTextBox, looksLikeDocumentImage, looksLikeWrittenImage, meanUnderBoxes, offPageShare, paperGroundShare, readsAsDocument } from './extractionJoins.js';
+
+
+/** A sheet of items rendered from the page carries the page's words over this share of it at most (measured: 0.02 and 0.03 on two sheets; pages of text with a picture 0.07 and more). */
+/** A page-sized raster whose opaque part takes less than this share of it is a picture on a canvas, not the page's background (measured: three illustrations on the upper half of their page, 0.5). */
+const PICTURE_ON_CANVAS_MAX_VISIBLE_SHARE = 0.7;
+const ITEM_SHEET_MAX_WORD_COVERAGE = 0.05;
+/**
+ * Whether the page shows a picture through a window of its design that is no quadrilateral (a slanted side and a rounded top around a
+ * figure): its outline is the window's, not a print lying askew, and the picture stays upright as the window cuts it.
+ */
+function inShapedWindow(clip: ClipInfo | undefined): boolean {
+  return clip !== undefined && !clipShowsWholePicture(clip) && !isQuadrilateralClip(clip.paths);
+}
+
+/** A note's region cut to the box within its tilted sides keeps at least this share of its upright box (a sheet slightly askew, not a cut-out shape). */
+const ASKEW_NOTE_MIN_KEPT_SHARE = 0.85;
+/** A unit is the card laid askew when the box around the card's turned rectangle covers this share of the unit's region at least. */
+const ASKEW_CARD_MIN_REGION_SHARE = 0.75;
+/** ...and the card lies on the page, within this margin (a layer of the page's design runs off it, a card is laid on it). */
+const ASKEW_CARD_PAGE_MARGIN_PT = 2;
+/**
+ * ...and each opaque raster of the unit painted under the card lies on it, this share of it at least (not a stack of cards, the top one
+ * askew, cut to it). Masks and translucent layers (a shadow) are not looked at.
+ */
+const ASKEW_CARD_MIN_MEMBER_ON = 0.85;
+/** Only rasters of this share of the unit's region at least are looked at (a label laid on a map, a sliver at the page's edge are not cards). */
+const ASKEW_CARD_MEMBER_MIN_AREA_SHARE = 0.1;
+/** A raster laid over the card with less than this share of it on the card is another card beside it. */
+const ASKEW_CARD_MAX_OTHER_CARD_ON = 0.5;
+/** Rasters laid over the card from this share of the card's box are looked at, wherever they belong (a strip of tape with a caption is a picture of its own). */
+const ASKEW_CARD_OVERLAY_MIN_AREA_SHARE = 0.03;
+function isCardOfRegion(rect: RotatedPdfRegion, cardIndex: number, unit: ExtractionUnit, pageNumber: number, pageBox: Rect | undefined, pageImages: readonly ImageEntry[] = []): boolean {
+  const envelope = envelopeOf(rect);
+  if (pageBox !== undefined && (envelope.minX < pageBox.minX - ASKEW_CARD_PAGE_MARGIN_PT || envelope.minY < pageBox.minY - ASKEW_CARD_PAGE_MARGIN_PT || envelope.maxX > pageBox.maxX + ASKEW_CARD_PAGE_MARGIN_PT || envelope.maxY > pageBox.maxY + ASKEW_CARD_PAGE_MARGIN_PT)) return false;
+  // The unit's region as the page shows it: a unit that is the card alone (one raster painted once), shown through a clip that is all but a
+  // rectangle (a print with a corner cut off, see `nearlyRectangleOf`), shows only what lies within the clip (its raster runs past it).
+  let region: Rect = unit.bbox;
+  const paintings = unit.memberEntries.flatMap((m) => m.occurrences.filter((o) => o.page === pageNumber));
+  const only = paintings.length === 1 && paintings[0]!.index === cardIndex ? paintings[0] : undefined;
+  const cutCorner = only?.clip?.paths.length === 1 && only.clip.paths[0]!.length === 1 && nearlyRectangleOf(only.clip.paths[0]![0]!) !== null;
+  for (const path of cutCorner ? only!.clip!.paths : []) {
+    const bounds = clipPathBBox(path);
+    const within = bounds === null ? null : rectIntersection(region, bounds);
+    if (within !== null) region = within;
+  }
+  const shared = rectIntersection(envelope, region);
+  if (shared === null || rectArea(shared) < ASKEW_CARD_MIN_REGION_SHARE * rectArea(region)) return false;
+  const envelopeArea = rectArea(envelope);
+  const overlaysFit = pageImages.every((m) =>
+    m.occurrences.every((o) => {
+      if (o.page !== pageNumber || o.index <= cardIndex || m.isMaskLayer || m.masksImageObjId !== undefined || o.opacity !== undefined) return true;
+      const box = pageBox === undefined ? o.bbox : rectIntersection(o.bbox, pageBox);
+      if (box === null || rectArea(box) < ASKEW_CARD_OVERLAY_MIN_AREA_SHARE * envelopeArea) return true;
+      const on = rectIntersection(box, envelope);
+      const onShare = on === null ? 0 : rectArea(on) / rectArea(box);
+      if (onShare < ASKEW_CARD_MAX_OTHER_CARD_ON) return true;
+      // A layer blended into the card over its edge (a strip of tape across its corner) is no other card: what of it lies off the card is cut.
+      if (o.blended === true && onShare < ASKEW_CARD_MIN_MEMBER_ON) return true;
+      // One laid upright on the askew card (a strip of tape with the photo's caption) would be turned askew by straightening the card.
+      return onShare >= ASKEW_CARD_MIN_MEMBER_ON && o.placement?.rotated === true;
+    }),
+  );
+  if (!overlaysFit) return false;
+  return unit.memberEntries.every((m) => {
+    const o = m.occurrences.find((occ) => occ.page === pageNumber);
+    // The card's own raster is what the card shows.
+    if (o === undefined || o.index === cardIndex || m.isMaskLayer || m.masksImageObjId !== undefined || o.opacity !== undefined) return true;
+    const box = pageBox === undefined ? o.bbox : rectIntersection(o.bbox, pageBox);
+    if (box === null || rectArea(box) < ASKEW_CARD_MEMBER_MIN_AREA_SHARE * rectArea(unit.bbox)) return true;
+    const on = rectIntersection(box, envelope);
+    const onShare = on === null ? 0 : rectArea(on) / rectArea(box);
+    // A raster laid over the card mostly off it is another card touching its corner (a note beside a plan); one partly on it and sticking out
+    // past its edge (a strip of tape with the photo's caption) is part of what the card shows, and would be cut.
+    if (o.index > cardIndex) return onShare < ASKEW_CARD_MAX_OTHER_CARD_ON || onShare >= ASKEW_CARD_MIN_MEMBER_ON;
+    return onShare >= ASKEW_CARD_MIN_MEMBER_ON;
+  });
+}
+/** Words of the page that run past the card's edge (a column the picture lies beside) for this share of those on it at most: the text on the card is the card's. */
+const ASKEW_CARD_MAX_WORDS_ACROSS = 0.1;
+/**
+ * A card laid askew that the page writes or draws on (the names of a map's places, the plan of a scrapyard drawn on squared paper, the text of a
+ * note) shows what the page sets on it only in a render: it is rendered (straightened, see `askewCard.ts`), not taken from its raster. So it is
+ * when this many of the page's words, or of its paths, or of its pictures painted after it lie on it.
+ */
+/** A raster laid over a picture after it, of this share of the page at least, is a card of its own (a note pinned over a photo's corner)... */
+const CARD_OVER_PICTURE_MIN_AREA = 0.02;
+/** ...and a block of the page's text with this share of it on such a card is the card's writing. */
+const TEXT_ON_CARD_MIN_SHARE = 0.9;
+/** A layer this many times as long as it is wide at least is a strip (a caption on a strip of paper). */
+const CAPTION_STRIP_MIN_ASPECT = 4;
+/** A picture found upright on the page's ground lies within a card found askew for this share of its box at least: it is that card. */
+const SOLID_WITHIN_CARD_MIN_SHARE = 0.9;
+/**
+ * The page's words on a picture are numbered markers when this many at least are this many characters at most (the numbers of a map's places; a map whose places are named carries its names, and is rendered with them).
+ */
+const MARKERS_MIN_COUNT = 4;
+const MARKER_MAX_CHARS = 2;
+/** ...with this many other words on it at most (the map's title); a map with the names of its places has more. */
+const MARKERS_MAX_OTHER_WORDS = 2;
+const ASKEW_CARD_MIN_WORDS_ON = 3;
+/** A word of the page on the card turned by more than this many degrees from upright, upside down or on its side is written aslant on it. */
+const ASKEW_CARD_ASLANT_WORD_MIN_DEG = 5;
+/** ...of this many characters at least (not a stray mark), on a card of this share of the page at most (not a page painted askew whole). */
+const ASKEW_CARD_ASLANT_WORD_MIN_CHARS = 4;
+const ASKEW_CARD_ASLANT_MAX_PAGE_SHARE = 0.5;
+const ASKEW_CARD_MIN_PATHS_ON = 20;
+/**
+ * A raster over the whole page that the page draws on in this many paths at least (a blueprint of a tower with the maps pinned to it,
+ * drawn in vectors over a sheet of paper painted in the raster: 4,300 paths), with this much text on the page at most (its labels; a page
+ * of text with its tables and rules over its paper has thousands of characters), is rendered as the page shows it: the raster alone is
+ * the blank sheet.
+ */
+const PAGE_DRAWING_MIN_PATHS = 1000;
+
+/** A point of the raster where it falls in a render of the box `picture` (the raster's pixels) at the render's size. */
+function intoRender(picture: PixelRect, rendered: DecodedImage): (p: { x: number; y: number }) => { x: number; y: number } {
+  return (p) => ({ x: ((p.x - picture.x) / Math.max(1, picture.width)) * rendered.width, y: ((p.y - picture.y) / Math.max(1, picture.height)) * rendered.height });
+}
+
+/** What the page's own raster holds on its ground (see `picturesOnGround.ts`, `cardsOnGround.ts`): their boxes, and the cards' corners. */
+interface GroundPictures {
+  rects: PixelRect[];
+  drawings: boolean;
+  cards?: CardQuad[];
+}
+const PAGE_DRAWING_MAX_CHARS = 700;
+const ASKEW_CARD_MIN_PICTURES_ON = 1;
+/** A raster laid on the card smaller than this share of it is a pin or a tack holding it to the page, not a picture on it. */
+const ASKEW_CARD_PIN_MAX_SHARE = 0.02;
+/** ...when there are this many such rasters on it at most (more are markers set on it, the places of a map). */
+const ASKEW_CARD_MAX_PINS = 2;
+/** A raster laid over the card's edge, partly off it, of this share of the card at most is a fastener (a paper clip, a strip of tape), not a picture on it. */
+const ASKEW_CARD_FASTENER_MAX_SHARE = 0.05;
+/**
+ * A light sheet the page draws a picture on in paths (a map of a school's grounds over squared paper, its buildings filled shapes and its
+ * labels the page's text) carries at least this many of the page's shapes and lines, their boxes adding up to this share of the sheet at
+ * least (its buildings, the patches of its grounds and their outlines overlap): it is a picture, not a card of text. Measured on three books:
+ * such maps 56 paths and more, covering 1.46 and 4.17 of the sheet; a panel of text with a code printed in squares, a note with a bar code,
+ * a character sheet 41 to 126, covering 0.06 to 0.51.
+ */
+const DRAWING_ON_SHEET_MIN_PATHS = 40;
+const DRAWING_ON_SHEET_MIN_PATH_COVER = 1;
+/** The rasters of a picture looked at for its labels lying on what it draws, at most (see `LABELLED_PICTURE_MIN_LABELS_ON_PICTURE`). */
+const LABELLED_PICTURE_MAX_LAYERS_LOOKED_AT = 6;
+/** Page share from which a picture is the page's own (a cover with its blurb), not one the page labels (see `isLabelledPicture`). */
+const LABELLED_PICTURE_MAX_PAGE_SHARE = 0.9;
+/**
+ * A labelled picture whose raster is plain paper (this luminance spread at most) that the page's text covers this much of is a filled form, not a
+ * map: measured on one book, a filled journey sheet 12 and 0.23, the plans on squared paper 12-14 and 0.05-0.07, the maps 20-65.
+ */
+const LABELLED_SHEET_MAX_RAW_STDDEV = 16;
+const LABELLED_SHEET_MIN_TEXT_COVERAGE = 0.15;
 import { CLIPPED_PIECES_REASON, ORNAMENT_MAX_AREA, PAPER_PIECES_MIN_PAGE_SHARE, PAPER_PIECE_EDGE_PT, PAPER_PIECE_MAX_PAGE_SHARE, PAPER_PIECE_MAX_WORD_COVERAGE, PAPER_PIECE_MIN_MEAN_LUMINANCE, SLICED_PICTURE_REASON, extendToEdgeOrnaments, unitPageShareOf } from './extractionPieces.js';
 
 /**
@@ -221,8 +383,8 @@ async function composeUnit(scope: UnitScope, plannedUnit: ExtractionUnit) {
  * over it), the strategy that follows (the picture's own pixels or a render of the page), the resolution, and the
  * box to take.
  */
-async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: Awaited<ReturnType<typeof composeUnit>>) {
-  const { textBlockBoxesByPage, pageNumber, page, idOnThisPage, maskedObjIds, targetLongEdgePx, maxLongEdgePx, classified, pageBoxByPage, pageUnits, neighbourUnits } = scope;
+async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: Awaited<ReturnType<typeof composeUnit>>, labelledAsShown = true) {
+  const { textBlockBoxesByPage, pageNumber, page, idOnThisPage, targetLongEdgePx, maxLongEdgePx, classified, pageBoxByPage, pageUnits, neighbourUnits } = scope;
   const { rep, repId, isMasked, compositionCount, holderIds, overlayMember } = state;
   let { crossesText, unit } = state;
     // Text inside the bbox of a cut-out figure lies on the transparent part around it. A block that lies
@@ -304,7 +466,9 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
     // page's own text beside it lies in that margin. Judged and rendered by the part that is visible, the text
     // that is on the picture stays (it is the note's writing) and the text next to it is left out.
     let tightenedToVisible = false;
-    if (textOverPicture && rep?.objId && repId && placedRep && !maskedObjIds.has(rep.objId) && coMemberAreaShare < CO_MEMBER_SIGNIFICANT_AREA) {
+    // A mask laid over the picture (its shadow) hides more of it, never less: the picture's own transparent margin is still no part of it.
+    // Not a picture the page labels (a map under the page's paper): it is rendered with all the page lays over it (see `isLabelledPicture`).
+    if (textOverPicture && rep?.objId && repId && placedRep && coMemberAreaShare < CO_MEMBER_SIGNIFICANT_AREA && !isLabelledPicture(placedRep, textBlockBoxesByPage.get(pageNumber))) {
       if (scope.settleBudgetMs > 0) scope.settleBudgetMs -= await waitForObjects(page, [repId], scope.settleBudgetMs);
       const bounds = await probeOpaqueBounds(page, repId);
       const rawSize = rep.intrinsicWidth !== null && rep.intrinsicHeight !== null ? { width: rep.intrinsicWidth, height: rep.intrinsicHeight } : await probeIntrinsicSizePx(page, repId);
@@ -316,7 +480,29 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
         const pageText = textBlockBoxesByPage.get(pageNumber);
         // The text that lies in the box but not on the visible part: what the cut takes out of the region.
         const textBesideShare = (textCoverage(placedRep, pageText) * rectArea(placedRep) - textCoverage(tight, pageText) * rectArea(tight)) / rectArea(placedRep);
-        if (opaque === null || opaque < TIGHTEN_MIN_OPAQUE_FRACTION || textCoverage(tight, pageText) < TIGHTEN_MIN_TEXT_COVERAGE || textBesideShare < TIGHTEN_MIN_TEXT_BESIDE_SHARE) tight = null;
+        // ...or a block of it whole (a heading over the picture, in its transparent margin).
+        const t = tight;
+        const blockBeside = (pageText ?? []).some((b) => {
+          const cx = (b.minX + b.maxX) / 2;
+          const cy = (b.minY + b.maxY) / 2;
+          const inBox = (r: Rect): boolean => cx >= r.minX && cx <= r.maxX && cy >= r.minY && cy <= r.maxY;
+          return inBox(placedRep) && !inBox(t) && rectIntersection(b, t) === null;
+        });
+        if (opaque === null || opaque < TIGHTEN_MIN_OPAQUE_FRACTION || textCoverage(tight, pageText) < TIGHTEN_MIN_TEXT_COVERAGE || (textBesideShare < TIGHTEN_MIN_TEXT_BESIDE_SHARE && !blockBeside)) tight = null;
+      }
+      // A note laid slightly askew, shown through a mask in its shape (its shadow around it): its upright box takes in wedges of the page
+      // between its tilted sides and the box (the edge of the chapter's tab). The region is the box within its sides, when that keeps nearly all of it.
+      const maskEntry = scope.maskHoldersByTarget.get(rep.objId)?.[0];
+      const maskBox = maskEntry?.occurrences.find((o) => o.page === pageNumber);
+      const maskId = maskEntry !== undefined ? idOnThisPage(maskEntry) : null;
+      if (maskBox !== undefined && maskId !== null && opaque !== null && opaque >= TIGHTEN_MIN_OPAQUE_FRACTION && textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) >= TIGHTEN_MIN_TEXT_COVERAGE) {
+        if (scope.settleBudgetMs > 0) scope.settleBudgetMs -= await waitForObjects(page, [maskId], scope.settleBudgetMs);
+        const maskImage = await probeRawImage(page, maskId);
+        const inner = maskImage !== null ? innerVisibleBounds(maskImage) : null;
+        const within = inner !== null ? tightenToVisible(maskBox.bbox, inner, maskBox.placement) : null;
+        const cut = within !== null ? rectIntersection(tight ?? placedRep, within) : null;
+        // ...of its upright box, and of the whole region of its unit (two cards side by side, one of them the representative, are not cut to one).
+        if (cut !== null && rectArea(cut) < rectArea(tight ?? placedRep) && rectArea(cut) >= ASKEW_NOTE_MIN_KEPT_SHARE * Math.max(rectArea(placedRep), rectArea(unit.bbox))) tight = cut;
       }
       if (tight !== null) {
         tightenedToVisible = true;
@@ -356,7 +542,13 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
       textIsOnPlainCard = false;
     }
     // Light paper that is a plain card of the page's text (a strip of parchment with writing turned on its side) is a box of text, whatever the share of the page's text over it.
-    const textOnPaperCard = textIsOnPlainCard && photoLook !== null && photoLook.meanLuminance >= PAPER_CARD_MIN_MEAN_LUMINANCE;
+    // Not a half of a picture across a spread that the page labels (a map in muted colours with the names of its places on it): a card does not go on onto the facing page.
+    const spreadHalf = (scope.isLeftHalf(plannedUnit) || scope.isRightHalf(plannedUnit)) && isLabelledPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+    // Nor a sheet that the page draws a picture on in paths (see `DRAWING_ON_SHEET_MIN_PATHS`).
+    const pathsOver = [...(scope.inventory.shapes ?? []), ...(scope.inventory.lines ?? [])].filter((v) => v.page === pageNumber && (v.bbox.minX + v.bbox.maxX) / 2 >= unit.bbox.minX && (v.bbox.minX + v.bbox.maxX) / 2 <= unit.bbox.maxX && (v.bbox.minY + v.bbox.maxY) / 2 >= unit.bbox.minY && (v.bbox.minY + v.bbox.maxY) / 2 <= unit.bbox.maxY);
+    const pathsArea = pathsOver.reduce((sum, v) => sum + rectArea(rectIntersection(v.bbox, unit.bbox) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 }), 0);
+    const drawingOnSheet = pathsOver.length >= DRAWING_ON_SHEET_MIN_PATHS && rectArea(unit.bbox) > 0 && pathsArea >= DRAWING_ON_SHEET_MIN_PATH_COVER * rectArea(unit.bbox);
+    const textOnPaperCard = textIsOnPlainCard && !spreadHalf && !drawingOnSheet && photoLook !== null && photoLook.meanLuminance >= PAPER_CARD_MIN_MEAN_LUMINANCE;
     // A line drawing's region is the drawing's, whatever is left of the rasters it lies on (see `withLineDrawings`).
     if (plannedUnit.reason === LINE_DRAWING_REASON || plannedUnit.reason === SLICED_PICTURE_REASON || plannedUnit.reason === CLIPPED_PIECES_REASON || plannedUnit.reason === GRID_PICTURE_REASON || plannedUnit.reason === ASLANT_HALF_REASON) unit = { ...unit, bbox: plannedUnit.bbox };
     const decision = decideExtractionStrategy({
@@ -376,8 +568,116 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
       const look = await probeRawLook(page, repId);
       blankSheet = look !== null && isBlankSheet(look, { textOverPicture: decision.reason === 'Z2-text-over-picture-is-content', pageShare: rep?.maxRelativeArea ?? 0 });
     }
-    // A line drawing on the pictures is what the page draws over their rasters: only a render shows it (see `withLineDrawings`).
-    const objIdForExtraction = decision.strategy === 'direct' && unit.reason !== LINE_DRAWING_REASON && unit.reason !== ASLANT_HALF_REASON ? repId : null;
+    // A line drawing on the pictures is what the page draws over their rasters: only a render shows it (see `withLineDrawings`). So is a picture
+    // the page labels (a map with the names of its places and the markers set on it, see `isLabelledPicture`), not a picture of the whole page
+    // (a cover, its blurb set over it).
+    // Nor a sheet of plain paper the page writes on for a good part of it (a filled form): a document, not a picture with labels.
+    let labelledRender = false;
+    // Fewer labels (an island with its farms named) make a labelled picture when they lie on what it draws, not on its blank ground beside the
+    // page's text: on one of the rasters of the picture at least (the map under the page's paper laid over it).
+    // Not a half of a picture across a spread: its halves are joined as the page labels them only by the full rule (see `isLabelledPicture`).
+    const fewLabels = labelledAsShown && (decision.strategy === 'direct' || decision.strategy === 'region-render') && repId && !scope.isLeftHalf(plannedUnit) && !scope.isRightHalf(plannedUnit) && !isLabelledPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber)) ? labelsOfPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber), LABELLED_PICTURE_MIN_LABELS_ON_PICTURE) : null;
+    let fewLabelsOnPicture = false;
+    if (fewLabels !== null) {
+      const layers = [...new Set([rep, ...unit.memberEntries].filter((m): m is ImageEntry => m !== null && m !== undefined && m.objId !== null))].slice(0, LABELLED_PICTURE_MAX_LAYERS_LOOKED_AT);
+      for (const layer of layers) {
+        const occurrence = layer.occurrences.find((o) => o.page === pageNumber);
+        const layerId = idOnThisPage(layer);
+        if (occurrence === undefined || occurrence.placement !== undefined || layerId === null) continue;
+        if (scope.settleBudgetMs > 0) scope.settleBudgetMs -= await waitForObjects(page, [layerId], scope.settleBudgetMs);
+        const raw = await probeRawImage(page, layerId);
+        if (raw !== null && fewLabels.length - labelsOnBlankCount(raw, occurrence.bbox, fewLabels) >= LABELS_ON_PICTURE_MIN_SHARE * fewLabels.length) {
+          fewLabelsOnPicture = true;
+          break;
+        }
+      }
+    }
+    // The page's words on the picture are numbered markers, not names (the keys of a map's places, 1 to 11): the picture is taken without them.
+    const wordsOnPicture = (scope.opts.wordBoxesByPage?.get(pageNumber) ?? []).filter((w) => w.minX >= unit.bbox.minX && w.maxX <= unit.bbox.maxX && w.minY >= unit.bbox.minY && w.maxY <= unit.bbox.maxY);
+    const markerCount = wordsOnPicture.filter((w) => ((w as { chars?: number }).chars ?? Infinity) <= MARKER_MAX_CHARS).length;
+    const markersOnly = markerCount >= MARKERS_MIN_COUNT && wordsOnPicture.length - markerCount <= MARKERS_MAX_OTHER_WORDS;
+    if (labelledAsShown && !markersOnly && decision.strategy === 'direct' && repId && (isLabelledPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber)) || fewLabelsOnPicture) && (rep?.maxRelativeArea ?? 1) < LABELLED_PICTURE_MAX_PAGE_SHARE) {
+      const look = textCoverage(unit.bbox, textBlockBoxesByPage.get(pageNumber)) >= LABELLED_SHEET_MIN_TEXT_COVERAGE ? await probeRawLook(page, repId) : null;
+      labelledRender = look === null || look.luminanceStdDev > LABELLED_SHEET_MAX_RAW_STDDEV;
+    }
+    // A card laid askew that the page writes or draws on (see `ASKEW_CARD_MIN_WORDS_ON`).
+    let drawnOnAskewCard = false;
+    const paintedCard = rep === null || rep === undefined ? undefined : topOccurrenceOnPage(rep, pageNumber);
+    const cardRect = decision.strategy === 'direct' && paintedCard !== undefined && paintedCard.blended !== true && (unit.classification === 'content' || unit.classification === 'undecided') ? askewRectangleOfPainting(paintedCard) : null;
+    if (cardRect !== null && paintedCard !== undefined && isCardOfRegion(cardRect, paintedCard.index, unit, pageNumber, pageBoxByPage.get(pageNumber), scope.inventory.images)) {
+      const card = envelopeOf(cardRect);
+      const centreOn = (b: Rect): boolean => (b.minX + b.maxX) / 2 >= card.minX && (b.minX + b.maxX) / 2 <= card.maxX && (b.minY + b.maxY) / 2 >= card.minY && (b.minY + b.maxY) / 2 <= card.maxY;
+      const pageWords = scope.opts.wordBoxesByPage?.get(pageNumber) ?? [];
+      // (Not the words on a strip of paper laid over it, however translucent: a caption, that strip's writing. Labels laid on a map are not strips.)
+      const isStrip = (b: Rect): boolean => Math.max(b.maxX - b.minX, b.maxY - b.minY) >= CAPTION_STRIP_MIN_ASPECT * Math.min(b.maxX - b.minX, b.maxY - b.minY);
+      const layersOver = scope.inventory.images.filter((e) => e !== rep && !e.isMaskLayer && e.masksImageObjId === undefined && e.maxRelativeArea >= CARD_OVER_PICTURE_MIN_AREA).flatMap((e) => e.occurrences.filter((o) => o.page === pageNumber && o.index > paintedCard.index && o.blended !== true && isStrip(o.bbox)).map((o) => o.bbox));
+      const onLayerOver = (b: Rect): boolean => layersOver.some((c) => { const on = rectIntersection(b, c); return on !== null && rectArea(on) >= TEXT_ON_CARD_MIN_SHARE * rectArea(b); });
+      const onCard = pageWords.filter((b) => b.minX >= card.minX && b.maxX <= card.maxX && b.minY >= card.minY && b.maxY <= card.maxY && !onLayerOver(b));
+      const wordsOn = onCard.length;
+      // A word the page writes aslant on the card (a signature across a photo) is written on it, however few.
+      const pageBox = pageBoxByPage.get(pageNumber);
+      const smallCard = pageBox === undefined || rectArea(card) <= ASKEW_CARD_ASLANT_MAX_PAGE_SHARE * rectArea(pageBox);
+      const aslantOn = smallCard && onCard.some((b) => {
+        const { angle, chars } = b as { angle?: number; chars?: number };
+        if (angle === undefined || (chars ?? 0) < ASKEW_CARD_ASLANT_WORD_MIN_CHARS) return false;
+        // Upright, upside down or on its side (a chapter's tab running up the page's edge) is not aslant.
+        const off = ((angle % 90) + 90) % 90;
+        return Math.min(off, 90 - off) > ASKEW_CARD_ASLANT_WORD_MIN_DEG;
+      });
+      const wordsAcross = pageWords.filter((b) => rectIntersection(b, card) !== null && !(b.minX >= card.minX && b.maxX <= card.maxX && b.minY >= card.minY && b.maxY <= card.maxY)).length;
+      const words = wordsAcross <= ASKEW_CARD_MAX_WORDS_ACROSS * wordsOn ? wordsOn : 0;
+      const paths = [...(scope.inventory.shapes ?? []), ...(scope.inventory.lines ?? [])].filter((v) => v.page === pageNumber && centreOn(v.bbox)).length;
+      // A fastener over the card's edge (a paper clip holding the photo to the page, see `FASTENER_REASON`) is not drawn on the card.
+      // Nor is a layer blended over its edge, partly off it (a strip of tape holding it to the page), nor a pin stuck in it (a raster this small
+      // beside the card).
+      const within = (b: Rect): boolean => b.minX >= card.minX && b.maxX <= card.maxX && b.minY >= card.minY && b.maxY <= card.maxY;
+      // Nor the mask of another raster (a stencil the page paints with, its labels, is drawing), nor a strip that carries the page's words (a caption on paper laid over the photo: its own writing), nor a small raster
+      // running past the card's edge (a paper clip, a strip of tape holding it).
+      const carriesWords = (b: Rect): boolean => pageWords.some((w) => { const on = rectIntersection(w, b); return on !== null && rectArea(on) >= TEXT_ON_CARD_MIN_SHARE * rectArea(w); });
+      // Small rasters on the card: one or two pins hold it; more are markers the page sets on it (the places of a map).
+      const smallOnCard = scope.inventory.images.filter((e) => e !== rep && e.masksImageObjId === undefined && e.occurrences.some((o) => o.page === pageNumber && o.index > paintedCard!.index && centreOn(o.bbox) && rectArea(o.bbox) < ASKEW_CARD_PIN_MAX_SHARE * rectArea(card))).length;
+      const pinShare = smallOnCard <= ASKEW_CARD_MAX_PINS ? ASKEW_CARD_PIN_MAX_SHARE : 0;
+      const pictures = scope.inventory.images.filter(
+        (e) =>
+          e !== rep &&
+          e.masksImageObjId === undefined &&
+          scope.classifiedByEntry.get(e)?.reason !== FASTENER_REASON &&
+          e.occurrences.some(
+            (o) =>
+              o.page === pageNumber &&
+              o.index > paintedCard!.index &&
+              centreOn(o.bbox) &&
+              rectArea(o.bbox) < rectArea(card) &&
+              rectArea(o.bbox) >= pinShare * rectArea(card) &&
+              !(isStrip(o.bbox) && carriesWords(o.bbox)) &&
+              (within(o.bbox) || (o.blended !== true && rectArea(o.bbox) > ASKEW_CARD_FASTENER_MAX_SHARE * rectArea(card))),
+          ),
+      ).length;
+      drawnOnAskewCard = words >= ASKEW_CARD_MIN_WORDS_ON || (words > 0 && aslantOn) || paths >= ASKEW_CARD_MIN_PATHS_ON || pictures >= ASKEW_CARD_MIN_PICTURES_ON;
+    }
+    // A sheet the page draws on (see `PAGE_DRAWING_MIN_PATHS`).
+    // It is rendered over the box of the drawing: the sheet it is drawn on, without the page round it (the book's frame, its running head).
+    let drawingOverPage: Rect | null = null;
+    if (decision.strategy === 'direct' && repId && placedRep !== undefined && (unit.classification === 'content' || unit.classification === 'undecided') && (rep?.maxRelativeArea ?? 0) >= PAGE_RASTER_MIN_PAGE_SHARE) {
+      const within = (b: Rect): boolean => (b.minX + b.maxX) / 2 >= placedRep.minX && (b.minX + b.maxX) / 2 <= placedRep.maxX && (b.minY + b.maxY) / 2 >= placedRep.minY && (b.minY + b.maxY) / 2 <= placedRep.maxY;
+      let paths = 0;
+      const drawn = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+      for (const v of [...(scope.inventory.shapes ?? []), ...(scope.inventory.lines ?? [])]) {
+        if (v.page !== pageNumber || !within(v.bbox)) continue;
+        paths++;
+        drawn.minX = Math.min(drawn.minX, v.bbox.minX);
+        drawn.minY = Math.min(drawn.minY, v.bbox.minY);
+        drawn.maxX = Math.max(drawn.maxX, v.bbox.maxX);
+        drawn.maxY = Math.max(drawn.maxY, v.bbox.maxY);
+      }
+      const chars = (scope.opts.wordBoxesByPage?.get(pageNumber) ?? []).reduce((sum, w) => sum + ((w as { chars?: number }).chars ?? 1), 0);
+      if (paths >= PAGE_DRAWING_MIN_PATHS && chars <= PAGE_DRAWING_MAX_CHARS) drawingOverPage = rectIntersection(drawn, placedRep);
+    }
+    const drawnOverPage = drawingOverPage !== null;
+    const objIdForExtraction = decision.strategy === 'direct' && unit.reason !== LINE_DRAWING_REASON && unit.reason !== ASLANT_HALF_REASON && !labelledRender && !drawnOnAskewCard && !drawnOverPage ? repId : null;
+    // A picture the page labels that is rendered anyway (the page's text over it for a good part): the page's paper laid over it on top, plain
+    // as a panel's ground, does not make it a panel of text.
+    const labelledPicture = labelledRender || (drawingOnSheet && textIsOnPlainCard && decision.strategy === 'region-render') || (decision.strategy === 'region-render' && repId !== null && (isLabelledPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber)) || fewLabelsOnPicture) && (rep?.maxRelativeArea ?? 1) < LABELLED_PICTURE_MAX_PAGE_SHARE);
 
     // Region-render resolution is DERIVED from the native
     // resolution of the resources in the region, not from a constant —
@@ -386,7 +686,7 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
     // `targetLongEdgePx` is ignored there) — we probe only when
     // we're actually rendering a region.
     let effectiveTargetLongEdgePx = targetLongEdgePx;
-    if (decision.strategy === 'region-render') {
+    if (decision.strategy === 'region-render' || drawnOnAskewCard) {
       const intrinsicLongEdgesPx: number[] = [];
       for (const member of unit.memberEntries) {
         if (member.objId === null) continue;
@@ -434,7 +734,7 @@ async function judgeUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: A
       unit = { ...unit, bbox: cardWithoutPictures(unit.bbox, cardsOverPicture) };
     }
 
-  return { ...state, isBlendedOnPage, placedRep, photoLook, isPhotoUnderText, textOnPaperCard, decision, blankSheet, objIdForExtraction, effectiveTargetLongEdgePx, paintedAt, isCardOfText, crossesText, unit };
+  return { ...state, isBlendedOnPage, placedRep, photoLook, isPhotoUnderText, textOnPaperCard, decision, blankSheet, objIdForExtraction, effectiveTargetLongEdgePx, paintedAt, isCardOfText, crossesText, unit, labelledRender, labelledPicture, drawingOnSheet, drawnOverPage, drawingOverPage };
 }
 
 /**
@@ -514,6 +814,22 @@ async function renderUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: 
       }
     }
 
+    // A card the page lays a few degrees askew, rendered with what the page draws on it, is its own turned rectangle straightened (see
+    // `askewCard.ts`): not the upright box around it, with wedges of the page at its corners. Only when the region is the card's (not a
+    // picture of several cards, or a card with a column of text beside it).
+    // The card is the layer of the unit painted last (a note over the paper under it): what a clip of four corners shows of it, or its raster's turned rectangle.
+    const askewLayers = extractResult.source !== 'region-render' || (unit.classification !== 'content' && unit.classification !== 'undecided') ? [] : [...new Set([rep, ...unit.memberEntries])].flatMap((m) => (m === null || m === undefined ? [] : m.occurrences.filter((o) => o.page === pageNumber && o.blended !== true)));
+    const askew = askewLayers
+      .sort((x, y) => y.index - x.index)
+      .map((o) => ({ rect: askewRectangleOfPainting(o), index: o.index }))
+      .find(({ rect, index }) => rect !== null && isCardOfRegion(rect, index, unit, pageNumber, pageBoxByPage.get(pageNumber), scope.inventory.images))?.rect;
+    // The turn the straightened render took off (degrees counterclockwise): the page's text on the card is turned with it.
+    let askewTiltDeg = 0;
+    if (askew !== undefined && askew !== null) {
+      extractResult = { ...extractResult, image: await renderRotatedRegion(page, askew, renderer, { targetLongEdgePx: effectiveTargetLongEdgePx, signal }) };
+      askewTiltDeg = (askew.rotationRad * 180) / Math.PI;
+    }
+
     // Cropping the empty margin —
     // EXCLUSIVELY for units revealed by `Z1-full-bleed-forced-content`
     // (see `cropUniformMargins.ts`), NOT for ordinary content already
@@ -584,7 +900,7 @@ async function renderUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state: 
       }
     }
 
-  return { ...state, extractResult, isLargePanel, placementOfRep, drawnOnPanel, image, wholeResource };
+  return { ...state, extractResult, isLargePanel, placementOfRep, drawnOnPanel, image, wholeResource, askewTiltDeg };
 }
 
 /**
@@ -607,7 +923,12 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
     // Of the visible pixels: the rules that tell a light sheet from a dark picture (`finalize.ts`) judge candidates of every class.
     const meanLuminance = hideBackgroundImages ? computeVisibleMeanLuminance(wholeResource) : undefined;
     if (plannedUnit.reason === EDGE_FIGURE_REASON || plannedUnit.reason === EDGE_DOCUMENT_REASON) scope.edgeFigureStdDev = computeVisibleLuminanceStdDev(image);
+    // A faded paper vignette laid over the whole page (the page's paper again, cut out by a mask around what it frames) and a few dozen pixels
+    // of a raster stretched over its place (a blur of shadow) stand at the page's edge with a spread of a figure: neither is one.
+    if (plannedUnit.reason === EDGE_FIGURE_REASON && (isFadedPaperVignette(image, unit.representativeEntry?.maxRelativeArea ?? 0) || Math.max(image.width, image.height) < EDGE_FIGURE_MIN_PIXELS)) scope.edgeFigureStdDev = 0;
     const darkOpaqueShare = hideBackgroundImages ? computeDarkOpaqueShare(wholeResource) : undefined;
+    // Only for a picture over the whole page: whether its middle shows a subject (a night scene) or is even (a dark page background).
+    const centreDetail = hideBackgroundImages && (unit.representativeEntry?.maxRelativeArea ?? 0) >= NIGHT_SCENE_MIN_AREA ? computeCentreDetail(wholeResource) : undefined;
     // Of what is saved (after the clip): a strip cut from a larger sheet by the page's clip may show only white.
     const whiteOpaqueShare = hideBackgroundImages ? computeWhiteOpaqueShare(image) : undefined;
     // [User request] For BOTH candidates shown in the review list — see `UNIFORM_COLOR_MIN_FRACTION` in `finalize.ts`.
@@ -645,7 +966,8 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
       });
     }
     // A big picture cut out by a mask that is mostly transparent (a splatter, a smudge) is a decoration whose box happens to be big.
-    const sparseLargeCutout = unit.reason === LARGE_MASKED_CUTOUT_REASON && opaqueFraction !== undefined && opaqueFraction < LARGE_CUTOUT_MIN_OPAQUE_FRACTION;
+    // Not a figure that stands in a tall box (a creature, a person): one solid piece that fills much of what shows (see `isSolidCutOut`).
+    const sparseLargeCutout = unit.reason === LARGE_MASKED_CUTOUT_REASON && opaqueFraction !== undefined && opaqueFraction < LARGE_CUTOUT_MIN_OPAQUE_FRACTION && !isSolidCutOut(image);
     // A big picture cut out by a mask whose raster is a plain dark texture (a vignette, a shadow laid over the page that reaches off its edge) shows nothing of its own.
     const cutoutLook = unit.reason === LARGE_MASKED_CUTOUT_REASON && repId !== null ? await probeRawLook(page, repId) : null;
     const darkLargeCutout = cutoutLook !== null && cutoutLook.meanLuminance <= DARK_CUTOUT_MAX_MEAN_LUMINANCE && cutoutLook.luminanceStdDev <= DARK_CUTOUT_MAX_STDDEV;
@@ -659,11 +981,17 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
     const documentLook = unit.reason === FULL_PAGE_DOCUMENT_REASON && repId !== null ? await probeRawLook(page, repId) : null;
     // A page that is a picture with a few lines of display text over it (the cover of a magazine handed out to the players) is the page as it shows, text and all.
     const fullPagePicture = unit.representativeEntry !== null && unit.representativeEntry.maxRelativeArea >= COVER_MIN_PAGE_SHARE && unit.classification === 'undecided';
-    const coverPage = hideBackgroundImages && fullPagePicture && isCoverText(opts.wordBoxesByPage?.get(pageNumber));
+    // Not the book's own cover (its first page): its picture is wanted without the title and the blurb set over it.
+    const coverPage = hideBackgroundImages && pageNumber !== 1 && fullPagePicture && isCoverText(opts.wordBoxesByPage?.get(pageNumber));
     const documentPage = (documentLook !== null && isDocumentPaper(documentLook)) || coverPage;
-    const pageBackground = unit.reason === FULL_PAGE_DOCUMENT_REASON && !documentPage;
+    // A page-sized raster that is mostly transparent (an illustration on the upper half of a page-sized canvas) is that picture, not the page's background.
+    const visible = unit.reason === FULL_PAGE_DOCUMENT_REASON ? trimTransparentMargins(image) : null;
+    const pictureOnCanvas = visible !== null && visible.width * visible.height < PICTURE_ON_CANVAS_MAX_VISIBLE_SHARE * image.width * image.height;
+    const pageBackground = unit.reason === FULL_PAGE_DOCUMENT_REASON && !documentPage && !pictureOnCanvas;
     // A flush card of text (a stat block on parchment) is the backdrop of its text, not a picture, whether it was extracted raw or as a render with its text on it.
-    const flushCardLook = unit.reason === FLUSH_UNDECIDED_REASON && repId !== null ? await probeRawLook(page, repId) : null;
+    // Not a half of a picture across a spread that the page labels (see `isLabelledPicture`): a card does not go on onto the facing page.
+    const labelledHalf = (scope.isLeftHalf(plannedUnit) || scope.isRightHalf(plannedUnit)) && isLabelledPicture(unit.bbox, textBlockBoxesByPage.get(pageNumber));
+    const flushCardLook = unit.reason === FLUSH_UNDECIDED_REASON && repId !== null && !labelledHalf ? await probeRawLook(page, repId) : null;
     const flushCard = flushCardLook !== null && isFlushCardOfText(flushCardLook, repId === null ? null : await probeOpaqueFraction(page, repId), placedRep ? textCoverage(placedRep, textBlockBoxesByPage.get(pageNumber)) : 0);
     // A render of a picture of the page's layout (not a drawing of paths) with at least 15% of its box covered by page text, on a plain raster: a candidate for a panel of text
     // (a sidebar, a list, a box of rules). Whether the panels are hidden is decided for the whole book (see `isBookOfTextPanels`).
@@ -676,7 +1004,8 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
     const centerCoverage = textCoverage(shrinkToCenter(unit.bbox), textBlockBoxesByPage.get(pageNumber));
     // Text over most of a render and over most of its middle (a newspaper, a page of a document) is what the render shows, whatever the look of the raster under it.
     const textFillsBox = extractResult.source === 'region-render' && unit.representativeEntry !== null && !isCutOutByOutline && panelCoverage >= TEXT_FILLS_BOX_MIN_COVERAGE && centerCoverage >= TEXT_FILLS_BOX_MIN_COVERAGE;
-    if (unit.representativeEntry !== null && repId !== null && extractResult.source === 'region-render' && panelCoverage >= TEXT_PANEL_STYLE_MIN_COVERAGE) {
+    // Nor is such a half a panel of text, nor a picture the page labels (see `labelledPicture`).
+    if (unit.representativeEntry !== null && repId !== null && extractResult.source === 'region-render' && panelCoverage >= TEXT_PANEL_STYLE_MIN_COVERAGE && !labelledHalf && !state.labelledPicture) {
       const panelLook = await probeRawLook(page, repId);
       textPanelCandidate = isTextPanel(extractResult.source, panelCoverage) && panelLook !== null && panelLook.luminanceStdDev <= TEXT_PANEL_MAX_RAW_STDDEV && panelLook.meanSaturation <= TEXT_PANEL_MAX_RAW_SATURATION;
       if (panelLook !== null && panelLook.luminanceStdDev <= TEXT_PANEL_TINTED_MAX_RAW_STDDEV && panelLook.meanSaturation <= TEXT_PANEL_TINTED_MAX_RAW_SATURATION) {
@@ -687,7 +1016,7 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
     // A big translucent panel was only let through to be checked for a drawing; without one it is the page's own backdrop.
     if (isLargePanel && !drawnOnPanel) panelBackdrop = true;
 
-  return { ...state, contentHash, luminanceStdDev, visibleLuminanceStdDev, meanLuminance, darkOpaqueShare, whiteOpaqueShare, uniformColorFraction, smoothness, opaqueFraction, paperUnderPicture, panelBackdrop, sparseLargeCutout, darkLargeCutout, isOverlayOfPage, textCard, documentPage, pageBackground, flushCard, textPanelCandidate, textPanelKey, textPanelLook, centerCoverage, textFillsBox };
+  return { ...state, pictureOnCanvas, contentHash, luminanceStdDev, visibleLuminanceStdDev, meanLuminance, darkOpaqueShare, centreDetail, whiteOpaqueShare, uniformColorFraction, smoothness, opaqueFraction, paperUnderPicture, panelBackdrop, sparseLargeCutout, darkLargeCutout, isOverlayOfPage, textCard, documentPage, pageBackground, flushCard, textPanelCandidate, textPanelKey, textPanelLook, centerCoverage, textFillsBox };
 }
 
 /**
@@ -696,7 +1025,7 @@ async function measureUnit(scope: UnitScope, plannedUnit: ExtractionUnit, state:
  */
 async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, state: Awaited<ReturnType<typeof measureUnit>>): Promise<PreparedEntryForFinalize<EncodedImage>> {
   const { encoder, opts, pageBoxByPage, pageNumber, figureEntries, hideBackgroundImages, neighbourUnits, isLeftHalf, isRightHalf, textBlockBoxesByPage, page, renderer, signal, idOnThisPage, targetLongEdgePx, headingBlockBoxesByPage, inventory, imageByItem, ownImageByItem, tossedPropItems, smallCutOutItems, inkStyleByItem, formPages, possibleSheetParts, photoCuts } = scope;
-  const { image, isLargePanel, drawnOnPanel, unit, extractResult, paintedAt, placedRep, rep, compositionCount, repId, effectiveTargetLongEdgePx, blankSheet, panelBackdrop, paperUnderPicture, pageBackground, sparseLargeCutout, darkLargeCutout, textCard, flushCard, documentPage, whiteOpaqueShare, isBlendedOnPage, isOverlayOfPage, placementOfRep, isCardOfText, contentHash, luminanceStdDev, meanLuminance, visibleLuminanceStdDev, darkOpaqueShare, uniformColorFraction, smoothness, opaqueFraction, textPanelCandidate, textPanelKey, textFillsBox, textOnPaperCard, photoLook, centerCoverage, textPanelLook } = state;
+  const { drawnOverPage, drawingOverPage, pictureOnCanvas, askewTiltDeg, drawingOnSheet, labelledRender, image, isLargePanel, drawnOnPanel, unit, extractResult, paintedAt, placedRep, rep, compositionCount, repId, effectiveTargetLongEdgePx, blankSheet, panelBackdrop, paperUnderPicture, pageBackground, sparseLargeCutout, darkLargeCutout, textCard, flushCard, documentPage, whiteOpaqueShare, isBlendedOnPage, isOverlayOfPage, placementOfRep, isCardOfText, contentHash, luminanceStdDev, meanLuminance, visibleLuminanceStdDev, darkOpaqueShare, centreDetail, uniformColorFraction, smoothness, opaqueFraction, textPanelCandidate, textPanelKey, textFillsBox, textOnPaperCard, photoLook, centerCoverage, textPanelLook } = state;
     // Grid suggestion — NOT limited to 'content' (unlike
     // `luminanceStdDev` above): 'undecided' can also end up on stage by
     // the user's manual decision in the review screen), and the cost of
@@ -717,15 +1046,35 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
     const confidence = unit.representativeEntry || unit.reason === VECTOR_FIGURE_REASON ? unit.confidence : confidenceForReason('Z1-large-relative-area');
     // A backdrop under a card of text and pictures (the page's texture behind a column, a sheet and a photograph): rendered, it is the card's
     // text and the pictures again, which are offered by themselves (see `isBackdropOfCardsAbove`).
+    // The page's faded paper laid over a picture painted before it (a vignette around a map on its card): no picture of its own.
+    const paperOverPicture =
+      extractResult.source !== 'region-render' &&
+      isFadedPaperOverlay(image) &&
+      neighbourUnits.some((other) => {
+        if (other === plannedUnit || other.representativeEntry === null || paintedAt(other) >= paintedAt(plannedUnit)) return false;
+        const shared = rectIntersection(other.bbox, unit.bbox);
+        return shared !== null && rectArea(shared) >= SAME_FOOTPRINT_MIN_SHARE * rectArea(other.bbox);
+      });
+    // Not a picture the page labels, taken as the page shows it: the patches laid under its labels are the map's own (see `isLabelledPicture`).
     const backdropOfCards =
       hideBackgroundImages &&
       extractResult.source === 'region-render' &&
+      !labelledRender &&
       unit.reason !== LINE_DRAWING_REASON &&
       unit.classification !== 'decoration' &&
       unit.classification !== 'mask' &&
       isBackdropOfCardsAbove(
         unit.bbox,
-        neighbourUnits.filter((other) => other !== plannedUnit && other.representativeEntry !== null && (other.classification === 'content' || other.classification === 'undecided') && paintedAt(other) > paintedAt(plannedUnit)).map((other) => other.bbox),
+        // The page's paper laid over the whole of the picture (a translucent panel, a vignette cut out around it and looked at once more at the
+        // page's edge) is the page's texture, no card on it.
+        neighbourUnits
+          .filter((other) => other !== plannedUnit && other.representativeEntry !== null && (other.classification === 'content' || other.classification === 'undecided') && paintedAt(other) > paintedAt(plannedUnit))
+          .filter((other) => {
+            if (other.reason !== LARGE_TRANSLUCENT_PANEL_REASON && other.reason !== EDGE_FIGURE_REASON) return true;
+            const shared = rectIntersection(other.bbox, unit.bbox);
+            return shared === null || rectArea(shared) < SAME_FOOTPRINT_MIN_SHARE * rectArea(unit.bbox);
+          })
+          .map((other) => other.bbox),
         opts.wordBoxesByPage?.get(pageNumber),
       );
     // A form or a table that is a picture with its text drawn into it (a filled character sheet): the page has no text of it to find, so the pixels are read.
@@ -770,8 +1119,10 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
         paperPieces = weight > 0 && weighted / weight >= PAPER_PIECE_MIN_MEAN_LUMINANCE;
       }
     }
-    const hiddenByPixels = paperPieces || tossedProp || textBoxFrame || blankSheet || panelBackdrop || paperUnderPicture || pageBackground || sparseLargeCutout || darkLargeCutout || textCard || flushCard || documentPage || backdropOfCards || (unit.reason === VECTOR_FIGURE_REASON && unit.representativeEntry === null && whiteOpaqueShare !== undefined && whiteOpaqueShare >= FIGURE_MAX_WHITE_SHARE);
-    const rasterMeasure = hideBackgroundImages && !hiddenByPixels && unit.classification !== 'decoration' && unit.classification !== 'mask' ? measureRasterText(image) : null;
+    const hiddenByPixels = paperPieces || paperOverPicture || tossedProp || textBoxFrame || blankSheet || panelBackdrop || paperUnderPicture || pageBackground || sparseLargeCutout || darkLargeCutout || textCard || flushCard || documentPage || backdropOfCards || (unit.reason === VECTOR_FIGURE_REASON && unit.representativeEntry === null && whiteOpaqueShare !== undefined && whiteOpaqueShare >= FIGURE_MAX_WHITE_SHARE);
+    // Not read for a drawing in lines (a floor plan on squared paper reads as the rules of a table): the page's words were judged over it already (see `LINE_DRAWING_MAX_WORD_COVERAGE`).
+    // Nor for a render of a sheet the page draws a picture on in paths (see `DRAWING_ON_SHEET_MIN_PATHS`), for the same reason.
+    const rasterMeasure = hideBackgroundImages && !hiddenByPixels && unit.classification !== 'decoration' && unit.classification !== 'mask' && unit.reason !== LINE_DRAWING_REASON && !(drawingOnSheet && extractResult.source === 'region-render') ? measureRasterText(image) : null;
     const rasterForm = rasterMeasure !== null && readsAsDocument(rasterMeasure, image);
     // A splatter of blood or paint laid on the page is the page's decoration, not a picture.
     // A splatter painted with a blend mode is rendered on the page's tinted paper, where its ink is not on white: its own raster shows it on white.
@@ -866,15 +1217,113 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
     // A card whose text the page sets sideways or askew is turned so that it reads left to right (see `readingTurn.ts`): a box of text, or a
     // render that the page's words cover a good part of (a letter, a telegram); a map with a few labels set sideways is not turned.
     const wordsOfPage = opts.wordBoxesByPage?.get(pageNumber);
+    let turnedByItsText = false;
     if (holdsText || (extractResult.source === 'region-render' && textCoverage(unit.bbox, wordsOfPage) >= TURN_MIN_WORD_COVERAGE)) {
       const angle = dominantTextAngle(unit.bbox, wordsOfPage);
-      const turned = angle === null ? null : turnUpright(cardImage ?? image, angle);
-      if (turned !== null) cardImage = turned;
-    } else if (hideBackgroundImages && !hiddenByPixels && !rasterForm && unit.classification !== 'decoration' && unit.classification !== 'mask') {
+      // On a card rendered straightened (see `askewCard.ts`) the text runs at its angle less the card's turn.
+      const turned = angle === null ? null : turnUpright(cardImage ?? image, cardImage === null ? angle - askewTiltDeg : angle);
+      if (turned !== null) {
+        cardImage = turned;
+        turnedByItsText = true;
+      }
+    } else if (hideBackgroundImages && !hiddenByPixels && !rasterForm && unit.classification !== 'decoration' && unit.classification !== 'mask' && !inShapedWindow(unit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.clip)) {
       // A print that the page lays askew is offered straightened and cut to its rectangle (see `tiltedRectangle.ts`).
       const straightened = straightenTiltedPicture(cardImage ?? image);
       if (straightened !== null) cardImage = straightened;
     }
+    // A document lying on its side whose text is in its pixels (a cutting, an open notebook): stood up (see `standUpSidewaysDocument`).
+    // Which of the rules that turn or trim a picture changed this one (for the measuring tool, see `ruleTrace.ts`).
+    const traced: string[] = drawnOverPage ? ['drawn-over-page'] : [];
+    const placedTurns = rep === null ? undefined : topOccurrenceOnPage(rep, pageNumber)?.placement?.quarterTurns;
+    if (!turnedByItsText && (placedTurns === 1 || placedTurns === 3)) {
+      const stoodUp = standUpSidewaysDocument(cardImage ?? image, placedTurns, looksLikeDocumentImage, (shown) => sidewaysLettering(shown).turns !== 0);
+      if (stoodUp !== null) {
+        cardImage = stoodUp;
+        traced.push('placed-document-turn');
+      }
+    }
+    // Pictures painted into the page's own raster (a map or photographs on the paper of the book, with its frame): each is cut out and
+    // offered by itself, and the raster, which is the page's ground, is not offered (see `picturesOnGround.ts`). Only for a raster that
+    // covers the page and is taken as the PDF stores it, upright and whole; not for a page offered whole because the caller asked for that
+    // (`treatFullBleedAsContent`, with its own optional crop). Found once, here, so that the raster is not turned before it is cut.
+    const coversPage = placedRep !== undefined && pageBoxOfUnit !== undefined && rectArea(placedRep) >= PAGE_RASTER_MIN_PAGE_SHARE * rectArea(pageBoxOfUnit);
+    let groundPictures: GroundPictures | null | undefined;
+    const picturesOnGround = (): GroundPictures | null => {
+      if (groundPictures === undefined) {
+        const candidate = hideBackgroundImages && unit.reason !== 'Z1-full-bleed-forced-content' && coversPage && placedRep !== undefined && !cardImage && extractResult.source !== 'region-render' && placementOfRep === undefined && image === extractResult.image;
+        // Solid pictures first; failing those, cards laid over one another on the paper (see `cardsOnGround.ts`); failing those, a single
+        // sheet; failing that, drawings in line within the book's frame (a map on the paper, a floor plan).
+        const solidFound = candidate ? findPicturesOnGround(image) : null;
+        // Pictures found upright that are cards laid askew (postcards on a page, one over the corner of the other): each lies within a card
+        // the outlines tell, and is cut along that card's sides, straight, not as its upright box (wedges of the page, a corner cut off).
+        const askewCards = solidFound !== null ? findCardsOnGround(image) : null;
+        const cardsHold = (rects: readonly PixelRect[], quads: readonly CardQuad[]): boolean =>
+          rects.length === quads.length &&
+          rects.every((r) => quads.some((q) => {
+            const e = envelopeOfCard(q);
+            const w = Math.min(r.x + r.width, e.x + e.width) - Math.max(r.x, e.x);
+            const h = Math.min(r.y + r.height, e.y + e.height) - Math.max(r.y, e.y);
+            return w > 0 && h > 0 && w * h >= SOLID_WITHIN_CARD_MIN_SHARE * r.width * r.height;
+          }));
+        const solid = askewCards !== null && cardsHold(solidFound!, askewCards) ? null : solidFound;
+        const cards = candidate && solid === null ? (askewCards ?? findCardsOnGround(image)) : null;
+        // Failing those, a single sheet laid upright on the paper (a handout in the book's frame, see `singleCardOnGround.ts`): its writing is
+        // the sheet's, not the page's text drawn as a picture.
+        const sheet = candidate && solid === null && cards === null ? findSingleCardOnGround(image) : null;
+        const drawn = candidate && solid === null && cards === null && sheet === null ? findDrawingsOnGround(image) : null;
+        groundPictures =
+          solid !== null ? { rects: solid, drawings: false } : cards !== null ? { rects: cards.map(envelopeOfCard), drawings: false, cards } : drawn !== null ? { rects: drawn, drawings: true } : sheet !== null ? { rects: [sheet], drawings: false } : null;
+      }
+      return groundPictures;
+    };
+    // A picture lying on its side whose lettering is in its pixels (a map turned to fit the page): stood up (see `sidewaysText.ts`). A raster
+    // whose pictures are cut out is not: each cut is stood up by itself.
+    // Which way the lettering reads is told on the whole render: the sheet cut out of it below has less of it (see `drawingOverPage`).
+    const lettered = cardImage ?? image;
+    // A book's cover (a picture over the whole of its first page) stands as it is: its picture may run up and down (the bars of a number,
+    // a meshed plate) as lettering on its side does.
+    const cover = pageNumber === 1 && coversPage;
+    const letteringTurns = !cover && !turnedByItsText && placedTurns !== 1 && placedTurns !== 3 && !holdsText && (unit.classification === 'content' || unit.classification === 'undecided') && lettered.width < lettered.height && picturesOnGround() === null ? sidewaysLettering(lettered).turns : 0;
+    // A sheet the page draws on is cut to the box of its drawing, without the page round it (see `PAGE_DRAWING_MIN_PATHS`).
+    // The whole render, as it is offered (stood up), is what the halves of a spread are matched by (see `imageByItem`).
+    let seamImage: DecodedImage | null = null;
+    if (drawingOverPage !== null && extractResult.source === 'region-render' && cardImage === null) {
+      const sx = image.width / Math.max(1e-6, unit.bbox.maxX - unit.bbox.minX);
+      const sy = image.height / Math.max(1e-6, unit.bbox.maxY - unit.bbox.minY);
+      const x = Math.max(0, Math.floor((drawingOverPage.minX - unit.bbox.minX) * sx));
+      const y = Math.max(0, Math.floor((drawingOverPage.minY - unit.bbox.minY) * sy));
+      const width = Math.min(image.width, Math.ceil((drawingOverPage.maxX - unit.bbox.minX) * sx)) - x;
+      const height = Math.min(image.height, Math.ceil((drawingOverPage.maxY - unit.bbox.minY) * sy)) - y;
+      if (width > 0 && height > 0) {
+        cardImage = cropDecodedImage(image, { x, y, width, height });
+        seamImage = image;
+        traced.push('drawing-sheet-cut');
+      }
+    }
+    if (letteringTurns !== 0) {
+      cardImage = rotateQuarterTurns(cardImage ?? image, letteringTurns);
+      if (seamImage !== null) seamImage = rotateQuarterTurns(seamImage, letteringTurns);
+      traced.push('lettering-turn');
+    }
+    // A cut-out stored on a larger canvas is offered without the transparent margin round it (it shows as an empty frame), unless that
+    // would make a strip of it (one that long and narrow is taken for an ornament and hidden; a banner measured at 617x134, 567x89 cut).
+    const untrimmed = cardImage ?? image;
+    const trimmed = trimTransparentMargins(untrimmed);
+    const aspectOf = (d: { width: number; height: number }): number => Math.max(d.width, d.height) / Math.max(1, Math.min(d.width, d.height));
+    if (trimmed !== null && !(aspectOf(trimmed) >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD && aspectOf(untrimmed) < EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD)) {
+      cardImage = trimmed;
+      traced.push('transparent-trim');
+    }
+    // A page painted as a sheet lying on a dark ground (a leather folder) is offered as the sheet, without the ground round it.
+    // The halves of a spread are matched at the gutter as they were (see `imageByItem`): two pages, each a sheet in the folder, cut to their
+    // sheets, go on into each other at the gutter as any two light papers do. So does a sheet cut to its drawing beside a blank page.
+    const surrounded = cardImage ?? image;
+    const unwrapped = trimDarkSurround(surrounded);
+    if (unwrapped !== null && !(aspectOf(unwrapped) >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD && aspectOf(surrounded) < EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD)) {
+      cardImage = unwrapped;
+      traced.push('dark-surround-trim');
+    }
+    if (pictureOnCanvas) traced.push('picture-on-canvas');
     const result: PreparedEntryForFinalize<EncodedImage> = {
       entry: entryForFinalize,
       // A grid of small rasters that renders with the page's text is the boxes of a form (a character sheet), not a picture stored in tiles.
@@ -888,6 +1337,7 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
       meanLuminance,
       visibleLuminanceStdDev,
       darkOpaqueShare,
+      centreDetail,
       whiteOpaqueShare,
       uniformColorFraction,
       smoothness,
@@ -901,7 +1351,8 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
       holdsText: holdsText ? true : undefined,
       payload: cardImage ? await encoder.encode(cardImage, { format: opts.outputFormat, quality: opts.outputQuality }) : encoded,
     };
-    imageByItem.set(result, cardImage ?? image);
+    imageByItem.set(result, seamImage !== null ? seamImage : unwrapped !== null && cardImage === unwrapped ? surrounded : (cardImage ?? image));
+    for (const rule of traced) ruleTrace.hook?.(rule, pageNumber, result.contentHash);
     ownImageByItem.set(result, image);
     if (tossedProp) {
       tossedPropItems.add(result);
@@ -909,7 +1360,8 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
       const hiddenOtherwise = textBoxFrame || blankSheet || panelBackdrop || paperUnderPicture || pageBackground || sparseLargeCutout || darkLargeCutout || textCard || flushCard || documentPage || backdropOfCards;
       // Nor a hidden picture looked at once more at the page's edge (see `EDGE_DOCUMENT_REASON`, `EDGE_FIGURE_REASON`): dropped anyway unless it is a document or a figure.
       // Nor a strip along the page's edge (hidden later as one): a prop is an object, about as wide as it is tall.
-      if (!hiddenOtherwise && (unit.classification === 'content' || unit.classification === 'undecided') && plannedUnit.reason !== EDGE_DOCUMENT_REASON && plannedUnit.reason !== EDGE_FIGURE_REASON && Math.max(image.width, image.height) <= PROP_MAX_ASPECT * Math.min(image.width, image.height)) scope.tossedPropCount++;
+      // Nor a figure cut out over a third of the page or more (see `isSolidCutOut`): a prop is a small object.
+      if (!hiddenOtherwise && (unit.classification === 'content' || unit.classification === 'undecided') && plannedUnit.reason !== EDGE_DOCUMENT_REASON && plannedUnit.reason !== EDGE_FIGURE_REASON && unit.reason !== LARGE_MASKED_CUTOUT_REASON && Math.max(image.width, image.height) <= PROP_MAX_ASPECT * Math.min(image.width, image.height)) scope.tossedPropCount++;
     } else if ((result.classification === 'undecided' || result.classification === 'content') && !result.holdsText && repId !== null) {
       // A cut-out object on a blank ground, judged by its own raster (one laid over the page's edge and rendered with the page: its raster).
       // A render of a picture on the page is its card of text or the page under it: only its own raster, taken anyway, is judged.
@@ -958,6 +1410,134 @@ async function buildUnitEntry(scope: UnitScope, plannedUnit: ExtractionUnit, sta
         });
       }
     }
+    // The pictures on the page's ground found above, cut out (unless the raster was taken otherwise since). A raster the page's
+    // text lies on (a plan whose labels, or a page whose number, the page sets as text) stays where it was, among the images
+    // with text, and its pictures are rendered from the page, so that what the page writes on them is in them.
+    const offeredRaster = (result.classification === 'content' || result.classification === 'undecided') && result.holdsText !== true;
+    const rasterUnderText = result.holdsText === true;
+    // Cards on the page's raster are cut from the raster even when what is kept of it is a render (a page of handouts taken for a card of text).
+    const cardsUnderRender = (): GroundPictures | null => {
+      const candidate = hideBackgroundImages && unit.reason !== 'Z1-full-bleed-forced-content' && coversPage && placementOfRep === undefined && extractResult.source !== 'region-render' && image === extractResult.image;
+      const cards = candidate ? findCardsOnGround(image) : null;
+      return cards === null ? null : { rects: cards.map(envelopeOfCard), drawings: false, cards };
+    };
+    // A page raster rendered with the page's text over it (a handout whose writing the page sets as text): the single sheet on its paper is read
+    // from the raster's own pixels, and rendered over its box, with the writing.
+    let sheetUnderRender: GroundPictures | null = null;
+    if (rasterUnderText && cardImage && hideBackgroundImages && coversPage && placementOfRep === undefined && repId !== null && placedRep) {
+      const raw = await probeRawImage(page, repId);
+      const sheet = raw === null ? null : findSingleCardOnGround(raw);
+      if (raw !== null && sheet !== null) {
+        const sx = image.width / raw.width;
+        const sy = image.height / raw.height;
+        sheetUnderRender = { rects: [{ x: Math.round(sheet.x * sx), y: Math.round(sheet.y * sy), width: Math.round(sheet.width * sx), height: Math.round(sheet.height * sy) }], drawings: false };
+      }
+    }
+    const found = placedRep && (offeredRaster || rasterUnderText) ? (!cardImage ? picturesOnGround() : rasterUnderText ? (cardsUnderRender() ?? sheetUnderRender) : null) : null;
+    if (placedRep && found !== null) {
+      const pw = placedRep.maxX - placedRep.minX;
+      const ph = placedRep.maxY - placedRep.minY;
+      const pageArea = pageBoxOfUnit !== undefined ? rectArea(pageBoxOfUnit) : 0;
+      const cuts: { box: Rect; image: DecodedImage; turned: boolean }[] = [];
+      for (const [n, picture] of found.rects.entries()) {
+        const box: Rect = {
+          minX: placedRep.minX + (picture.x / image.width) * pw,
+          maxX: placedRep.minX + ((picture.x + picture.width) / image.width) * pw,
+          maxY: placedRep.maxY - (picture.y / image.height) * ph,
+          minY: placedRep.maxY - ((picture.y + picture.height) / image.height) * ph,
+        };
+        const rendered = rasterUnderText ? await renderer.renderRegion(page, box, { targetLongEdgePx: effectiveTargetLongEdgePx, signal }) : null;
+        // A card is cut along its own four sides and made upright (in the render, its corners where they fall in the render's box).
+        const card = found.cards?.[n];
+        const taken =
+          card !== undefined
+            ? rendered !== null
+              ? takeCard(rendered, {
+                  corners: card.corners.map(intoRender(picture, rendered)) as CardQuad['corners'],
+                  ...(card.coveredBy ? { coveredBy: card.coveredBy.map((cover) => cover.map(intoRender(picture, rendered)) as CardQuad['corners']) } : {}),
+                })
+              : takeCard(image, card)
+            : (rendered ?? cropDecodedImage(image, picture));
+        const stoodUp = standUpLettering(taken);
+        cuts.push({ box, image: stoodUp ?? taken, turned: stoodUp !== null });
+      }
+      // What is drawn on a page and reads as written text (a letter drawn into the page's image) is the page's text, not a drawing.
+      if (!(found.drawings && cuts.some((cut) => looksLikeWrittenImage(cut.image)))) {
+        if (offeredRaster) result.classification = 'decoration';
+        for (const { box, image: cut, turned } of cuts) {
+          const cutHash = await computeContentHash(cut);
+          ruleTrace.hook?.(found.cards !== undefined ? 'card-on-ground' : found.drawings ? 'drawing-in-frame' : 'picture-on-ground', pageNumber, cutHash);
+          if (turned) ruleTrace.hook?.('lettering-turn', pageNumber, cutHash);
+          photoCuts.push({
+            entry: syntheticVectorOnlyEntry(pageNumber, box, pageArea > 0 ? rectArea(box) / pageArea : 0),
+            classification: 'undecided',
+            confidence: confidenceForReason('Z1-no-strong-signal'),
+            extractSource: rasterUnderText ? 'region-render' : extractResult.source,
+            contentHash: cutHash,
+            width: cut.width,
+            height: cut.height,
+            suggestedGrid: detectGrid(cut) ?? undefined,
+            payload: await encoder.encode(cut, { format: opts.outputFormat, quality: opts.outputQuality }),
+          });
+        }
+      }
+    }
+    // A sheet of items set apart on blank paper (the weapons of an equipment list, each with its name): each item offered by
+    // itself, and the sheet not (see `itemsOnBlank.ts`). Only for a picture rendered from the page, gathered from several
+    // pieces and the page's words: a single image whose parts lie apart (dice, a logo, a sign in brush strokes) is one
+    // picture, and so is a document (a newspaper, a card).
+    const shown = cardImage ?? image;
+    const renderedSheet = (cardImage ? cardSource : extractResult.source) === 'region-render';
+    // The page's words on it are the items' names, little of it (a page of text with a picture is more).
+    if (renderedSheet && (result.classification === 'content' || result.classification === 'undecided') && !holdsText && result.holdsText !== true && textCoverage(unit.bbox, wordsOfPage) <= ITEM_SHEET_MAX_WORD_COVERAGE && !looksLikeDocumentImage(shown)) {
+      // The items are offered without the names the page writes beside them: the page's words are painted over first.
+      const box = unit.bbox;
+      const bw = box.maxX - box.minX;
+      const bh = box.maxY - box.minY;
+      const words = (wordsOfPage ?? []).flatMap((w): PixelRect[] => {
+        const over = rectIntersection(w, box);
+        if (over === null || bw <= 0 || bh <= 0) return [];
+        // A little round each word, for the strokes of its letters that reach past its box.
+        const margin = 0.15 * (over.maxY - over.minY);
+        return [
+          {
+            x: ((over.minX - margin - box.minX) / bw) * shown.width,
+            y: ((box.maxY - over.maxY - margin) / bh) * shown.height,
+            width: ((over.maxX - over.minX + 2 * margin) / bw) * shown.width,
+            height: ((over.maxY - over.minY + 2 * margin) / bh) * shown.height,
+          },
+        ];
+      });
+      const sheet = words.length > 0 ? withoutBoxes(shown, words) : shown;
+      const pieces = findItemsOnBlank(sheet);
+      const items = pieces !== null && areNamedItems(pieces, words, Math.max(shown.width, shown.height)) ? pieces : null;
+      if (items !== null) {
+        result.classification = 'decoration';
+        const pageArea = pageBoxOfUnit !== undefined ? rectArea(pageBoxOfUnit) : 0;
+        for (const item of items) {
+          const cut = cropDecodedImage(item.foreign.length > 0 ? withoutBoxes(sheet, item.foreign) : sheet, item);
+          const itemHash = await computeContentHash(cut);
+          ruleTrace.hook?.('item-of-sheet', pageNumber, itemHash);
+          const itemBox: Rect = {
+            minX: box.minX + (item.x / shown.width) * bw,
+            maxX: box.minX + ((item.x + item.width) / shown.width) * bw,
+            maxY: box.maxY - (item.y / shown.height) * bh,
+            minY: box.maxY - ((item.y + item.height) / shown.height) * bh,
+          };
+          photoCuts.push({
+            entry: syntheticVectorOnlyEntry(pageNumber, itemBox, pageArea > 0 ? rectArea(itemBox) / pageArea : 0),
+            classification: 'undecided',
+            confidence: confidenceForReason('Z1-no-strong-signal'),
+            extractSource: cardImage ? cardSource : extractResult.source,
+            contentHash: itemHash,
+            width: cut.width,
+            height: cut.height,
+            suggestedGrid: detectGrid(cut) ?? undefined,
+            payload: await encoder.encode(cut, { format: opts.outputFormat, quality: opts.outputQuality }),
+          });
+        }
+      }
+    }
     return result;
 }
 
@@ -970,5 +1550,13 @@ export async function extractUnitOfPage(scope: UnitScope, plannedUnit: Extractio
   const s1 = await judgeUnit(scope, plannedUnit, s0);
   const s2 = await renderUnit(scope, plannedUnit, s1);
   const s3 = await measureUnit(scope, plannedUnit, s2);
-  return buildUnitEntry(scope, plannedUnit, s3);
+  const entry = await buildUnitEntry(scope, plannedUnit, s3);
+  // A picture the page labels, taken as the page shows it, that the render shows as text (a map beside a column of the page's text): the picture
+  // is taken from its own pixels, as it is without labels.
+  if (!s1.labelledRender || entry.holdsText !== true) return entry;
+  const r0 = await composeUnit(scope, plannedUnit);
+  const r1 = await judgeUnit(scope, plannedUnit, r0, false);
+  const r2 = await renderUnit(scope, plannedUnit, r1);
+  const r3 = await measureUnit(scope, plannedUnit, r2);
+  return buildUnitEntry(scope, plannedUnit, r3);
 }

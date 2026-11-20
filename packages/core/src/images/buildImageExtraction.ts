@@ -8,6 +8,7 @@ import { connectedGroups, placedInksOverlap, type PlacedMask } from './opaqueOve
 import { flattenOnWhite } from './whiteBackground.js';
 import { extractUnitOfPage, type UnitScope } from './extractUnit.js';
 import { planExtraction } from './planExtraction.js';
+import { findCreditLogos } from './creditLogos.js';
 import { processPageUnits, type PageScope } from './extractPage.js';
 import { clearProbeCache, currentObjIdAt, extractDirect, probeInkMask, waitForDependencies, waitForObjects } from './extract.js';
 import { finalizeImages, type PreparedEntryForFinalize } from './finalize.js';
@@ -354,6 +355,17 @@ async function extractImages(
     const judged = prepared.filter((item) => ((item.classification === 'undecided' && item.holdsText !== true) || (bookOfProps && tossedPropItems.has(item))) && inkStyleByItem.has(item));
     const styles = judged.map((item) => inkStyleByItem.get(item)!);
     for (const i of findBookOrnaments(styles)) judged[i]!.classification = 'decoration';
+    // The logos of the credits page (see `creditLogos.ts`): judged among the pictures still offered.
+    const stillOffered = prepared.filter((item) => (item.classification === 'content' || item.classification === 'undecided') && item.entry.occurrences[0] !== undefined);
+    const logos = findCreditLogos(
+      stillOffered.map((item) => {
+        const placed = item.entry.occurrences[0]!;
+        const pageBox = pageBoxByPage.get(placed.page);
+        const pageArea = pageBox === undefined ? 0 : rectArea(pageBox);
+        return { page: placed.page, pageShare: pageArea > 0 ? rectArea(placed.bbox) / pageArea : 1, opaqueFraction: item.opaqueFraction };
+      }),
+    );
+    for (const i of logos) stillOffered[i]!.classification = 'decoration';
   }
   // The other part of a sheet whose first part was recognised (its second page, drawn in a handwriting): text in a picture as well.
   for (const part of possibleSheetParts) {

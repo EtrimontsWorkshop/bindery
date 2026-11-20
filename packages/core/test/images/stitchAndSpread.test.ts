@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findSpreadPairs } from '../../src/images/spreadPairs.js';
-import { dropLeftColumns, stitchHorizontally } from '../../src/images/stitchHorizontally.js';
+import { dropLeftColumns, dropRightColumns, stitchHorizontally } from '../../src/images/stitchHorizontally.js';
 
 const PAGE = { minX: 0, minY: 0, maxX: 612, maxY: 792 };
 const boxes = new Map([[1, PAGE], [2, PAGE], [3, PAGE]]);
@@ -85,5 +85,16 @@ describe('dropLeftColumns', () => {
     const picture = image(4, 2, 10);
     expect(dropLeftColumns(picture, 0)).toBe(picture);
     expect(dropLeftColumns(picture, 9).width).toBe(1);
+  });
+});
+
+describe('dropRightColumns', () => {
+  it('removes the last columns of an image (the white a render shows past the page at the gutter) and keeps the rest', () => {
+    const picture = { width: 3, height: 1, rgba: new Uint8ClampedArray([10, 10, 10, 255, 20, 20, 20, 255, 255, 255, 255, 255]) };
+    const out = dropRightColumns(picture, 1);
+    expect([out.width, out.height]).toEqual([2, 1]);
+    expect([...out.rgba]).toEqual([10, 10, 10, 255, 20, 20, 20, 255]);
+    expect(dropRightColumns(picture, 0)).toBe(picture);
+    expect(dropRightColumns(picture, 9).width).toBe(1);
   });
 });

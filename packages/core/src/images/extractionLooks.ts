@@ -325,6 +325,122 @@ export const EDGE_STRIP_MIN_REPRESENTATIVE_AREA = 0.3;
 /** Share of the box of a flush picture beside a big representative that page text must cover for the picture to be the backdrop of that text. */
 export const TEXT_BACKDROP_MIN_COVERAGE = 0.08;
 
+/**
+ * A picture with labels set on it by the page (a map with the names of its places): this many small blocks of the page's text lie within its
+ * box at least (a block a label, at most `LABEL_MAX_BOX_SHARE` of the box; a paragraph beside it is no label). Such a picture is taken as the
+ * page shows it, its labels and markers with it; a left half so labelled is met by its right half as the page shows it, over the left half's
+ * box mirrored on the facing page; and such a half is no card or panel of text. Measured on one book: its maps 34-77 labels; a drawing beside a
+ * column of text 6 blocks; a paragraph wrapped around a figure, its lines one under another, none. The labels lie all over the picture (in five of its nine
+ * parts at least); the lines of a column of text keep to one part of it.
+ */
+export const LABELLED_PICTURE_MIN_TEXT_BLOCKS = 20;
+const LABEL_MAX_BOX_SHARE = 0.02;
+/** Two small blocks one under the other (a gap of at most this many times a line's height), overlapping across by this share of the narrower at least, are lines of one block of text; three such lines and more, a paragraph (set flush to an edge, or wrapped along the slant of a figure). */
+const LABEL_STACK_MIN_OVERLAP = 0.5;
+const LABEL_STACK_GAP_FACTOR = 1.5;
+const PARAGRAPH_MIN_LINES = 4;
+/**
+ * Labels of which this share at least start at the left edge of another (within the offset) are the entries of a form or a card set in rows.
+ * Measured on two books: maps 0-0.47, the cards of a game's themes 0.63-0.90.
+ */
+const LABELS_MAX_ALIGNED_SHARE = 0.6;
+const LABEL_ALIGNED_MAX_OFFSET_PT = 2;
+/** Of the nine parts of a picture (three by three), those that labels lie in at least. */
+const LABELS_MIN_CELLS = 5;
+
+/** Whether the page sets labels over the picture in `box` (see `LABELLED_PICTURE_MIN_TEXT_BLOCKS`). */
+export function isLabelledPicture(box: Rect, textBoxes: readonly Rect[] | undefined): boolean {
+  return labelsOfPicture(box, textBoxes, LABELLED_PICTURE_MIN_TEXT_BLOCKS) !== null;
+}
+
+/**
+ * A map with fewer labels (an island with its farms and bays named, measured on one book: 14-15) is a labelled picture as well when they lie
+ * on what it draws: at least this many labels, as `isLabelledPicture` finds them, and this share of them over its drawn pixels (see
+ * `labelsOnBlankCount`). A figure beside the page's text, its box running under the text over its white ground, has as many small blocks
+ * within it (measured on four books: 15-20), all on its blank ground.
+ */
+export const LABELLED_PICTURE_MIN_LABELS_ON_PICTURE = 12;
+export const LABELS_ON_PICTURE_MIN_SHARE = 0.75;
+/**
+ * A pixel is the blank ground of a picture when it is transparent (alpha at most this), or light (luminance at least this) and nearly grey (its
+ * channels at most this far apart): white, or the plain paper of a card. The ground of a map is coloured (its land, its water, its parchment).
+ */
+const BLANK_MAX_ALPHA = 16;
+const BLANK_MIN_LUMINANCE = 200;
+const BLANK_MAX_CHANNEL_SPREAD = 24;
+/** A label lies on the blank ground when this share of the pixels under its box is blank. */
+const LABEL_ON_BLANK_MIN_SHARE = 0.8;
+
+/**
+ * How many of `labels` lie on the blank ground of `image` (transparent, white or plain paper; see `LABEL_ON_BLANK_MIN_SHARE`): the image placed
+ * upright over `imageBox` (page points, y up), its first row at the top.
+ */
+export function labelsOnBlankCount(image: { width: number; height: number; rgba: Uint8ClampedArray | Uint8Array }, imageBox: Rect, labels: readonly Rect[]): number {
+  const w = imageBox.maxX - imageBox.minX;
+  const h = imageBox.maxY - imageBox.minY;
+  if (w <= 0 || h <= 0 || image.width <= 0 || image.height <= 0) return 0;
+  let onBlank = 0;
+  for (const l of labels) {
+    const x0 = Math.max(0, Math.floor(((l.minX - imageBox.minX) / w) * image.width));
+    const x1 = Math.min(image.width, Math.ceil(((l.maxX - imageBox.minX) / w) * image.width));
+    const y0 = Math.max(0, Math.floor(((imageBox.maxY - l.maxY) / h) * image.height));
+    const y1 = Math.min(image.height, Math.ceil(((imageBox.maxY - l.minY) / h) * image.height));
+    const step = Math.max(1, Math.floor(Math.sqrt(((x1 - x0) * (y1 - y0)) / 400)));
+    let n = 0;
+    let blank = 0;
+    for (let y = y0; y < y1; y += step) {
+      for (let x = x0; x < x1; x += step) {
+        const i = (y * image.width + x) * 4;
+        n++;
+        const r = image.rgba[i]!;
+        const g = image.rgba[i + 1]!;
+        const b = image.rgba[i + 2]!;
+        const lum = 0.3 * r + 0.59 * g + 0.11 * b;
+        if (image.rgba[i + 3]! <= BLANK_MAX_ALPHA || (lum >= BLANK_MIN_LUMINANCE && Math.max(r, g, b) - Math.min(r, g, b) <= BLANK_MAX_CHANNEL_SPREAD)) blank++;
+      }
+    }
+    if (n > 0 && blank >= LABEL_ON_BLANK_MIN_SHARE * n) onBlank++;
+  }
+  return onBlank;
+}
+
+/** The labels the page sets over the picture in `box` when there are `minLabels` at least, spread over it (see `isLabelledPicture`); `null` otherwise. */
+export function labelsOfPicture(box: Rect, textBoxes: readonly Rect[] | undefined, minLabels: number): Rect[] | null {
+  const area = (box.maxX - box.minX) * (box.maxY - box.minY);
+  const small = (textBoxes ?? []).filter((t) => {
+    const cx = (t.minX + t.maxX) / 2;
+    const cy = (t.minY + t.maxY) / 2;
+    return cx >= box.minX && cx <= box.maxX && cy >= box.minY && cy <= box.maxY && (t.maxX - t.minX) * (t.maxY - t.minY) <= LABEL_MAX_BOX_SHARE * area;
+  });
+  // The lines of a paragraph that wraps around a figure come as small blocks too, one under another, three and more of them: they are no
+  // labels (a label of two lines is).
+  const parent = small.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+  for (let i = 0; i < small.length; i++) {
+    for (let j = i + 1; j < small.length; j++) {
+      const a = small[i]!;
+      const b = small[j]!;
+      const across = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+      if (across >= LABEL_STACK_MIN_OVERLAP * Math.min(a.maxX - a.minX, b.maxX - b.minX) && Math.min(Math.abs(a.minY - b.maxY), Math.abs(b.minY - a.maxY)) <= LABEL_STACK_GAP_FACTOR * Math.min(a.maxY - a.minY, b.maxY - b.minY)) parent[find(i)] = find(j);
+    }
+  }
+  const linesOf = new Map<number, number>();
+  for (let i = 0; i < small.length; i++) linesOf.set(find(i), (linesOf.get(find(i)) ?? 0) + 1);
+  const labels = small.filter((_, i) => linesOf.get(find(i))! < PARAGRAPH_MIN_LINES);
+  if (labels.length < minLabels) return null;
+  // The entries of a form or a card (its rows of tags, set from the same left edge) are no labels: those of a map lie anywhere.
+  const aligned = labels.filter((l) => labels.some((m) => m !== l && Math.abs(m.minX - l.minX) <= LABEL_ALIGNED_MAX_OFFSET_PT)).length;
+  if (aligned >= LABELS_MAX_ALIGNED_SHARE * labels.length) return null;
+  // Labels lie all over the picture; the text of a cover or a column beside a figure keeps to one part of it.
+  const cells = new Set<number>();
+  for (const t of labels) {
+    const cx = Math.min(2, Math.floor((3 * ((t.minX + t.maxX) / 2 - box.minX)) / (box.maxX - box.minX)));
+    const cy = Math.min(2, Math.floor((3 * ((t.minY + t.maxY) / 2 - box.minY)) / (box.maxY - box.minY)));
+    cells.add(cy * 3 + cx);
+  }
+  return cells.size >= LABELS_MIN_CELLS ? labels : null;
+}
+
 /** Whether a flush raster is a card of text that fills a page margin: plain, opaque, with at least `FLUSH_CARD_MIN_TEXT_COVERAGE` of its box covered by page text (a stat block on parchment). */
 export function isFlushCardOfText(look: { luminanceStdDev: number } | null, opaqueFraction: number | null, textCoverageOverCard: number): boolean {
   return look !== null && look.luminanceStdDev <= TEXT_PANEL_MAX_STDDEV && opaqueFraction !== null && opaqueFraction >= FLUSH_CARD_MIN_OPAQUE_FRACTION && textCoverageOverCard >= FLUSH_CARD_MIN_TEXT_COVERAGE;
@@ -585,6 +701,51 @@ export const SILHOUETTE_MAX_RECTANGULARITY = MASK_TILTED_RECTANGLE_MIN_RECTANGUL
  * results (a backdrop) are rendered, not taken raw, and are not offered.
  */
 export const EDGE_FIGURE_MIN_STDDEV = 25;
+/**
+ * A faded paper vignette over the page (the page's paper again, cut out by a mask around what it frames, its stains and its
+ * half-transparent edge spreading the luminance like a figure's): this share of the page at least, and this share of its visible
+ * pixels light. Measured on one book: its vignettes 0.79 of the page, 88%-90% of their visible pixels light; figures and emblems
+ * are of mid tones.
+ */
+export const PAPER_VIGNETTE_MIN_PAGE_SHARE = 0.5;
+export const PAPER_VIGNETTE_MIN_LIGHT_SHARE = 0.8;
+const PAPER_VIGNETTE_LIGHT_LUMINANCE = 200;
+/**
+ * The page's paper laid over a picture (a faded vignette, cut out by a mask around what it frames): little of it shows, and nearly all of what
+ * shows is light. Measured on one book: 4%-21% visible, 88%-90% of it light; a figure on a transparent ground shows a good part of its box.
+ */
+export const PAPER_OVERLAY_MAX_VISIBLE_SHARE = 0.25;
+
+/** Whether a raster is the page's faded paper laid over a picture (see `PAPER_OVERLAY_MAX_VISIBLE_SHARE`, `PAPER_VIGNETTE_MIN_LIGHT_SHARE`). */
+export function isFadedPaperOverlay(image: { rgba: Uint8Array | Uint8ClampedArray }): boolean {
+  const { rgba } = image;
+  let visible = 0;
+  let light = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    visible++;
+    if (0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]! >= PAPER_VIGNETTE_LIGHT_LUMINANCE) light++;
+  }
+  const pixels = rgba.length / 4;
+  return visible > 0 && visible <= PAPER_OVERLAY_MAX_VISIBLE_SHARE * pixels && light >= PAPER_VIGNETTE_MIN_LIGHT_SHARE * visible;
+}
+
+/** Pixels along its longer side below which a raster at the page's edge is a blur stretched over its place, not a figure. */
+export const EDGE_FIGURE_MIN_PIXELS = 64;
+
+/** Whether a raster at the page's edge is a faded paper vignette over the page (see `PAPER_VIGNETTE_MIN_LIGHT_SHARE`). */
+export function isFadedPaperVignette(image: { rgba: Uint8Array | Uint8ClampedArray }, pageShare: number): boolean {
+  if (pageShare < PAPER_VIGNETTE_MIN_PAGE_SHARE) return false;
+  const { rgba } = image;
+  let visible = 0;
+  let light = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    if (rgba[i + 3]! <= 16) continue;
+    visible++;
+    if (0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]! >= PAPER_VIGNETTE_LIGHT_LUMINANCE) light++;
+  }
+  return visible > 0 && light >= PAPER_VIGNETTE_MIN_LIGHT_SHARE * visible;
+}
 
 /** Whether a mask that is white over `whiteFraction` of its raster and has the given rectangularity lets most of the picture through. */
 export function maskLetsMostThrough(whiteFraction: number, rectangularity: number | null): boolean {

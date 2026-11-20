@@ -176,6 +176,12 @@ const LINE_DRAWING_MIN_SIDE_PT = 60;
 /** A straight line along an axis (thinner than this) at least this long is a rule of the layout's frame or grid, not a line of a drawing. */
 const RULE_MAX_THICKNESS_PT = 0.5;
 const RULE_MIN_LENGTH_PT = 100;
+/**
+ * A cluster of lines of which this share at least are straight along the axes (a box thinner than `AXIS_LINE_MAX_THICKNESS_PT`) is the rules of
+ * a table or a form, not a drawing. Measured on two books: floor plans 0.65-0.66 (and 0.11 for a plan of curved walls), a character sheet 1.0.
+ */
+const TABLE_MIN_AXIS_LINE_SHARE = 0.9;
+const AXIS_LINE_MAX_THICKNESS_PT = 0.01;
 /** A line with less than this share of its box on the page is left out (see `findLineDrawings`). */
 const LINE_MIN_ON_PAGE_SHARE = 0.5;
 
@@ -193,8 +199,9 @@ export interface LineDrawing {
 export function findLineDrawings(lines: readonly FigureShape[], pageBox: Rect): LineDrawing[] {
   const onPage: { bbox: Rect; whole: Rect }[] = [];
   for (const l of lines) {
-    const bbox = rectIntersection(l.bbox, pageBox);
-    if (bbox === null || (bbox.maxX <= bbox.minX && bbox.maxY <= bbox.minY)) continue;
+    // Cut to the page by hand: a straight line along an axis has a box of no height (or width), which `rectIntersection` takes for no overlap.
+    const bbox = { minX: Math.max(l.bbox.minX, pageBox.minX), minY: Math.max(l.bbox.minY, pageBox.minY), maxX: Math.min(l.bbox.maxX, pageBox.maxX), maxY: Math.min(l.bbox.maxY, pageBox.maxY) };
+    if (bbox.maxX < bbox.minX || bbox.maxY < bbox.minY || (bbox.maxX === bbox.minX && bbox.maxY === bbox.minY)) continue;
     // A line mostly past the page's edge belongs to what the page does not show (a drawing left on the pasteboard): cut at the edge, it would join the drawings along it.
     const span = (r: Rect): number => Math.max(r.maxX - r.minX, 0.01) * Math.max(r.maxY - r.minY, 0.01);
     if (span(bbox) < LINE_MIN_ON_PAGE_SHARE * span(l.bbox)) continue;
@@ -207,8 +214,23 @@ export function findLineDrawings(lines: readonly FigureShape[], pageBox: Rect): 
   if (onPage.length < LINE_DRAWING_MIN_LINES) return [];
   return clusterTouching(onPage, pageBox)
     .filter((c) => c.count >= LINE_DRAWING_MIN_LINES && c.bbox.maxX - c.bbox.minX >= LINE_DRAWING_MIN_SIDE_PT && c.bbox.maxY - c.bbox.minY >= LINE_DRAWING_MIN_SIDE_PT)
+    // The rules of a table or a form are straight lines along the axes, all of them; a plan has its doors, stairs and fittings beside its walls.
+    .filter((c) => c.boxes.filter((b) => b.maxX - b.minX < AXIS_LINE_MAX_THICKNESS_PT || b.maxY - b.minY < AXIS_LINE_MAX_THICKNESS_PT).length < TABLE_MIN_AXIS_LINE_SHARE * c.count)
     .map((c) => ({ bbox: c.bbox, lines: c.boxes }))
     .sort((a, b) => a.bbox.minY - b.bbox.minY || a.bbox.minX - b.bbox.minX);
+}
+
+/**
+ * A drawing in filled shapes (see `findVectorFigures`) made of this many shapes at least is a picture of its own, drawn over whatever
+ * raster lies under it (a map drawn over a sheet of squared paper, 67 shapes), as a line drawing is (see `findLineDrawings`).
+ */
+export const SHAPE_DRAWING_MIN_SHAPES = 50;
+
+/** The drawings of a page made of filled shapes, with many shapes, in the form of line drawings: the box and the boxes of the shapes. */
+export function findShapeDrawings(shapes: readonly FigureShape[], pageBox: Rect): LineDrawing[] {
+  return findVectorFigures(shapes, pageBox)
+    .filter((f) => f.shapeCount >= SHAPE_DRAWING_MIN_SHAPES)
+    .map((f) => ({ bbox: f.bbox, lines: f.shapeBoxes }));
 }
 
 /** The edges of the page that `box` runs past. */

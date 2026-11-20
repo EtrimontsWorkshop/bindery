@@ -4,7 +4,7 @@ import type { VectorShape } from '../inventory/vectorRegistry.js';
 import { confidenceForReason, FLUSH_UNDECIDED_REASON, isBackdropShape, isTranslucentEverywhere, type ClassifiedImage } from './classify.js';
 import { isFormOrTable, looksLikeDocument, looksLikeDocumentOnDark, looksLikeHandwrittenNote, looksLikeLargePrintNote, looksLikePageOfDocuments, looksLikeSlantedDocuments, measureRasterText } from './rasterText.js';
 import type { DecodedImage } from './normalizeDecodedImage.js';
-import { findLineDrawings } from './vectorFigures.js';
+import { findLineDrawings, findShapeDrawings, type LineDrawing } from './vectorFigures.js';
 import { CO_MEMBER_SIGNIFICANT_AREA } from './strategy.js';
 import type { ExtractionUnit } from './extractionTypes.js';
 import { BOXES_MAX_OVERLAP_SHARE, CLIPPED_PIECES_REASON, FRAMES_MAX_OVERLAP_SHARE, GRID_PICTURE_MIN_TILES, LAYOUT_CARD_MIN_AREA, MOSAIC_MAX_SEAM_DIFFERENCE, MOSAIC_MAX_SEAM_PT, MOSAIC_TILE_MAX_PAGE_SHARE, SLICED_PICTURE_REASON, SMALL_SLICED_PICTURE_MIN_PIECES, SPLIT_BANNER_MASKED_MIN_AREA, SPLIT_BANNER_REPRESENTATIVE_MIN_AREA, SPLIT_TEXT_CARD_MAX_PICTURE_ON_CARD, SPLIT_TEXT_CARD_MIN_COVERAGE, SPLIT_TEXT_CARD_PICTURE_MIN_AREA, TILED_RECTANGLE_MAX_FILL_ERROR, TILED_RECTANGLE_MAX_STRIPS, TILED_RECTANGLE_MIN_STRIP_ASPECT, type TileSource, areMosaicTiles, areSeamedTiles, areSlicesOfOnePicture, isPanelBehindFigure, isPieceOf, isRepaintOf, joinBrickTiles, seamDifference, visibleWindow, windowsAreApart, withoutRepaints } from './extractionPieces.js';
@@ -65,6 +65,14 @@ export function readsAsDocument(measure: ReturnType<typeof measureRasterText>, i
 }
 export function looksLikeDocumentImage(image: DecodedImage): boolean {
   return readsAsDocument(measureRasterText(image), image);
+}
+/**
+ * Whether an image reads as written text by its pixels (a letter, a typed page, a handwritten note), leaving out forms and
+ * tables: a floor plan's rooms are boxes in rows, as a form's are.
+ */
+export function looksLikeWrittenImage(image: DecodedImage): boolean {
+  const measure = measureRasterText(image);
+  return looksLikeDocument(measure) || looksLikeLargePrintNote(measure) || looksLikeDocumentOnDark(measure) || looksLikePageOfDocuments(measure) || looksLikeSlantedDocuments(measure) || looksLikeHandwrittenNote(image);
 }
 /**
  * A raster under the page's text is a drawing (taken by itself) when its luminance spreads this much at least; blank paper or a plain card the
@@ -275,6 +283,25 @@ export function isEmptyWithin(image: DecodedImage): boolean {
   }
   return seen > 0 && clear / seen >= FRAME_AROUND_PICTURE_MIN_TRANSPARENT_SHARE;
 }
+/**
+ * A layer of a picture painted over it again (the top of a machine laid once more over a cover's title, so that it stands in front of the
+ * letters): the same raster size, on the same box, and transparent over this share of its pixels at least. The picture under it was taken
+ * for covered by it (see `Z17-covered-by-later-picture`), the layer offered in its stead, cut to the part it repeats.
+ */
+export const OVERLAY_OF_PICTURE_MIN_TRANSPARENT_SHARE = 0.5;
+export const OVERLAY_OF_PICTURE_MIN_SAME_BOX = 0.95;
+export function transparentShare(image: DecodedImage): number {
+  const step = Math.max(1, Math.floor(Math.sqrt((image.width * image.height) / 20000)));
+  let seen = 0;
+  let clear = 0;
+  for (let y = 0; y < image.height; y += step) {
+    for (let x = 0; x < image.width; x += step) {
+      seen++;
+      if (image.rgba[(y * image.width + x) * 4 + 3]! <= 32) clear++;
+    }
+  }
+  return seen > 0 ? clear / seen : 0;
+}
 export function isFrameOfTextBox(image: DecodedImage): boolean {
   if (image.width === 0 || image.height === 0) return false;
   let blank = 0;
@@ -353,6 +380,59 @@ export function paperGroundShare(image: DecodedImage): number {
   }
   return seen === 0 ? 0 : paper / seen;
 }
+/**
+ * A picture page beside a page of text is not a picture across a spread. Books that open a chapter with a full-page
+ * illustration facing the first page of text often paint both pages on one continuous ground (the paper of an open
+ * book, its edge running through the gutter), so the two rasters do go on into each other at the seam, and joined they
+ * were offered as one wide picture: the illustration with a page of blank paper beside it. Measured on twenty books
+ * with every picture labelled: 27 of the 33 joined spreads nobody wanted were of this kind.
+ *
+ * A half is the page of text when the page writes over this share of it at least ...
+ */
+export const SPREAD_TEXT_PAGE_MIN_TEXT_COVERAGE = 0.2;
+/** ... while the page of the other half writes over this share of it at most (a page number, a caption) ... */
+export const SPREAD_PICTURE_PAGE_MAX_TEXT_COVERAGE = 0.01;
+/** ... and its own pixels are one plain ground over this share at least (see `plainGroundShare`; the text halves measured 0.51-0.95, a map under its labels far less). */
+export const SPREAD_TEXT_PAGE_MIN_PLAIN_SHARE = 0.5;
+/** How far a pixel may be from the image's median colour (mean difference of the three channels) and still count as its ground. */
+const PLAIN_GROUND_TOLERANCE = 18;
+/**
+ * The share of an image's pixels that are its ground: within a small distance of its median colour, whatever that
+ * colour is (white, cream or tinted paper, a dark page). A blank sheet is all ground; a picture has little of it.
+ */
+export function plainGroundShare(image: DecodedImage): number {
+  const step = Math.max(1, Math.floor(Math.sqrt((image.width * image.height) / 20000)));
+  const histograms = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let seen = 0;
+  for (let y = 0; y < image.height; y += step) {
+    for (let x = 0; x < image.width; x += step) {
+      const i = (y * image.width + x) * 4;
+      for (let c = 0; c < 3; c++) histograms[c]![image.rgba[i + c]!]!++;
+      seen++;
+    }
+  }
+  if (seen === 0) return 0;
+  const median = histograms.map((histogram) => {
+    let below = 0;
+    for (let value = 0; value < 256; value++) {
+      below += histogram[value]!;
+      if (below * 2 >= seen) return value;
+    }
+    return 255;
+  });
+  let ground = 0;
+  for (let y = 0; y < image.height; y += step) {
+    for (let x = 0; x < image.width; x += step) {
+      const i = (y * image.width + x) * 4;
+      if ((Math.abs(image.rgba[i]! - median[0]!) + Math.abs(image.rgba[i + 1]! - median[1]!) + Math.abs(image.rgba[i + 2]! - median[2]!)) / 3 <= PLAIN_GROUND_TOLERANCE) ground++;
+    }
+  }
+  return ground / seen;
+}
+/** Whether a half of a would-be spread is a page of text beside a picture page (see `SPREAD_TEXT_PAGE_MIN_TEXT_COVERAGE`). */
+export function isTextPageBesidePicture(ownTextCoverage: number, otherTextCoverage: number, ownImage: DecodedImage): boolean {
+  return ownTextCoverage >= SPREAD_TEXT_PAGE_MIN_TEXT_COVERAGE && otherTextCoverage <= SPREAD_PICTURE_PAGE_MAX_TEXT_COVERAGE && plainGroundShare(ownImage) >= SPREAD_TEXT_PAGE_MIN_PLAIN_SHARE;
+}
 /** The share of `box` that lies outside `pageBox`. */
 export function offPageShare(box: Rect, pageBox: Rect): number {
   const area = (box.maxX - box.minX) * (box.maxY - box.minY);
@@ -376,6 +456,13 @@ export function blankGroundShare(image: DecodedImage): number {
 }
 /** A half of a picture across a spread is a strip at the gutter when it is this share of its page's width at most (the strips found: 0.13-0.24). */
 export const SPREAD_STRIP_MAX_WIDTH_SHARE = 0.4;
+/**
+ * A render offered on the page of a right half rendered that way that lies partly in the mirrored box (at least the first share of its part
+ * within the page, less than the second) is a piece of the picture with the page beyond it (a corner of the map with the margin's tab): the
+ * joined picture shows it. A picture wholly within the box (an inset map in its frame) is a picture of its own.
+ */
+export const SPREAD_MIRROR_PIECE_MIN_INSIDE_SHARE = 0.3;
+export const SPREAD_MIRROR_PIECE_MAX_INSIDE_SHARE = 0.9;
 /**
  * A half of a picture across a spread shows something on this share of its pixels at least (not transparent). The halves of one raster cut at the
  * gutter are joined even when one is a white strip (the raster goes on to the page's edge); a half that is all transparent (a masked picture's empty
@@ -554,6 +641,13 @@ export const LINE_DRAWING_MIN_MEMBER_COVER = 0.5;
 /** A raster is the ground of a line drawing when the drawing covers this share of its box at least, or this share of the drawing lies on it. */
 export const LINE_DRAWING_MIN_GROUND_COVER = 0.25;
 export const LINE_DRAWING_MIN_ON_GROUND = 0.5;
+/** Lines of the page on a raster beside its drawings from which the raster is the drawing's ground all of it. Measured on two books: an upper floor beside a ground floor 40 and more, the plan of a factory's grounds beside its cellar 32. */
+export const LINE_DRAWING_MIN_LINES_BESIDE = 20;
+/** ...or when the drawings lie on it all of them, each for this share at least: the sheet the plan is drawn on (a flat's plan over a third of a sheet of squared paper, its title and scale in the rest). */
+export const LINE_DRAWING_MIN_ON_SHEET = 0.95;
+/** A drawing in filled shapes is drawn on a sheet when this share of it lies on one raster and it covers this share of the raster at least. Measured: a map on squared paper 1.0 and 0.93. */
+export const SHAPE_DRAWING_MIN_ON_SHEET = 0.9;
+export const SHAPE_DRAWING_MIN_SHEET_COVER = 0.6;
 /**
  * A cluster of lines that the page's words cover for this share of its box is the rules of a table, not a drawing.
  * Measured on three books: the plans and elevations 0-0.17 (the labels of rooms and streets), a page of tables 0.42.
@@ -574,10 +668,23 @@ export const LINE_DRAWING_MAX_UNIT_PAGE_SHARE = 0.9;
  * of a unit that no drawing covers stays a unit of its own, hidden when it is a bare texture
  * (`LINE_DRAWING_REMAINDER_REASON`).
  */
-export function withLineDrawings(units: readonly ExtractionUnit[], lines: readonly VectorShape[], pageBoxByPage: ReadonlyMap<number, Rect>, wordBoxesByPage?: ReadonlyMap<number, readonly Rect[]>): ExtractionUnit[] {
-  if (lines.length === 0) return [...units];
+export function withLineDrawings(units: readonly ExtractionUnit[], lines: readonly VectorShape[], pageBoxByPage: ReadonlyMap<number, Rect>, wordBoxesByPage?: ReadonlyMap<number, readonly Rect[]>, shapes: readonly VectorShape[] = []): ExtractionUnit[] {
+  if (lines.length === 0 && shapes.length === 0) return [...units];
   const linesByPage = new Map<number, VectorShape[]>();
   for (const l of lines) linesByPage.set(l.page, [...(linesByPage.get(l.page) ?? []), l]);
+  const shapesByPage = new Map<number, VectorShape[]>();
+  for (const s of shapes) shapesByPage.set(s.page, [...(shapesByPage.get(s.page) ?? []), s]);
+  // A drawing in filled shapes over the rasters (a map over squared paper) is one as a drawing in lines is, when it is drawn on a sheet: it lies
+  // on one raster and covers most of it. Shapes over a photograph (the ornaments of the page's design across it) are no drawing.
+  const onSheet = (d: LineDrawing, page: number, units: readonly ExtractionUnit[]): boolean =>
+    units.some((u) => u.memberEntries.some((m) => {
+      const b = boxOf(m, page);
+      return b !== undefined && share(d.bbox, [b]) >= SHAPE_DRAWING_MIN_ON_SHEET && share(b, [d.bbox]) >= SHAPE_DRAWING_MIN_SHEET_COVER;
+    }));
+  const drawingsOf = (pageLines: readonly VectorShape[], pageShapes: readonly VectorShape[], pageBox: Rect, page: number, units: readonly ExtractionUnit[]): LineDrawing[] => [
+    ...findLineDrawings(pageLines, pageBox),
+    ...findShapeDrawings(pageShapes, pageBox).filter((d) => onSheet(d, page, units)),
+  ];
   const boxOf = (m: ImageEntry, page: number): Rect | undefined => m.occurrences.find((o) => o.page === page)?.bbox;
   const share = (box: Rect, by: readonly Rect[]): number => {
     const area = rectArea(box);
@@ -595,11 +702,12 @@ export function withLineDrawings(units: readonly ExtractionUnit[], lines: readon
   for (const u of units) unitsByPage.set(u.page, [...(unitsByPage.get(u.page) ?? []), u]);
   for (const [page, pageUnits] of unitsByPage) {
     const pageBox = pageBoxByPage.get(page);
-    const pageLines = linesByPage.get(page);
-    if (pageBox === undefined || pageLines === undefined) continue;
+    const pageLines = linesByPage.get(page) ?? [];
+    const pageShapes = shapesByPage.get(page) ?? [];
+    if (pageBox === undefined || (pageLines.length === 0 && pageShapes.length === 0)) continue;
     const eligible = pageUnits.filter((u) => u.representativeEntry !== null && (u.classification === 'content' || u.classification === 'undecided') && rectArea(u.bbox) < LINE_DRAWING_MAX_UNIT_PAGE_SHARE * rectArea(pageBox));
     if (eligible.length === 0) continue;
-    const ownDrawings = new Map(eligible.map((u) => [u, findLineDrawings(pageLines.filter((l) => centreIn(l.bbox, u.bbox)), pageBox)] as const));
+    const ownDrawings = new Map(eligible.map((u) => [u, drawingsOf(pageLines.filter((l) => centreIn(l.bbox, u.bbox)), pageShapes.filter((l) => centreIn(l.bbox, u.bbox)), pageBox, page, [u])] as const));
     const addDrawing = (region: Rect, over: readonly ExtractionUnit[]): void => {
       // A raster the drawing only touches (a sign beside a building) is not its ground.
       const members = [...new Set(over.flatMap((u) => u.memberEntries))].filter((m) => {
@@ -616,7 +724,7 @@ export function withLineDrawings(units: readonly ExtractionUnit[], lines: readon
         regionsOf.set(u, [...(regionsOf.get(u) ?? []), region]);
       }
     };
-    for (const drawing of findLineDrawings(pageLines, pageBox)) {
+    for (const drawing of drawingsOf(pageLines, pageShapes, pageBox, page, eligible)) {
       // The rules of a table (its cells, full of text) are no drawing.
       if (textCoverage(drawing.bbox, wordBoxesByPage?.get(page)) >= LINE_DRAWING_MAX_WORD_COVERAGE) continue;
       const over = eligible.filter((u) => drawing.lines.some((l) => centreIn(l, u.bbox)));
@@ -649,12 +757,23 @@ export function withLineDrawings(units: readonly ExtractionUnit[], lines: readon
     same.unit = { ...same.unit, memberEntries: members, bbox: unionRect(same.unit.bbox, d.bbox), clusterMemberCount: members.length };
     same.parts.push(d.bbox);
   }
-  // A raster the drawings cover for the most part is the picture's ground, all of it (the streets of a plan, where few lines are drawn).
+  // A raster the drawings cover for the most part is the picture's ground, all of it (the streets of a plan, where few lines are drawn). So is
+  // one whose rest carries as many of the page's lines as a drawing has (the upper floor of a house beside its ground floor, too small a
+  // cluster to count as a drawing by itself, the plan's title and scale).
+  const linesBeside = (box: Rect, page: number, parts: readonly Rect[]): number =>
+    (linesByPage.get(page) ?? []).filter((l) => centreIn(l.bbox, box) && !parts.some((p) => centreIn(l.bbox, p))).length;
+  // The rasters taken whole that way leave no tile of their own beside the drawing.
+  const groundsTaken = new Set<ImageEntry>();
   const merged = groups.map(({ unit, parts }) => {
     let bbox = unit.bbox;
     for (const m of unit.memberEntries) {
       const box = boxOf(m, unit.page);
-      if (box !== undefined && share(box, parts) >= LINE_DRAWING_MIN_MEMBER_COVER) bbox = unionRect(bbox, box);
+      if (box === undefined) continue;
+      if (share(box, parts) >= LINE_DRAWING_MIN_MEMBER_COVER) bbox = unionRect(bbox, box);
+      else if (linesBeside(box, unit.page, parts) >= LINE_DRAWING_MIN_LINES_BESIDE || parts.every((p) => share(p, [box]) >= LINE_DRAWING_MIN_ON_SHEET)) {
+        bbox = unionRect(bbox, box);
+        groundsTaken.add(m);
+      }
     }
     return { ...unit, bbox };
   });
@@ -667,7 +786,7 @@ export function withLineDrawings(units: readonly ExtractionUnit[], lines: readon
     const regions = regionsOf.get(unit) ?? [];
     for (const m of unit.memberEntries) {
       const box = boxOf(m, unit.page);
-      if (box === undefined || m.objId === null || share(box, regions) >= LINE_DRAWING_MIN_MEMBER_COVER) continue;
+      if (box === undefined || m.objId === null || groundsTaken.has(m) || share(box, regions) >= LINE_DRAWING_MIN_MEMBER_COVER) continue;
       out.push({ ...unit, representativeEntry: m, memberEntries: [m], bbox: box, clusterMemberCount: 1, reason: LINE_DRAWING_REMAINDER_REASON });
     }
   }

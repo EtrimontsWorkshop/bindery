@@ -5,6 +5,7 @@ import { FINGERPRINT_GRID, fingerprintDecodedImage, fingerprintDistance } from '
 import { buildInventory, type PdfDocumentLike } from '../../src/inventory/inventory.js';
 import { classifyImages } from '../../src/images/classify.js';
 import { build as buildTemplateSlot, PAGE_COUNT } from '../synth/fixtures/images-template-slot.js';
+import { build as buildMaskOpcode } from '../synth/fixtures/images-mask-opcode.js';
 
 const IMAGE_KIND_RGB_24BPP = 2;
 
@@ -135,5 +136,36 @@ describe('buildInventory — images that arrive decoded after the operator list 
     const inv = await buildInventory(browserLike as unknown as PdfDocumentLike);
     expect(inv.images.length).toBeGreaterThan(0);
     expect(inv.images.every((e) => e.contentFingerprint !== undefined)).toBe(true);
+  });
+});
+
+describe('buildInventory — a stencil mask that never arrives decoded', () => {
+  it('does not wait for it', async () => {
+    const doc = await pdfjs.getDocument({ ...PDF_OPEN_OPTIONS, data: new Uint8Array(buildMaskOpcode()) }).promise;
+    // The pictures arrive decoded; the stencil mask never does (pdf.js hands it over with its paint, if at all).
+    const withoutMasks = (store: { has(id: string): boolean; get(id: string): unknown }) => ({
+      has: (id: string) => !id.startsWith('mask_') && store.has(id),
+      get: (id: string, callback?: (data: unknown) => void) => {
+        if (id.startsWith('mask_')) {
+          if (!callback) throw new Error(`Requesting object that isn't resolved yet ${id}.`);
+          return undefined;
+        }
+        const data = store.get(id);
+        callback?.(data);
+        return data;
+      },
+    });
+    const silent = {
+      numPages: doc.numPages,
+      getPage: async (n: number) => {
+        const page = await doc.getPage(n);
+        return new Proxy(page, { get: (target, key) => (key === 'objs' ? withoutMasks(target.objs) : key === 'commonObjs' ? withoutMasks(target.commonObjs) : typeof Reflect.get(target, key, target) === 'function' ? (Reflect.get(target, key, target) as (...args: unknown[]) => unknown).bind(target) : Reflect.get(target, key, target)) });
+      },
+    };
+    const started = Date.now();
+    const inv = await buildInventory(silent as unknown as PdfDocumentLike);
+    expect(inv.images.some((e) => e.maskEvidence === 'opcode')).toBe(true);
+    // Waiting for the mask would cost the whole wait (seconds) on its page.
+    expect(Date.now() - started).toBeLessThan(3_000);
   });
 });

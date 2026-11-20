@@ -134,6 +134,16 @@ function cornersOf(polygon: readonly number[]): [number, number][] {
   return corners;
 }
 
+/**
+ * Whether every outline of a clip is a quadrilateral (four corners; an outline shrunk to a point or a line, as a page sometimes adds, does
+ * not count): the cut of a photo pinned to the page at an angle. A window with a curved or slanted edge of more corners (the frame a
+ * figure is set in) is not one.
+ */
+export function isQuadrilateralClip(paths: readonly ClipPath[]): boolean {
+  const outlines = paths.flatMap((path) => path.map(cornersOf)).filter((corners) => corners.length >= 3);
+  return outlines.length > 0 && outlines.every((corners) => corners.length === 4);
+}
+
 /** Whether a polygon is a rectangle, upright or turned: four corners, each square. */
 function isRectangle(polygon: readonly number[]): boolean {
   const corners = cornersOf(polygon);

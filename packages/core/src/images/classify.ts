@@ -125,10 +125,14 @@ const CONFIDENCE_BY_REASON: Readonly<Record<string, number>> = {
   'Z15-small-masked-raster': 0.7,
   'Z16-tiny-undecided': 0.7,
   'Z17-covered-by-later-picture': 0.8,
+  'Z31-fastener-over-picture-edge': 0.8,
+  'Z32-window-of-book-design': 0.8,
+  'Z33-lettering-over-cover': 0.8,
   'Z18-form-page-element': 0.7,
   'Z18-form-page-background': 0.7,
   'Z19-translucent-copy-of-picture': 0.8,
   'Z20-small-translucent-masked-raster': 0.8,
+  'Z34-translucent-ground-under-picture': 0.8,
   'Z22-page-background-under-content': 0.8,
   'Z23-masked-strip': 0.8,
   'Z24-small-bleeding-strip': 0.7,
@@ -933,6 +937,80 @@ export function isLargeSlice(entry: ImageEntry, pageBoxByPage: ReadonlyMap<numbe
  * at most 68%.
  */
 const COVERED_PICTURE_MIN_COVER = 0.75;
+
+/**
+ * A FASTENER — a paper clip, a pin, a strip of tape that holds a photo to the page: a small raster that nobody could judge, painted
+ * over the edge of a larger picture after it, part of it on the picture and part past its edge. Joined to the picture, it stretched
+ * the picture's region past its edge and came on it. Measured on a real rulebook of photos clipped to its pages: the clips are a
+ * sixtieth to a twelfth of their photo, 40%-89% of the clip over the photo (one at the page's top edge, judged only as flush with
+ * it); a picture laid on another (an inset, a card on a map) lies wholly on it or is much larger. Judged only against a picture
+ * that was judged content, and not for a raster blended into the page (a banner over a chapter's picture, a strip of its frame).
+ */
+/**
+ * A translucent shape cut out by a mask (a splash of colour at 20%, see `isBackdropShape`) with a picture painted over it, lying within it, is
+ * the ground of that picture: a layer of the page's design, not a picture of its own. Too large for the halftone rule (`Z20`), it joined the
+ * picture on it to the next one its splash reaches (three weapons on yellow splashes, the middle one rendered with a piece of the third).
+ * The picture over it lies within its box for this share at least and covers this share of it; at most this share of the page (a watermark
+ * crest under a page of text is larger).
+ */
+export const GROUND_UNDER_PICTURE_REASON = 'Z34-translucent-ground-under-picture';
+const GROUND_UNDER_PICTURE_MIN_INSIDE = 0.8;
+const GROUND_UNDER_PICTURE_MIN_COVER = 0.25;
+const GROUND_UNDER_PICTURE_MAX_AREA = 0.15;
+
+export const FASTENER_REASON = 'Z31-fastener-over-picture-edge';
+/** At most this share of the picture's area. */
+const FASTENER_MAX_AREA_SHARE = 0.125;
+/** Of the fastener's box, at least this share and at most the other lies on the picture. */
+const FASTENER_MIN_OVER = 0.2;
+const FASTENER_MAX_OVER = 0.95;
+/** A fastener is small on the page: the clips measure 0.6%-1.9% of it, the pins 0.7%-0.9%. */
+const FASTENER_MAX_PAGE_SHARE = 0.02;
+/**
+ * ...and the book fastens its pictures so on this many pages at least: the clips of the book they were measured on lie on dozens of
+ * its pages, the pins of two other books on nine and thirteen. A small picture laid over the edge of another once or twice (the
+ * logos of patrons over a garland, a crest over the title of a map, a logo over a drawing) is a picture of the page.
+ */
+const FASTENER_MIN_PAGES = 3;
+/** ...with one or two on a page: a fastener holds a photo or two (the pieces of a map laid over one another are a dozen and more). */
+const FASTENER_MAX_PER_PAGE = 2;
+
+/**
+ * THE COVER'S LETTERING — on the book's first page, a picture painted over the cover's picture (one over most of the page, painted
+ * before it) and lying on it: the title, the publisher's logo, a blurb's badge. The cover is wanted as its picture alone, without
+ * them. Measured on a real set of rulebooks whose covers are laid in layers: the titles and logos lie wholly on the cover's picture.
+ * So is the title set by itself on the opening pages (see `TITLE_PAGES`).
+ */
+export const COVER_LETTERING_REASON = 'Z33-lettering-over-cover';
+/** The cover's picture covers this share of the first page at least. */
+const COVER_PICTURE_MIN_AREA = 0.9;
+/** ...and the lettering lies on it with this share of its box at least. */
+const COVER_LETTERING_MIN_ON = 0.9;
+/** ...and it runs across: its raster is this many times as wide as it is tall at least (the titles and logos measured, 2.1-4.4; a figure set over the cover, standing, is taller than wide). */
+const COVER_LETTERING_MIN_ASPECT = 1.5;
+/**
+ * THE BOOK'S TITLE on its opening pages: a picture that nobody could judge, among the first pages, whose raster runs across (the
+ * title's lettering on the title page, cut out on a transparent ground). Measured on a real set of rulebooks: the titles measure
+ * 1.7-4.4 times as wide as tall; the tokens and cards of the same pages, square or upright.
+ */
+const TITLE_PAGES = 3;
+const TITLE_LETTERING_MIN_ASPECT = 1.6;
+const TITLE_MAX_PER_PAGE = 2;
+
+/**
+ * A WINDOW OF THE BOOK'S DESIGN — a picture shown through a window of an intricate shape (a frame of lobes with a gilt border,
+ * the text of the page flowing round it) that the book sets in the same shape and size on page after page, a different mood
+ * picture in each: an ornament of the layout, not an illustration to take. Measured on a real rulebook: 15 such windows, each
+ * cut by an outline of 584 points, the box 166x291 pt on every page. Its maps, portraits and scenes are cut by rectangles or
+ * by outlines of their own subjects, each of another shape.
+ */
+export const DESIGN_WINDOW_REASON = 'Z32-window-of-book-design';
+/** The outline of the window has this many points at least (a rectangle or a rounded box has a few, a circle a few dozen). */
+const DESIGN_WINDOW_MIN_POINTS = 200;
+/** ...and the book sets the same window (as many points, a box of the same size) on this many pages at least. */
+const DESIGN_WINDOW_MIN_PAGES = 8;
+/** Boxes of the same size: to this many points (the measured windows differ by 1.4 pt at most). */
+const DESIGN_WINDOW_SIZE_TOLERANCE = 3;
 /**
  * A translucent picture counts as a copy of an earlier one when it covers (almost) all of itself with it and the
  * earlier picture is not much larger. Measured on a real rulebook: the 60%-opaque copies of the same cover art
@@ -1095,7 +1173,88 @@ function hideTinyAndCoveredPictures(results: readonly ClassifiedImage[], hideTin
     entry.contentFingerprint !== undefined &&
     repeatedPapers.some((paper) => paper.entry !== entry && paper.entry.intrinsicWidth === entry.intrinsicWidth && paper.entry.intrinsicHeight === entry.intrinsicHeight && fingerprintDistance(paper.entry.contentFingerprint!, entry.contentFingerprint!) <= BOOK_PAPER_MAX_DISTANCE);
 
+  // The fasteners of the book (see `FASTENER_REASON`): a small raster over the edge of a picture, where the book does so on several pages.
+  const fastenerOn = new Map<ImageEntry, number>();
+  for (const c of results) {
+    const occ = c.entry.occurrences[0];
+    if (occ === undefined || occ.blended === true || (c.reason !== 'Z1-no-strong-signal' && c.reason !== FLUSH_UNDECIDED_REASON) || c.entry.maxRelativeArea > FASTENER_MAX_PAGE_SHARE) continue;
+    const ownArea = bboxArea(occ.bbox);
+    if (ownArea <= 0) continue;
+    const overEdge = (picturesByPage.get(occ.page) ?? []).some((other) => {
+      if (other === c || other.classification !== 'content') return false;
+      const under = other.entry.occurrences.find((o) => o.page === occ.page && o.index < occ.index);
+      if (under === undefined || ownArea > FASTENER_MAX_AREA_SHARE * bboxArea(under.bbox)) return false;
+      const over = intersectionArea(occ.bbox, under.bbox) / ownArea;
+      return over >= FASTENER_MIN_OVER && over <= FASTENER_MAX_OVER;
+    });
+    if (overEdge) fastenerOn.set(c.entry, occ.page);
+  }
+  // A page with many of them is a picture laid in pieces (the tiles of a map), not pictures held by fasteners.
+  const perPage = new Map<number, number>();
+  for (const page of fastenerOn.values()) perPage.set(page, (perPage.get(page) ?? 0) + 1);
+  const fastened = [...fastenerOn].filter(([, page]) => perPage.get(page)! <= FASTENER_MAX_PER_PAGE);
+  const fasteners = new Set(new Set(fastened.map(([, page]) => page)).size >= FASTENER_MIN_PAGES ? fastened.map(([entry]) => entry) : []);
+
+  // The translucent grounds laid under pictures (see `GROUND_UNDER_PICTURE_REASON`).
+  const groundsUnder = new Set(
+    results
+      .filter((c) => {
+        const occ = c.entry.occurrences[0];
+        if (occ === undefined || c.entry.occurrences.length !== 1 || (c.classification !== 'content' && c.classification !== 'undecided') || c.entry.objId === null || !maskedObjIds.has(c.entry.objId) || !isBackdropShape(c.entry) || c.entry.maxRelativeArea > GROUND_UNDER_PICTURE_MAX_AREA) return false;
+        const ownArea = bboxArea(occ.bbox);
+        return (picturesByPage.get(occ.page) ?? []).some((other) => {
+          if (other === c || isBackdropShape(other.entry) || (other.classification !== 'content' && other.classification !== 'undecided')) return false;
+          const over = other.entry.occurrences.find((o) => o.page === occ.page && o.index > occ.index && o.opacity === undefined);
+          if (over === undefined) return false;
+          const overArea = bboxArea(over.bbox);
+          const shared = intersectionArea(over.bbox, occ.bbox);
+          return overArea > 0 && shared >= GROUND_UNDER_PICTURE_MIN_INSIDE * overArea && shared >= GROUND_UNDER_PICTURE_MIN_COVER * ownArea;
+        });
+      })
+      .map((c) => c.entry),
+  );
+
+  // The windows of the book's design (see `DESIGN_WINDOW_REASON`): pictures cut by outlines of as many points, in boxes of the same size.
+  const windows = results.flatMap((c) => {
+    const occ = c.entry.occurrences[0];
+    if (occ?.clip === undefined || (c.classification !== 'content' && c.classification !== 'undecided')) return [];
+    const points = occ.clip.paths.reduce((sum, path) => sum + path.reduce((n, polygon) => n + polygon.length / 2, 0), 0);
+    return points >= DESIGN_WINDOW_MIN_POINTS ? [{ entry: c.entry, page: occ.page, points, width: occ.bbox.maxX - occ.bbox.minX, height: occ.bbox.maxY - occ.bbox.minY }] : [];
+  });
+  const designWindows = new Set(
+    windows
+      .filter((w) => new Set(windows.filter((o) => o.points === w.points && Math.abs(o.width - w.width) <= DESIGN_WINDOW_SIZE_TOLERANCE && Math.abs(o.height - w.height) <= DESIGN_WINDOW_SIZE_TOLERANCE).map((o) => o.page)).size >= DESIGN_WINDOW_MIN_PAGES)
+      .map((w) => w.entry),
+  );
+
+  // The lettering over the book's cover (see `COVER_LETTERING_REASON`).
+  const coverPictures = results.filter((c) => (c.classification === 'content' || c.classification === 'undecided') && c.entry.maxRelativeArea >= COVER_PICTURE_MIN_AREA && c.entry.occurrences.some((o) => o.page === 1));
+  const titleCandidate = (c: ClassifiedImage): boolean => {
+    const occ = c.entry.occurrences[0];
+    const { intrinsicWidth: width, intrinsicHeight: height } = c.entry;
+    return occ !== undefined && occ.page <= TITLE_PAGES && c.reason === 'Z1-no-strong-signal' && width !== null && height !== null && width >= TITLE_LETTERING_MIN_ASPECT * height;
+  };
+  // On a page with one or two pictures that nobody could judge, whatever their shape: a title, a subtitle (a page of patrons' logos has
+  // a handful, the strips of a form on an opening page dozens).
+  const titlesPerPage = new Map<number, number>();
+  for (const c of results) if (c.reason === 'Z1-no-strong-signal' && c.entry.occurrences[0] !== undefined) titlesPerPage.set(c.entry.occurrences[0].page, (titlesPerPage.get(c.entry.occurrences[0].page) ?? 0) + 1);
+  const isTitleLettering = (c: ClassifiedImage): boolean => titleCandidate(c) && titlesPerPage.get(c.entry.occurrences[0]!.page)! <= TITLE_MAX_PER_PAGE;
+  const isCoverLettering = (c: ClassifiedImage): boolean => {
+    const occ = c.entry.occurrences.find((o) => o.page === 1);
+    if (occ === undefined || c.entry.maxRelativeArea >= COVER_PICTURE_MIN_AREA || bboxArea(occ.bbox) <= 0) return false;
+    // Of the raster, not of its box: a title laid at a slant fills a box nearly square.
+    if (c.entry.intrinsicWidth === null || c.entry.intrinsicHeight === null || c.entry.intrinsicWidth < COVER_LETTERING_MIN_ASPECT * c.entry.intrinsicHeight) return false;
+    return coverPictures.some((cover) => {
+      const under = cover.entry.occurrences.find((o) => o.page === 1 && o.index < occ.index);
+      return under !== undefined && intersectionArea(occ.bbox, under.bbox) / bboxArea(occ.bbox) >= COVER_LETTERING_MIN_ON;
+    });
+  };
+
   return results.map((c): ClassifiedImage => {
+    if ((c.classification === 'content' || c.classification === 'undecided') && (isCoverLettering(c) || isTitleLettering(c))) return { entry: c.entry, classification: 'decoration', reason: COVER_LETTERING_REASON, confidence: confidenceForReason(COVER_LETTERING_REASON) };
+    if (designWindows.has(c.entry)) return { entry: c.entry, classification: 'decoration', reason: DESIGN_WINDOW_REASON, confidence: confidenceForReason(DESIGN_WINDOW_REASON) };
+    if (fasteners.has(c.entry)) return { entry: c.entry, classification: 'decoration', reason: FASTENER_REASON, confidence: confidenceForReason(FASTENER_REASON) };
+    if (groundsUnder.has(c.entry)) return { entry: c.entry, classification: 'decoration', reason: GROUND_UNDER_PICTURE_REASON, confidence: confidenceForReason(GROUND_UNDER_PICTURE_REASON) };
     const formPage =
       c.entry.occurrences[0] !== undefined &&
       ((tinyPerPage.get(c.entry.occurrences[0].page) ?? 0) >= FORM_PAGE_MIN_TINY_IMAGES || (smallWithMasksPerPage.get(c.entry.occurrences[0].page) ?? 0) >= CROWDED_PAGE_MIN_SMALL_IMAGES);

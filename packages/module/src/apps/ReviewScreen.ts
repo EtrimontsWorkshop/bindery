@@ -475,7 +475,7 @@ export class ReviewScreen extends HandlebarsApplicationMixin(ApplicationV2) {
 
   /** The Images list AFTER both levels of filtering (source + destination), in the same order as `sortImagesForReview` — the only thing `#mountImageList`/`#mountOverlay` actually see. */
   #visibleImages(): CIFImage[] {
-    return sortImagesForReview(this.#data.document.images, game.settings!.get(MODULE_ID, 'sortByPage') === true).filter(
+    return sortImagesForReview(this.#data.document.images).filter(
       (i) => (ReviewScreen.#isManualImage(i) ? 'manual' : 'auto') === this.#imageSourceTab && this.#destTabOf(i) === this.#imageDestTab,
     );
   }

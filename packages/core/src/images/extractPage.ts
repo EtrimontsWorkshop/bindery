@@ -1,12 +1,12 @@
 import type { Diagnostic } from '../text/types.js';
 import { rectArea, rectIntersection, unionRect, type Rect } from '../geometry.js';
 import type { ImageEntry } from '../inventory/imageRegistry.js';
-import { LARGE_TRANSLUCENT_PANEL_REASON, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage } from './classify.js';
+import { LARGE_TRANSLUCENT_PANEL_REASON, isTranslucentEverywhere, maxBleedOverhangPt, type ClassifiedImage, type ImageClassification } from './classify.js';
 import { detectGrid } from './detectGrid.js';
 import type { EncodedImage, ImageEncoder } from './encodeImage.js';
 import { looksLikeWhiteWash } from './blankSheet.js';
 import type { DecodedImage } from './normalizeDecodedImage.js';
-import { dropLeftColumns, stitchHorizontally } from './stitchHorizontally.js';
+import { dropLeftColumns, dropRightColumns, stitchHorizontally } from './stitchHorizontally.js';
 import { halvesContinueAcrossSeam } from './spreadSeam.js';
 import { isBareDarkTexture } from './panelBackdrop.js';
 import { connectedGroups, placedMasksOverlap, type OpaqueMask, type PlacedMask } from './opaqueOverlap.js';
@@ -16,8 +16,17 @@ import { computeContentHash, isNeverWorthReviewing, type PreparedEntryForFinaliz
 import type { RegionRenderer } from './regionRenderer.js';
 import type { BuildImageExtractionOptions, ExtractionUnit, PageState, RunTally } from './extractionTypes.js';
 import { alternativeRepresentatives, checkAborted } from './extractionUnits.js';
-import { CARD_ITEM_MIN_AREA, CUT_OUT_MAX_OPAQUE_FRACTION, EDGE_DOCUMENT_REASON, EDGE_FIGURE_MIN_STDDEV, EDGE_FIGURE_REASON, EDGE_PRINT_MAX_OVERHANG_PT, INDEPENDENT_IMAGE_AREA_THRESHOLD, LARGE_CUT_OUT_MAX_OPAQUE_SHARE, SILHOUETTE_MAX_RECTANGULARITY, UNDER_PICTURES_MIN_AREA, isSmallCardOfText, opaqueShare, textCoverage } from './extractionLooks.js';
-import { ASLANT_HALF_EDGE_TOLERANCE_PT, ASLANT_HALF_MAX_WORD_COVERAGE, ASLANT_HALF_MIN_WIDTH_PT, ASLANT_HALF_REASON, COVERED_BY_LATER_REASON, FRAME_AROUND_PICTURE_MIN_INSIDE_SHARE, GRID_PICTURE_REASON, LINE_DRAWING_REASON, LINE_DRAWING_REMAINDER_REASON, SPREAD_COMPANION_REASON, SPREAD_HALF_MIN_VISIBLE_SHARE, SPREAD_STRIP_MAX_WIDTH_SHARE, isEmptyWithin, looksLikeDocumentImage, visibleShareOf } from './extractionJoins.js';
+import { CARD_ITEM_MIN_AREA, CUT_OUT_MAX_OPAQUE_FRACTION, EDGE_DOCUMENT_REASON, EDGE_FIGURE_MIN_STDDEV, EDGE_FIGURE_REASON, EDGE_PRINT_MAX_OVERHANG_PT, INDEPENDENT_IMAGE_AREA_THRESHOLD, LARGE_CUT_OUT_MAX_OPAQUE_SHARE, SILHOUETTE_MAX_RECTANGULARITY, UNDER_PICTURES_MIN_AREA, isLabelledPicture, isSmallCardOfText, opaqueShare, textCoverage } from './extractionLooks.js';
+import { ASLANT_HALF_EDGE_TOLERANCE_PT, ASLANT_HALF_MAX_WORD_COVERAGE, ASLANT_HALF_MIN_WIDTH_PT, ASLANT_HALF_REASON, COVERED_BY_LATER_REASON, FRAME_AROUND_PICTURE_MIN_INSIDE_SHARE, OVERLAY_OF_PICTURE_MIN_SAME_BOX, OVERLAY_OF_PICTURE_MIN_TRANSPARENT_SHARE, transparentShare, GRID_PICTURE_REASON, LINE_DRAWING_REASON, LINE_DRAWING_REMAINDER_REASON, SPREAD_COMPANION_REASON, SPREAD_HALF_MIN_VISIBLE_SHARE, SPREAD_MIRROR_PIECE_MAX_INSIDE_SHARE, SPREAD_MIRROR_PIECE_MIN_INSIDE_SHARE, SPREAD_STRIP_MAX_WIDTH_SHARE, isEmptyWithin, looksLikeDocumentImage, visibleShareOf, isTextPageBesidePicture } from './extractionJoins.js';
+
+/** A half on a facing page is cut to the page's edge at the gutter when it runs past it by this many points at most (a margin of the cut, not a picture running on). */
+const GUTTER_TRIM_MAX_PT = 6;
+/** ...and only when its image has the shape of its box on the page (taken whole from its raster, not cropped), within this share. */
+const GUTTER_TRIM_MAX_ASPECT_DIFFERENCE = 0.01;
+/** ...and joined so only when the drawing changes across the gutter this many times as much as it does within each half at most (see `halvesContinueAcrossSeam`). */
+const GUTTER_TRIM_MAX_JUMP_FACTOR = 1.2;
+/** Share of a right half's box that page text covers from which, rendered beside a left half taken raw, it is joined by its own pixels too. */
+const RIGHT_RENDER_MIN_TEXT_COVERAGE = 0.05;
 import { CLIPPED_PIECES_REASON, INK_BOX_MARGIN_PT, INK_BOX_MAX_WORD_COVERAGE, INK_BOX_MIN_KEPT_SHARE, INK_BOX_MIN_PAPER_LUMINANCE, INK_BOX_MIN_WORD_COVERAGE, RENDERED_PIECE_MIN_INSIDE_SHARE, SLICED_PICTURE_REASON, SLICE_MARGIN_PT, type TileSource, areMosaicTiles, areSeamedTiles, clearOfCrossingText, rowsClearOfText, shownBoxOfSlices } from './extractionPieces.js';
 
 /**
@@ -74,8 +83,9 @@ export interface PageScope {
 async function planUnitsOfPage(scope: PageScope) {
   const { spreadRightOf, spreadRightHalves, splitBlendedByInk, idOnThisPage, pageNumber, pageState, page, textBlockBoxesByPage, maskedObjIds, unitOfMembers, opts, unitsByPage, halfKey, aslantLeftKeys, renderer, targetLongEdgePx, signal, aslantRightKeys, aslantRightKeyOf, pageBoxByPage, aslantRowsOf, pageUnits, tally } = scope;
   const splitByVisiblePixels = async (u: ExtractionUnit): Promise<ExtractionUnit[]> => {
-    // A line drawing is one picture whatever rasters it lies on (see `withLineDrawings`).
-    if (u.memberEntries.length < 2 || u.representativeEntry === null || u.reason === LINE_DRAWING_REASON || spreadRightOf.has(u) || spreadRightHalves.has(u)) return [u];
+    // A line drawing is one picture whatever rasters it lies on (see `withLineDrawings`); so are the pieces that stand for a half of a picture
+    // across a spread (see `SPREAD_COMPANION_REASON`).
+    if (u.memberEntries.length < 2 || u.representativeEntry === null || u.reason === LINE_DRAWING_REASON || u.reason === SPREAD_COMPANION_REASON || spreadRightOf.has(u) || spreadRightHalves.has(u)) return [u];
     const byInk = await splitBlendedByInk(u);
     if (byInk !== null) return byInk;
     const pieces: ExtractionUnit[] = [];
@@ -269,8 +279,17 @@ async function planUnitsOfPage(scope: PageScope) {
  * stopping the page.
  */
 async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<typeof planUnitsOfPage>>): Promise<void> {
-  const { signal, tally, isRightHalf, isLeftHalf, onProgress, maskHoldersByTarget, idOnThisPage, pageState, page, extractUnit, piecedOrigin, pageNumber, compositeOfPieces, uprightOfTurnedPieces, encoder, opts, imageByItem, ownImageByItem, classified, pageBoxByPage, tossedPropItems, prepared, rawRasterOf, diagnostics } = scope;
+  const { signal, tally, isRightHalf, isLeftHalf, onProgress, maskHoldersByTarget, idOnThisPage, pageState, page, extractUnit, piecedOrigin, pageNumber, compositeOfPieces, uprightOfTurnedPieces, encoder, opts, imageByItem, ownImageByItem, classified, pageBoxByPage, tossedPropItems, prepared, rawRasterOf, diagnostics, renderer, textBlockBoxesByPage } = scope;
   const { orderedUnits, renderedBoxesByPage } = state;
+  // The renders offered on this page with their boxes, and the box of a right half rendered over its left half's box mirrored (see `isLabelledPicture`).
+  const offeredRenders: { item: PreparedEntryForFinalize<EncodedImage>; box: Rect }[] = [];
+  let mirroredBox: Rect | null = null;
+  let mirroredItem: PreparedEntryForFinalize<EncodedImage> | null = null;
+  // The renders of this page that hold text, with their boxes (see `hideTextRendersWithinRenders`).
+  const textRenders: { item: PreparedEntryForFinalize<EncodedImage>; box: Rect }[] = [];
+  // The renders of line drawings on the page and the pictures offered on it, with the place in the paint order of what they stand for (see `hidePicturesUnderDrawings`).
+  const drawingRenders: { box: Rect; index: number }[] = [];
+  const offeredItems: { item: PreparedEntryForFinalize<EncodedImage>; box: Rect; index: number }[] = [];
   for (const plannedUnit of orderedUnits) {
     checkAborted(signal);
     // The right half of a picture across the spread whose left half waits is no stain to look at once more: it is joined to its left half.
@@ -324,7 +343,22 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
       // A frame painted over a picture and transparent within (see `isEmptyWithin`): the picture it frames, taken for covered by it (or taken
       // into one unit with it, the frame standing for both), is offered in its stead.
       const framed = item.extractSource !== 'region-render' && (item.classification === 'content' || item.classification === 'undecided') && piecedOf === null ? imageByItem.get(item) : undefined;
-      if (framed !== undefined && isEmptyWithin(framed)) {
+      // So is the picture under a layer of it painted over it again (see `OVERLAY_OF_PICTURE_MIN_TRANSPARENT_SHARE`): the same raster size, on the same box.
+      const repBox = item.entry.occurrences.find((o) => o.page === pageNumber)?.bbox;
+      const overlaid =
+        framed !== undefined && repBox !== undefined && transparentShare(framed) >= OVERLAY_OF_PICTURE_MIN_TRANSPARENT_SHARE
+          ? classified.find((c) => {
+              if (c.entry === item.entry || c.reason !== COVERED_BY_LATER_REASON || c.entry.intrinsicWidth !== item.entry.intrinsicWidth || c.entry.intrinsicHeight !== item.entry.intrinsicHeight) return false;
+              const box = c.entry.occurrences.find((o) => o.page === pageNumber)?.bbox;
+              const shared = box === undefined ? null : rectIntersection(box, repBox);
+              return box !== undefined && shared !== null && rectArea(shared) >= OVERLAY_OF_PICTURE_MIN_SAME_BOX * Math.max(rectArea(box), rectArea(repBox));
+            })
+          : undefined;
+      const overlaidBox = overlaid?.entry.occurrences.find((o) => o.page === pageNumber)?.bbox;
+      if (overlaid !== undefined && overlaidBox !== undefined) {
+        const under = await extractUnit({ ...plannedUnit, representativeEntry: overlaid.entry, memberEntries: [overlaid.entry], bbox: overlaidBox, clusterMemberCount: 1 });
+        if (!isNeverWorthReviewing(under)) item = under;
+      } else if (framed !== undefined && isEmptyWithin(framed)) {
         const within = classified.filter((c) => {
           // Taken for covered, or taken with the frame into one unit of which the frame stands for the whole.
           if (c.entry === item.entry || !(c.reason === COVERED_BY_LATER_REASON || (plannedUnit.memberEntries.includes(c.entry) && c.classification !== 'decoration' && c.classification !== 'mask'))) return false;
@@ -351,6 +385,11 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
         });
         if (shown) item = { ...item, classification: 'decoration' };
       }
+      if (item.extractSource === 'region-render' && isOffered(item.classification) && item.holdsText !== true) offeredRenders.push({ item, box: plannedUnit.bbox });
+      if (item.extractSource === 'region-render' && item.holdsText === true) textRenders.push({ item, box: plannedUnit.bbox });
+      const repIndex = plannedUnit.representativeEntry?.occurrences.find((o) => o.page === pageNumber)?.index;
+      if (repIndex !== undefined && plannedUnit.reason === LINE_DRAWING_REASON && item.extractSource === 'region-render') drawingRenders.push({ box: plannedUnit.bbox, index: repIndex });
+      else if (repIndex !== undefined && isOffered(item.classification) && item.holdsText !== true) offeredItems.push({ item, box: plannedUnit.bbox, index: repIndex });
       if (item.extractSource === 'region-render' && isOffered(item.classification) && item.holdsText !== true) renderedBoxesByPage.set(pageNumber, [...(renderedBoxesByPage.get(pageNumber) ?? []), { box: plannedUnit.bbox, members: plannedUnit.memberEntries.map((m) => m.occurrences.find((o) => o.page === pageNumber)?.bbox).filter((b): b is Rect => b !== undefined) }]);
       if (plannedUnit.reason === EDGE_FIGURE_REASON && !edgeRightHalf && (item.extractSource === 'region-render' || (pageState.edgeFigureStdDev ?? 0) < EDGE_FIGURE_MIN_STDDEV)) {
         tally.done++;
@@ -388,13 +427,20 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
       }
       if (halfImage !== null && offered && isLeftHalf(plannedUnit)) {
         if (tally.pendingLeftHalf !== null && !tally.pendingLeftHalf.companion) prepared.push(tally.pendingLeftHalf.item);
-        tally.pendingLeftHalf = { item, image: halfImage, page: plannedUnit.page, isPanel: isPanelHalf, box: plannedUnit.bbox, companion: plannedUnit.reason === SPREAD_COMPANION_REASON, raw: isPanelHalf ? null : await rawRasterOf(plannedUnit) };
-      } else if (tally.pendingLeftHalf !== null && isRightHalf(plannedUnit)) {
+        // A left half of pieces (a companion that stands for them) is joined from their own pixels, as a right one is, not from a render of its box.
+        const leftImage = plannedUnit.reason === SPREAD_COMPANION_REASON && plannedUnit.memberEntries.length > 1 ? ((await compositeOfPieces(plannedUnit)) ?? halfImage) : halfImage;
+        tally.pendingLeftHalf = { item, image: leftImage, page: plannedUnit.page, isPanel: isPanelHalf, box: plannedUnit.bbox, companion: plannedUnit.reason === SPREAD_COMPANION_REASON, raw: isPanelHalf ? null : await rawRasterOf(plannedUnit) };
+      } else if (tally.pendingLeftHalf !== null && isRightHalf(plannedUnit) && (halfImage !== null || plannedUnit.reason === SPREAD_COMPANION_REASON)) {
+        // (A right half with no picture of its own, a paper or a panel with no drawing found on it laid over the page, leaves the left half waiting for its own.)
         // Two halves cut with a margin overlap on the page: the right one shows again the columns the left one ends with.
         const overlapPt = tally.pendingLeftHalf.page === plannedUnit.page ? tally.pendingLeftHalf.box.maxX - plannedUnit.bbox.minX : 0;
         // A right half that the page writes over (the labels and a paragraph laid on a map) is joined by its own pixels, when they go on from
         // a left half that is a picture; a left half that is a box of text (a page of documents beside a picture) is a page of its own.
-        const ownRight = plannedUnit.reason === SPREAD_COMPANION_REASON && plannedUnit.memberEntries.length > 1 ? await compositeOfPieces(plannedUnit) : item.holdsText === true && !isPanelHalf ? (ownImageByItem.get(item) ?? null) : halfImage;
+        // A right half rendered with the page's text over it (a map's labels, a legend: this share of its box at least) beside a left half taken
+        // from its own pixels: its own pixels too, so that the two go on into each other (the map without its labels, as the left half is).
+        const rightRenderedBesideRaw =
+          !isPanelHalf && item.holdsText !== true && item.extractSource === 'region-render' && tally.pendingLeftHalf.item.extractSource !== 'region-render' && !tally.pendingLeftHalf.isPanel && tally.pendingLeftHalf.page + 1 === plannedUnit.page && textCoverage(plannedUnit.bbox, textBlockBoxesByPage.get(plannedUnit.page)) >= RIGHT_RENDER_MIN_TEXT_COVERAGE;
+        const ownRight = plannedUnit.reason === SPREAD_COMPANION_REASON && plannedUnit.memberEntries.length > 1 ? await compositeOfPieces(plannedUnit) : item.holdsText === true && !isPanelHalf ? (ownImageByItem.get(item) ?? null) : rightRenderedBesideRaw ? ((await rawRasterOf(plannedUnit)) ?? halfImage) : halfImage;
         const rightHalf = ownRight !== null && overlapPt > 0 && plannedUnit.bbox.maxX > plannedUnit.bbox.minX ? dropLeftColumns(ownRight, (overlapPt * ownRight.width) / (plannedUnit.bbox.maxX - plannedUnit.bbox.minX)) : ownRight;
         const eitherHoldsText = tally.pendingLeftHalf.item.holdsText === true;
         // Two rasters of one height in pixels, placed at one height on the facing pages, were cut from one raster: where the drawing is thin
@@ -416,10 +462,72 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
           Math.abs(tally.pendingLeftHalf.box.maxY - plannedUnit.bbox.maxY) <= 1;
         // Cut from one raster, the two are joined from their whole rasters: what was offered of each may be cropped to its visible part.
         const rightRaw = cutFromOne && tally.pendingLeftHalf.raw ? await rawRasterOf(plannedUnit) : null;
-        const [joinLeft, joinRight] = rightRaw && tally.pendingLeftHalf.raw && rightRaw.height === tally.pendingLeftHalf.raw.height ? [tally.pendingLeftHalf.raw, rightRaw] : [tally.pendingLeftHalf.image, rightHalf];
+        // A left half rendered with the page's text over it (a map with its labels): the right half as the page shows it, over the left half's box
+        // mirrored, and neither with what its render shows past the page's edge at the gutter (white beyond the page).
+        const leftPending = tally.pendingLeftHalf;
+        const leftPageBox = pageBoxByPage.get(leftPending.page);
+        const rightPageBox = pageBoxByPage.get(plannedUnit.page);
+        const leftRenderedWithText = leftPending.item.extractSource === 'region-render' && !leftPending.isPanel && !isPanelHalf && leftPending.page + 1 === plannedUnit.page && isLabelledPicture(leftPending.box, textBlockBoxesByPage.get(leftPending.page));
+        let mirror: { left: DecodedImage; right: DecodedImage; box: Rect } | null = null;
+        if (leftRenderedWithText && leftPageBox !== undefined && rightPageBox !== undefined) {
+          const leftShown = { ...leftPending.box, minX: Math.max(leftPending.box.minX, leftPageBox.minX), maxX: Math.min(leftPending.box.maxX, leftPageBox.maxX) };
+          const box: Rect = { minX: rightPageBox.minX, maxX: Math.min(rightPageBox.maxX, rightPageBox.minX + (leftShown.maxX - leftShown.minX)), minY: Math.max(rightPageBox.minY, leftShown.minY), maxY: Math.min(rightPageBox.maxY, leftShown.maxY) };
+          const boxWidth = leftPending.box.maxX - leftPending.box.minX;
+          const past = leftPending.box.maxX - leftPageBox.maxX;
+          const left = past > 0 && boxWidth > 0 ? dropRightColumns(leftPending.image, Math.ceil((past * leftPending.image.width) / boxWidth)) : leftPending.image;
+          if (box.maxX > box.minX && box.maxY > box.minY) {
+            const right = await renderer.renderRegion(page, box, { targetLongEdgePx: Math.max(left.width, left.height), signal });
+            mirror = { left, right, box };
+          }
+        }
+        const [joinLeftWhole, joinRightWhole] = mirror !== null ? [mirror.left, mirror.right] : rightRaw && tally.pendingLeftHalf.raw && rightRaw.height === tally.pendingLeftHalf.raw.height ? [tally.pendingLeftHalf.raw, rightRaw] : [tally.pendingLeftHalf.image, rightHalf];
         // A transparent half (the empty margin of a masked picture beside a picture of the facing one) adds nothing to the picture: it is not joined.
         const drawn = (image: DecodedImage): boolean => visibleShareOf(image) >= SPREAD_HALF_MIN_VISIBLE_SHARE;
-        if (joinRight !== null && !eitherHoldsText && tally.pendingLeftHalf.isPanel === isPanelHalf && (isPanelHalf || (drawn(joinLeft) && drawn(joinRight) && halvesContinueAcrossSeam(joinLeft, joinRight, { blankSeamJoins: tally.pendingLeftHalf.page === plannedUnit.page || cutFromOne })))) {
+        const seamOptions = { blankSeamJoins: tally.pendingLeftHalf.page === plannedUnit.page || cutFromOne };
+        const wholeContinue = joinRightWhole !== null && drawn(joinLeftWhole) && drawn(joinRightWhole) && halvesContinueAcrossSeam(joinLeftWhole, joinRightWhole, seamOptions);
+        // Halves on facing pages taken from their own pixels, each running a little past the gutter (into the other page, which does not show it),
+        // are compared a few columns apart at their edges, and a drawing that goes on across the gutter seems to jump there. When they do not go
+        // on into each other so, what lies past each page's edge is cut off and they are compared, and joined, where the pages meet: then only
+        // when the drawing changes across the gutter no more than it does within each half (two pictures that meet there jump more).
+        const pastGutter = (image: DecodedImage, box: Rect, columnsPt: number): number => {
+          const boxWidth = box.maxX - box.minX;
+          const boxHeight = box.maxY - box.minY;
+          if (columnsPt <= 0 || boxWidth <= 0 || boxHeight <= 0 || Math.abs(image.width / image.height - boxWidth / boxHeight) > GUTTER_TRIM_MAX_ASPECT_DIFFERENCE * (boxWidth / boxHeight)) return 0;
+          const columns = Math.round((columnsPt * image.width) / boxWidth);
+          return columns < image.width / 2 ? columns : 0;
+        };
+        const ownPixels =
+          !wholeContinue &&
+          joinRightWhole !== null &&
+          mirror === null &&
+          leftPending.page + 1 === plannedUnit.page &&
+          leftPageBox !== undefined &&
+          rightPageBox !== undefined &&
+          (leftPending.item.extractSource !== 'region-render' || leftPending.companion === true) &&
+          (item.extractSource !== 'region-render' || plannedUnit.reason === SPREAD_COMPANION_REASON);
+        const leftPast = ownPixels ? pastGutter(joinLeftWhole, leftPending.box, Math.min(leftPending.box.maxX - leftPageBox.maxX, GUTTER_TRIM_MAX_PT)) : 0;
+        const rightPast = ownPixels ? pastGutter(joinRightWhole, plannedUnit.bbox, Math.min(rightPageBox.minX - plannedUnit.bbox.minX, GUTTER_TRIM_MAX_PT)) : 0;
+        const trimmedLeft = leftPast > 0 ? dropRightColumns(joinLeftWhole, leftPast) : joinLeftWhole;
+        const trimmedRight = joinRightWhole !== null && rightPast > 0 ? dropLeftColumns(joinRightWhole, rightPast) : joinRightWhole;
+        const trimmedContinue = leftPast + rightPast > 0 && trimmedRight !== null && drawn(trimmedLeft) && drawn(trimmedRight) && halvesContinueAcrossSeam(trimmedLeft, trimmedRight, { ...seamOptions, maxJumpFactor: GUTTER_TRIM_MAX_JUMP_FACTOR, jumpAllowance: 0 });
+        const [joinLeft, joinRight] = trimmedContinue ? [trimmedLeft, trimmedRight] : [joinLeftWhole, joinRightWhole];
+        // A picture page facing a page of text on one continuous ground: two pages, not one picture (see `isTextPageBesidePicture`).
+        const facingPages = !isPanelHalf && !leftPending.isPanel && leftPending.page + 1 === plannedUnit.page && joinRight !== null;
+        const leftTextCoverage = facingPages ? textCoverage(leftPending.box, textBlockBoxesByPage.get(leftPending.page)) : 0;
+        const rightTextCoverage = facingPages ? textCoverage(plannedUnit.bbox, textBlockBoxesByPage.get(plannedUnit.page)) : 0;
+        // Only when the picture page is offered by itself: a half that is listed only through its other half (a hidden strip, a companion)
+        // would be lost with the join.
+        const listedAlone = (half: { classification: ImageClassification }, companion: boolean): boolean => !companion && (half.classification === 'content' || half.classification === 'undecided') && !isNeverWorthReviewing(half as never);
+        const rightIsTextPage = facingPages && joinRight !== null && listedAlone(leftPending.item, leftPending.companion === true) && isTextPageBesidePicture(rightTextCoverage, leftTextCoverage, joinRight);
+        // Only this way round. The mirror case (text on the left page, the picture on the right) was measured too: all four such spreads
+        // of the labelled books were wanted joined, and in two of them the right half is not listed by itself, so splitting lost the picture.
+        const leftIsTextPage = false as boolean;
+        if (rightIsTextPage || leftIsTextPage) {
+          // The picture page is listed as it was; the page of text is that page's ground under its text, not a picture.
+          const asGround = <T extends { classification: ImageClassification }>(half: T): T => ({ ...half, classification: 'decoration' });
+          if (!leftPending.companion) prepared.push(leftIsTextPage ? asGround(leftPending.item) : leftPending.item);
+          if (plannedUnit.reason !== SPREAD_COMPANION_REASON) prepared.push(rightIsTextPage ? asGround(item) : item);
+        } else if (joinRight !== null && !eitherHoldsText && tally.pendingLeftHalf.isPanel === isPanelHalf && (isPanelHalf || wholeContinue || trimmedContinue)) {
           const joined = stitchHorizontally(joinLeft, joinRight);
           const joinedPayload = await encoder.encode(joined, { format: opts.outputFormat, quality: opts.outputQuality });
           // The picture is offered as the half that was: a left half that was hidden (a strip at the gutter, a stain at the page's edge) takes
@@ -428,7 +536,12 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
           const isOffered = (c: string): boolean => c === 'content' || c === 'undecided';
           const larger = joinLeft.width * joinLeft.height >= joinRight.width * joinRight.height ? tally.pendingLeftHalf.item : item;
           const judged = !isOffered(tally.pendingLeftHalf.item.classification) && isOffered(item.classification) && !isNeverWorthReviewing(item) ? { classification: item.classification, confidence: item.confidence } : { classification: tally.pendingLeftHalf.item.classification, confidence: tally.pendingLeftHalf.item.confidence };
-          prepared.push({ ...larger, entry: tally.pendingLeftHalf.item.entry, extractSource: tally.pendingLeftHalf.item.extractSource, ...judged, width: joined.width, height: joined.height, contentHash: await computeContentHash(joined), suggestedGrid: detectGrid(joined) ?? undefined, payload: joinedPayload });
+          const joinedItem = { ...larger, entry: tally.pendingLeftHalf.item.entry, extractSource: tally.pendingLeftHalf.item.extractSource, ...judged, width: joined.width, height: joined.height, contentHash: await computeContentHash(joined), suggestedGrid: detectGrid(joined) ?? undefined, payload: joinedPayload };
+          prepared.push(joinedItem);
+          if (mirror !== null) {
+            mirroredBox = mirror.box;
+            mirroredItem = joinedItem;
+          }
           // The right half as the page shows it, with its text, stays among the images with text.
           if (item.holdsText === true) prepared.push(item);
         } else {
@@ -451,6 +564,80 @@ async function extractUnitsOfPage(scope: PageScope, state: Awaited<ReturnType<ty
     }
     tally.done++;
     onProgress?.(tally.done, tally.total);
+  }
+  // Pieces of a picture joined from a right half rendered over the mirrored box: the joined picture shows them (see `SPREAD_MIRROR_PIECE_MIN_INSIDE_SHARE`).
+  const pageBoxHere = pageBoxByPage.get(pageNumber);
+  if (mirroredBox !== null && pageBoxHere !== undefined) {
+    for (const { item, box } of offeredRenders) {
+      const shown = rectIntersection(box, pageBoxHere);
+      if (item === mirroredItem || item.holdsText === true || shown === null || rectArea(shown) <= 0) continue;
+      const inside = rectIntersection(shown, mirroredBox);
+      const share = inside === null ? 0 : rectArea(inside) / rectArea(shown);
+      if (share >= SPREAD_MIRROR_PIECE_MIN_INSIDE_SHARE && share < SPREAD_MIRROR_PIECE_MAX_INSIDE_SHARE) item.classification = 'decoration';
+    }
+  }
+  hideTextRendersWithinRenders([...offeredRenders, ...textRenders]);
+  if (pageBoxHere !== undefined) hidePicturesUnderDrawings(offeredItems, drawingRenders, pageBoxHere);
+}
+
+/**
+ * A picture offered on the page that lies under a line drawing rendered there (a layer of a map that the map drawn on the page is painted over,
+ * a map of the same land placed half off the page under it), for this share at least of its part on the page, and painted before the drawing's
+ * raster: the drawing's render shows what of it is seen, so it is hidden rather than offered once more.
+ */
+export const UNDER_DRAWING_MIN_SHARE = 0.75;
+
+export function hidePicturesUnderDrawings(items: readonly { item: Pick<PreparedEntryForFinalize<EncodedImage>, 'classification'>; box: Rect; index: number }[], drawings: readonly { box: Rect; index: number }[], pageBox: Rect): void {
+  for (const { item, box, index } of items) {
+    const shown = rectIntersection(box, pageBox);
+    if (shown === null || rectArea(shown) <= 0) continue;
+    const under = drawings.some((d) => {
+      const shared = rectIntersection(shown, d.box);
+      return d.index > index && shared !== null && rectArea(shared) >= UNDER_DRAWING_MIN_SHARE * rectArea(shown);
+    });
+    if (under) item.classification = 'decoration';
+  }
+}
+
+/**
+ * A render that holds text (a card or panel of text: marked so by its look, see `finalize`, or found so already) lying within another render
+ * offered on the page, larger, or on about the same footprint (a map's inner layer, or the paper laid over it, rendered with the page's labels,
+ * within or over the map on its card): the other render shows it already, with its text, so it is hidden rather than offered, or offered on
+ * request, as well. A render that holds no text lying within another (an inset map in its frame) stays offered. Of two renders offered of about
+ * the same region (each covering this share of the other at least), the first stays.
+ */
+export const TEXT_RENDER_SAME_PICTURE_MIN_SHARE = 0.8;
+
+export function hideTextRendersWithinRenders(renders: readonly { item: Pick<PreparedEntryForFinalize<EncodedImage>, 'classification' | 'holdsText' | 'textFillsBox' | 'textOnPaperCard' | 'textPanelCandidate' | 'textPanelLook'>; box: Rect }[]): void {
+  const isOffered = (c: string): boolean => c === 'content' || c === 'undecided';
+  const covering = renders.filter(({ item }) => isOffered(item.classification) && item.holdsText !== true);
+  for (const { item, box } of renders) {
+    const found = item.holdsText === true;
+    const marked = isOffered(item.classification) && (item.textFillsBox === true || item.textOnPaperCard === true || item.textPanelCandidate === true || item.textPanelLook?.textOnCenter === true);
+    if ((!found && !marked) || rectArea(box) <= 0) continue;
+    const shown = covering.some((r) => {
+      if (r.item === item) return false;
+      const shared = rectIntersection(box, r.box);
+      if (shared === null) return false;
+      const within = rectArea(r.box) > rectArea(box) && rectArea(shared) >= RENDERED_PIECE_MIN_INSIDE_SHARE * rectArea(box);
+      const sameFootprint = rectArea(shared) >= RENDERED_PIECE_MIN_INSIDE_SHARE * rectArea(r.box) && rectArea(shared) >= TEXT_RENDER_SAME_PICTURE_MIN_SHARE * rectArea(box);
+      return within || sameFootprint;
+    });
+    if (!shown) continue;
+    item.classification = 'decoration';
+    item.holdsText = undefined;
+  }
+  // Two renders of about the same region of the page (a map and the paper laid over it, each the representative of a unit of its own) show the
+  // same thing: the first one offered stays, the others are hidden.
+  const kept: Rect[] = [];
+  for (const { item, box } of renders) {
+    if (!isOffered(item.classification) || item.holdsText === true) continue;
+    const same = kept.some((k) => {
+      const shared = rectIntersection(box, k);
+      return shared !== null && rectArea(shared) >= TEXT_RENDER_SAME_PICTURE_MIN_SHARE * rectArea(box) && rectArea(shared) >= TEXT_RENDER_SAME_PICTURE_MIN_SHARE * rectArea(k);
+    });
+    if (same) item.classification = 'decoration';
+    else kept.push(box);
   }
 }
 

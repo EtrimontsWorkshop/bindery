@@ -70,7 +70,8 @@ const TOO_SMALL_UNDECIDED_CONFIDENCE = 0.4;
  * number — `finalize.ts` doesn't hold a raw `DecodedImage` (see the comment
  * about the memory budget).
  */
-const FLAT_TEXTURE_STDDEV_THRESHOLD = 20;
+// Lowered from 20: a map of a land in muted colours (terrain under a wash of tan) measured 19.8, still far above the textures.
+const FLAT_TEXTURE_STDDEV_THRESHOLD = 16;
 
 /**
  * The "flat texture" reclassification below
@@ -225,6 +226,19 @@ const PAPER_SHEET_MAX_GRADIENT = 4.2;
  * a real rulebook: the 14 black strips along the page edges have 46%-75% visible pixels, all of them black; the
  * cut-out pictures of five books are never black at 98% of their visible pixels.
  */
+/**
+ * NIGHT SCENES — a picture over the whole page, painted almost black (a town at night, a figure against the dark): as smooth as
+ * a sheet of paper, mostly dark pixels, and of a spread below that of the dark pictures above, yet a picture. Measured on a real
+ * rulebook: the 13 such pages have a mean luminance of 7-59 and a luminance spread of 7.2-29 over a page that is one colour at 18%-82%;
+ * the black backgrounds of the same book, flat black (spread 0.5-0.9, one colour at 97%-98%). Such a page is none of a smooth
+ * background, a smooth sheet or a black shape. Not so a dark page background of the same tones whose middle is even (see
+ * `computeCentreDetail`): the night scenes measure 5.9-23 in their middle; the dark vignettes, a starry sky and a frame of tentacles
+ * round a blank middle of four other books, 1.0-3.1; a grey mist laid under a page's text is light (a mean of 94).
+ */
+export const NIGHT_SCENE_MIN_AREA = 0.9;
+const NIGHT_SCENE_MAX_MEAN_LUMINANCE = 75;
+const NIGHT_SCENE_MIN_CENTRE_DETAIL = 4.5;
+const NIGHT_SCENE_MIN_STDDEV = 5;
 const BLACK_SHAPE_MIN_OPAQUE_FRACTION = 0.3;
 const BLACK_SHAPE_MIN_DARK_SHARE = 0.98;
 /** A pixel whose every channel is at or below this counts as black in `computeDarkOpaqueShare`. */
@@ -347,6 +361,37 @@ export function computeWhiteOpaqueShare(image: DecodedImage): number {
 }
 
 /** The share (0-1) of the visible pixels (alpha above 16) that are black — see `BLACK_SHAPE_MIN_DARK_SHARE`. 0 when nothing is visible. */
+/** The middle half of a picture is cut into this many blocks along its long edge... */
+const CENTRE_DETAIL_BLOCKS = 40;
+/**
+ * How much the middle half of a picture shows: the luminance spread of the means of its blocks (a fortieth of the long edge each).
+ * A subject (a street, a figure, a building against the night) changes from block to block; an even ground with its tones at the
+ * edges (a dark vignette, a frame round a blank middle) or a fine spray over an even ground (stars) does not.
+ */
+export function computeCentreDetail(image: DecodedImage): number {
+  const { width, height, rgba } = image;
+  const block = Math.max(1, Math.floor(Math.max(width, height) / CENTRE_DETAIL_BLOCKS));
+  const sample = Math.max(1, Math.floor(block / 8));
+  const means: number[] = [];
+  for (let by = Math.floor(height / 4); by + block <= Math.ceil((3 * height) / 4); by += block) {
+    for (let bx = Math.floor(width / 4); bx + block <= Math.ceil((3 * width) / 4); bx += block) {
+      let sum = 0;
+      let n = 0;
+      for (let y = by; y < by + block; y += sample) {
+        for (let x = bx; x < bx + block; x += sample) {
+          const i = (y * width + x) * 4;
+          sum += 0.3 * rgba[i]! + 0.59 * rgba[i + 1]! + 0.11 * rgba[i + 2]!;
+          n++;
+        }
+      }
+      means.push(sum / n);
+    }
+  }
+  if (means.length === 0) return 0;
+  const mean = means.reduce((a, v) => a + v, 0) / means.length;
+  return Math.sqrt(means.reduce((a, v) => a + (v - mean) * (v - mean), 0) / means.length);
+}
+
 export function computeDarkOpaqueShare(image: DecodedImage): number {
   let visible = 0;
   let dark = 0;
@@ -599,6 +644,8 @@ export interface PreparedEntryForFinalize<TPayload> {
   whiteOpaqueShare?: number;
   /** See `computeDarkOpaqueShare`. Optional — no value skips the "black shape" rule. */
   darkOpaqueShare?: number;
+  /** See `computeCentreDetail`. Measured only for a picture over the whole page; no value: not a night scene. */
+  centreDetail?: number;
   /** See `computeVisibleMeanLuminance`. Optional — no value skips the "light paper sheet" rule. */
   meanLuminance?: number;
   /** See `computeVisibleLuminanceStdDev`. Optional — no value skips the "light paper sheet" rule. */
@@ -715,22 +762,25 @@ export function pagesOfDrawnObjects(pictures: readonly Pick<PreparedEntryForFina
  * can see, before it is done with a unit, that the picture it took would be hidden.
  */
 export function isNeverWorthReviewing(
-  d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare' | 'whiteOpaqueShare'>,
+  d: Pick<PreparedEntryForFinalize<unknown>, 'classification' | 'entry' | 'width' | 'height' | 'uniformColorFraction' | 'smoothness' | 'opaqueFraction' | 'visibleLuminanceStdDev' | 'meanLuminance' | 'darkOpaqueShare' | 'whiteOpaqueShare' | 'centreDetail'>,
   /** On a page of drawn objects (see `DRAWN_OBJECT_RACK_MIN_COUNT`): the contrast from which a picture is a drawn object, which is lower there. */
   rackMinStdDev?: number,
 ): boolean {
   if (d.classification !== 'content' && d.classification !== 'undecided') return false;
   const isUniformColor = d.uniformColorFraction !== undefined && d.uniformColorFraction >= UNIFORM_COLOR_MIN_FRACTION;
+  const isNightScene = d.entry.maxRelativeArea >= NIGHT_SCENE_MIN_AREA && d.meanLuminance !== undefined && d.meanLuminance < NIGHT_SCENE_MAX_MEAN_LUMINANCE && d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= NIGHT_SCENE_MIN_STDDEV && d.centreDetail !== undefined && d.centreDetail >= NIGHT_SCENE_MIN_CENTRE_DETAIL;
   const shortEdge = Math.min(d.width, d.height);
   const isDrawnObject = d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= (rackMinStdDev ?? DRAWN_OBJECT_MIN_STDDEV) && d.opaqueFraction !== undefined && d.opaqueFraction < DRAWN_OBJECT_MAX_OPAQUE_FRACTION;
   const isLongAndNarrow = !isDrawnObject && shortEdge > 0 && Math.max(d.width, d.height) / shortEdge >= EXTREME_ASPECT_RATIO_DECORATION_THRESHOLD;
   const isSmoothBackground =
+    !isNightScene &&
     d.smoothness !== undefined &&
     d.smoothness.coarseGradient < SMOOTH_BACKGROUND_COARSE_MAX &&
     d.smoothness.fineGradient < SMOOTH_BACKGROUND_FINE_MAX &&
     (d.visibleLuminanceStdDev === undefined || d.visibleLuminanceStdDev < SMOOTH_BACKGROUND_MAX_STDDEV) &&
     !(d.meanLuminance !== undefined && d.meanLuminance < SMOOTH_BACKGROUND_DARK_MEAN_MAX && d.visibleLuminanceStdDev !== undefined && d.visibleLuminanceStdDev >= SMOOTH_BACKGROUND_DARK_PICTURE_MIN_STDDEV);
   const isLargeSmoothSheet =
+    !isNightScene &&
     d.classification === 'undecided' &&
     d.entry.maxRelativeArea >= LARGE_SMOOTH_MIN_AREA &&
     d.smoothness !== undefined &&
@@ -752,6 +802,7 @@ export function isNeverWorthReviewing(
     d.smoothness.fineGradient < PAPER_SHEET_MAX_GRADIENT;
   const isNearlyEmpty = d.opaqueFraction !== undefined && d.opaqueFraction < NEARLY_EMPTY_MAX_OPAQUE_FRACTION;
   const isBlackShape =
+    !isNightScene &&
     d.opaqueFraction !== undefined &&
     d.opaqueFraction >= BLACK_SHAPE_MIN_OPAQUE_FRACTION &&
     d.darkOpaqueShare !== undefined &&

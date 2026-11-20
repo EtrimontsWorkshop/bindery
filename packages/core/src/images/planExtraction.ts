@@ -10,6 +10,16 @@ import { computeMaskedObjIds } from './strategy.js';
 import type { BuildImageExtractionOptions, ExtractionUnit, InventoryForImages } from './extractionTypes.js';
 import { findCardUnits, findVectorFigureUnits, findVectorOnlyUnits, groupIntoUnits } from './extractionUnits.js';
 import { DEFAULT_MAX_LONG_EDGE_PX, DEFAULT_OBJECT_SETTLE_TIMEOUT_MS, DEFAULT_TARGET_LONG_EDGE_PX, EDGE_DOCUMENT_REASON, EDGE_FIGURE_MAX_OVERHANG_PT, EDGE_FIGURE_REASON, SPREAD_HALF_MIN_AREA } from './extractionLooks.js';
+
+/** How far (pt) the sides of a vector fill may lie from those of a left half for the fill to be the ground the half is laid over, twice that at its top and bottom (see `planExtraction`). */
+const SPREAD_VECTOR_GROUND_EDGE_PT = 2;
+/** How much taller than the half that ground may be (on one book: a map's ground 10% taller than the layer of circles and labels over it). */
+const SPREAD_VECTOR_GROUND_MAX_HEIGHT_GAIN = 0.25;
+/** A piece offered by itself runs to the page's edge (the gutter) when it stops this many points short of it at most. */
+const SPREAD_PIECE_EDGE_PT = 4;
+/** Pieces laid one over another share their sides within this many points, and meet: a gap or an overlap of this much at most, an overlap up to the next. */
+const SPREAD_PIECE_SIDE_PT = 2;
+const SPREAD_PIECE_MAX_OVERLAP_PT = 6;
 import { ASLANT_HALF_MIN_PAST_EDGE_PT, ASLANT_HALF_MIN_SHARED_HEIGHT, FORM_PAGE_ELEMENT_REASON, PIECED_PICTURE_REASON, PIECE_MIN_HEIGHT_OVERLAP, PIECE_MIN_WIDTH_GAIN, SPREAD_COMPANION_MIN_AREA, SPREAD_COMPANION_REASON, TINY_UNDECIDED_REASON, joinMosaicTiles, splitUnitsOfDistinctPictures, withLineDrawings } from './extractionJoins.js';
 
 /**
@@ -66,7 +76,7 @@ export function planExtraction(inventory: InventoryForImages, opts: BuildImageEx
 
   const candidates = classified.filter((c) => c.classification === 'content' || c.classification === 'undecided');
   const classifiedByEntry = new Map(classified.map((c) => [c.entry, c]));
-  const imageUnits = withLineDrawings(joinMosaicTiles(splitUnitsOfDistinctPictures(groupIntoUnits(candidates, pageBoxByPage, maskedObjIds, diagnostics), classifiedByEntry, maskedObjIds, textBlockBoxesByPage), classified.filter((c) => c.classification === 'content' || c.classification === 'undecided' || c.reason === FORM_PAGE_ELEMENT_REASON || c.reason === TINY_UNDECIDED_REASON), pageBoxByPage, textBlockBoxesByPage), inventory.lines ?? [], pageBoxByPage, opts.wordBoxesByPage);
+  const imageUnits = withLineDrawings(joinMosaicTiles(splitUnitsOfDistinctPictures(groupIntoUnits(candidates, pageBoxByPage, maskedObjIds, diagnostics), classifiedByEntry, maskedObjIds, textBlockBoxesByPage), classified.filter((c) => c.classification === 'content' || c.classification === 'undecided' || c.reason === FORM_PAGE_ELEMENT_REASON || c.reason === TINY_UNDECIDED_REASON), pageBoxByPage, textBlockBoxesByPage), inventory.lines ?? [], pageBoxByPage, opts.wordBoxesByPage, inventory.shapes ?? []);
 
   const pagesWithAnyImage = new Set<number>();
   for (const entry of inventory.images) for (const occ of entry.occurrences) pagesWithAnyImage.add(occ.page);
@@ -184,6 +194,26 @@ export function planExtraction(inventory: InventoryForImages, opts: BuildImageEx
   );
   const spreadRightOf = findSpreadPairs(halfCandidates, pageBoxByPage, (u) => (u.memberEntries.length === 1 && u.representativeEntry?.intrinsicWidth != null && u.representativeEntry.intrinsicHeight != null ? { width: u.representativeEntry.intrinsicWidth, height: u.representativeEntry.intrinsicHeight } : undefined));
   const spreadRightHalves = new Set(spreadRightOf.values());
+  // A left half that is a layer over a map the page draws with vector paths (the circles and labels of a map over its painted ground): its
+  // region is the map's, the vector fill under it with the same sides, a little taller (see `SPREAD_VECTOR_GROUND_MAX_HEIGHT_GAIN`).
+  for (const left of spreadRightOf.keys()) {
+    const box = left.bbox;
+    const height = box.maxY - box.minY;
+    const ground = inventory.vectors
+      .filter((v) => v.page === left.page && v.kind === 'fill')
+      .map((v) => v.bbox)
+      .filter(
+        (b) =>
+          Math.abs(b.minX - box.minX) <= SPREAD_VECTOR_GROUND_EDGE_PT &&
+          Math.abs(b.maxX - box.maxX) <= SPREAD_VECTOR_GROUND_EDGE_PT &&
+          b.minY <= box.minY + 2 * SPREAD_VECTOR_GROUND_EDGE_PT &&
+          b.maxY >= box.maxY - 2 * SPREAD_VECTOR_GROUND_EDGE_PT &&
+          b.maxY - b.minY > height + SPREAD_VECTOR_GROUND_EDGE_PT &&
+          b.maxY - b.minY <= (1 + SPREAD_VECTOR_GROUND_MAX_HEIGHT_GAIN) * height,
+      )
+      .sort((a, b) => a.maxY - a.minY - (b.maxY - b.minY))[0];
+    if (ground !== undefined) left.bbox = { ...box, minY: Math.min(box.minY, ground.minY), maxY: Math.max(box.maxY, ground.maxY) };
+  }
   // A half that the grouping joined to a picture beside it (a strip of a map with a portrait next to it, split apart again by their pixels
   // later) is paired by the box of its own raster, and found again after the split by that raster.
   const halfKey = (u: ExtractionUnit): string | null => (u.representativeEntry?.objId == null ? null : `${u.page}:${u.representativeEntry.objId}`);
@@ -220,9 +250,41 @@ export function planExtraction(inventory: InventoryForImages, opts: BuildImageEx
     // A half stored as pieces (masked rasters at the page's edge, overlapping and blending into each other, each over part of the height,
     // hidden or looked at once more as figures at the edge): the pieces on one page that overlap one another make one companion, over their
     // joined box (see `compositeOfPieces`). A piece by itself stays what it was.
+    // So are the other pieces that run to the page's edge, offered or hidden (the top and the foot of a tree stored as two rasters at the gutter,
+    // taken for a backdrop under the text, the other half one raster as tall as both): the pair they make is joined from their own pixels,
+    // without the page's text laid over the foot.
+    const atPageEdge = (u: ExtractionUnit): boolean => {
+      const box = pageBoxByPage.get(u.page);
+      return box !== undefined && (u.bbox.maxX >= box.maxX - SPREAD_PIECE_EDGE_PT || u.bbox.minX <= box.minX + SPREAD_PIECE_EDGE_PT);
+    };
+    const edgeCandidates = allUnits.filter(
+      (u) =>
+        !pairedUnits.has(u) &&
+        u.reason !== LARGE_TRANSLUCENT_PANEL_REASON &&
+        u.reason !== EDGE_FIGURE_REASON &&
+        u.reason !== EDGE_DOCUMENT_REASON &&
+        u.representativeEntry?.maxRelativeArea !== undefined &&
+        u.representativeEntry.maxRelativeArea >= SPREAD_COMPANION_MIN_AREA &&
+        u.memberEntries.length === 1 &&
+        u.representativeEntry !== null &&
+        u.representativeEntry.objId !== null &&
+        u.representativeEntry.occurrences.find((o) => o.page === u.page)?.placement === undefined &&
+        atPageEdge(u),
+    );
+    // ...and only pieces laid one over another in one band of the page (the same sides, meeting at their edges): figures side by side whose
+    // boxes overlap are pictures of their own.
+    const stacked = (a: ExtractionUnit, b: ExtractionUnit): boolean =>
+      a !== b &&
+      a.page === b.page &&
+      Math.abs(a.bbox.minX - b.bbox.minX) <= SPREAD_PIECE_SIDE_PT &&
+      Math.abs(a.bbox.maxX - b.bbox.maxX) <= SPREAD_PIECE_SIDE_PT &&
+      Math.min(a.bbox.maxY, b.bbox.maxY) - Math.max(a.bbox.minY, b.bbox.minY) >= -SPREAD_PIECE_SIDE_PT &&
+      Math.min(a.bbox.maxY, b.bbox.maxY) - Math.max(a.bbox.minY, b.bbox.minY) <= SPREAD_PIECE_MAX_OVERLAP_PT;
+    const edgePieces = edgeCandidates.filter((u) => edgeCandidates.some((other) => stacked(u, other)));
     const pieces = [
       ...companions.map((c) => c.unit),
       ...allUnits.filter((u) => u.reason === EDGE_FIGURE_REASON && u.memberEntries.length === 1 && u.representativeEntry !== null && u.representativeEntry.objId !== null && u.representativeEntry.maxRelativeArea >= SPREAD_COMPANION_MIN_AREA),
+      ...edgePieces,
     ];
     const grouped = new Set<ExtractionUnit>();
     for (const first of pieces) {

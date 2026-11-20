@@ -49,7 +49,7 @@ function seamPixel(image: DecodedImage, row: number, firstColumn: number, column
  * seam, on both sides in the same rows, in colors that go on across it. Two unrelated pictures that merely meet at the edges of facing pages
  * (a column of figures, a pair of portraits) do not pass.
  */
-export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage, options: { blankSeamJoins?: boolean } = {}): boolean {
+export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage, options: { blankSeamJoins?: boolean; maxJumpFactor?: number; jumpAllowance?: number } = {}): boolean {
   if (left.height <= 0 || right.height <= 0 || left.width <= 0 || right.width <= 0) return false;
   const second = scaleToHeight(right, left.height);
   const columns = Math.max(1, Math.round(left.height / 500));
@@ -80,5 +80,5 @@ export function halvesContinueAcrossSeam(left: DecodedImage, right: DecodedImage
   // next to nothing to compare at the seam; pieces that are made to meet side by side on a page are the same picture then.
   if (options.blankSeamJoins === true && inkRows <= SEAM_BLANK_MAX_INK_ROW_SHARE * left.height) return true;
   if (inkRows < SEAM_MIN_INK_ROW_SHARE * left.height || bothRows < SEAM_MIN_BOTH_INK_SHARE * inkRows) return false;
-  return jump / bothRows <= SEAM_MAX_JUMP_FACTOR * (inner / bothRows) + SEAM_JUMP_ALLOWANCE;
+  return jump / bothRows <= (options.maxJumpFactor ?? SEAM_MAX_JUMP_FACTOR) * (inner / bothRows) + (options.jumpAllowance ?? SEAM_JUMP_ALLOWANCE);
 }
