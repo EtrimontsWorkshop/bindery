@@ -3,6 +3,11 @@ import type { DecodedImage } from '../../src/images/normalizeDecodedImage.js';
 import { rotateQuarterTurns } from '../../src/images/rotateQuarterTurns.js';
 import { sidewaysLettering, standUpLettering } from '../../src/images/sidewaysText.js';
 
+/** Whether two rasters hold the same bytes (compared at once: a deep equality over a million values is slow). */
+function sameRgba(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
+  return Buffer.from(a.buffer, a.byteOffset, a.byteLength).equals(Buffer.from(b.buffer, b.byteOffset, b.byteLength));
+}
+
 const WIDTH = 600;
 const HEIGHT = 400;
 
@@ -66,7 +71,7 @@ describe('sidewaysLettering', () => {
     expect(result.turns).toBe(1);
     const stoodUp = standUpLettering(lying);
     expect(stoodUp && [stoodUp.width, stoodUp.height]).toEqual([WIDTH, HEIGHT]);
-    expect(stoodUp!.rgba).toEqual(lettered().rgba);
+    expect(sameRgba(stoodUp!.rgba, lettered().rgba)).toBe(true);
   });
 
   it('tells by initial capitals which way lettering on its side reads', () => {
@@ -75,11 +80,11 @@ describe('sidewaysLettering', () => {
     // Turned counterclockwise, the lettering reads upwards: stood up clockwise.
     const readsUpwards = rotateQuarterTurns(upright, 3);
     expect(sidewaysLettering(readsUpwards).turns).toBe(1);
-    expect(standUpLettering(readsUpwards)!.rgba).toEqual(upright.rgba);
+    expect(sameRgba(standUpLettering(readsUpwards)!.rgba, upright.rgba)).toBe(true);
     // Turned clockwise, it reads downwards: stood up counterclockwise.
     const readsDownwards = rotateQuarterTurns(upright, 1);
     expect(sidewaysLettering(readsDownwards).turns).toBe(3);
-    expect(standUpLettering(readsDownwards)!.rgba).toEqual(upright.rgba);
+    expect(sameRgba(standUpLettering(readsDownwards)!.rgba, upright.rgba)).toBe(true);
   });
 
   it('takes lettering on its side without initials to read upwards, the way books turn a picture', () => {
