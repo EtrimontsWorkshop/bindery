@@ -615,7 +615,7 @@ function isSmallMaskedStrip(entry: ImageEntry, maskedObjIds: ReadonlySet<string>
 
 /**
  * Limits of the strip rules. Measured on a real rulebook: the strips of adhesive tape that hold photos to the page are
- * masked rasters 521-537 x 69-72 px (aspect 7.3-7.8, the box of a tilted one is 9%-10% of the page), a "NOFORN"
+ * masked rasters 521-537 x 69-72 px (aspect 7.3-7.8, the box of a tilted one is 9%-10% of the page), a
  * stamp laid over a table is a masked raster at 30% opacity, 469x94 px (aspect 5.0, 3.1%), the slivers of document
  * sheets at the edge of a page are 160-396 px wide at aspect 3.7-5.4 and 4%-9% of the page; the pictures worth
  * importing of the three other books are never that narrow when they are masked, translucent or cut by the page edge.
